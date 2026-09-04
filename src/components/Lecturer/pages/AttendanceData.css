@@ -1,0 +1,234 @@
+.back-to-sessions-btn,
+.back-to-dashboard-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 18px;
+    font-size: 14px;
+    font-weight: 700;
+    border-radius: 9px;
+    border: 1px solid var(--border, #dbe3ee);
+    background: var(--surface, #ffffff);
+    color: var(--text-main, #172b4d);
+    cursor: pointer;
+    margin-bottom: 20px;
+    box-shadow: 0 2px 8px var(--shadow, rgba(0, 0, 0, 0.05));
+    transition: all 0.2s ease;
+}
+
+.back-to-sessions-btn:hover,
+.back-to-dashboard-btn:hover {
+    background: var(--surface-soft, #f8fafc);
+    border-color: var(--accent, #6366f1);
+    color: var(--accent, #6366f1);
+    transform: translateX(-2px);
+}
+
+.download-excel-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 18px;
+    font-size: 0.88rem;
+    font-weight: 700;
+    color: #ffffff;
+    background: #10b981;
+    border: none;
+    border-radius: 9px;
+    cursor: pointer;
+    box-shadow: 0 4px 12px rgba(16, 185, 129, 0.25);
+    transition: transform 160ms ease, background 160ms ease;
+}
+
+.download-excel-btn:hover {
+    background: #059669;
+    transform: translateY(-1px);
+}
+
+.attendance-data-page {
+    min-height: 100vh;
+    padding: 34px clamp(18px, 4vw, 56px);
+    color: var(--text-main, #1f2937);
+    background: var(--page-bg, #f5f7fb);
+}
+
+.attendance-data-page h2 {
+    margin: 0 0 24px;
+    font-size: clamp(1.55rem, 3vw, 2.15rem);
+    letter-spacing: 0;
+    color: var(--text-main, #172b4d);
+}
+
+.attendance-table-scroll {
+    width: 100%;
+    overflow-x: auto;
+    border-radius: 14px;
+    scrollbar-color: #c4b5fd transparent;
+    scrollbar-width: thin;
+}
+
+.attendance-data-page > p {
+    width: fit-content;
+    margin: 28px auto;
+    padding: 24px 30px;
+    color: var(--text-muted, #647681);
+    background: var(--surface, #ffffff);
+    border: 1px solid var(--border, rgba(130, 140, 160, 0.16));
+    border-radius: 12px;
+}
+
+.attendance-data-page table {
+    width: 100%;
+    min-width: 800px;
+    table-layout: fixed;
+    border-collapse: separate;
+    border-spacing: 0;
+    overflow: hidden;
+    font-family: inherit;
+    background: #ffffff;
+    border: 1px solid #e5e7eb;
+    border-radius: 16px;
+    box-shadow: 0 16px 34px -24px rgba(100, 116, 139, 0.6);
+}
+
+.attendance-data-page th,
+.attendance-data-page td {
+    padding: 16px 18px;
+    text-align: left;
+    vertical-align: middle;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.attendance-data-page th:nth-child(1),
+.attendance-data-page td:nth-child(1) {
+    width: 22%;
+}
+
+.attendance-data-page th:nth-child(2),
+.attendance-data-page td:nth-child(2) {
+    width: 16%;
+}
+
+.attendance-data-page th:nth-child(3),
+.attendance-data-page td:nth-child(3),
+.attendance-data-page th:nth-child(4),
+.attendance-data-page td:nth-child(4) {
+    width: 14%;
+}
+
+.attendance-data-page th:nth-child(5),
+.attendance-data-page td:nth-child(5) {
+    width: 14%;
+}
+
+.attendance-data-page th:nth-child(6),
+.attendance-data-page td:nth-child(6) {
+    width: 24%;
+    min-width: 240px;
+}
+
+.attendance-data-page th {
+    color: #ffffff;
+    background: #1b7773;
+    font-size: 0.76rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.attendance-data-page td:last-child {
+    overflow: visible;
+    white-space: nowrap;
+}
+
+.attendance-data-page td {
+    font-size: 0.94rem;
+    border-bottom: 1px solid #eef0f4;
+}
+
+.attendance-data-page th:first-child {
+    border-top-left-radius: 15px;
+}
+
+.attendance-data-page th:last-child {
+    border-top-right-radius: 15px;
+}
+
+.attendance-data-page td button {
+    margin: 3px 6px 3px 0;
+    padding: 9px 14px;
+    color: #ffffff;
+    background: #1b7773;
+    border: 0;
+    border-radius: 6px;
+    cursor: pointer;
+    font: inherit;
+    font-size: 0.82rem;
+    font-weight: 600;
+    white-space: nowrap;
+    transition: transform 160ms ease, box-shadow 160ms ease, background 160ms ease;
+}
+
+.attendance-data-page td button:hover {
+    background: #155f5c;
+    box-shadow: 0 5px 12px rgba(27, 119, 115, 0.22);
+    transform: translateY(-1px);
+}
+
+.attendance-data-page td button.remove-session-btn {
+    background: #b44f43;
+    color: #ffffff;
+}
+
+.attendance-data-page td button.remove-session-btn:hover {
+    background: #913d35;
+    box-shadow: 0 5px 12px rgba(180, 79, 67, 0.22);
+    transform: translateY(-1px);
+}
+
+.attendance-data-page tbody tr {
+    transition: background-color 160ms ease, transform 160ms ease;
+}
+
+.attendance-data-page tbody tr:nth-child(even) {
+    background: #fbfbfd;
+}
+
+.attendance-data-page tbody tr:hover {
+    background: #f5f3ff;
+}
+
+.attendance-data-page tbody tr:last-child td {
+    border-bottom: 0;
+}
+
+.attendance-data-page tbody tr:last-child td:first-child {
+    border-bottom-left-radius: 15px;
+}
+
+.attendance-data-page tbody tr:last-child td:last-child {
+    border-bottom-right-radius: 15px;
+}
+
+@media (max-width: 768px) {
+    .attendance-data-page {
+        padding: 24px 14px;
+    }
+
+    .attendance-data-page h2 {
+        margin-bottom: 18px;
+    }
+
+    .attendance-data-page table {
+        display: block;
+        overflow-x: auto;
+    }
+
+    .attendance-data-page th,
+    .attendance-data-page td {
+        padding: 14px 16px;
+        white-space: nowrap;
+    }
+}

@@ -1,0 +1,1599 @@
+/* =========================================================
+   THEME.CSS
+   Shared theme for the entire application
+   ========================================================= */
+
+
+/* =========================================================
+   THEME VARIABLES
+   ========================================================= */
+
+:root {
+    --page-bg: #f5f7fb;
+    --surface: #ffffff;
+    --surface-soft: #f8fafc;
+
+    --text-main: #172b4d;
+    --text-muted: #64748b;
+
+    --accent: #6366f1;
+    --accent-strong: #4338ca;
+
+    --nav-bg: #17132f;
+    --nav-text: #6366f1;
+
+    --border: #dbe3ee;
+    --shadow: rgba(100, 116, 139, 0.28);
+
+    --danger: #dc2626;
+    --success: #16a34a;
+
+    --radius-sm: 9px;
+    --radius-md: 12px;
+    --radius-lg: 18px;
+
+    /* Theme Button Tokens */
+    --btn-primary-bg: linear-gradient(135deg, #6366f1, #4338ca);
+    --btn-primary-text: #ffffff;
+    --btn-primary-hover: linear-gradient(135deg, #4f46e5, #3730a3);
+    --btn-primary-shadow: 0 4px 14px rgba(99, 102, 241, 0.28);
+
+    --btn-secondary-bg: var(--surface-soft);
+    --btn-secondary-text: var(--text-main);
+    --btn-secondary-border: var(--border);
+    --btn-secondary-hover-bg: #eef2f6;
+
+    --btn-success-bg: linear-gradient(135deg, #10b981, #059669);
+    --btn-success-text: #ffffff;
+    --btn-success-hover: linear-gradient(135deg, #059669, #047857);
+    --btn-success-shadow: 0 4px 14px rgba(16, 185, 129, 0.24);
+
+    --btn-danger-bg: #fee2e2;
+    --btn-danger-text: #dc2626;
+    --btn-danger-border: #fca5a5;
+    --btn-danger-hover-bg: #fecaca;
+}
+
+
+/* =========================================================
+   LIGHT THEME
+   ========================================================= */
+
+[data-theme="light"] {
+    --page-bg: #f5f7fb;
+    --surface: #ffffff;
+    --surface-soft: #f8fafc;
+
+    --text-main: #172b4d;
+    --text-muted: #64748b;
+
+    --accent: #6366f1;
+    --accent-strong: #4338ca;
+
+    --nav-bg: linear-gradient(160deg,
+            #17132f 0%,
+            #312e81 100%);
+
+    --nav-text: var(--text-main);
+
+    --border: #dbe3ee;
+    --shadow: rgba(100, 116, 139, 0.28);
+    --sessions-dash-btn: #ffffff;
+
+    --btn-primary-bg: linear-gradient(135deg, #6366f1, #4338ca);
+    --btn-primary-text: #ffffff;
+    --btn-primary-hover: linear-gradient(135deg, #4f46e5, #3730a3);
+    --btn-primary-shadow: 0 4px 14px rgba(99, 102, 241, 0.28);
+
+    --btn-secondary-bg: #ffffff;
+    --btn-secondary-text: #1e293b;
+    --btn-secondary-border: #dbe3ee;
+    --btn-secondary-hover-bg: #f1f5f9;
+
+    --btn-success-bg: linear-gradient(135deg, #10b981, #059669);
+    --btn-success-text: #ffffff;
+    --btn-success-hover: linear-gradient(135deg, #059669, #047857);
+    --btn-success-shadow: 0 4px 14px rgba(16, 185, 129, 0.24);
+
+    --btn-danger-bg: #fee2e2;
+    --btn-danger-text: #dc2626;
+    --btn-danger-border: #fca5a5;
+    --btn-danger-hover-bg: #fecaca;
+}
+
+
+/* =========================================================
+   MIDNIGHT THEME
+   ========================================================= */
+
+[data-theme="midnight"] {
+    --page-bg: #101827;
+    --surface: #1b2a40;
+    --surface-soft: #152135;
+
+    --text-main: #f8fafc;
+    --text-main-session: black;
+    --text-muted: #b5c3d6;
+
+    --accent: #818cf8;
+    --accent-strong: #6366f1;
+
+    --nav-bg: linear-gradient(160deg,
+            #070b16 0%,
+            #172554 100%);
+
+    --nav-text: #ffffff;
+
+    --border: #34465f;
+    --shadow: rgba(0, 0, 0, 0.35);
+    --dash-text: #f8fafc;
+    --sessions-dash-btn: #1b2a40;
+
+    --btn-primary-bg: linear-gradient(135deg, #6366f1, #4f46e5);
+    --btn-primary-text: #ffffff;
+    --btn-primary-hover: linear-gradient(135deg, #818cf8, #6366f1);
+    --btn-primary-shadow: 0 4px 18px rgba(99, 102, 241, 0.45);
+
+    --btn-secondary-bg: #1b2a40;
+    --btn-secondary-text: #f1f5f9;
+    --btn-secondary-border: #34465f;
+    --btn-secondary-hover-bg: #22344e;
+
+    --btn-success-bg: linear-gradient(135deg, #10b981, #059669);
+    --btn-success-text: #ffffff;
+    --btn-success-hover: linear-gradient(135deg, #34d399, #10b981);
+    --btn-success-shadow: 0 4px 18px rgba(16, 185, 129, 0.35);
+
+    --btn-danger-bg: rgba(239, 68, 68, 0.16);
+    --btn-danger-text: #f87171;
+    --btn-danger-border: rgba(239, 68, 68, 0.35);
+    --btn-danger-hover-bg: rgba(239, 68, 68, 0.28);
+}
+
+
+/* =========================================================
+   GLOBAL
+   ========================================================= */
+
+html,
+body {
+    margin: 0;
+    padding: 0;
+
+    min-height: 100%;
+
+    color: var(--text-main);
+    background: var(--page-bg);
+
+    transition:
+        background-color 180ms ease,
+        color 180ms ease;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+button,
+input,
+select,
+textarea {
+    font: inherit;
+}
+
+
+/* =========================================================
+   COMMON PAGE BACKGROUNDS
+   ========================================================= */
+
+.app,
+.app-content,
+.dashboard-page,
+.qrpage,
+.student-form,
+.attendance-data-page,
+.settings-page,
+.login-page,
+.active-sessions-page {
+    color: var(--text-main);
+    background: var(--page-bg);
+}
+
+
+/* Midnight grid background */
+
+[data-theme="midnight"] .qrpage,
+[data-theme="midnight"] .student-form,
+[data-theme="midnight"] .login-page,
+[data-theme="midnight"] .attendance-data-page,
+[data-theme="midnight"] .dashboard-page,
+[data-theme="midnight"] .settings-page,
+[data-theme="midnight"] .active-sessions-page {
+    background-color: #101827;
+
+    background-image:
+        linear-gradient(rgba(129, 140, 248, 0.08) 1px,
+            transparent 1px),
+        linear-gradient(90deg,
+            rgba(129, 140, 248, 0.08) 1px,
+            transparent 1px);
+}
+
+[data-theme="light"] .dash-card,
+[data-theme="light"] .dash-recent-activity {
+    background: linear-gradient(180deg, #ffffff 0%, #f4f7fb 100%);
+    border-color: rgba(130, 140, 160, 0.16);
+}
+
+[data-theme="midnight"] .dash-card,
+[data-theme="midnight"] .dash-recent-activity {
+    background: #1b2a40;
+    border-color: #34465f;
+    box-shadow: 0 18px 42px -24px rgba(0, 0, 0, 0.55);
+}
+
+/* =========================================================
+   COMMON CARDS
+   ========================================================= */
+
+.card,
+.dash-card,
+.dash-recent-activity,
+.qr-builder,
+.qr-result,
+.settings-card,
+.active-sessions-panel,
+.active-session-card,
+.login-shell,
+.student-form form,
+.attendance-data-page table {
+    color: var(--text-main);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    box-shadow: 0 18px 42px -24px var(--shadow);
+}
+
+
+/* =========================================================
+   NAVBAR
+   ========================================================= */
+
+.navbar {
+    color: var(--nav-text);
+    background: var(--nav-bg);
+    border-bottom: 1px solid color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+
+/* =========================================================
+   SIDEBAR / BOTTOM NAV
+   ========================================================= */
+
+.sidebar,
+.bottom-nav {
+    color: var(--nav-text);
+    background: var(--nav-bg);
+}
+
+.logo {
+    color: #6366f1;
+}
+
+.menu li a,
+.menu-link {
+    color: var(--nav-text);
+}
+
+
+/* Active menu */
+
+[data-theme="light"] .menu li.active,
+[data-theme="light"] .menu li:hover {
+    background: linear-gradient(135deg, #8b5cf6, #6366f1);
+}
+
+[data-theme="midnight"] .menu li.active,
+[data-theme="midnight"] .menu li:hover {
+    background: linear-gradient(135deg, #6366f1, #4338ca);
+}
+
+
+/* =========================================================
+   COMMON TEXT
+   ========================================================= */
+
+.dashboard-page h1,
+.dashboard-page h2,
+.dashboard-page h3,
+.qrpage h1,
+.qrpage h2,
+.student-form h1,
+.student-form h2,
+.attendance-data-page h1,
+.attendance-data-page h2,
+.settings-page h1,
+.settings-page h2,
+.settings-page h3,
+.active-sessions-page h1,
+.active-sessions-page h2 {
+    color: var(--text-main);
+}
+
+.dashboard-page p,
+.qrpage p,
+.student-form p,
+.attendance-data-page p,
+.settings-page p,
+.active-sessions-page p {
+    color: var(--text-muted);
+}
+
+.attendance-data-page .back-to-sessions-btn,
+.attendance-data-page .back-to-dashboard-btn,
+.back-to-sessions-btn,
+.back-to-dashboard-btn {
+    background: var(--btn-secondary-bg);
+    color: var(--btn-secondary-text);
+    border: 1px solid var(--btn-secondary-border);
+    cursor: pointer;
+    border-radius: var(--radius-sm, 9px);
+    padding: 10px 16px;
+    font-weight: 600;
+    font-size: 0.88rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
+    transition: all 180ms ease;
+}
+
+.attendance-data-page .back-to-sessions-btn:hover,
+.attendance-data-page .back-to-dashboard-btn:hover,
+.back-to-sessions-btn:hover,
+.back-to-dashboard-btn:hover {
+    background: var(--btn-secondary-hover-bg);
+    border-color: var(--accent);
+    color: var(--accent);
+    transform: translateX(-2px);
+}
+
+
+/* =========================================================
+   ICONS / ACCENTS
+   ========================================================= */
+
+
+.dash-icons,
+.menu-btn,
+.recent-session-icon,
+.qrpage-kicker,
+.settings-eyebrow,
+.qr-result-heading h2,
+.attendance-data-page h2,
+.dashboard-section-kicker {
+    color: var(--accent);
+}
+
+.dash-icons,
+.recent-session-icon,
+.qr-empty-mark,
+.menu-btn,
+.icon-box {
+    background: color-mix(in srgb,
+            var(--accent) 13%,
+            var(--surface));
+}
+
+
+/* =========================================================
+   COMMON INPUTS
+   ========================================================= */
+
+.qrpage input,
+.qrpage select,
+.dashboard-page input,
+.dashboard-page select,
+.student-form input,
+.theme-option label {
+    color: var(--text-main);
+
+    background: var(--surface-soft);
+
+    border-color: var(--border);
+}
+
+.qrpage input::placeholder,
+.dashboard-page input::placeholder,
+.student-form input::placeholder {
+    color: var(--text-muted);
+}
+
+.qrpage input:focus,
+.qrpage select:focus,
+.dashboard-page input:focus,
+.dashboard-page select:focus,
+.student-form input:focus {
+    outline: none;
+
+    border-color: var(--accent);
+
+    box-shadow:
+        0 0 0 3px color-mix(in srgb,
+            var(--accent) 15%,
+            transparent);
+}
+
+
+/* =========================================================
+   COMMON BUTTONS
+   ========================================================= */
+
+.recent-start-link,
+.save-btn,
+.new-session-link {
+    color: var(--btn-primary-text);
+    background: var(--btn-primary-bg);
+    border: 0;
+    box-shadow: var(--btn-primary-shadow);
+    border-radius: var(--radius-sm, 9px);
+    cursor: pointer;
+    font-weight: 700;
+    text-decoration: none;
+    transition: all 180ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.recent-start-link:hover,
+.save-btn:hover:not(:disabled),
+.new-session-link:hover {
+    background: var(--btn-primary-hover);
+    transform: translateY(-2px);
+    box-shadow: 0 6px 18px rgba(99, 102, 241, 0.35);
+}
+
+.recent-start-link:active,
+.save-btn:active:not(:disabled),
+.new-session-link:active {
+    transform: translateY(0);
+}
+
+/* Secondary buttons */
+
+/* Secondary buttons */
+
+.reset-btn {
+    color: var(--btn-secondary-text);
+    background: var(--btn-secondary-bg);
+    border: 1px solid var(--btn-secondary-border);
+    border-radius: var(--radius-sm, 9px);
+    cursor: pointer;
+    font-weight: 600;
+    transition: all 180ms ease;
+}
+
+.reset-btn:hover {
+    background: var(--btn-secondary-hover-bg);
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+.remove-session-btn {
+    color: var(--btn-danger-text);
+    background: var(--btn-danger-bg);
+    border: 1px solid var(--btn-danger-border);
+    border-radius: var(--radius-sm, 9px);
+    cursor: pointer;
+    font-weight: 600;
+    transition: all 180ms ease;
+}
+
+.remove-session-btn:hover {
+    background: var(--btn-danger-hover-bg);
+    transform: translateY(-1px);
+}
+
+
+/* =========================================================
+   STUDENT FORM
+   ========================================================= */
+
+.student-form {
+    box-sizing: border-box;
+
+    min-height: calc(100vh - 80px);
+
+    padding: 44px 30px 120px;
+
+    color: var(--text-main);
+    background: var(--page-bg);
+}
+
+.student-form form {
+    max-width: 720px;
+
+    margin: 0 auto;
+
+    padding: clamp(24px,
+            5vw,
+            42px);
+
+    color: var(--text-main);
+
+    background: var(--surface);
+
+    border: 1px solid var(--border);
+
+    border-radius: var(--radius-lg);
+
+    box-shadow:
+        0 18px 42px -24px var(--shadow);
+}
+
+.student-form form::before {
+    display: block;
+
+    width: 52px;
+    height: 5px;
+
+    margin-bottom: 26px;
+
+    content: "";
+
+    background: var(--accent);
+
+    border-radius: 999px;
+}
+
+.student-form .form-grid {
+    display: grid;
+
+    grid-template-columns:
+        repeat(2,
+            minmax(0, 1fr));
+
+    gap: 22px;
+}
+
+.student-form .input-group {
+    min-width: 0;
+}
+
+.student-form label {
+    display: block;
+
+    margin-bottom: 9px;
+
+    color: var(--text-main);
+
+    font-size: 0.84rem;
+
+    font-weight: 750;
+}
+
+.student-form .input-icon {
+    display: flex;
+
+    align-items: center;
+
+    gap: 10px;
+
+    padding: 0 13px;
+
+    color: var(--accent);
+
+    background: var(--surface-soft);
+
+    border: 1px solid var(--border);
+
+    border-radius: 10px;
+
+    transition:
+        border-color 160ms ease,
+        box-shadow 160ms ease,
+        background 160ms ease;
+}
+
+.student-form .input-icon:focus-within {
+    background: var(--surface);
+
+    border-color: var(--accent);
+
+    box-shadow:
+        0 0 0 3px color-mix(in srgb,
+            var(--accent) 15%,
+            transparent);
+}
+
+.student-form input {
+    width: 100%;
+
+    min-width: 0;
+
+    padding: 14px 0;
+
+    color: var(--text-main);
+
+    background: transparent;
+
+    border: 0;
+
+    outline: 0;
+
+}
+
+.student-form input::placeholder {
+    color: var(--text-muted);
+}
+
+.student-form .face-scanner {
+    margin-top: 18px;
+}
+
+.student-form .input-group>.face-scanner,
+.student-form .input-group>div:has(.face-scanner) {
+    margin-top: 18px;
+}
+
+
+/* Student buttons */
+
+.student-form .button-group {
+    display: flex;
+
+    gap: 12px;
+
+    margin-top: 30px;
+}
+
+.student-form .button-group button {
+    flex: 1;
+
+    min-height: 46px;
+
+    padding: 12px 18px;
+
+    border: 0;
+
+    border-radius: var(--radius-sm);
+
+    cursor: pointer;
+
+
+    font-weight: 750;
+
+    transition:
+        transform 160ms ease,
+        box-shadow 160ms ease,
+        background 160ms ease;
+}
+
+.student-form .save-btn {
+    color: #ffffff;
+
+    background: linear-gradient(135deg,
+            var(--accent),
+            var(--accent-strong));
+}
+
+.student-form .reset-btn {
+    color: var(--text-main);
+
+    background: var(--surface-soft);
+
+    border: 1px solid var(--border);
+}
+
+.student-form .button-group button:hover {
+    transform: translateY(-1px);
+}
+
+.student-form .save-btn:hover {
+    box-shadow:
+        0 7px 18px color-mix(in srgb,
+            var(--accent) 22%,
+            transparent);
+}
+
+.student-form .reset-btn:hover {
+    background: color-mix(in srgb,
+            var(--accent) 9%,
+            var(--surface-soft));
+}
+
+.student-form .save-btn:disabled {
+    cursor: not-allowed;
+
+    opacity: 0.65;
+
+    transform: none;
+}
+
+
+/* =========================================================
+   QR GENERATOR
+   ========================================================= */
+
+.qrpage {
+    box-sizing: border-box;
+
+    min-height: calc(100vh - 80px);
+
+    padding: 44px 30px 120px;
+
+    color: var(--text-main);
+
+    background: var(--page-bg);
+}
+
+.qrpage-header h1,
+.qrpage-header h2,
+.qr-result h2 {
+    color: var(--text-main);
+}
+
+.qr-section-heading h2,
+.qr-result-heading h2 {
+    color: var(--text-main-session);
+}
+
+.qrpage-header>p,
+.qr-section-heading p,
+.qr-result-note {
+    color: var(--text-muted);
+}
+
+.qr-builder,
+.qr-result {
+    color: var(--text-main);
+
+    background: var(--surface);
+
+    border: 1px solid var(--border);
+
+    box-shadow:
+        0 18px 42px -24px var(--shadow);
+}
+
+.qr-step {
+    color: #ffffff;
+
+    background: linear-gradient(135deg,
+            var(--accent),
+            var(--accent-strong));
+}
+
+.qr-result-ready {
+    border-color: var(--accent);
+}
+
+.qr-code-frame {
+    background: #ffffff;
+
+    border: 1px solid var(--border);
+}
+
+.qr-empty-mark {
+    color: var(--accent);
+
+    background: color-mix(in srgb,
+            var(--accent) 10%,
+            var(--surface));
+
+    border: 1px solid var(--border);
+}
+
+.qr-expiry {
+    color: var(--text-muted);
+}
+
+.qr-expiry strong {
+    color: var(--accent);
+}
+
+
+/* =========================================================
+   ATTENDANCE DATA
+   ========================================================= */
+
+.attendance-data-page {
+    color: var(--text-main);
+
+    background: var(--page-bg);
+}
+
+.attendance-data-page table {
+    width: 100%;
+
+    color: var(--text-main);
+
+    background: var(--surface);
+
+    border-color: var(--border);
+}
+
+.attendance-data-page th {
+    color: var(--text-main);
+
+    background: var(--surface-soft);
+
+    border-color: var(--border);
+}
+
+.attendance-data-page td {
+    color: var(--text-main);
+
+    border-color: var(--border);
+}
+
+.attendance-data-page tbody tr {
+    background: var(--surface);
+}
+
+.attendance-data-page tbody tr:nth-child(even) {
+    background: var(--surface-soft);
+}
+
+.attendance-data-page tbody tr:hover {
+    background: color-mix(in srgb,
+            var(--accent) 8%,
+            var(--surface));
+}
+
+
+/* =========================================================
+   ACTIVE SESSIONS
+   ========================================================= */
+
+.active-sessions-page {
+    color: var(--text-main);
+
+    background: var(--page-bg);
+}
+
+.active-sessions-panel {
+    color: var(--text-main);
+
+    background: var(--surface);
+
+    border: 1px solid var(--border);
+
+    box-shadow:
+        0 18px 42px -24px var(--shadow);
+}
+
+.active-sessions-heading h2 {
+    color: var(--text-main);
+}
+
+.active-session-card {
+    color: var(--text-main);
+
+    background: var(--surface);
+
+    border: 1px solid var(--border);
+
+    box-shadow:
+        0 12px 30px var(--shadow);
+
+    transition:
+        background 160ms ease,
+        border-color 160ms ease,
+        box-shadow 160ms ease,
+        transform 160ms ease;
+}
+
+.active-session-card:hover {
+    background: color-mix(in srgb,
+            var(--accent) 5%,
+            var(--surface));
+
+    border-color: var(--accent);
+
+    transform: translateY(-2px);
+
+    box-shadow:
+        0 0 0 3px color-mix(in srgb,
+            var(--accent) 10%,
+            transparent),
+        0 18px 42px -24px var(--shadow);
+}
+
+.active-session-card strong {
+    color: var(--text-main);
+}
+
+.active-session-card span {
+    color: var(--text-muted);
+}
+
+.active-session-card small {
+    color: var(--accent);
+
+    background: color-mix(in srgb,
+            var(--accent) 10%,
+            var(--surface));
+
+    border: 1px solid var(--border);
+}
+
+.active-session-card canvas {
+    background: #ffffff;
+
+    border: 1px solid var(--border);
+
+    box-shadow:
+        0 8px 22px var(--shadow);
+}
+
+.active-sessions-empty {
+    color: var(--text-muted);
+
+    background: var(--surface);
+
+    border: 1px solid var(--border);
+}
+
+
+/* =========================================================
+   SETTINGS
+   ========================================================= */
+
+.settings-page {
+    color: var(--text-main);
+
+    background: var(--page-bg);
+}
+
+.settings-header h1,
+.settings-card h2 {
+    color: var(--text-main);
+}
+
+.settings-header p,
+.settings-card p {
+    color: var(--text-muted);
+}
+
+.settings-card {
+    color: var(--text-main);
+
+    background: var(--surface);
+
+    border: 1px solid var(--border);
+}
+
+
+/* =========================================================
+   LOGIN
+   ========================================================= */
+
+.login-page {
+    color: var(--text-main);
+
+    background: var(--page-bg);
+}
+
+.login-shell {
+    color: var(--text-main);
+
+    background: var(--surface);
+
+    border: 1px solid var(--border);
+
+    box-shadow:
+        0 18px 42px -24px var(--shadow);
+}
+
+.login-intro {
+    color: #ffffff;
+
+    background: linear-gradient(145deg,
+            #17132f 0%,
+            #312e81 100%);
+}
+
+.login-intro h1,
+.login-intro p,
+.login-caption {
+    color: #ffffff;
+}
+
+.login-form h2 {
+    color: var(--text-main);
+}
+
+.login-form>p,
+.login-privacy {
+    color: var(--text-muted);
+}
+
+.login-button-guest {
+    color: var(--text-main);
+
+    background: var(--surface-soft);
+
+    border: 1px solid var(--border);
+}
+
+
+/* =========================================================
+   PROFILE
+   ========================================================= */
+
+.profile-summary h3,
+.profile-detail dd {
+    color: var(--text-main);
+}
+
+.profile-detail dt {
+    color: var(--text-muted);
+}
+
+.profile-detail {
+    border-color: var(--border);
+}
+
+.profile-avatar-fallback {
+    color: #ffffff;
+
+    background: linear-gradient(135deg,
+            var(--accent),
+            var(--accent-strong));
+}
+
+
+/* =========================================================
+   THEME SELECTOR
+   ========================================================= */
+
+.theme-option label {
+    color: var(--text-main);
+
+    background: var(--surface);
+
+    border: 1px solid var(--border);
+}
+
+.theme-option input:checked+label {
+    border-color: var(--accent);
+
+    box-shadow:
+        0 0 0 2px color-mix(in srgb,
+            var(--accent) 15%,
+            transparent);
+}
+
+.theme-option label:hover {
+    border-color: var(--accent);
+}
+
+
+/* =========================================================
+   ERROR / EXPIRED CARD
+   ========================================================= */
+
+[data-theme="midnight"] .card {
+    color: #f8fafc;
+
+    background: #1b2a40;
+
+    border-color: #34465f;
+}
+
+[data-theme="midnight"] .card h2 {
+    color: #f8fafc;
+}
+
+[data-theme="midnight"] .card p {
+    color: #b5c3d6;
+}
+
+
+/* =========================================================
+   MIDNIGHT SPECIFIC OVERRIDES
+   ========================================================= */
+
+/* --- Dashboard --- */
+[data-theme="midnight"] .dashboard-page .card-details p:first-child,
+[data-theme="midnight"] .dashboard-page .card-details p:nth-child(2) {
+    color: #f8fafc;
+}
+
+[data-theme="midnight"] .dashboard-page .card-details p:nth-child(3) {
+    color: #94a3b8;
+}
+
+[data-theme="midnight"] .dash-recent-activity h2 {
+    color: #f8fafc;
+}
+
+[data-theme="midnight"] .recent-session {
+    background: #152135;
+    color: #f8fafc;
+    border-color: #34465f;
+}
+
+[data-theme="midnight"] .recent-session:hover {
+    background: #1b2a40;
+    border-color: #6366f1;
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
+}
+
+[data-theme="midnight"] .recent-session-icon {
+    background: #243653;
+    color: #a5b4fc;
+}
+
+[data-theme="midnight"] .recent-session strong {
+    color: #f8fafc;
+}
+
+[data-theme="midnight"] .recent-session span,
+[data-theme="midnight"] .recent-session-time {
+    color: #94a3b8;
+}
+
+/* --- QR Page --- */
+[data-theme="midnight"] .qr-builder,
+[data-theme="midnight"] .qr-result,
+[data-theme="midnight"] .qr-result-ready {
+    background: #1b2a40;
+    border-color: #34465f;
+}
+
+[data-theme="midnight"] .qr-builder label {
+    color: #f8fafc;
+}
+
+[data-theme="midnight"] .qr-builder select,
+[data-theme="midnight"] .qr-builder input {
+    color: #f8fafc;
+    background: #152135;
+    border-color: #34465f;
+}
+
+[data-theme="midnight"] .qr-builder select:focus,
+[data-theme="midnight"] .qr-builder input:focus {
+    border-color: #6366f1;
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2);
+}
+
+[data-theme="midnight"] .qrpage-header>p:last-child,
+[data-theme="midnight"] .qr-section-heading p,
+[data-theme="midnight"] .qr-empty-state p,
+[data-theme="midnight"] .qr-result-note,
+[data-theme="midnight"] .qr-expiry {
+    color: #94a3b8;
+}
+
+[data-theme="midnight"] .child-qr-result-heading h2,
+[data-theme="midnight"] .qr-section-heading h2,
+[data-theme="midnight"] .qr-result-heading h2,
+[data-theme="midnight"] .qrpage h1,
+[data-theme="midnight"] .qrpage h2 {
+    color: #f8fafc;
+}
+
+[data-theme="midnight"] .qr-empty-mark {
+    background: #152135;
+    color: #a5b4fc;
+    border-color: #536987;
+}
+
+[data-theme="midnight"] .qr-code-frame {
+    background: #ffffff;
+    border-color: #34465f;
+}
+
+/* --- Student Form --- */
+[data-theme="midnight"] .student-form .input-icon {
+    background: #152135;
+    border-color: #536987;
+}
+
+[data-theme="midnight"] .student-form .input-icon:focus-within {
+    background: #1b2a40;
+    border-color: #a5b4fc;
+    box-shadow: 0 0 0 3px rgba(165, 180, 252, 0.20);
+}
+
+[data-theme="midnight"] .student-form input {
+    color: #f8fafc;
+}
+
+[data-theme="midnight"] .student-form input::placeholder {
+    color: #91a4bd;
+}
+
+[data-theme="midnight"] .student-form .reset-btn {
+    color: #e2e8f0;
+    background: #263a5b;
+    border-color: #536987;
+}
+
+[data-theme="midnight"] .student-form .save-btn:disabled {
+    color: #cbd5e1;
+    background: #3b4a68;
+    box-shadow: none;
+}
+
+/* --- Attendance Data & Sessions --- */
+[data-theme="midnight"] .attendance-data-page h2 {
+    color: #f8fafc;
+}
+
+[data-theme="midnight"] .attendance-data-page table {
+    background: #1b2a40;
+    border-color: #34465f;
+}
+
+[data-theme="midnight"] .attendance-data-page th {
+    color: #ffffff;
+    background: #152135;
+    border-bottom: 1px solid #34465f;
+}
+
+[data-theme="midnight"] .attendance-data-page td,
+[data-theme="midnight"] .attendance-data-page tbody tr {
+    color: #f8fafc;
+    background: #1b2a40;
+    border-color: #34465f;
+}
+
+[data-theme="midnight"] .attendance-data-page tbody tr:nth-child(even) {
+    background: #172940;
+}
+
+[data-theme="midnight"] .attendance-data-page tbody tr:hover {
+    background: #243653;
+}
+
+[data-theme="midnight"] .attendance-data-page>p {
+    background: #1b2a40;
+    color: #94a3b8;
+    border-color: #34465f;
+}
+
+/* --- Students List & Modal --- */
+[data-theme="midnight"] .students-list-header h2 {
+    color: #f8fafc;
+}
+
+[data-theme="midnight"] .students-search-input {
+    background: #152135;
+    color: #f8fafc;
+    border-color: #34465f;
+}
+
+[data-theme="midnight"] .students-search-input:focus {
+    border-color: #6366f1;
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2);
+}
+
+[data-theme="midnight"] .students-search-wrapper .search-icon {
+    color: #6366f1;
+}
+
+[data-theme="midnight"] .no-students-message {
+    color: #94a3b8;
+}
+
+[data-theme="midnight"] .student-modal-card {
+    background: #1b2a40;
+    border-color: #34465f;
+    color: #f8fafc;
+}
+
+[data-theme="midnight"] .modal-header-section {
+    border-color: #34465f;
+}
+
+[data-theme="midnight"] .modal-header-section h3 {
+    color: #f8fafc;
+}
+
+[data-theme="midnight"] .modal-subtitle {
+    color: #94a3b8;
+}
+
+[data-theme="midnight"] .modal-avatar-container {
+    background: #152135;
+    border-color: #1b2a40;
+}
+
+[data-theme="midnight"] .modal-profile-placeholder {
+    color: #475569;
+}
+
+[data-theme="midnight"] .detail-info label,
+[data-theme="midnight"] .modal-bio-section label,
+[data-theme="midnight"] .modal-verification-section label {
+    color: #94a3b8;
+}
+
+[data-theme="midnight"] .detail-info span {
+    color: #f8fafc;
+}
+
+[data-theme="midnight"] .modal-bio-section,
+[data-theme="midnight"] .modal-verification-section {
+    border-color: #34465f;
+}
+
+[data-theme="midnight"] .modal-bio-section p,
+[data-theme="midnight"] .verification-row {
+    background: #152135;
+    border-color: #34465f;
+    color: #cbd5e1;
+}
+
+[data-theme="midnight"] .modal-close-btn {
+    background: #152135;
+    color: #94a3b8;
+    border: 1px solid #34465f;
+}
+
+[data-theme="midnight"] .modal-close-btn:hover {
+    background: #243653;
+    color: #f8fafc;
+}
+
+/* --- Active Sessions --- */
+[data-theme="midnight"] .active-sessions-panel {
+    background: #1b2a40;
+    border-color: #34465f;
+}
+
+[data-theme="midnight"] .active-sessions-heading h2 {
+    color: #f8fafc;
+}
+
+[data-theme="midnight"] .active-session-card {
+    background: #152135;
+    border-color: #34465f;
+}
+
+[data-theme="midnight"] .active-session-card:hover {
+    background: #1b2a40;
+    border-color: #818cf8;
+}
+
+[data-theme="midnight"] .active-session-card strong {
+    color: #f8fafc;
+}
+
+[data-theme="midnight"] .active-session-card span {
+    color: #b5c3d6;
+}
+
+[data-theme="midnight"] .active-session-card small {
+    color: #c7d2fe;
+    background: #263a5b;
+    border-color: #536987;
+}
+
+[data-theme="midnight"] .active-sessions-empty {
+    color: #b5c3d6;
+    background: #1b2a40;
+    border-color: #536987;
+}
+
+[data-theme="midnight"] .active-session-card canvas {
+    background: #ffffff;
+    border-color: #34465f;
+}
+
+/* --- Settings --- */
+[data-theme="midnight"] .settings-card {
+    background: #1b2a40;
+    border-color: #34465f;
+}
+
+[data-theme="midnight"] .settings-header h1,
+[data-theme="midnight"] .settings-card h2,
+[data-theme="midnight"] .profile-summary h3,
+[data-theme="midnight"] .profile-detail dd {
+    color: #f8fafc;
+}
+
+[data-theme="midnight"] .settings-header p,
+[data-theme="midnight"] .settings-card p,
+[data-theme="midnight"] .profile-detail dt {
+    color: #b5c3d6;
+}
+
+[data-theme="midnight"] .profile-detail {
+    border-color: #34465f;
+}
+
+[data-theme="midnight"] .theme-option label {
+    border-color: #34465f;
+    color: #e2e8f0;
+    background: #152135;
+}
+
+[data-theme="midnight"] .theme-option input:checked+label {
+    border-color: #6366f1;
+}
+
+/* --- Login --- */
+[data-theme="midnight"] .login-shell {
+    background: #1b2a40;
+    border-color: #34465f;
+}
+
+[data-theme="midnight"] .login-form h2 {
+    color: #f8fafc;
+}
+
+[data-theme="midnight"] .login-form>p,
+[data-theme="midnight"] .login-privacy {
+    color: #b5c3d6;
+}
+
+[data-theme="midnight"] .login-button-guest {
+    color: #e2e8f0;
+    background: #263a5b;
+    border-color: #536987;
+}
+
+/* --- Admin Pages --- */
+[data-theme="midnight"] .admin-dashboard,
+[data-theme="midnight"] .admin-layout,
+[data-theme="midnight"] .admin-main,
+[data-theme="midnight"] .admin-content {
+    background-color: #101827;
+    color: #f8fafc;
+}
+
+[data-theme="midnight"] .admin-sidebar {
+    background: #152135;
+    border-color: #34465f;
+}
+
+[data-theme="midnight"] .admin-brand strong {
+    color: #f8fafc;
+}
+
+[data-theme="midnight"] .admin-brand span,
+[data-theme="midnight"] .admin-sidebar-title {
+    color: #94a3b8;
+}
+
+[data-theme="midnight"] .admin-navbar {
+    background: #152135;
+    border-color: #34465f;
+}
+
+[data-theme="midnight"] .admin-stat-card,
+[data-theme="midnight"] .user-management,
+[data-theme="midnight"] .add-user-modal {
+    background: #1b2a40;
+    border-color: #34465f;
+    color: #f8fafc;
+}
+
+[data-theme="midnight"] .admin-header h1,
+[data-theme="midnight"] .section-header h2,
+[data-theme="midnight"] .admin-stat-card strong,
+[data-theme="midnight"] .modal-header h2,
+[data-theme="midnight"] .user-name {
+    color: #f8fafc;
+}
+
+[data-theme="midnight"] .admin-stat-card span,
+[data-theme="midnight"] .section-header p,
+[data-theme="midnight"] .admin-header p {
+    color: #94a3b8;
+}
+
+[data-theme="midnight"] .stat-icon {
+    background: #243653;
+    color: #a5b4fc;
+}
+
+[data-theme="midnight"] .search-box,
+[data-theme="midnight"] .user-controls select,
+[data-theme="midnight"] .form-group input,
+[data-theme="midnight"] .form-group select {
+    background: #152135;
+    color: #f8fafc;
+    border-color: #34465f;
+}
+
+[data-theme="midnight"] .users-table th {
+    background: #152135;
+    color: #94a3b8;
+}
+
+[data-theme="midnight"] .users-table td {
+    color: #f8fafc;
+    border-top: 1px solid #34465f;
+}
+
+[data-theme="midnight"] .form-group label {
+    color: #f8fafc;
+}
+
+[data-theme="midnight"] .cancel-button {
+    background: #152135;
+    color: #f8fafc;
+    border-color: #34465f;
+}
+
+[data-theme="midnight"] .close-modal {
+    background: #152135;
+    color: #94a3b8;
+}
+
+
+/* =========================================================
+   ACCESSIBILITY / FOCUS
+   ========================================================= */
+
+button:focus-visible,
+select:focus-visible,
+input:focus-visible,
+a:focus-visible {
+    outline: 3px solid color-mix(in srgb,
+            var(--accent) 55%,
+            transparent);
+
+    outline-offset: 2px;
+}
+
+
+/* =========================================================
+   RESPONSIVE
+   ========================================================= */
+
+@media (max-width: 800px) {
+
+    .student-form,
+    .qrpage {
+        padding: 28px 16px 120px;
+    }
+
+    .student-form .form-grid {
+        grid-template-columns: 1fr;
+
+        gap: 18px;
+    }
+
+    .active-sessions-panel {
+        border-radius: 14px;
+    }
+}
+
+
+@media (max-width: 420px) {
+
+    .student-form form {
+        padding: 22px 18px;
+
+        border-radius: 14px;
+    }
+
+    .student-form .button-group {
+        flex-direction: column;
+    }
+}
+
+/* =========================================================
+   SORTABLE TABLE HEADERS (UNIVERSAL)
+   ========================================================= */
+
+th.sortable-th {
+    cursor: pointer !important;
+    user-select: none !important;
+    white-space: nowrap !important;
+    transition: background 0.15s ease, color 0.15s ease;
+}
+
+th.sortable-th:hover {
+    background: color-mix(in srgb, var(--accent, #6366f1) 14%, transparent) !important;
+    color: var(--accent, #6366f1) !important;
+}
+
+th.sortable-th:active {
+    transform: scale(0.99);
+}

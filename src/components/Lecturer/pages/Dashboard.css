@@ -1,0 +1,215 @@
+.dashboard-page {
+    padding: 30px 30px 90px;
+}
+
+.dash-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 18px;
+    padding: 0;
+}
+
+.dash-card {
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    padding: 20px;
+    background: var(--dash-card);
+    border: 1px solid rgba(130, 140, 160, 0.16);
+    border-radius: 22px;
+    box-shadow: 0 18px 42px -24px rgba(100, 116, 139, 0.46);
+    transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
+    height: 136px;
+    min-height: 136px;
+}
+
+
+.dash-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 24px 44px -20px rgba(100, 116, 139, 0.35);
+    border-color: rgba(96, 165, 250, 0.35);
+}
+
+.dash-link {
+    text-decoration: none;
+    width: 100%;
+    display: flex;
+    align-items: center;
+}
+
+.dash-icons {
+    width: 72px;
+    min-width: 72px;
+    height: 72px;
+    display: grid;
+    place-items: center;
+    font-size: 34px;
+    color: #6d28d9;
+    background: linear-gradient(180deg, rgba(99, 102, 241, 0.14), rgba(124, 58, 237, 0.12));
+    border-radius: 20px;
+}
+
+.dashboard-page .card-details {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 6px;
+}
+
+.dashboard-page .card-details p {
+    margin: 0;
+    color: #1f2937;
+}
+
+.dashboard-page .card-details p:first-child {
+    margin: 0;
+    font-size: 0.95rem;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    color: #111827;
+    white-space: nowrap;
+}
+
+.dashboard-page .card-details p:nth-child(2) {
+    font-size: 2rem;
+    font-weight: 700;
+    color: #111827;
+    line-height: 1.1;
+    white-space: nowrap;
+}
+
+.dash-cards>div:first-child .dash-card .card-details p:nth-child(2) {
+    font-weight: 560;
+    font-size: 1.5rem;
+}
+
+.dashboard-page .card-details p:nth-child(3) {
+    font-size: 0.92rem;
+    color: #475569;
+}
+
+.dash-recent-activity h2 {
+    color: var(--dash-text);
+}
+
+
+.dash-recent-activity {
+    padding: 20px;
+    background: var(--dash-card);
+    border: 1px solid rgba(130, 140, 160, 0.16);
+    border-radius: 22px;
+    box-shadow: 0 18px 42px -24px rgba(100, 116, 139, 0.46);
+    transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
+}
+
+.recent-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+}
+
+.recent-card .icon {
+    width: 70px;
+    height: 70px
+}
+
+.recent-sessions-list {
+    display: grid;
+    gap: 10px;
+}
+
+.recent-session {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 13px 14px;
+    color: #1f2937;
+    background: #ffffff;
+    border: 1px solid #e5e7eb;
+    border-radius: 14px;
+    text-decoration: none;
+    transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+
+.recent-session:hover {
+    border-color: #c4b5fd;
+    box-shadow: 0 8px 20px rgba(100, 116, 139, 0.14);
+    transform: translateY(-1px);
+}
+
+.recent-session-icon {
+    display: grid;
+    width: 38px;
+    height: 38px;
+    flex: 0 0 38px;
+    place-items: center;
+    color: #6d28d9;
+    background: #f1edff;
+    border-radius: 11px;
+    font-size: 1.05rem;
+}
+
+.recent-session-info {
+    display: flex;
+    min-width: 0;
+    flex: 1;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.recent-session-info strong {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.94rem;
+}
+
+.recent-session-info span,
+.recent-session-time {
+    color: #64748b;
+    font-size: 0.78rem;
+}
+
+.recent-session-time {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 3px;
+    white-space: nowrap;
+}
+
+.recent-session-time small {
+    color: #94a3b8;
+    font-size: 0.7rem;
+}
+
+.recent-start-link {
+    display: inline-block;
+    margin-top: 8px;
+    padding: 10px 16px;
+    color: #ffffff;
+    background: linear-gradient(135deg, #8b5cf6, #6366f1);
+    border-radius: 9px;
+    text-decoration: none;
+    font-weight: 700;
+}
+
+@media (max-width: 800px) {
+    .dashboard-page {
+        padding: 24px 16px 120px;
+    }
+
+    .dash-cards {
+        gap: 16px;
+        padding: 0 2px;
+    }
+
+    .dash-recent-activity {
+        margin-top: 14px;
+        padding: 18px;
+    }
+}

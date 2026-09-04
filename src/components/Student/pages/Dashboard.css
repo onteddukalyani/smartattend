@@ -1,0 +1,515 @@
+/* =========================================
+   STUDENT DASHBOARD STYLES
+   ========================================= */
+
+.student-dashboard {
+    padding: 24px;
+    max-width: 1300px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+}
+
+/* Hero Profile Banner */
+.student-hero-banner {
+    background: var(--surface, #ffffff);
+    border: 1px solid var(--border, #e2e8f0);
+    border-radius: 20px;
+    padding: 28px;
+    box-shadow: 0 4px 20px var(--shadow, rgba(0, 0, 0, 0.04));
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 20px;
+    position: relative;
+    overflow: hidden;
+}
+
+.student-hero-banner::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 6px;
+    height: 100%;
+    background: var(--accent, #6366f1);
+}
+
+.student-hero-main {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+}
+
+.student-hero-avatar {
+    width: 64px;
+    height: 64px;
+    border-radius: 16px;
+    background: linear-gradient(135deg, var(--accent, #6366f1), #4338ca);
+    color: #ffffff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 26px;
+    font-weight: 800;
+    box-shadow: 0 4px 14px rgba(99, 102, 241, 0.35);
+}
+
+.student-hero-info h1 {
+    margin: 0;
+    font-size: 1.6rem;
+    font-weight: 800;
+    color: var(--text-main, #1e293b);
+}
+
+.student-hero-badges {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 8px;
+    flex-wrap: wrap;
+}
+
+.student-roll-badge {
+    background: #e0e7ff;
+    color: #3730a3;
+    font-weight: 800;
+    font-size: 0.9rem;
+    padding: 4px 12px;
+    border-radius: 999px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.student-sub-badge {
+    background: var(--surface-soft, #f1f5f9);
+    color: var(--text-muted, #64748b);
+    font-weight: 600;
+    font-size: 0.82rem;
+    padding: 4px 10px;
+    border-radius: 8px;
+}
+
+.student-hero-action {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.scan-qr-cta {
+    background: var(--btn-primary-bg, linear-gradient(135deg, #6366f1, #4338ca));
+    color: #ffffff;
+    border: none;
+    padding: 12px 22px;
+    border-radius: 12px;
+    font-size: 0.95rem;
+    font-weight: 700;
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    cursor: pointer;
+    box-shadow: 0 4px 14px rgba(99, 102, 241, 0.3);
+    text-decoration: none;
+    transition: all 0.2s ease;
+}
+
+.scan-qr-cta:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 18px rgba(99, 102, 241, 0.4);
+    color: #ffffff;
+}
+
+/* Statistics Grid */
+.student-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 18px;
+}
+
+.student-stat-card {
+    background: var(--surface, #ffffff);
+    border: 1px solid var(--border, #e2e8f0);
+    border-radius: 16px;
+    padding: 20px 22px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    box-shadow: 0 2px 10px var(--shadow, rgba(0, 0, 0, 0.03));
+}
+
+.student-stat-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 22px;
+}
+
+.student-stat-icon.blue {
+    background: #eff6ff;
+    color: #2563eb;
+}
+
+.student-stat-icon.green {
+    background: #ecfdf5;
+    color: #059669;
+}
+
+.student-stat-icon.purple {
+    background: #f5f3ff;
+    color: #7c3aed;
+}
+
+.student-stat-content span {
+    display: block;
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--text-muted, #64748b);
+}
+
+.student-stat-content strong {
+    font-size: 1.45rem;
+    font-weight: 800;
+    color: var(--text-main, #0f172a);
+}
+
+/* Attendance Records Card */
+.student-records-card {
+    background: var(--surface, #ffffff);
+    border: 1px solid var(--border, #e2e8f0);
+    border-radius: 18px;
+    padding: 24px;
+    box-shadow: 0 4px 20px var(--shadow, rgba(0, 0, 0, 0.04));
+}
+
+.records-header-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 16px;
+    margin-bottom: 20px;
+}
+
+.records-header-row h2 {
+    margin: 0;
+    font-size: 1.25rem;
+    font-weight: 800;
+    color: var(--text-main, #0f172a);
+}
+
+.records-header-row p {
+    margin: 4px 0 0;
+    font-size: 0.84rem;
+    color: var(--text-muted, #64748b);
+}
+
+.records-controls {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.records-search {
+    background: var(--surface-soft, #f8fafc);
+    border: 1px solid var(--border, #e2e8f0);
+    border-radius: 10px;
+    padding: 8px 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 260px;
+    max-width: 100%;
+}
+
+.records-search svg {
+    color: var(--text-muted, #94a3b8);
+}
+
+.records-search input {
+    border: none;
+    background: transparent;
+    outline: none;
+    width: 100%;
+    font-size: 0.88rem;
+    color: var(--text-main, inherit);
+}
+
+.download-export-btn {
+    background: #10b981;
+    color: #ffffff;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 10px;
+    font-size: 0.86rem;
+    font-weight: 700;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.download-export-btn:hover {
+    background: #059669;
+    transform: translateY(-1px);
+}
+
+.dashboard-refresh-btn {
+    background: var(--surface-soft, #f8fafc);
+    color: var(--text-main, #334155);
+    border: 1px solid var(--border, #cbd5e1);
+    padding: 8px 14px;
+    border-radius: 10px;
+    font-size: 0.86rem;
+    font-weight: 700;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.dashboard-refresh-btn:hover {
+    background: color-mix(in srgb, var(--accent, #6366f1) 12%, transparent);
+    color: var(--accent, #6366f1);
+    border-color: var(--accent, #6366f1);
+}
+
+.student-roll-badge {
+    cursor: pointer;
+    transition: background 0.15s ease;
+}
+
+.student-roll-badge:hover {
+    filter: brightness(0.95);
+}
+
+.roll-edit-inline {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.roll-edit-inline input {
+    background: var(--surface, #ffffff);
+    color: var(--text-main, #0f172a);
+    border: 1px solid var(--accent, #6366f1);
+    border-radius: 6px;
+    padding: 2px 8px;
+    font-size: 0.82rem;
+    font-weight: 700;
+    width: 110px;
+    text-transform: uppercase;
+}
+
+.roll-edit-inline button {
+    background: var(--accent, #6366f1);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    padding: 2px 8px;
+    font-size: 0.78rem;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+/* Attendance Table */
+.student-table-wrap {
+    overflow-x: auto;
+}
+
+.student-att-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.88rem;
+    text-align: left;
+}
+
+.student-att-table th {
+    padding: 12px 16px;
+    background: var(--surface-soft, #f8fafc);
+    color: var(--text-muted, #64748b);
+    font-weight: 700;
+    border-bottom: 2px solid var(--border, #e2e8f0);
+    text-transform: uppercase;
+    font-size: 0.74rem;
+    letter-spacing: 0.04em;
+}
+
+.student-att-table td {
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border, #f1f5f9);
+    color: var(--text-main, #334155);
+}
+
+.student-att-table tbody tr:hover {
+    background: var(--surface-soft, #f8fafc);
+}
+
+.student-att-table .present-tag {
+    background: #ecfdf5;
+    color: #059669;
+    font-weight: 700;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 0.78rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+/* Empty State */
+.student-empty-state {
+    padding: 48px 20px;
+    text-align: center;
+    color: var(--text-muted, #64748b);
+}
+
+.student-empty-state svg {
+    font-size: 48px;
+    color: var(--border, #cbd5e1);
+    margin-bottom: 14px;
+}
+
+.student-empty-state h3 {
+    margin: 0 0 8px;
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: var(--text-main, #1e293b);
+}
+
+.student-empty-state p {
+    margin: 0 0 20px;
+    font-size: 0.9rem;
+    max-width: 420px;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+/* Midnight Theme Compatibility */
+[data-theme="midnight"] .student-hero-banner {
+    background: #1b2a40;
+    border-color: #34465f;
+}
+
+[data-theme="midnight"] .student-hero-info h1 {
+    color: #f8fafc;
+}
+
+[data-theme="midnight"] .student-roll-badge {
+    background: rgba(99, 102, 241, 0.2);
+    color: #a5b4fc;
+}
+
+[data-theme="midnight"] .student-sub-badge {
+    background: #152135;
+    color: #94a3b8;
+}
+
+[data-theme="midnight"] .student-stat-card {
+    background: #1b2a40;
+    border-color: #34465f;
+}
+
+[data-theme="midnight"] .student-stat-content strong {
+    color: #f8fafc;
+}
+
+[data-theme="midnight"] .student-records-card {
+    background: #1b2a40;
+    border-color: #34465f;
+}
+
+[data-theme="midnight"] .records-header-row h2 {
+    color: #f8fafc;
+}
+
+[data-theme="midnight"] .records-search {
+    background: #152135;
+    border-color: #34465f;
+}
+
+[data-theme="midnight"] .student-att-table th {
+    background: #152135;
+    border-color: #34465f;
+    color: #94a3b8;
+}
+
+[data-theme="midnight"] .student-att-table td {
+    border-color: #27374d;
+    color: #e2e8f0;
+}
+
+[data-theme="midnight"] .student-att-table tbody tr:hover {
+    background: #233652;
+}
+
+/* =========================================
+   MOBILE RESPONSIVE
+   ========================================= */
+
+@media (max-width: 768px) {
+    .student-dashboard {
+        padding: 16px 12px 100px;
+    }
+
+    .student-hero-banner {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 16px;
+        padding: 20px 16px;
+    }
+
+    .student-hero-main {
+        align-items: center;
+        gap: 14px;
+        width: 100%;
+    }
+
+    .student-hero-info {
+        min-width: 0;
+        flex: 1;
+    }
+
+    .student-hero-info h1 {
+        font-size: 1.35rem;
+        word-break: break-word;
+    }
+
+    .student-hero-action {
+        width: 100%;
+    }
+
+    .scan-qr-cta {
+        width: 100%;
+        justify-content: center;
+    }
+
+    .records-header-row {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 14px;
+    }
+
+    .records-controls {
+        width: 100%;
+        justify-content: space-between;
+    }
+
+    .records-search {
+        width: 100%;
+    }
+
+    .student-att-table th,
+    .student-att-table td {
+        padding: 12px 14px;
+        white-space: nowrap;
+    }
+}

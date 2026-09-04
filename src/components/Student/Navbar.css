@@ -1,0 +1,148 @@
+.navbar {
+    margin-top: 0;
+    height: 80px;
+    background: var(--surface);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0 30px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+}
+
+.left-nav {
+    display: flex;
+    align-items: center;
+    gap: 25px;
+}
+
+.menu-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 45px;
+    height: 45px;
+    border: none;
+    background: var(--surface-soft);
+    border-radius: 12px;
+    cursor: pointer;
+    font-size: 20px;
+    transition: 0.3s;
+}
+
+.menu-btn:hover {
+    background: var(--accent);
+    color: white;
+}
+
+.right-nav {
+    display: flex;
+    align-items: center;
+    gap: 25px;
+}
+
+.icon-box {
+    width: 45px;
+    height: 45px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background: var(--surface-soft);
+    border-radius: 50%;
+    position: relative;
+    cursor: pointer;
+    transition: 0.3s;
+    font-size: 18px;
+}
+
+.icon-box:hover {
+    background: #5b5ff6;
+    color: white;
+}
+
+.badge {
+    position: absolute;
+    top: -5px;
+    right: -5px;
+    width: 20px;
+    height: 20px;
+    background: #ef4444;
+    color: white;
+    font-size: 11px;
+    font-weight: 600;
+    border-radius: 50%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.profile {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    color: var(--text-main, #1e293b);
+    cursor: pointer;
+}
+
+.nav-profile-img {
+    width: 45px;
+    height: 45px;
+    border-radius: 50%;
+    object-fit: cover;
+}
+
+.nav-profile-placeholder {
+    width: 45px;
+    height: 45px;
+    display: grid;
+    place-items: center;
+    flex: 0 0 45px;
+    color: #ffffff;
+    background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+    border: 2px solid color-mix(in srgb, var(--accent) 50%, transparent);
+    border-radius: 50%;
+}
+
+.profile span {
+    color: var(--text-main, #1e293b);
+    font-weight: 700;
+    font-size: 15px;
+}
+
+
+/* =========================
+   MOBILE
+   ========================= */
+
+@media (max-width: 800px) {
+    .navbar {
+        height: 65px;
+        padding: 0 16px;
+    }
+
+    .menu-btn {
+        display: flex;
+        width: 42px;
+        height: 42px;
+        font-size: 19px;
+        z-index: 1100;
+    }
+
+    .nav-profile-img,
+    .nav-profile-placeholder {
+        width: 40px;
+        height: 40px;
+    }
+
+    .profile {
+        gap: 8px;
+    }
+
+    .profile span {
+        display: inline-block;
+        max-width: 125px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        font-size: 14px;
+    }
+}

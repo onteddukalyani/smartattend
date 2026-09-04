@@ -1,0 +1,103 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSuperAdmin(auth) {
+      return auth != null 
+        && 'email' in auth.token 
+        && (
+          auth.token.email.lower() == 'onteddukalyani@gmail.com' ||
+          auth.token.email.lower() == 'admin@iiitdwd.ac.in' ||
+          auth.token.email.lower().matches('.*admin.*@iiitdwd[.]ac[.]in')
+        );
+    }
+
+    function hasAuthorizedDoc(email) {
+      return exists(/databases/$(database)/documents/authorizedUsers/$(email.lower()));
+    }
+
+    function getRole(email) {
+      return hasAuthorizedDoc(email) 
+        ? get(/databases/$(database)/documents/authorizedUsers/$(email.lower())).data.role 
+        : '';
+    }
+
+    function isAdmin(auth) {
+      return auth != null 
+        && 'email' in auth.token 
+        && (
+          isSuperAdmin(auth) || 
+          getRole(auth.token.email) == 'admin'
+        );
+    }
+
+    function isLecturer(auth) {
+      return auth != null 
+        && 'email' in auth.token 
+        && (
+          isAdmin(auth) || 
+          getRole(auth.token.email) == 'lecturer'
+        );
+    }
+
+    // Rules for authorizedUsers
+    match /authorizedUsers/{email} {
+      allow get: if request.auth != null && (request.auth.token.email.lower() == email.lower() || isAdmin(request.auth));
+      allow list: if request.auth != null && isAdmin(request.auth);
+      allow write: if request.auth != null && isAdmin(request.auth);
+    }
+
+    // Rules for users (Students and Lecturers profiles)
+    match /users/{userId} {
+      // Anyone authenticated in the institute can view profiles
+      allow read: if request.auth != null;
+      
+      // Anyone authenticated in the institute can add/register profiles
+      allow create: if request.auth != null;
+      
+      // Admins can edit/delete any profile; users can update their own
+      allow update, delete: if request.auth != null && (
+        isAdmin(request.auth) || 
+        (resource != null && 'email' in resource.data && resource.data.email != null && request.auth.token.email.lower() == resource.data.email.lower()) ||
+        userId == request.auth.uid
+      );
+    }
+
+    // Rules for attendance_sessions
+    match /attendance_sessions/{sessionId} {
+      // Anyone (including students without an account) can read session details to validate QR codes
+      allow get: if true;
+      
+      // Authenticated users can list sessions
+      allow list: if request.auth != null;
+      
+      // Authenticated users can create sessions
+      allow create: if request.auth != null;
+      
+      // Lecturer who created session or Admin can edit/delete
+      allow update, delete: if request.auth != null && (
+        isAdmin(request.auth) ||
+        (resource != null && 'ownerId' in resource.data && resource.data.ownerId == request.auth.uid)
+      );
+    }
+
+    // Rules for attendance_records
+    match /attendance_records/{recordId} {
+      // Anyone can check if their record already exists
+      allow get: if true;
+      
+      // Authenticated users can list records
+      allow list: if request.auth != null;
+      
+      // Active sessions allow creating attendance records
+      allow create, update: if true;
+      
+      // Lecturer who created the session or Admin can delete records
+      allow delete: if request.auth != null && (
+        isAdmin(request.auth) ||
+        (resource != null && 'ownerId' in resource.data && resource.data.ownerId == request.auth.uid)
+      );
+    }
+  }
+}
