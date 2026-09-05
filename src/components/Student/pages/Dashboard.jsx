@@ -20,7 +20,10 @@ import {
     FaCheckCircle,
     FaBookOpen,
     FaClock,
-    FaSyncAlt
+    FaSyncAlt,
+    FaTimes,
+    FaInfoCircle,
+    FaQrcode
 } from "react-icons/fa";
 import { MdQrCodeScanner } from "react-icons/md";
 import { db } from "../../../firebase";
@@ -83,8 +86,11 @@ export default function StudentDashboard() {
             const digits = prefix.replace(/\D/g, "");
             if (digits && digits.length >= 2) set.add(digits);
         }
+        if (user?.uid) {
+            set.add(user.uid);
+        }
         return Array.from(set).filter(Boolean).slice(0, 10);
-    }, [activeRollNo, profile?.rollNo, user?.email]);
+    }, [activeRollNo, profile?.rollNo, user?.email, user?.uid]);
 
     // Real-time Firestore attendance listener
     useEffect(() => {
@@ -263,7 +269,7 @@ export default function StudentDashboard() {
                     </div>
                 </div>
 
-                <div className="student-stat-card green">
+                <Link to="/student/courses" className="student-stat-card green" style={{ textDecoration: "none" }}>
                     <div className="student-stat-icon green">
                         <FaBookOpen />
                     </div>
@@ -271,7 +277,7 @@ export default function StudentDashboard() {
                         <span>Distinct Subjects</span>
                         <strong>{loading ? "..." : uniqueCourses}</strong>
                     </div>
-                </div>
+                </Link>
 
                 <div className="student-stat-card purple">
                     <div className="student-stat-icon purple">
@@ -287,9 +293,14 @@ export default function StudentDashboard() {
             {/* 3. Attended Classes Log */}
             <div className="student-records-card">
                 <div className="records-header-row">
-                    <div>
-                        <h2>Classes You Have Attended ({records.length})</h2>
-                        <p>Real-time attendance register for Roll No: <strong>{activeRollNo}</strong></p>
+                    <div className="records-header-left">
+                        <div className="records-header-icon-pill">
+                            <FaCalendarCheck />
+                        </div>
+                        <div>
+                            <h2>Classes You Have Attended ({records.length})</h2>
+                            <p>Real-time attendance register for Roll No: <strong className="header-roll-highlight">{activeRollNo}</strong></p>
+                        </div>
                     </div>
 
                     <div className="records-controls">
@@ -306,13 +317,22 @@ export default function StudentDashboard() {
 
                         {records.length > 0 && (
                             <div className="records-search">
-                                <FaSearch />
+                                <FaSearch className="records-search-icon" />
                                 <input
                                     type="text"
                                     placeholder="Search subject, class or room..."
                                     value={search}
                                     onChange={(e) => setSearch(e.target.value)}
                                 />
+                                {search && (
+                                    <button
+                                        type="button"
+                                        className="records-search-clear"
+                                        onClick={() => setSearch("")}
+                                    >
+                                        <FaTimes />
+                                    </button>
+                                )}
                             </div>
                         )}
 
@@ -323,7 +343,7 @@ export default function StudentDashboard() {
                                 onClick={handleExport}
                                 title="Download Excel report of your attendance"
                             >
-                                <FaFileDownload /> Export Excel
+                                <FaFileDownload /> <span>Export Excel</span>
                             </button>
                         )}
                     </div>
@@ -331,22 +351,49 @@ export default function StudentDashboard() {
 
                 {loading ? (
                     <div className="student-empty-state">
-                        <p>Loading your attendance records in real-time...</p>
+                        <div className="empty-state-icon-wrap">
+                            <FaSyncAlt className="fa-spin" />
+                        </div>
+                        <h3>Loading Attendance Stream</h3>
+                        <p>Fetching your real-time verified attendance records from Firestore...</p>
                     </div>
                 ) : filteredRecords.length === 0 ? (
                     <div className="student-empty-state">
-                        <FaHistory />
-                        <h3>{search ? "No matching classes found" : "No attendance recorded yet for this Roll Number"}</h3>
+                        <div className="empty-state-icon-wrap">
+                            <FaHistory />
+                        </div>
+                        <h3>{search ? "No Matching Classes Found" : "No Attendance Recorded Yet"}</h3>
                         <p>
                             {search
-                                ? "Try a different search term."
-                                : `No records found under Roll Number "${activeRollNo}". Classes you attend and submit attendance for will appear here automatically.`}
+                                ? `No classes matched your search filter "${search}". Try searching by course code or lecturer name.`
+                                : `No attendance entries found under Roll Number "${activeRollNo}". Classes you attend and submit attendance for via QR Code or Face Verification will automatically appear here.`}
                         </p>
-                        {!search && (
-                            <Link to="/student/mark-attendance" className="scan-qr-cta" style={{ display: "inline-flex", margin: "0 auto" }}>
-                                <MdQrCodeScanner size={18} /> Mark Attendance Now
-                            </Link>
+
+                        {!search ? (
+                            <div className="empty-state-actions">
+                                <Link to="/student/mark-attendance" className="scan-qr-cta empty-cta-btn">
+                                    <MdQrCodeScanner size={18} />
+                                    <span>Scan Class QR Code</span>
+                                </Link>
+                                <Link to="/student/courses" className="empty-secondary-btn">
+                                    <FaBookOpen />
+                                    <span>Browse My Courses</span>
+                                </Link>
+                            </div>
+                        ) : (
+                            <button
+                                type="button"
+                                className="empty-secondary-btn"
+                                onClick={() => setSearch("")}
+                            >
+                                Clear Search Filter
+                            </button>
                         )}
+
+                        <div className="empty-state-footer-pill">
+                            <span className="live-pulse-dot" />
+                            <span>Live Sync Active • Instant Update on Submission</span>
+                        </div>
                     </div>
                 ) : (
                     <div className="student-table-wrap">

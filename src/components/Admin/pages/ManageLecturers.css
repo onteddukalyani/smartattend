@@ -149,6 +149,26 @@
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
   box-shadow: 0 4px 20px var(--shadow, rgba(0, 0, 0, 0.04));
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
+}
+
+.lecturers-table-container::-webkit-scrollbar {
+  height: 7px;
+}
+
+.lecturers-table-container::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 6px;
+}
+
+.lecturers-table-container::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+.lecturers-table-container::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.02);
+  border-radius: 6px;
 }
 
 .lecturers-table {

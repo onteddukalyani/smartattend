@@ -338,21 +338,31 @@
 
 .edit-form-field input,
 .edit-form-field select {
-  padding: 10px 14px;
-  border-radius: 10px;
-  border: 1px solid var(--border, #cbd5e1);
+  padding: 13px 18px;
+  border-radius: 11px;
+  border: 1.5px solid var(--border, #cbd5e1);
   background: var(--surface-soft, #f8fafc);
   color: var(--text-main, inherit);
-  font-size: 0.9rem;
+  font-size: 0.92rem;
+  font-weight: 500;
   outline: none;
-  transition: all 0.15s ease;
+  text-align: left;
+  text-align-last: left;
+  line-height: normal;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+  transition: all 0.2s ease;
+}
+
+.edit-form-field input:hover,
+.edit-form-field select:hover {
+  border-color: #94a3b8;
 }
 
 .edit-form-field input:focus,
 .edit-form-field select:focus {
   border-color: var(--accent, #6366f1);
   background: var(--surface, #ffffff);
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+  box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.16);
 }
 
 .edit-modal-footer {

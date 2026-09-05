@@ -47,7 +47,7 @@ export default function ManageCourses() {
         department: "CSE",
         semester: "1",
         credits: "3",
-        defaultRoom: "LH-101",
+        defaultRoom: "L-105",
         lecturerEmail: "",
         lecturerName: "",
         batch: "2024",
@@ -77,43 +77,67 @@ export default function ManageCourses() {
         return () => unsubscribe();
     }, []);
 
-    // 2. Fetch lecturers from authorizedUsers & users
+    // 2. Fetch lecturers from authorizedUsers & users (strictly faculty/lecturers only)
     useEffect(() => {
         const fetchLecturers = async () => {
             try {
                 const [authSnap, usersSnap] = await Promise.all([
-                    getDocs(collection(db, "authorizedUsers")),
-                    getDocs(collection(db, "users"))
+                    getDocs(collection(db, "authorizedUsers")).catch((e) => {
+                        console.warn("Could not read authorizedUsers:", e);
+                        return { docs: [] };
+                    }),
+                    getDocs(collection(db, "users")).catch((e) => {
+                        console.warn("Could not read users:", e);
+                        return { docs: [] };
+                    })
                 ]);
 
                 const lectMap = new Map();
+
+                // 1. Ingest authorized faculty from authorizedUsers collection
                 authSnap.docs.forEach((d) => {
                     const data = d.data();
-                    const email = (d.id || data.email || "").toLowerCase().trim();
-                    if (email && email.includes("@")) {
-                        lectMap.set(email, {
-                            email,
-                            name: data.name || email.split("@")[0],
-                            department: data.department || "General"
-                        });
-                    }
-                });
+                    const role = String(data.role || "").toLowerCase().trim();
+                    const isFaculty = role === "lecturer" || role === "faculty" || role === "professor" || data.isFaculty === true;
 
-                usersSnap.docs.forEach((d) => {
-                    const data = d.data();
-                    if (data.role === "lecturer") {
-                        const email = (data.email || d.id || "").toLowerCase().trim();
+                    if (isFaculty) {
+                        const email = (data.email || (d.id.includes("@") ? d.id : "")).toLowerCase().trim();
                         if (email && email.includes("@")) {
                             lectMap.set(email, {
                                 email,
-                                name: data.name || lectMap.get(email)?.name || email.split("@")[0],
-                                department: data.department || data.branch || lectMap.get(email)?.department || "General"
+                                name: data.name || (email ? email.split("@")[0] : "Lecturer"),
+                                department: data.department || data.branch || "General"
                             });
                         }
                     }
                 });
 
-                setLecturers(Array.from(lectMap.values()));
+                // 2. Ingest faculty from users collection
+                usersSnap.docs.forEach((d) => {
+                    const data = d.data();
+                    const role = String(data.role || "").toLowerCase().trim();
+                    const isFaculty = role === "lecturer" || role === "faculty" || role === "professor" || data.isFaculty === true;
+                    const isStudent = role === "student" || Boolean(data.rollNo) || /^\d{2}[a-zA-Z]{3}\d{2,4}$/i.test(d.id);
+                    const isAdmin = role === "admin" || role === "superadmin";
+
+                    if (isFaculty && !isStudent && !isAdmin) {
+                        const email = (data.email || (d.id.includes("@") ? d.id : "")).toLowerCase().trim();
+                        if (email && email.includes("@")) {
+                            const existing = lectMap.get(email) || {};
+                            lectMap.set(email, {
+                                email,
+                                name: data.name || existing.name || (email ? email.split("@")[0] : "Lecturer"),
+                                department: data.department || data.branch || existing.department || "General"
+                            });
+                        }
+                    }
+                });
+
+                const sortedLecturers = Array.from(lectMap.values()).sort((a, b) =>
+                    (a.name || "").localeCompare(b.name || "")
+                );
+
+                setLecturers(sortedLecturers);
             } catch (err) {
                 console.warn("Error fetching lecturers list:", err);
             }
@@ -160,6 +184,7 @@ export default function ManageCourses() {
                 (c.courseCode || "").toLowerCase().includes(term) ||
                 (c.courseName || "").toLowerCase().includes(term) ||
                 (c.lecturerName || "").toLowerCase().includes(term) ||
+                (c.lecturerEmail || "").toLowerCase().includes(term) ||
                 (c.department || "").toLowerCase().includes(term);
 
             const matchesDept = selectedDept === "all" || (c.department || "").toUpperCase() === selectedDept.toUpperCase();
@@ -179,10 +204,10 @@ export default function ManageCourses() {
                 department: course.department || "CSE",
                 semester: course.semester || "1",
                 credits: course.credits || "3",
-                defaultRoom: course.defaultRoom || "LH-101",
+                defaultRoom: course.defaultRoom || "L-105",
                 lecturerEmail: course.lecturerEmail || "",
                 lecturerName: course.lecturerName || "",
-                batch: course.batch || "2024",
+                batch: course.batch || "2025",
                 description: course.description || ""
             });
         } else {
@@ -193,10 +218,10 @@ export default function ManageCourses() {
                 department: "CSE",
                 semester: "1",
                 credits: "3",
-                defaultRoom: "LH-101",
-                lecturerEmail: lecturers[0]?.email || "",
-                lecturerName: lecturers[0]?.name || "",
-                batch: "2024",
+                defaultRoom: "L-105",
+                lecturerEmail: "",
+                lecturerName: "",
+                batch: "2025",
                 description: ""
             });
         }
@@ -208,7 +233,7 @@ export default function ManageCourses() {
         setFormData((prev) => ({
             ...prev,
             lecturerEmail: email,
-            lecturerName: found?.name || email.split("@")[0]
+            lecturerName: found ? found.name : ""
         }));
     };
 
@@ -235,7 +260,7 @@ export default function ManageCourses() {
                 department: formData.department,
                 semester: formData.semester,
                 credits: Number(formData.credits) || 3,
-                defaultRoom: formData.defaultRoom.trim() || "LH-101",
+                defaultRoom: formData.defaultRoom.trim() || "L-105",
                 lecturerEmail: formData.lecturerEmail.toLowerCase().trim(),
                 lecturerName: formData.lecturerName.trim(),
                 batch: formData.batch,
@@ -365,9 +390,7 @@ export default function ManageCourses() {
                         <option value="all">All Departments</option>
                         <option value="CSE">Computer Science (CSE)</option>
                         <option value="DSAI">Data Science & AI (DSAI)</option>
-                        <option value="ECE">Electronics (ECE)</option>
-                        <option value="MECH">Mechanical (MECH)</option>
-                        <option value="General">General / Basic Science</option>
+                        <option value="AIC">AI and Computing</option>
                     </select>
 
                     <select
@@ -448,7 +471,7 @@ export default function ManageCourses() {
                                     <div className="admin-course-detail-row">
                                         <FaDoorOpen />
                                         <span>
-                                            Default Hall: <strong>{course.defaultRoom || "LH-101"}</strong>
+                                            Default Hall: <strong>{course.defaultRoom || "L-106"}</strong>
                                         </span>
                                     </div>
                                     <div className="admin-course-detail-row">
@@ -602,10 +625,14 @@ export default function ManageCourses() {
                                     value={formData.lecturerEmail}
                                     onChange={(e) => handleLecturerSelect(e.target.value)}
                                 >
-                                    <option value="">-- Select Instructor --</option>
+                                    <option value="">
+                                        {lecturers.length === 0
+                                            ? "-- No Lecturers Found in Database --"
+                                            : `-- Select Instructor (${lecturers.length} Faculty Members) --`}
+                                    </option>
                                     {lecturers.map((l, i) => (
-                                        <option key={i} value={l.email}>
-                                            {l.name} ({l.email}) - {l.department}
+                                        <option key={l.email || i} value={l.email}>
+                                            {l.name} ({l.email}){l.department ? ` - ${l.department}` : ""}
                                         </option>
                                     ))}
                                 </select>
@@ -617,7 +644,7 @@ export default function ManageCourses() {
                                     <input
                                         id="modal-course-room"
                                         type="text"
-                                        placeholder="e.g. LH-101, Lab-2"
+                                        placeholder="e.g. L-105, L-106"
                                         value={formData.defaultRoom}
                                         onChange={(e) =>
                                             setFormData({ ...formData, defaultRoom: e.target.value })
@@ -669,8 +696,8 @@ export default function ManageCourses() {
                                     {saving
                                         ? "Saving..."
                                         : editingCourse
-                                        ? "Update Course"
-                                        : "Create Course"}
+                                            ? "Update Course"
+                                            : "Create Course"}
                                 </button>
                             </div>
                         </form>

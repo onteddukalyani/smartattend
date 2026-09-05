@@ -30,3 +30,154 @@
     min-width: 0;
   }
 }
+
+/* =========================================================
+   APP GLOBAL LOADING SPLASH SCREEN
+   ========================================================= */
+
+.app-loading-screen {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--page-bg, #f8fafc);
+  z-index: 99999;
+  padding: 24px;
+  box-sizing: border-box;
+}
+
+[data-theme="midnight"] .app-loading-screen {
+  background: #0b0f19;
+}
+
+.app-loading-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 20px;
+  max-width: 380px;
+  width: 100%;
+  animation: appFadeInScale 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.app-loading-logo-wrap {
+  position: relative;
+  width: 84px;
+  height: 84px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.app-loading-pulse-ring {
+  position: absolute;
+  inset: -8px;
+  border-radius: 28px;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.3), rgba(79, 70, 229, 0.1));
+  animation: appPulseGlow 2s infinite ease-in-out;
+}
+
+.app-loading-logo-badge {
+  position: relative;
+  width: 76px;
+  height: 76px;
+  border-radius: 22px;
+  background: linear-gradient(135deg, #6366f1, #4f46e5);
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 38px;
+  box-shadow: 0 10px 25px rgba(99, 102, 241, 0.4);
+  z-index: 2;
+}
+
+.app-loading-text {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.app-loading-brand {
+  margin: 0;
+  font-size: 1.65rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--text-main, #0f172a);
+}
+
+[data-theme="midnight"] .app-loading-brand {
+  color: #f8fafc;
+}
+
+.app-loading-status {
+  margin: 0;
+  font-size: 0.92rem;
+  font-weight: 500;
+  color: var(--text-muted, #64748b);
+}
+
+[data-theme="midnight"] .app-loading-status {
+  color: #94a3b8;
+}
+
+.app-loading-progress-bar {
+  width: 200px;
+  height: 5px;
+  background: rgba(99, 102, 241, 0.15);
+  border-radius: 999px;
+  overflow: hidden;
+  position: relative;
+  margin-top: 4px;
+}
+
+[data-theme="midnight"] .app-loading-progress-bar {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.app-loading-progress-indeterminate {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 45%;
+  background: linear-gradient(90deg, #6366f1, #818cf8, #6366f1);
+  border-radius: 999px;
+  animation: appProgressSlide 1.4s infinite ease-in-out;
+}
+
+@keyframes appProgressSlide {
+  0% {
+    left: -45%;
+  }
+  100% {
+    left: 100%;
+  }
+}
+
+@keyframes appPulseGlow {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.6;
+  }
+  50% {
+    transform: scale(1.15);
+    opacity: 1;
+  }
+}
+
+@keyframes appFadeInScale {
+  from {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}

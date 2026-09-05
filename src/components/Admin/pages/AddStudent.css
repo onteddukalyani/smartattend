@@ -1,60 +1,94 @@
 /* =========================================================
-   ADD USER / STUDENT / LECTURER / ADMIN - RESPONSIVE STYLES
+   ADD USER / STUDENT / LECTURER / ADMIN - MODERN FORM STYLES
+   Optimized for Light & Midnight themes and all viewports
    ========================================================= */
 
-.add-student-page {
-  padding: 28px;
+.add-student-page,
+.add-admin,
+.add-lecturer-page {
+  padding: 28px 32px 100px;
   max-width: 1100px;
-  margin: auto;
+  margin: 0 auto;
   box-sizing: border-box;
+  animation: formFadeIn 0.3s ease-out;
 }
 
-.add-student-header {
+@keyframes formFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Header & Back Button
+   -------------------------------------------------------------------------- */
+.add-student-header,
+.add-admin-header,
+.add-lecturer-header {
   margin-bottom: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
-.add-student-header h1 {
-  margin: 14px 0 6px;
-  font-size: 28px;
+.add-student-header h1,
+.add-admin-header h1,
+.add-lecturer-header h1 {
+  margin: 0 0 4px 0;
+  font-size: 26px;
   font-weight: 800;
-  color: var(--text-main, #102b57);
+  color: #0f172a;
+  letter-spacing: -0.02em;
 }
 
-.add-student-header p {
+.add-student-header p,
+.add-admin-header p,
+.add-lecturer-header p {
   margin: 0;
-  color: var(--text-muted, #777);
+  color: #64748b;
   font-size: 14px;
 }
 
 .back-button {
-  border: 1px solid var(--border, #ddd);
-  background: var(--surface-soft, #f8fafc);
-  color: var(--text-main, inherit);
+  align-self: flex-start;
+  border: 1.5px solid #cbd5e1;
+  background: #ffffff;
+  color: #334155;
   display: inline-flex;
   align-items: center;
   gap: 8px;
   cursor: pointer;
-  font-size: 14px;
+  font-size: 13.5px;
   font-weight: 600;
   padding: 9px 18px;
-  border-radius: 10px;
+  border-radius: 11px;
   transition: all 0.18s ease;
+  text-decoration: none;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
 }
 
 .back-button:hover {
-  background: var(--surface-hover, #edf2f7);
-  border-color: var(--accent, #6366f1);
-  color: var(--accent, #6366f1);
+  background: #f8fafc;
+  border-color: #6366f1;
+  color: #6366f1;
   transform: translateX(-2px);
 }
 
-/* Tab Switcher */
+/* --------------------------------------------------------------------------
+   Tab Switcher
+   -------------------------------------------------------------------------- */
 .student-tabs {
   display: flex;
   gap: 12px;
   margin-bottom: 24px;
-  border-bottom: 2px solid var(--border, #eee);
+  border-bottom: 2px solid #e2e8f0;
   padding-bottom: 12px;
+  flex-wrap: wrap;
 }
 
 .student-tab {
@@ -63,276 +97,705 @@
   gap: 8px;
   padding: 11px 22px;
   border-radius: 12px;
-  border: 1px solid var(--border, #ddd);
-  background: var(--surface-soft, #f8fafc);
-  color: var(--text-main, #333);
+  border: 1.5px solid #cbd5e1;
+  background: #ffffff;
+  color: #475569;
   font-weight: 700;
-  font-size: 0.95rem;
+  font-size: 14px;
   cursor: pointer;
-  transition: all 180ms ease;
+  transition: all 0.18s ease;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
 }
 
 .student-tab:hover {
-  background: var(--surface-hover, #eef2f6);
-  border-color: var(--accent, #6366f1);
+  background: #f8fafc;
+  border-color: #94a3b8;
+  color: #0f172a;
 }
 
 .student-tab.active {
-  background: var(--btn-primary-bg, linear-gradient(135deg, #6366f1, #4338ca));
-  color: var(--btn-primary-text, #ffffff);
+  background: linear-gradient(135deg, #6366f1, #4f46e5);
+  color: #ffffff;
   border-color: transparent;
-  box-shadow: var(--btn-primary-shadow, 0 4px 14px rgba(99, 102, 241, 0.25));
+  box-shadow: 0 4px 14px rgba(99, 102, 241, 0.28);
 }
 
-/* Single Form Card */
-.student-form {
-  background: var(--surface, white);
-  border: 1px solid var(--border, #eee);
-  border-radius: 18px;
-  padding: 28px;
-  box-shadow: 0 12px 30px -15px var(--shadow, rgba(0, 0, 0, 0.08));
+/* --------------------------------------------------------------------------
+   Form Container Card
+   -------------------------------------------------------------------------- */
+.student-form,
+.add-admin-form,
+.add-lecturer-form,
+.admin-form {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 20px;
+  padding: 30px 34px;
+  box-shadow: 0 6px 28px rgba(0, 0, 0, 0.05);
 }
 
 .form-section {
-  margin-bottom: 30px;
+  margin-bottom: 28px;
 }
 
-.form-section h2 {
+.form-section h2,
+.form-section h3 {
   font-size: 18px;
-  font-weight: 700;
-  margin: 0 0 18px;
-  color: var(--text-main, #102b57);
+  font-weight: 800;
+  margin: 0 0 20px 0;
+  color: #0f172a;
+  letter-spacing: -0.01em;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #f1f5f9;
 }
 
 .form-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: 18px;
+  gap: 20px 24px;
 }
 
-.form-field {
+/* --------------------------------------------------------------------------
+   Form Fields & Input Boxes (Main Focus)
+   -------------------------------------------------------------------------- */
+.form-field,
+.form-group {
   display: flex;
   flex-direction: column;
   gap: 7px;
 }
 
-.form-field label {
-  font-size: 13px;
+.form-field label,
+.form-group label {
+  font-size: 13.5px;
   font-weight: 700;
-  color: var(--text-main, #1e293b);
+  color: #1e293b;
+  display: block;
+  letter-spacing: 0.01em;
 }
 
+.add-student-page input,
+.add-admin input,
+.add-lecturer-page input,
+.add-student-page select,
+.add-admin select,
+.add-lecturer-page select,
+.add-student-page textarea,
+.add-admin textarea,
+.add-lecturer-page textarea,
 .form-field input,
 .form-field select,
-.form-field textarea {
-  padding: 11px 14px;
-  border: 1px solid var(--border, #cbd5e1);
-  background: var(--surface-soft, #f8fafc);
-  color: var(--text-main, inherit);
-  border-radius: 10px;
-  outline: none;
-  font-size: 14px;
-  transition: all 0.2s ease;
+.form-field textarea,
+.form-group input,
+.form-group select,
+.form-group textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 13px 18px;
+  border: 1.5px solid #cbd5e1 !important;
+  background: #ffffff !important;
+  color: #0f172a !important;
+  border-radius: 12px !important;
+  outline: none !important;
+  font-size: 14.5px !important;
+  font-weight: 500;
   font-family: inherit;
-}
-
-.form-field input:focus,
-.form-field select:focus,
-.form-field textarea:focus {
-  border-color: var(--accent, #6366f1);
-  background: var(--surface, #ffffff);
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
-}
-
-.registration-info {
-  border: 1px solid var(--border, #eee);
-  background: var(--surface-soft, #f8fafc);
-  border-radius: 12px;
-  padding: 18px;
-  margin-top: 10px;
-}
-
-.registration-info p {
-  margin: 0 0 10px;
-  font-weight: 700;
-}
-
-.registration-info span {
-  font-size: 13px;
-  color: var(--text-muted, #64748b);
-  line-height: 1.5;
-}
-
-.form-error {
-  background: #fef2f2;
-  border: 1px solid #fecaca;
-  color: #991b1b;
-  padding: 12px 16px;
-  border-radius: 10px;
-  margin-bottom: 20px;
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.form-actions {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 14px;
-  margin-top: 24px;
-  padding-top: 20px;
-  border-top: 1px solid var(--border, #eee);
-}
-
-.save-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 12px 26px;
-  border-radius: 12px;
-  border: none;
-  background: var(--btn-primary-bg, linear-gradient(135deg, #6366f1, #4338ca));
-  color: var(--btn-primary-text, #ffffff);
-  font-size: 14px;
-  font-weight: 700;
-  cursor: pointer;
-  box-shadow: var(--btn-primary-shadow, 0 4px 14px rgba(99, 102, 241, 0.28));
+  text-align: left;
+  text-align-last: left;
+  line-height: normal;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
   transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.save-btn:hover:not(:disabled) {
-  background: var(--btn-primary-hover, linear-gradient(135deg, #4f46e5, #3730a3));
-  transform: translateY(-2px);
-  box-shadow: 0 6px 18px rgba(99, 102, 241, 0.38);
+.add-student-page input::placeholder,
+.add-admin input::placeholder,
+.add-lecturer-page input::placeholder,
+.form-field input::placeholder,
+.form-field textarea::placeholder,
+.form-group input::placeholder,
+.form-group textarea::placeholder {
+  color: #94a3b8;
+  font-weight: 400;
+  text-align: left;
 }
 
-.save-btn:disabled {
+.add-student-page input:hover,
+.add-admin input:hover,
+.add-lecturer-page input:hover,
+.form-field input:hover,
+.form-field select:hover,
+.form-field textarea:hover,
+.form-group input:hover,
+.form-group select:hover,
+.form-group textarea:hover {
+  border-color: #94a3b8 !important;
+}
+
+.add-student-page input:focus,
+.add-admin input:focus,
+.add-lecturer-page input:focus,
+.add-student-page select:focus,
+.add-admin select:focus,
+.add-lecturer-page select:focus,
+.form-field input:focus,
+.form-field select:focus,
+.form-field textarea:focus,
+.form-group input:focus,
+.form-group select:focus,
+.form-group textarea:focus {
+  border-color: #6366f1 !important;
+  background: #ffffff !important;
+  box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.18), 0 2px 6px rgba(99, 102, 241, 0.08) !important;
+}
+
+.form-field select,
+.form-group select {
+  cursor: pointer;
+}
+
+/* --------------------------------------------------------------------------
+   Messages & Banners
+   -------------------------------------------------------------------------- */
+.form-error,
+.error-message {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #b91c1c;
+  padding: 14px 18px;
+  border-radius: 12px;
+  margin-bottom: 22px;
+  font-size: 14px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.form-success,
+.success-message {
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  color: #047857;
+  padding: 14px 18px;
+  border-radius: 12px;
+  margin-bottom: 22px;
+  font-size: 14px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.registration-info {
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  border-radius: 14px;
+  padding: 18px 22px;
+  margin-top: 14px;
+}
+
+.registration-info p {
+  margin: 0 0 6px 0;
+  font-weight: 700;
+  color: #0f172a;
+  font-size: 14px;
+}
+
+.registration-info span {
+  font-size: 13.5px;
+  color: #64748b;
+  line-height: 1.5;
+}
+
+/* --------------------------------------------------------------------------
+   Actions / Buttons
+   -------------------------------------------------------------------------- */
+.form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 14px;
+  margin-top: 28px;
+  padding-top: 20px;
+  border-top: 1px solid #f1f5f9;
+}
+
+.save-btn,
+.add-user-button {
+  background: linear-gradient(135deg, #6366f1, #4f46e5);
+  color: #ffffff;
+  border: none;
+  padding: 12px 26px;
+  border-radius: 12px;
+  font-weight: 700;
+  font-size: 14.5px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  box-shadow: 0 4px 14px rgba(99, 102, 241, 0.28);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.save-btn:hover:not(:disabled),
+.add-user-button:hover:not(:disabled) {
+  background: linear-gradient(135deg, #4f46e5, #4338ca);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(99, 102, 241, 0.38);
+}
+
+.save-btn:active:not(:disabled),
+.add-user-button:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.save-btn:disabled,
+.add-user-button:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }
 
-/* Bulk Upload Zone */
-.bulk-upload-zone {
-  border: 2px dashed var(--accent, #6366f1);
-  background: rgba(99, 102, 241, 0.04);
+/* --------------------------------------------------------------------------
+   Bulk Upload Tab Components
+   -------------------------------------------------------------------------- */
+.bulk-upload-container {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.bulk-instructions-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
   border-radius: 18px;
-  padding: 40px 20px;
-  text-align: center;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  margin-bottom: 24px;
+  padding: 24px 28px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.04);
 }
 
-.bulk-upload-zone:hover {
-  background: rgba(99, 102, 241, 0.08);
-  border-color: #4f46e5;
+.bulk-instructions-card h3 {
+  margin: 0 0 8px 0;
+  font-size: 17px;
+  font-weight: 800;
+  color: #0f172a;
 }
 
-.bulk-upload-icon {
-  font-size: 44px;
-  color: var(--accent, #6366f1);
-  margin-bottom: 12px;
-}
-
-.bulk-upload-zone h3 {
-  margin: 0 0 6px;
-  font-size: 18px;
-  font-weight: 700;
-  color: var(--text-main, #102b57);
-}
-
-.bulk-upload-zone p {
-  margin: 0;
-  color: var(--text-muted, #64748b);
+.bulk-instructions-card p {
+  margin: 0 0 16px 0;
+  color: #64748b;
   font-size: 14px;
 }
 
-/* Preview Table */
-.preview-table-container {
-  background: var(--surface, white);
-  border: 1px solid var(--border, #eee);
-  border-radius: 16px;
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-  margin-bottom: 20px;
+.template-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  padding: 16px 20px;
+  gap: 16px;
+  flex-wrap: wrap;
 }
 
-.preview-table {
+.template-info {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.excel-icon-pill {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: #ecfdf5;
+  color: #059669;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  flex-shrink: 0;
+}
+
+.template-title {
+  display: block;
+  font-weight: 700;
+  color: #0f172a;
+  font-size: 14px;
+}
+
+.template-desc {
+  display: block;
+  font-size: 12.5px;
+  color: #64748b;
+}
+
+.download-template-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  border-radius: 10px;
+  background: #ffffff;
+  border: 1.5px solid #cbd5e1;
+  color: #334155;
+  font-weight: 700;
+  font-size: 13.5px;
+  cursor: pointer;
+  transition: all 0.18s ease;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+.download-template-btn:hover {
+  border-color: #10b981;
+  color: #059669;
+  background: #f0fdf4;
+}
+
+.file-drop-zone,
+.bulk-upload-zone {
+  background: #ffffff;
+  border: 2px dashed #cbd5e1;
+  border-radius: 18px;
+  padding: 40px 24px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.file-drop-zone:hover,
+.bulk-upload-zone:hover {
+  border-color: #6366f1;
+  background: rgba(99, 102, 241, 0.02);
+}
+
+.upload-icon {
+  font-size: 42px;
+  color: #6366f1;
+}
+
+.file-drop-zone h3,
+.bulk-upload-zone h3 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.file-drop-zone p,
+.bulk-upload-zone p {
+  margin: 0;
+  color: #64748b;
+  font-size: 13.5px;
+  max-width: 480px;
+}
+
+.browse-file-btn {
+  margin-top: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 22px;
+  border-radius: 10px;
+  background: #6366f1;
+  color: #ffffff;
+  font-weight: 700;
+  font-size: 13.5px;
+  border: none;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.25);
+  transition: all 0.18s ease;
+}
+
+.browse-file-btn:hover {
+  background: #4f46e5;
+  transform: translateY(-1px);
+}
+
+/* Parsed Table */
+.parsed-preview-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 18px;
+  padding: 24px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.04);
+}
+
+.parsed-table-wrap {
+  overflow-x: auto;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  margin-top: 14px;
+}
+
+.parsed-table {
   width: 100%;
   border-collapse: collapse;
-  min-width: 700px;
+  font-size: 13.5px;
 }
 
-.preview-table th,
-.preview-table td {
-  padding: 12px 16px;
-  text-align: left;
-  border-bottom: 1px solid var(--border, #f1f5f9);
-  font-size: 13px;
-}
-
-.preview-table th {
-  background: var(--surface-soft, #f8fafc);
+.parsed-table th {
+  background: #f8fafc;
+  color: #475569;
   font-weight: 700;
+  padding: 12px 14px;
+  border-bottom: 2px solid #e2e8f0;
   text-transform: uppercase;
-  font-size: 11px;
-  color: var(--text-muted, #64748b);
+  font-size: 11.5px;
+  letter-spacing: 0.04em;
 }
 
-/* =========================================================
-   MOBILE RESPONSIVENESS
-   ========================================================= */
+.parsed-table td {
+  padding: 12px 14px;
+  border-bottom: 1px solid #f1f5f9;
+  color: #1e293b;
+}
 
+.parsed-table tr:hover {
+  background: #f8fafc;
+}
+
+.status-badge-valid {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: rgba(16, 185, 129, 0.1);
+  color: #059669;
+  font-weight: 700;
+  font-size: 11px;
+}
+
+.status-badge-invalid {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: rgba(239, 68, 68, 0.1);
+  color: #dc2626;
+  font-weight: 700;
+  font-size: 11px;
+}
+
+/* --------------------------------------------------------------------------
+   Midnight / Dark Mode Support
+   -------------------------------------------------------------------------- */
+[data-theme="midnight"] .add-student-page,
+[data-theme="midnight"] .add-admin,
+[data-theme="midnight"] .add-lecturer-page {
+  background: #0b0f19;
+}
+
+[data-theme="midnight"] .add-student-header h1,
+[data-theme="midnight"] .add-admin-header h1,
+[data-theme="midnight"] .add-lecturer-header h1,
+[data-theme="midnight"] .form-section h2,
+[data-theme="midnight"] .form-section h3,
+[data-theme="midnight"] .bulk-instructions-card h3,
+[data-theme="midnight"] .file-drop-zone h3,
+[data-theme="midnight"] .bulk-upload-zone h3,
+[data-theme="midnight"] .template-title,
+[data-theme="midnight"] .registration-info p,
+[data-theme="midnight"] .parsed-table td {
+  color: #f8fafc;
+}
+
+[data-theme="midnight"] .add-student-header p,
+[data-theme="midnight"] .add-admin-header p,
+[data-theme="midnight"] .add-lecturer-header p,
+[data-theme="midnight"] .form-field label,
+[data-theme="midnight"] .form-group label,
+[data-theme="midnight"] .registration-info span,
+[data-theme="midnight"] .file-drop-zone p,
+[data-theme="midnight"] .bulk-upload-zone p,
+[data-theme="midnight"] .template-desc,
+[data-theme="midnight"] .bulk-instructions-card p {
+  color: #cbd5e1;
+}
+
+[data-theme="midnight"] .student-form,
+[data-theme="midnight"] .add-admin-form,
+[data-theme="midnight"] .add-lecturer-form,
+[data-theme="midnight"] .admin-form,
+[data-theme="midnight"] .bulk-instructions-card,
+[data-theme="midnight"] .parsed-preview-card,
+[data-theme="midnight"] .registration-info {
+  background: #131b2e;
+  border-color: #1e293b;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+}
+
+[data-theme="midnight"] .template-bar {
+  background: #1a233a;
+  border-color: #243048;
+}
+
+[data-theme="midnight"] .form-section h2,
+[data-theme="midnight"] .form-section h3,
+[data-theme="midnight"] .form-actions,
+[data-theme="midnight"] .student-tabs {
+  border-color: #1e293b;
+}
+
+[data-theme="midnight"] .back-button,
+[data-theme="midnight"] .student-tab,
+[data-theme="midnight"] .download-template-btn {
+  background: #1a233a;
+  border-color: #334155;
+  color: #cbd5e1;
+}
+
+[data-theme="midnight"] .back-button:hover,
+[data-theme="midnight"] .student-tab:hover,
+[data-theme="midnight"] .download-template-btn:hover {
+  background: #243048;
+  border-color: #6366f1;
+  color: #ffffff;
+}
+
+[data-theme="midnight"] .student-tab.active {
+  background: linear-gradient(135deg, #6366f1, #4f46e5);
+  color: #ffffff;
+}
+
+/* High-Contrast Inputs for Midnight Mode */
+[data-theme="midnight"] .add-student-page input,
+[data-theme="midnight"] .add-admin input,
+[data-theme="midnight"] .add-lecturer-page input,
+[data-theme="midnight"] .add-student-page select,
+[data-theme="midnight"] .add-admin select,
+[data-theme="midnight"] .add-lecturer-page select,
+[data-theme="midnight"] .add-student-page textarea,
+[data-theme="midnight"] .add-admin textarea,
+[data-theme="midnight"] .add-lecturer-page textarea,
+[data-theme="midnight"] .form-field input,
+[data-theme="midnight"] .form-field select,
+[data-theme="midnight"] .form-field textarea,
+[data-theme="midnight"] .form-group input,
+[data-theme="midnight"] .form-group select,
+[data-theme="midnight"] .form-group textarea {
+  background: #1a233a !important;
+  border-color: #334155 !important;
+  color: #f8fafc !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+[data-theme="midnight"] .add-student-page input::placeholder,
+[data-theme="midnight"] .add-admin input::placeholder,
+[data-theme="midnight"] .add-lecturer-page input::placeholder,
+[data-theme="midnight"] .form-field input::placeholder,
+[data-theme="midnight"] .form-field textarea::placeholder,
+[data-theme="midnight"] .form-group input::placeholder,
+[data-theme="midnight"] .form-group textarea::placeholder {
+  color: #94a3b8 !important;
+}
+
+[data-theme="midnight"] .add-student-page input:hover,
+[data-theme="midnight"] .add-admin input:hover,
+[data-theme="midnight"] .add-lecturer-page input:hover,
+[data-theme="midnight"] .form-field input:hover,
+[data-theme="midnight"] .form-field select:hover,
+[data-theme="midnight"] .form-field textarea:hover,
+[data-theme="midnight"] .form-group input:hover,
+[data-theme="midnight"] .form-group select:hover,
+[data-theme="midnight"] .form-group textarea:hover {
+  border-color: #475569 !important;
+}
+
+[data-theme="midnight"] .add-student-page input:focus,
+[data-theme="midnight"] .add-admin input:focus,
+[data-theme="midnight"] .add-lecturer-page input:focus,
+[data-theme="midnight"] .add-student-page select:focus,
+[data-theme="midnight"] .add-admin select:focus,
+[data-theme="midnight"] .add-lecturer-page select:focus,
+[data-theme="midnight"] .form-field input:focus,
+[data-theme="midnight"] .form-field select:focus,
+[data-theme="midnight"] .form-field textarea:focus,
+[data-theme="midnight"] .form-group input:focus,
+[data-theme="midnight"] .form-group select:focus,
+[data-theme="midnight"] .form-group textarea:focus {
+  background: #131b2e !important;
+  border-color: #6366f1 !important;
+  box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.28) !important;
+  color: #ffffff !important;
+}
+
+[data-theme="midnight"] .file-drop-zone,
+[data-theme="midnight"] .bulk-upload-zone {
+  background: rgba(99, 102, 241, 0.05);
+  border-color: #334155;
+}
+
+[data-theme="midnight"] .file-drop-zone:hover,
+[data-theme="midnight"] .bulk-upload-zone:hover {
+  background: rgba(99, 102, 241, 0.1);
+  border-color: #6366f1;
+}
+
+[data-theme="midnight"] .parsed-table-wrap {
+  border-color: #1e293b;
+}
+
+[data-theme="midnight"] .parsed-table th {
+  background: #1a233a;
+  border-color: #1e293b;
+  color: #cbd5e1;
+}
+
+[data-theme="midnight"] .parsed-table td {
+  border-color: #1e293b;
+}
+
+[data-theme="midnight"] .parsed-table tr:hover {
+  background: #202f4d;
+}
+
+/* --------------------------------------------------------------------------
+   Mobile Responsiveness
+   -------------------------------------------------------------------------- */
 @media (max-width: 800px) {
-  .add-student-page {
+  .add-student-page,
+  .add-admin,
+  .add-lecturer-page {
     padding: 16px 14px calc(88px + env(safe-area-inset-bottom, 0px)) !important;
+    gap: 16px;
   }
 
-  .add-student-header h1 {
-    font-size: 22px;
-  }
-
-  .student-tabs {
-    flex-direction: column;
-    gap: 8px;
-    border-bottom: none;
-    padding-bottom: 0;
-  }
-
-  .student-tab {
-    width: 100%;
-    justify-content: center;
-    padding: 12px;
-  }
-
-  .student-form {
-    padding: 18px 14px;
+  .student-form,
+  .add-admin-form,
+  .add-lecturer-form,
+  .admin-form {
+    padding: 20px 16px;
     border-radius: 16px;
   }
 
   .form-grid {
     grid-template-columns: 1fr;
-    gap: 14px;
+    gap: 16px;
+  }
+
+  .add-student-header h1,
+  .add-admin-header h1,
+  .add-lecturer-header h1 {
+    font-size: 22px;
   }
 
   .form-actions {
-    flex-direction: column-reverse;
-    gap: 10px;
-    width: 100%;
+    flex-direction: column;
+    align-items: stretch;
   }
 
-  .form-actions .back-button,
-  .form-actions .save-btn {
+  .form-actions button {
     width: 100%;
     justify-content: center;
-    text-align: center;
   }
 
-  .bulk-upload-zone {
-    padding: 28px 14px;
-  }
-
-  .bulk-upload-icon {
-    font-size: 36px;
+  .template-bar {
+    flex-direction: column;
+    align-items: flex-start;
   }
 }

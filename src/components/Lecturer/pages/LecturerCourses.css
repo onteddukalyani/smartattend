@@ -460,3 +460,90 @@
         padding: 18px 16px;
     }
 }
+
+/* ==========================================================================
+   MIDNIGHT THEME FOR LECTURER COURSES
+   ========================================================================== */
+
+[data-theme="midnight"] .lecturer-courses-page .lecturer-header-card,
+[data-theme="midnight"] .lecturer-courses-page .lecturer-kpi-card,
+[data-theme="midnight"] .lecturer-courses-page .lecturer-filter-card,
+[data-theme="midnight"] .lecturer-courses-page .lecturer-course-card,
+[data-theme="midnight"] .lecturer-courses-page .lc-modal-card {
+    background: #131b2e;
+    border-color: #1e293b;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+}
+
+[data-theme="midnight"] .lecturer-courses-page .lecturer-header-title,
+[data-theme="midnight"] .lecturer-courses-page .lecturer-kpi-value,
+[data-theme="midnight"] .lecturer-courses-page .lecturer-course-name,
+[data-theme="midnight"] .lecturer-courses-page .lc-modal-title {
+    color: #f8fafc;
+}
+
+[data-theme="midnight"] .lecturer-courses-page .lecturer-header-desc,
+[data-theme="midnight"] .lecturer-courses-page .lecturer-kpi-label,
+[data-theme="midnight"] .lecturer-courses-page .lecturer-kpi-sub,
+[data-theme="midnight"] .lecturer-courses-page .lc-info-row,
+[data-theme="midnight"] .lecturer-courses-page .lc-att-stats-row,
+[data-theme="midnight"] .lecturer-courses-page .lc-empty-state p {
+    color: #94a3b8;
+}
+
+[data-theme="midnight"] .lecturer-courses-page .lecturer-search-input,
+[data-theme="midnight"] .lecturer-courses-page .lc-form-input,
+[data-theme="midnight"] .lecturer-courses-page .lc-form-select,
+[data-theme="midnight"] .lecturer-courses-page .lc-form-textarea {
+    background: #1a233a;
+    border-color: #334155;
+    color: #f8fafc;
+}
+
+[data-theme="midnight"] .lecturer-courses-page .lecturer-status-tabs {
+    background: #0b0f19;
+}
+
+[data-theme="midnight"] .lecturer-courses-page .lecturer-tab-btn {
+    color: #94a3b8;
+}
+
+[data-theme="midnight"] .lecturer-courses-page .lecturer-tab-btn:hover {
+    color: #f8fafc;
+}
+
+[data-theme="midnight"] .lecturer-courses-page .lecturer-tab-btn.active {
+    background: #1e293b;
+    color: #a5b4fc;
+}
+
+[data-theme="midnight"] .lecturer-courses-page .lc-btn-refresh,
+[data-theme="midnight"] .lecturer-courses-page .lc-btn-cancel,
+[data-theme="midnight"] .lecturer-courses-page .lc-modal-close {
+    background: #1a233a;
+    border-color: #334155;
+    color: #e2e8f0;
+}
+
+[data-theme="midnight"] .lecturer-courses-page .lc-btn-refresh:hover,
+[data-theme="midnight"] .lecturer-courses-page .lc-btn-cancel:hover,
+[data-theme="midnight"] .lecturer-courses-page .lc-modal-close:hover {
+    background: #243048;
+    color: #ffffff;
+}
+
+[data-theme="midnight"] .lecturer-courses-page .lc-attendance-box {
+    background: #1a233a;
+}
+
+[data-theme="midnight"] .lecturer-courses-page .lc-progress-bar-bg {
+    background: #243048;
+}
+
+[data-theme="midnight"] .lecturer-courses-page .lc-tag-sem,
+[data-theme="midnight"] .lecturer-courses-page .lc-tag-batch,
+[data-theme="midnight"] .lecturer-courses-page .lc-badge-muted {
+    background: #1a233a;
+    color: #94a3b8;
+}
+

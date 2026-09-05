@@ -260,11 +260,17 @@ const StudentDetailModal = ({ student, onClose }) => {
           </div>
 
           {/* Right Column: Attendance Activity History */}
-          <div className="info-card">
+          <div className="info-card recorded-classes-card">
             <div className="card-header-flex">
-              <h3>
-                <FaClipboardList /> Attendance History ({totalAttended})
-              </h3>
+              <div className="card-title-group">
+                <div className="card-title-icon-badge">
+                  <FaClipboardList />
+                </div>
+                <div>
+                  <h3>Attendance History</h3>
+                  <span className="card-subtitle-count">{totalAttended} classes attended</span>
+                </div>
+              </div>
               {attendanceRecords.length > 0 && (
                 <button
                   type="button"
@@ -281,8 +287,15 @@ const StudentDetailModal = ({ student, onClose }) => {
               <div className="history-loading">Loading attendance records...</div>
             ) : attendanceRecords.length === 0 ? (
               <div className="history-empty">
-                <FaHistory className="empty-icon" />
-                <p>No attendance records found for this student yet.</p>
+                <div className="empty-icon-capsule">
+                  <FaClipboardList className="empty-icon" />
+                </div>
+                <h4>No Attendance Records Yet</h4>
+                <p>This student has not marked attendance in any recorded sessions yet.</p>
+                <div className="empty-state-badge">
+                  <span className="standby-dot"></span>
+                  <span>Standby • Ready for class attendance</span>
+                </div>
               </div>
             ) : (
               <div className="history-table-container">

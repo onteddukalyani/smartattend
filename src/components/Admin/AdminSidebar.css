@@ -74,21 +74,16 @@
 
 
 .admin-logo-icon {
-  width: 48px;
-  height: 48px;
-
+  width: 46px;
+  height: 46px;
   border-radius: 13px;
-
-  background: #5146df;
+  background: linear-gradient(135deg, #6366f1, #4f46e5);
   color: #ffffff;
-
   display: flex;
   align-items: center;
   justify-content: center;
-
-  font-size: 15px;
-  font-weight: 800;
-
+  font-size: 22px;
+  box-shadow: 0 4px 14px rgba(99, 102, 241, 0.35);
   flex-shrink: 0;
 }
 

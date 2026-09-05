@@ -257,7 +257,7 @@ const AddAdmin = () => {
   };
 
   return (
-    <div className="add-student">
+    <div className="add-admin">
       {/* Top Navigation */}
       <div className="add-student-header">
         <button
@@ -312,7 +312,7 @@ const AddAdmin = () => {
                   name="name"
                   value={form.name}
                   onChange={handleChange}
-                  placeholder="e.g. Dr. Rajesh Verma"
+                  placeholder="Enter Name"
                   required
                 />
               </div>
@@ -324,7 +324,7 @@ const AddAdmin = () => {
                   name="email"
                   value={form.email}
                   onChange={handleChange}
-                  placeholder="e.g. rajesh.admin@iiitdwd.ac.in"
+                  placeholder="e.g. name@iiitdwd.ac.in"
                   required
                 />
               </div>
@@ -336,7 +336,7 @@ const AddAdmin = () => {
                   name="designation"
                   value={form.designation}
                   onChange={handleChange}
-                  placeholder="e.g. System Administrator, Dean, Registrar"
+                  placeholder="e.g. System Administrator"
                 />
               </div>
 
@@ -347,7 +347,7 @@ const AddAdmin = () => {
                   name="department"
                   value={form.department}
                   onChange={handleChange}
-                  placeholder="e.g. Administration, IT Services, Academic Affairs"
+                  placeholder="e.g. Administration"
                 />
               </div>
 
@@ -358,7 +358,7 @@ const AddAdmin = () => {
                   name="phone"
                   value={form.phone}
                   onChange={handleChange}
-                  placeholder="e.g. +91 98765 43210"
+                  placeholder="e.g. +91 XXXXX XXXXX"
                 />
               </div>
 
@@ -369,7 +369,7 @@ const AddAdmin = () => {
                   name="cabin"
                   value={form.cabin}
                   onChange={handleChange}
-                  placeholder="e.g. Admin Block Room 204"
+                  placeholder="Enter Room Number"
                 />
               </div>
             </div>

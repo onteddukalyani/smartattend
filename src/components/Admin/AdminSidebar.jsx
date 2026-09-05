@@ -12,9 +12,9 @@ import {
   FaCog,
   FaUserCircle,
   FaSignOutAlt,
-  FaTimes
+  FaTimes,
+  FaGraduationCap
 } from "react-icons/fa";
-
 import { useAuth } from "../authcontext";
 
 import "./AdminSidebar.css";
@@ -34,7 +34,7 @@ const AdminSidebar = ({ isOpen, onClose }) => {
     { path: "/admin", label: "Dashboard", icon: FaHome, end: true },
     { path: "/admin/admins", label: "Manage Admins", icon: FaUserShield },
     { path: "/admin/lecturers", label: "Manage Lecturers", icon: FaChalkboardTeacher },
-    { path: "/admin/students", label: "Students", icon: FaUserGraduate },
+    { path: "/admin/students", label: "Manage Students", icon: FaUserGraduate },
     { path: "/admin/courses", label: "Courses", icon: FaBookOpen },
     { path: "/admin/attendance", label: "Attendance", icon: FaClipboardCheck },
     { path: "/admin/classes", label: "Classes", icon: FaChalkboard },
@@ -55,7 +55,7 @@ const AdminSidebar = ({ isOpen, onClose }) => {
         <div className="admin-brand">
 
           <div className="admin-logo-icon">
-            SA
+            <FaGraduationCap />
           </div>
 
           <div className="admin-brand-text">

@@ -388,6 +388,7 @@ function StudentForm() {
                     if (/bcs/i.test(cleanRollNo)) detectedBranch = "Computer Science";
                     else if (/bds/i.test(cleanRollNo)) detectedBranch = "Data Science";
                     else if (/bec/i.test(cleanRollNo)) detectedBranch = "Electronics";
+                    else if (/bec/i.test(cleanRollNo)) detectedBranch = "AIC";
                 }
                 await setDoc(userDocRef, {
                     name: cleanFullName,

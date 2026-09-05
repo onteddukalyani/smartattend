@@ -2168,3 +2168,170 @@
   }
 
 }
+
+/* =====================================================
+   MIDNIGHT THEME FOR ADMIN DASHBOARD
+   ===================================================== */
+
+[data-theme="midnight"] .admin-dashboard,
+[data-theme="midnight"] .admin-layout {
+  background: #0b0f19;
+}
+
+[data-theme="midnight"] .admin-sidebar {
+  background: #101726;
+  border-right-color: #1e293b;
+}
+
+[data-theme="midnight"] .admin-navbar {
+  background: #101726;
+  border-bottom-color: #1e293b;
+}
+
+[data-theme="midnight"] .admin-card,
+[data-theme="midnight"] .stat-card,
+[data-theme="midnight"] .lecturer-card,
+[data-theme="midnight"] .class-card,
+[data-theme="midnight"] .modal-card,
+[data-theme="midnight"] .overview-card {
+  background: #131b2e;
+  border-color: #1e293b;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+}
+
+[data-theme="midnight"] .admin-page-header h1,
+[data-theme="midnight"] .admin-card-header h2,
+[data-theme="midnight"] .stat-value,
+[data-theme="midnight"] .modal-header h2,
+[data-theme="midnight"] .nav-title,
+[data-theme="midnight"] .lecturer-name,
+[data-theme="midnight"] .class-name {
+  color: #f8fafc;
+}
+
+[data-theme="midnight"] .admin-page-header p,
+[data-theme="midnight"] .admin-card-header p,
+[data-theme="midnight"] .stat-label,
+[data-theme="midnight"] .modal-header p,
+[data-theme="midnight"] .form-group label,
+[data-theme="midnight"] .lecturer-email,
+[data-theme="midnight"] .class-code {
+  color: #94a3b8;
+}
+
+[data-theme="midnight"] .search-bar,
+[data-theme="midnight"] .filters select,
+[data-theme="midnight"] .form-group input,
+[data-theme="midnight"] .form-group select,
+[data-theme="midnight"] .form-field input,
+[data-theme="midnight"] .form-field select,
+[data-theme="midnight"] .edit-form-field input,
+[data-theme="midnight"] .edit-form-field select,
+[data-theme="midnight"] .settings-field input,
+[data-theme="midnight"] .modern-search-box,
+[data-theme="midnight"] .lecturer-search,
+[data-theme="midnight"] .student-search,
+[data-theme="midnight"] .attendance-search,
+[data-theme="midnight"] .courses-search-wrapper {
+  background: #1a233a !important;
+  border-color: #334155 !important;
+  color: #f8fafc !important;
+}
+
+[data-theme="midnight"] .modern-search-box input,
+[data-theme="midnight"] .lecturer-search input,
+[data-theme="midnight"] .student-search input,
+[data-theme="midnight"] .attendance-search input,
+[data-theme="midnight"] .courses-search-wrapper input {
+  background: transparent !important;
+  border: none !important;
+  color: #f8fafc !important;
+  box-shadow: none !important;
+}
+
+[data-theme="midnight"] .form-group input:focus,
+[data-theme="midnight"] .form-group select:focus,
+[data-theme="midnight"] .form-field input:focus,
+[data-theme="midnight"] .form-field select:focus,
+[data-theme="midnight"] .edit-form-field input:focus,
+[data-theme="midnight"] .edit-form-field select:focus,
+[data-theme="midnight"] .settings-field input:focus,
+[data-theme="midnight"] .modern-search-box:focus-within,
+[data-theme="midnight"] .lecturer-search:focus-within,
+[data-theme="midnight"] .student-search:focus-within,
+[data-theme="midnight"] .attendance-search:focus-within,
+[data-theme="midnight"] .courses-search-wrapper:focus-within {
+  background: #131b2e !important;
+  border-color: #6366f1 !important;
+  box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.25) !important;
+}
+
+[data-theme="midnight"] .admin-table-wrap,
+[data-theme="midnight"] .admin-table {
+  border-color: #1e293b;
+}
+
+[data-theme="midnight"] .admin-table th {
+  background: #1a233a;
+  border-bottom-color: #1e293b;
+  color: #cbd5e1;
+}
+
+[data-theme="midnight"] .admin-table td {
+  border-bottom-color: #1e293b;
+  color: #e2e8f0;
+}
+
+[data-theme="midnight"] .admin-table tbody tr:hover {
+  background: #202f4d;
+}
+
+[data-theme="midnight"] .btn-secondary,
+[data-theme="midnight"] .btn-refresh,
+[data-theme="midnight"] .close-modal {
+  background: #1a233a;
+  border-color: #334155;
+  color: #e2e8f0;
+}
+
+[data-theme="midnight"] .btn-secondary:hover,
+[data-theme="midnight"] .btn-refresh:hover,
+[data-theme="midnight"] .close-modal:hover {
+  background: #243048;
+  color: #ffffff;
+}
+
+[data-theme="midnight"] .empty-state {
+  color: #94a3b8;
+}
+
+/* =========================================================
+   UNIVERSAL ADMIN FORM & INPUT REFINEMENTS
+   ========================================================= */
+.admin-content input[type="text"],
+.admin-content input[type="email"],
+.admin-content input[type="tel"],
+.admin-content input[type="number"],
+.admin-content input[type="date"],
+.admin-content input[type="password"],
+.admin-content select {
+  box-sizing: border-box;
+  font-family: inherit;
+  border-radius: 11px;
+  padding: 13px 18px;
+  text-align: left;
+  text-align-last: left;
+  line-height: normal;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.admin-content textarea {
+  box-sizing: border-box;
+  font-family: inherit;
+  border-radius: 11px;
+  padding: 13px 18px;
+  text-align: left;
+  text-align-last: left;
+  line-height: 1.5;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}

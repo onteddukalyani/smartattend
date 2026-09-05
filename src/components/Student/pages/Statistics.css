@@ -707,3 +707,105 @@
         padding: 16px;
     }
 }
+
+/* =========================================================
+   MIDNIGHT THEME FOR STUDENT STATISTICS
+   ========================================================= */
+
+[data-theme="midnight"] .student-statistics-page .stats-header-banner,
+[data-theme="midnight"] .student-statistics-page .stats-kpi-card,
+[data-theme="midnight"] .student-statistics-page .stats-section-card {
+    background: #131b2e;
+    border-color: #1e293b;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+}
+
+[data-theme="midnight"] .student-statistics-page .stats-header-info h1,
+[data-theme="midnight"] .student-statistics-page .stats-kpi-number,
+[data-theme="midnight"] .student-statistics-page .stats-section-title,
+[data-theme="midnight"] .student-statistics-page .stats-subject-name,
+[data-theme="midnight"] .student-statistics-page .stats-date-primary {
+    color: #f8fafc;
+}
+
+[data-theme="midnight"] .student-statistics-page .stats-subtitle,
+[data-theme="midnight"] .student-statistics-page .stats-kpi-label,
+[data-theme="midnight"] .student-statistics-page .stats-kpi-unit,
+[data-theme="midnight"] .student-statistics-page .stats-subject-code,
+[data-theme="midnight"] .student-statistics-page .stats-stat-row,
+[data-theme="midnight"] .student-statistics-page .stats-date-time {
+    color: #94a3b8;
+}
+
+[data-theme="midnight"] .student-statistics-page .stats-pill {
+    background: #1a233a;
+    border-color: #243048;
+    color: #cbd5e1;
+}
+
+[data-theme="midnight"] .student-statistics-page .stats-pill.roll-pill {
+    background: rgba(99, 102, 241, 0.2);
+    color: #a5b4fc;
+    border-color: rgba(99, 102, 241, 0.4);
+}
+
+[data-theme="midnight"] .student-statistics-page .stats-btn-refresh {
+    background: #1a233a;
+    border-color: #334155;
+    color: #e2e8f0;
+}
+
+[data-theme="midnight"] .student-statistics-page .stats-btn-refresh:hover:not(:disabled) {
+    background: #243048;
+    color: #a5b4fc;
+}
+
+[data-theme="midnight"] .student-statistics-page .stats-course-select,
+[data-theme="midnight"] .student-statistics-page .stats-search-box input {
+    background: #1a233a;
+    border-color: #334155;
+    color: #f8fafc;
+}
+
+[data-theme="midnight"] .student-statistics-page .stats-subject-card {
+    background: #1a233a;
+    border-color: #243048;
+}
+
+[data-theme="midnight"] .student-statistics-page .stats-subject-card:hover {
+    border-color: #334155;
+}
+
+[data-theme="midnight"] .student-statistics-page .stats-progress-bg {
+    background: #243048;
+}
+
+[data-theme="midnight"] .student-statistics-page .stats-table-wrapper {
+    border-color: #1e293b;
+}
+
+[data-theme="midnight"] .student-statistics-page .stats-data-table thead th {
+    background: #1a233a;
+    border-color: #1e293b;
+    color: #cbd5e1;
+}
+
+[data-theme="midnight"] .student-statistics-page .stats-data-table tbody td {
+    border-color: #1e293b;
+    color: #e2e8f0;
+}
+
+[data-theme="midnight"] .student-statistics-page .stats-data-table tbody tr:hover {
+    background: #202f4d;
+}
+
+[data-theme="midnight"] .student-statistics-page .stats-course-badge {
+    background: rgba(99, 102, 241, 0.2);
+    color: #a5b4fc;
+}
+
+[data-theme="midnight"] .student-statistics-page .stats-empty-state,
+[data-theme="midnight"] .student-statistics-page .stats-loading {
+    color: #94a3b8;
+}
+

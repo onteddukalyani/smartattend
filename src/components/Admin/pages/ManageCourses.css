@@ -189,36 +189,56 @@
 
 .courses-search-wrapper {
     position: relative;
+    display: flex;
+    align-items: center;
+    background: var(--surface-soft, #f8fafc);
+    border: 1.5px solid var(--border, #cbd5e1);
+    border-radius: 12px;
+    padding: 0 16px;
+    gap: 12px;
     flex: 1;
     min-width: 260px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.courses-search-wrapper:hover {
+    border-color: #94a3b8;
+}
+
+.courses-search-wrapper:focus-within {
+    border-color: #6366f1;
+    background: var(--surface, #ffffff);
+    box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.16);
 }
 
 .courses-search-icon {
-    position: absolute;
-    left: 14px;
-    top: 50%;
-    transform: translateY(-50%);
-    color: var(--text-muted, #94a3b8);
-    font-size: 14px;
+    color: var(--text-muted, #64748b);
+    font-size: 16px;
+    flex-shrink: 0;
+    pointer-events: none;
+    position: static;
+    transform: none;
 }
 
+.admin-content .courses-search-wrapper input.courses-search-input,
+.courses-search-wrapper input.courses-search-input,
 .courses-search-input {
-    width: 100%;
-    box-sizing: border-box;
-    padding: 10px 14px 10px 38px;
-    background: var(--surface-soft, #f8fafc);
-    border: 1px solid var(--border, #e2e8f0);
-    border-radius: 10px;
-    font-size: 14px;
-    color: var(--text-main, #0f172a);
-    outline: none;
-    transition: all 0.15s ease;
+    border: none !important;
+    background: transparent !important;
+    padding: 13px 0 !important;
+    font-size: 0.94rem !important;
+    font-weight: 500 !important;
+    color: var(--text-main, #0f172a) !important;
+    box-shadow: none !important;
+    width: 100% !important;
+    outline: none !important;
 }
 
-.courses-search-input:focus {
-    border-color: var(--accent, #6366f1);
-    background: #ffffff;
-    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+.admin-content .courses-search-wrapper input.courses-search-input::placeholder,
+.courses-search-input::placeholder {
+    color: var(--text-muted, #94a3b8) !important;
+    opacity: 1;
 }
 
 .courses-filter-group {
@@ -469,14 +489,34 @@
 .form-group input,
 .form-group select,
 .form-group textarea {
-    padding: 10px 14px;
+    padding: 13px 18px;
     background: var(--surface-soft, #f8fafc);
-    border: 1px solid var(--border, #e2e8f0);
-    border-radius: 10px;
-    font-size: 0.9rem;
+    border: 1.5px solid var(--border, #cbd5e1);
+    border-radius: 11px;
+    font-size: 0.92rem;
+    font-weight: 500;
     color: var(--text-main, #0f172a);
     outline: none;
     font-family: inherit;
+    text-align: left;
+    text-align-last: left;
+    line-height: normal;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+    transition: all 0.2s ease;
+}
+
+.form-group input:hover,
+.form-group select:hover,
+.form-group textarea:hover {
+    border-color: #94a3b8;
+}
+
+.form-group input:focus,
+.form-group select:focus,
+.form-group textarea:focus {
+    border-color: #6366f1;
+    background: var(--surface, #ffffff);
+    box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.16);
 }
 
 .admin-modal-footer {

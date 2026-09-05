@@ -285,11 +285,17 @@ const LecturerDetailModal = ({ lecturer, onClose }) => {
           </div>
 
           {/* Right Column: Conducted Classes & Sessions History */}
-          <div className="info-card">
+          <div className="info-card recorded-classes-card">
             <div className="card-header-flex">
-              <h3>
-                <FaHistory /> Recorded Classes ({totalClasses})
-              </h3>
+              <div className="card-title-group">
+                <div className="card-title-icon-badge">
+                  <FaHistory />
+                </div>
+                <div>
+                  <h3>Recorded Classes</h3>
+                  <span className="card-subtitle-count">{totalClasses} classes conducted</span>
+                </div>
+              </div>
               {sessions.length > 0 && (
                 <button
                   type="button"
@@ -306,8 +312,15 @@ const LecturerDetailModal = ({ lecturer, onClose }) => {
               <div className="history-loading">Loading session records...</div>
             ) : sessions.length === 0 ? (
               <div className="history-empty">
-                <FaHistory className="empty-icon" />
-                <p>No attendance classes recorded by this lecturer yet.</p>
+                <div className="empty-icon-capsule">
+                  <FaHistory className="empty-icon" />
+                </div>
+                <h4>No Recorded Classes Yet</h4>
+                <p>This lecturer has not initiated or conducted any attendance sessions in the system.</p>
+                <div className="empty-state-badge">
+                  <span className="standby-dot"></span>
+                  <span>Standby • Ready for upcoming sessions</span>
+                </div>
               </div>
             ) : (
               <div className="history-table-container">

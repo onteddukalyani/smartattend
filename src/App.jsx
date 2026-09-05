@@ -26,9 +26,11 @@ import LecturerCourses from "./components/Lecturer/pages/LecturerCourses";
 import StudentDashboard from "./components/Student/StudentDashboard";
 import StudentDashboardView from "./components/Student/pages/Dashboard";
 import Statistics from "./components/Student/pages/Statistics";
+import StudentCourses from "./components/Student/pages/StudentCourses";
 
 import ProtectedRoute from "./components/ProtectedRoute";
 import { useAuth } from "./components/authcontext";
+import { FaGraduationCap } from "react-icons/fa";
 import "./App.css";
 
 function App() {
@@ -37,8 +39,21 @@ function App() {
   // Wait until Firebase checks the current login
   if (loading) {
     return (
-      <div className="app-loading">
-        <h2>Loading SmartAttend...</h2>
+      <div className="app-loading-screen" role="status" aria-live="polite">
+        <div className="app-loading-card">
+          <div className="app-loading-logo-wrap">
+            <div className="app-loading-pulse-ring"></div>
+            <div className="app-loading-logo-badge">
+              <FaGraduationCap />
+            </div>
+          </div>
+          <div className="app-loading-text">
+            <p className="app-loading-status">Loading SmartAttend...</p>
+          </div>
+          <div className="app-loading-progress-bar">
+            <div className="app-loading-progress-indeterminate"></div>
+          </div>
+        </div>
       </div>
     );
   }
@@ -183,6 +198,7 @@ function App() {
           }
         >
           <Route index element={<StudentDashboardView />} />
+          <Route path="courses" element={<StudentCourses />} />
           <Route path="mark-attendance" element={<QrScannerApp />} />
           <Route path="statistics" element={<Statistics />} />
           <Route path="settings" element={<Settings />} />

@@ -10,9 +10,9 @@ function BottomNav() {
 
     const items = [
         { path: "/student", text: "Home", icon: <FaHome />, end: true },
-        { path: "/student/statistics", text: "Attendance", icon: <BsBarChart />, end: true },
+        { path: "/student/courses", text: "Courses", icon: <FaBookOpen /> },
         { path: "/student/mark-attendance", text: "Scan QR", icon: <MdQrCodeScanner />, isElevated: true },
-        { path: "/student/statistics", text: "Courses", icon: <FaBookOpen /> },
+        { path: "/student/statistics", text: "Attendance", icon: <BsBarChart />, end: true },
         { path: "/student/settings", text: "Settings", icon: <FaCog /> }
     ];
 

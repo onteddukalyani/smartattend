@@ -5,7 +5,8 @@ import {
   FaLock,
   FaUserTie,
   FaChalkboardTeacher,
-  FaUserGraduate
+  FaUserGraduate,
+  FaGraduationCap
 } from "react-icons/fa";
 
 import { useAuth } from "./authcontext";
@@ -98,7 +99,7 @@ const Login = () => {
               className="login-mark"
               aria-hidden="true"
             >
-              SA
+              <FaGraduationCap />
             </div>
 
             <h1>
