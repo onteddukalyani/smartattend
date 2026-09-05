@@ -79,11 +79,9 @@
 
 .attendance-data-page table {
     width: 100%;
-    min-width: 800px;
-    table-layout: fixed;
+    min-width: 900px;
     border-collapse: separate;
     border-spacing: 0;
-    overflow: hidden;
     font-family: inherit;
     background: #ffffff;
     border: 1px solid #e5e7eb;
@@ -96,37 +94,7 @@
     padding: 16px 18px;
     text-align: left;
     vertical-align: middle;
-    overflow: hidden;
-    text-overflow: ellipsis;
     white-space: nowrap;
-}
-
-.attendance-data-page th:nth-child(1),
-.attendance-data-page td:nth-child(1) {
-    width: 22%;
-}
-
-.attendance-data-page th:nth-child(2),
-.attendance-data-page td:nth-child(2) {
-    width: 16%;
-}
-
-.attendance-data-page th:nth-child(3),
-.attendance-data-page td:nth-child(3),
-.attendance-data-page th:nth-child(4),
-.attendance-data-page td:nth-child(4) {
-    width: 14%;
-}
-
-.attendance-data-page th:nth-child(5),
-.attendance-data-page td:nth-child(5) {
-    width: 14%;
-}
-
-.attendance-data-page th:nth-child(6),
-.attendance-data-page td:nth-child(6) {
-    width: 24%;
-    min-width: 240px;
 }
 
 .attendance-data-page th {
@@ -138,14 +106,15 @@
     text-transform: uppercase;
 }
 
-.attendance-data-page td:last-child {
-    overflow: visible;
-    white-space: nowrap;
-}
-
 .attendance-data-page td {
     font-size: 0.94rem;
     border-bottom: 1px solid #eef0f4;
+}
+
+.attendance-data-page td:last-child,
+.attendance-data-page th:last-child {
+    min-width: 220px;
+    white-space: nowrap;
 }
 
 .attendance-data-page th:first-child {

@@ -65,15 +65,21 @@ const LecturerDetailModal = ({ lecturer, onClose }) => {
         });
 
         // Filter sessions that belong to this lecturer
-        // ownerId might match lecturer.id, or if doc id, or lecturer email
+        const emailLower = (lecturer.email || "").toLowerCase().trim();
+        const userUid = lecturer.userDocId || (!lecturer.id?.includes("@") ? lecturer.id : null);
+        const emailId = lecturer.emailDocId || (lecturer.id?.includes("@") ? lecturer.id : null);
+
         const lecturerSessions = sessionsSnap.docs
           .map((docSnap) => ({
             id: docSnap.id,
             ...docSnap.data()
           }))
           .filter((sess) => {
-            if (sess.ownerId === lecturer.id) return true;
-            if (sess.ownerEmail && sess.ownerEmail === lecturer.email) return true;
+            const ownerId = sess.ownerId;
+            const ownerEmail = (sess.ownerEmail || sess.lecturerEmail || "").toLowerCase().trim();
+            if (userUid && ownerId === userUid) return true;
+            if (emailId && (ownerId === emailId || ownerEmail === emailId)) return true;
+            if (emailLower && (ownerEmail === emailLower || ownerId === emailLower)) return true;
             return false;
           });
 

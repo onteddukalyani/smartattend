@@ -102,11 +102,36 @@ const AdminOverview = () => {
       }));
       recordsList.sort((a, b) => (b.submittedAt || 0) - (a.submittedAt || 0));
 
+      // Build map of users for lecturer name resolution
+      const userMap = new Map();
+      usersSnap.docs.forEach((d) => {
+        const u = d.data();
+        if (u.name) {
+          userMap.set(d.id, u.name);
+          if (u.email) userMap.set(u.email.toLowerCase().trim(), u.name);
+        }
+      });
+      authUsersSnap.docs.forEach((d) => {
+        const u = d.data();
+        if (u.name) {
+          userMap.set(d.id.toLowerCase().trim(), u.name);
+          if (u.email) userMap.set(u.email.toLowerCase().trim(), u.name);
+        }
+      });
+
       // Recent sessions
-      const sessionsList = sessionsSnap.docs.map((d) => ({
-        id: d.id,
-        ...d.data()
-      }));
+      const sessionsList = sessionsSnap.docs.map((d) => {
+        const data = d.data();
+        const ownerEmail = (data.ownerEmail || data.lecturerEmail || "").toLowerCase().trim();
+        const ownerId = data.ownerId;
+        const resolvedLecturer = data.lecturerName || userMap.get(ownerId) || userMap.get(ownerEmail) || (ownerEmail ? ownerEmail.split("@")[0] : "Faculty");
+
+        return {
+          id: d.id,
+          ...data,
+          lecturerName: resolvedLecturer
+        };
+      });
       sessionsList.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
 
       setStats({
@@ -293,7 +318,7 @@ const AdminOverview = () => {
                   </div>
                   <div className="record-meta">
                     <strong>{sess.courseCode || sess.classCode || "Class Session"}</strong>
-                    <span>Room {sess.roomNo || "N/A"}</span>
+                    <span>{sess.lecturerName ? `By ${sess.lecturerName} • ` : ""}Room {sess.roomNo || "N/A"}</span>
                   </div>
                   <div className="record-time">
                     <span className={sess.active && (sess.expiresAt || 0) > Date.now() ? "live-badge" : "closed-badge"}>

@@ -1,0 +1,676 @@
+/* =========================================================
+   STUDENT STATISTICS PAGE - DEDICATED STYLES
+   Strictly scoped under .student-statistics-page
+   ========================================================= */
+
+.student-statistics-page {
+    padding: 24px;
+    max-width: 1300px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+    box-sizing: border-box;
+}
+
+/* 1. Header Banner */
+.student-statistics-page .stats-header-banner {
+    background: var(--surface, #ffffff);
+    border: 1px solid var(--border, #e2e8f0);
+    border-radius: 20px;
+    padding: 28px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.04);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 20px;
+    position: relative;
+    overflow: hidden;
+}
+
+.student-statistics-page .stats-header-banner::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 6px;
+    height: 100%;
+    background: linear-gradient(180deg, #6366f1, #8b5cf6);
+}
+
+.student-statistics-page .stats-header-info {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    flex-wrap: wrap;
+}
+
+.student-statistics-page .stats-avatar {
+    width: 64px;
+    height: 64px;
+    border-radius: 16px;
+    background: linear-gradient(135deg, #6366f1, #4338ca);
+    color: #ffffff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 26px;
+    font-weight: 800;
+    box-shadow: 0 4px 14px rgba(99, 102, 241, 0.35);
+    flex-shrink: 0;
+}
+
+.student-statistics-page .stats-header-info h1 {
+    font-size: 1.6rem;
+    font-weight: 800;
+    color: var(--text, #1e293b);
+    margin: 0 0 6px 0;
+    letter-spacing: -0.02em;
+}
+
+.student-statistics-page .stats-subtitle {
+    font-size: 0.92rem;
+    color: var(--text-secondary, #64748b);
+    margin: 0 0 12px 0;
+}
+
+.student-statistics-page .stats-pill-group {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.student-statistics-page .stats-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 12px;
+    border-radius: 9999px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    background: rgba(100, 116, 139, 0.08);
+    color: var(--text, #334155);
+    border: 1px solid rgba(100, 116, 139, 0.15);
+}
+
+.student-statistics-page .stats-pill.roll-pill {
+    background: rgba(99, 102, 241, 0.12);
+    color: #4f46e5;
+    border-color: rgba(99, 102, 241, 0.3);
+    font-family: monospace;
+    font-size: 0.85rem;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+}
+
+.student-statistics-page .stats-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.student-statistics-page .stats-btn-refresh,
+.student-statistics-page .stats-btn-export {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 18px;
+    border-radius: 12px;
+    font-size: 0.88rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    border: 1px solid transparent;
+}
+
+.student-statistics-page .stats-btn-refresh {
+    background: var(--surface, #ffffff);
+    color: var(--text, #334155);
+    border-color: var(--border, #cbd5e1);
+}
+
+.student-statistics-page .stats-btn-refresh:hover:not(:disabled) {
+    background: rgba(99, 102, 241, 0.06);
+    border-color: #6366f1;
+    color: #6366f1;
+}
+
+.student-statistics-page .stats-btn-export {
+    background: linear-gradient(135deg, #10b981, #059669);
+    color: #ffffff;
+    box-shadow: 0 4px 12px rgba(16, 185, 129, 0.25);
+}
+
+.student-statistics-page .stats-btn-export:hover:not(:disabled) {
+    box-shadow: 0 6px 16px rgba(16, 185, 129, 0.35);
+    transform: translateY(-1px);
+}
+
+.student-statistics-page .stats-btn-export:disabled,
+.student-statistics-page .stats-btn-refresh:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.student-statistics-page .stats-spin {
+    animation: statsSpin 1s linear infinite;
+}
+
+@keyframes statsSpin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+/* 2. KPI Stat Cards Grid */
+.student-statistics-page .stats-kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 20px;
+}
+
+.student-statistics-page .stats-kpi-card {
+    background: var(--surface, #ffffff);
+    border: 1px solid var(--border, #e2e8f0);
+    border-radius: 18px;
+    padding: 22px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.03);
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.student-statistics-page .stats-kpi-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.06);
+}
+
+.student-statistics-page .stats-kpi-card.stats-kpi-primary {
+    border-color: rgba(99, 102, 241, 0.3);
+    background: linear-gradient(180deg, var(--surface, #ffffff) 0%, rgba(99, 102, 241, 0.03) 100%);
+}
+
+.student-statistics-page .stats-kpi-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+}
+
+.student-statistics-page .stats-kpi-label {
+    font-size: 0.85rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-secondary, #64748b);
+}
+
+.student-statistics-page .stats-kpi-icon {
+    font-size: 1.25rem;
+    color: #6366f1;
+}
+
+.student-statistics-page .stats-kpi-icon.text-green { color: #10b981; }
+.student-statistics-page .stats-kpi-icon.text-red { color: #ef4444; }
+.student-statistics-page .stats-kpi-icon.text-indigo { color: #8b5cf6; }
+
+.student-statistics-page .stats-kpi-value-row {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.student-statistics-page .stats-kpi-number {
+    font-size: 2.3rem;
+    font-weight: 900;
+    color: var(--text, #0f172a);
+    line-height: 1;
+}
+
+.student-statistics-page .stats-kpi-number.text-green { color: #10b981; }
+.student-statistics-page .stats-kpi-number.text-red { color: #ef4444; }
+
+.student-statistics-page .stats-kpi-unit {
+    font-size: 0.88rem;
+    font-weight: 600;
+    color: var(--text-secondary, #94a3b8);
+}
+
+.student-statistics-page .stats-status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 10px;
+    border-radius: 9999px;
+    font-size: 0.78rem;
+    font-weight: 700;
+}
+
+.student-statistics-page .status-safe {
+    background: rgba(16, 185, 129, 0.12);
+    color: #059669;
+    border: 1px solid rgba(16, 185, 129, 0.25);
+}
+
+.student-statistics-page .status-warning {
+    background: rgba(245, 158, 11, 0.12);
+    color: #d97706;
+    border: 1px solid rgba(245, 158, 11, 0.25);
+}
+
+.student-statistics-page .status-danger {
+    background: rgba(239, 68, 68, 0.12);
+    color: #dc2626;
+    border: 1px solid rgba(239, 68, 68, 0.25);
+}
+
+.student-statistics-page .stats-kpi-meter-bar {
+    width: 100%;
+    height: 8px;
+    background: rgba(100, 116, 139, 0.12);
+    border-radius: 9999px;
+    overflow: hidden;
+    margin-bottom: 10px;
+}
+
+.student-statistics-page .stats-kpi-meter-fill {
+    height: 100%;
+    border-radius: 9999px;
+    transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.student-statistics-page .stats-kpi-footer-text {
+    font-size: 0.78rem;
+    color: var(--text-secondary, #64748b);
+    margin: 0;
+    line-height: 1.4;
+}
+
+/* Target Status Card Content */
+.student-statistics-page .stats-target-content {
+    margin-top: 4px;
+}
+
+.student-statistics-page .stats-target-highlight {
+    font-size: 1.35rem;
+    font-weight: 800;
+    display: block;
+    margin-bottom: 6px;
+}
+
+.student-statistics-page .stats-target-highlight.text-green { color: #10b981; }
+.student-statistics-page .stats-target-highlight.text-amber { color: #f59e0b; }
+
+.student-statistics-page .stats-target-desc {
+    font-size: 0.84rem;
+    color: var(--text, #334155);
+    margin: 0;
+    line-height: 1.45;
+}
+
+/* 3. Section Cards */
+.student-statistics-page .stats-section-card {
+    background: var(--surface, #ffffff);
+    border: 1px solid var(--border, #e2e8f0);
+    border-radius: 20px;
+    padding: 24px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.03);
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.student-statistics-page .stats-section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 16px;
+}
+
+.student-statistics-page .stats-section-header h2 {
+    font-size: 1.25rem;
+    font-weight: 800;
+    color: var(--text, #1e293b);
+    margin: 0 0 4px 0;
+}
+
+.student-statistics-page .stats-section-header p {
+    font-size: 0.88rem;
+    color: var(--text-secondary, #64748b);
+    margin: 0;
+}
+
+/* Subjects Breakdown Grid */
+.student-statistics-page .stats-subjects-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 16px;
+}
+
+.student-statistics-page .stats-subject-item {
+    background: rgba(248, 250, 252, 0.7);
+    border: 1px solid var(--border, #e2e8f0);
+    border-radius: 16px;
+    padding: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    transition: all 0.2s ease;
+}
+
+.student-statistics-page .stats-subject-item:hover {
+    border-color: rgba(99, 102, 241, 0.4);
+    background: #ffffff;
+    box-shadow: 0 4px 12px rgba(99, 102, 241, 0.08);
+}
+
+.student-statistics-page .stats-subject-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+}
+
+.student-statistics-page .stats-subject-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+
+.student-statistics-page .stats-subject-icon {
+    color: #6366f1;
+    font-size: 1rem;
+    flex-shrink: 0;
+}
+
+.student-statistics-page .stats-subject-title h3 {
+    font-size: 0.98rem;
+    font-weight: 700;
+    color: var(--text, #0f172a);
+    margin: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.student-statistics-page .stats-subject-badge {
+    padding: 4px 8px;
+    border-radius: 8px;
+    font-size: 0.8rem;
+    font-weight: 700;
+    flex-shrink: 0;
+}
+
+.student-statistics-page .stats-subject-meter {
+    width: 100%;
+    height: 7px;
+    background: rgba(100, 116, 139, 0.12);
+    border-radius: 9999px;
+    overflow: hidden;
+}
+
+.student-statistics-page .stats-subject-fill {
+    height: 100%;
+    border-radius: 9999px;
+    transition: width 0.5s ease;
+}
+
+.student-statistics-page .stats-subject-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.8rem;
+    color: var(--text-secondary, #64748b);
+}
+
+.student-statistics-page .stats-subject-status-text {
+    font-weight: 600;
+}
+
+/* Table Controls: Search & Dropdown */
+.student-statistics-page .stats-controls-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.student-statistics-page .stats-filter-dropdown-wrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.student-statistics-page .stats-filter-icon {
+    position: absolute;
+    left: 12px;
+    color: var(--text-secondary, #94a3b8);
+    font-size: 0.82rem;
+    pointer-events: none;
+}
+
+.student-statistics-page .stats-course-select {
+    padding: 9px 14px 9px 32px;
+    border-radius: 12px;
+    border: 1px solid var(--border, #cbd5e1);
+    background: var(--surface, #ffffff);
+    color: var(--text, #1e293b);
+    font-size: 0.85rem;
+    font-weight: 600;
+    outline: none;
+    cursor: pointer;
+    transition: border-color 0.2s ease;
+}
+
+.student-statistics-page .stats-course-select:focus {
+    border-color: #6366f1;
+}
+
+.student-statistics-page .stats-search-box {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.student-statistics-page .stats-search-icon {
+    position: absolute;
+    left: 12px;
+    color: var(--text-secondary, #94a3b8);
+    font-size: 0.85rem;
+}
+
+.student-statistics-page .stats-search-box input {
+    padding: 9px 14px 9px 34px;
+    border-radius: 12px;
+    border: 1px solid var(--border, #cbd5e1);
+    background: var(--surface, #ffffff);
+    color: var(--text, #1e293b);
+    font-size: 0.85rem;
+    width: 220px;
+    outline: none;
+    transition: all 0.2s ease;
+}
+
+.student-statistics-page .stats-search-box input:focus {
+    border-color: #6366f1;
+    width: 260px;
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.12);
+}
+
+/* 4. Table Styles */
+.student-statistics-page .stats-table-wrapper {
+    overflow-x: auto;
+    border: 1px solid var(--border, #e2e8f0);
+    border-radius: 14px;
+}
+
+.student-statistics-page .stats-data-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.88rem;
+    text-align: left;
+}
+
+.student-statistics-page .stats-data-table thead th {
+    background: rgba(248, 250, 252, 0.95);
+    color: var(--text-secondary, #475569);
+    padding: 13px 16px;
+    font-size: 0.8rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-bottom: 1px solid var(--border, #e2e8f0);
+    white-space: nowrap;
+    user-select: none;
+    cursor: pointer;
+}
+
+.student-statistics-page .stats-data-table thead th:first-child {
+    cursor: default;
+    width: 48px;
+}
+
+.student-statistics-page .stats-data-table thead th:hover:not(:first-child) {
+    color: #6366f1;
+    background: rgba(99, 102, 241, 0.05);
+}
+
+.student-statistics-page .stats-data-table tbody td {
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border, #f1f5f9);
+    color: var(--text, #334155);
+    vertical-align: middle;
+}
+
+.student-statistics-page .stats-data-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+.student-statistics-page .stats-data-table tbody tr:hover {
+    background: rgba(99, 102, 241, 0.03);
+}
+
+.student-statistics-page .stats-date-cell {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.student-statistics-page .stats-date-primary {
+    font-weight: 600;
+    color: var(--text, #0f172a);
+}
+
+.student-statistics-page .stats-date-time {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 0.76rem;
+    color: var(--text-secondary, #94a3b8);
+}
+
+.student-statistics-page .stats-course-badge {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 6px;
+    background: rgba(99, 102, 241, 0.1);
+    color: #4f46e5;
+    font-weight: 700;
+    font-size: 0.82rem;
+    letter-spacing: 0.3px;
+}
+
+.student-statistics-page .stats-table-status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 10px;
+    border-radius: 9999px;
+    font-size: 0.78rem;
+    font-weight: 700;
+    background: rgba(16, 185, 129, 0.12);
+    color: #059669;
+}
+
+/* Empty & Loading States */
+.student-statistics-page .stats-empty-state {
+    padding: 48px 24px;
+    text-align: center;
+    color: var(--text-secondary, #94a3b8);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+}
+
+.student-statistics-page .stats-empty-icon {
+    font-size: 2.4rem;
+    color: #cbd5e1;
+}
+
+.student-statistics-page .stats-loading {
+    padding: 48px 24px;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+    color: var(--text-secondary, #64748b);
+}
+
+.student-statistics-page .stats-spinner {
+    width: 36px;
+    height: 36px;
+    border: 3px solid rgba(99, 102, 241, 0.2);
+    border-top-color: #6366f1;
+    border-radius: 50%;
+    animation: statsSpin 0.8s linear infinite;
+}
+
+/* Responsive Breakpoints */
+@media (max-width: 768px) {
+    .student-statistics-page {
+        padding: 16px;
+        gap: 16px;
+    }
+
+    .student-statistics-page .stats-header-banner {
+        padding: 20px;
+    }
+
+    .student-statistics-page .stats-header-info h1 {
+        font-size: 1.3rem;
+    }
+
+    .student-statistics-page .stats-header-actions {
+        width: 100%;
+        justify-content: stretch;
+    }
+
+    .student-statistics-page .stats-btn-refresh,
+    .student-statistics-page .stats-btn-export {
+        flex: 1;
+        justify-content: center;
+    }
+
+    .student-statistics-page .stats-controls-row {
+        width: 100%;
+    }
+
+    .student-statistics-page .stats-filter-dropdown-wrap,
+    .student-statistics-page .stats-search-box {
+        width: 100%;
+    }
+
+    .student-statistics-page .stats-course-select,
+    .student-statistics-page .stats-search-box input {
+        width: 100% !important;
+    }
+}

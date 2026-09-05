@@ -23,6 +23,11 @@ const AdminSidebar = ({ isOpen, onClose }) => {
 
   const { logoutUser } = useAuth();
 
+  const handleLinkClick = () => {
+    if (window.innerWidth <= 900 && onClose) {
+      onClose();
+    }
+  };
 
   const menuItems = [
     {
@@ -116,7 +121,7 @@ const AdminSidebar = ({ isOpen, onClose }) => {
               key={item.path}
               to={item.path}
               end={item.end}
-              onClick={onClose}
+              onClick={handleLinkClick}
               className={({ isActive }) =>
                 `admin-nav-link ${
                   isActive ? "active" : ""
@@ -144,7 +149,7 @@ const AdminSidebar = ({ isOpen, onClose }) => {
 
         <NavLink
           to="/admin/profile"
-          onClick={onClose}
+          onClick={handleLinkClick}
           className={({ isActive }) =>
             `admin-bottom-link ${
               isActive ? "active" : ""

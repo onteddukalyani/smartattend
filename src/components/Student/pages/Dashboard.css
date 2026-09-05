@@ -82,6 +82,9 @@
     display: inline-flex;
     align-items: center;
     gap: 6px;
+    cursor: default;
+    user-select: text;
+    border: 1px solid rgba(99, 102, 241, 0.2);
 }
 
 .student-sub-badge {
@@ -512,4 +515,9 @@
         padding: 12px 14px;
         white-space: nowrap;
     }
+}
+
+
+.student-statistics-page {
+    padding: 100px;
 }

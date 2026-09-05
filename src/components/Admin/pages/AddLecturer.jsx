@@ -464,8 +464,7 @@ const AddLecturer = () => {
                   <option value="Computer Science & Engineering">Computer Science & Engineering</option>
                   <option value="Data Science & AI">Data Science & AI</option>
                   <option value="Electronics & Communication">Electronics & Communication</option>
-                  <option value="Humanities & Sciences">Humanities & Sciences</option>
-                  <option value="Mathematics">Mathematics</option>
+                  <option value="AI and Computing ">AI and Computing</option>
                 </select>
               </div>
 

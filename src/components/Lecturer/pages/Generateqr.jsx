@@ -1,30 +1,41 @@
 import { useState } from "react";
 import { QRCodeCanvas } from "qrcode.react";
 import { createAttendanceSession } from "./CreateSession";
+import { useAuth } from "../../authcontext";
 import "./Generateqr.css"
+
 function GenerateQR() {
+    const { user, profile } = useAuth();
     const [sessionId, setSessionId] = useState("");
     const [roomNo, setRoomNo] = useState("");
     const [courseCode, setCourseCode] = useState("");
     const [classCode, setClassCode] = useState("");
+    const [batch, setBatch] = useState("");
     const [isGenerating, setIsGenerating] = useState(false);
     const [errorMessage, setErrorMessage] = useState("");
+
     const handleGenerateQR = async () => {
         if (!classCode || !roomNo.trim()) {
-            alert("Please select a class.");
+            alert("Please select a class and enter room number.");
             return;
         }
         if (!courseCode.trim()) {
-            alert("Plese Enter Course Code.");
+            alert("Please Enter Course Code.");
             return;
         }
         setIsGenerating(true);
         setErrorMessage("");
         try {
-            const id = await createAttendanceSession(classCode, courseCode.trim(), roomNo.trim());
+            const lecturerInfo = {
+                name: profile?.name || user?.displayName || (user?.email ? user.email.split("@")[0] : "Lecturer"),
+                email: user?.email || "",
+                department: profile?.department || profile?.branch || "General"
+            };
+            const id = await createAttendanceSession(classCode, courseCode.trim(), roomNo.trim(), batch, lecturerInfo);
             setSessionId(id);
             console.log("Session ID:", id);
             console.log("Class Code:", classCode);
+            console.log("Batch:", batch);
             console.log("Course Code:", courseCode);
         } catch (error) {
             console.error("Error creating session:", error);
@@ -64,6 +75,20 @@ function GenerateQR() {
                         <option value="DSAI">DSAI</option>
                         <option value="ECE">ECE</option>
                     </select>
+
+                    <label htmlFor="batch-year">Batch</label>
+                    <select
+                        id="batch-year"
+                        value={batch}
+                        onChange={(e) => setBatch(e.target.value)}
+                    >
+                        <option value="">Select Batch</option>
+                        <option value="2023">2023</option>
+                        <option value="2024">2024</option>
+                        <option value="2025">2025</option>
+                        <option value="2026">2026</option>
+                    </select>
+
                     <label htmlFor="course-code">Course Code</label>
                     <input
                         id="course-code"
@@ -95,7 +120,7 @@ function GenerateQR() {
                                 <span className="qr-status-dot" />
                                 <div className="child-qr-result-heading">
                                     <p className="qrpage-kicker">SESSION READY</p>
-                                    <h2>{courseCode} · {classCode} · {roomNo}</h2>
+                                    <h2>{courseCode} · {classCode}{batch ? ` (${batch})` : ""} · {roomNo}</h2>
                                 </div>
                             </div>
                             <div className="qr-code-frame">

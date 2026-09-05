@@ -360,19 +360,63 @@ function StudentForm() {
                 return;
             }
 
+            const studentEmail = user?.email?.toLowerCase().trim() || formData.email?.toLowerCase().trim() || "";
+
             // Save Attendance record with Roll Number considered first
             await setDoc(attendanceRef, {
                 sessionId: sessionId,
                 ownerId: sessionData.ownerId,
+                lecturerName: sessionData.lecturerName || "",
+                lecturerEmail: sessionData.lecturerEmail || sessionData.ownerEmail || "",
                 courseCode: sessionData.courseCode || "N/A",
                 classCode: sessionData.classCode || "N/A",
+                batch: sessionData.batch || "",
                 roomNo: sessionData.roomNo || "N/A",
                 rollNo: cleanRollNo,
                 fullName: cleanFullName,
-                studentEmail: user?.email?.toLowerCase().trim() || formData.email?.toLowerCase().trim() || "",
+                studentEmail: studentEmail,
                 studentUid: user?.uid || "",
                 submittedAt: Date.now()
             });
+
+            // Ensure student profile is registered in users collection so admin sees them immediately
+            const userDocRef = doc(db, "users", cleanRollNo);
+            const userSnap = await getDoc(userDocRef).catch(() => ({ exists: () => false }));
+            if (!userSnap.exists()) {
+                let detectedBranch = formData.branch || "General";
+                if (detectedBranch === "General") {
+                    if (/bcs/i.test(cleanRollNo)) detectedBranch = "Computer Science";
+                    else if (/bds/i.test(cleanRollNo)) detectedBranch = "Data Science";
+                    else if (/bec/i.test(cleanRollNo)) detectedBranch = "Electronics";
+                }
+                await setDoc(userDocRef, {
+                    name: cleanFullName,
+                    rollNo: cleanRollNo,
+                    email: studentEmail || `${cleanRollNo.toLowerCase()}@iiitdwd.ac.in`,
+                    branch: detectedBranch,
+                    semester: "1",
+                    role: "student",
+                    status: "active",
+                    faceRegistered: false,
+                    createdAt: Date.now()
+                }, { merge: true }).catch((err) => console.warn("Could not auto-register student in users:", err));
+            }
+
+            if (studentEmail) {
+                const authUserRef = doc(db, "authorizedUsers", studentEmail);
+                const authSnap = await getDoc(authUserRef).catch(() => ({ exists: () => false }));
+                if (!authSnap.exists()) {
+                    await setDoc(authUserRef, {
+                        name: cleanFullName,
+                        rollNo: cleanRollNo,
+                        email: studentEmail,
+                        role: "student",
+                        approved: true,
+                        status: "active",
+                        createdAt: Date.now()
+                    }, { merge: true }).catch((err) => console.warn("Could not auto-register student in authorizedUsers:", err));
+                }
+            }
 
             // Persist the student's active roll number for immediate dashboard recognition
             localStorage.setItem("smartattend_student_roll", cleanRollNo);
@@ -383,6 +427,7 @@ function StudentForm() {
                 fullName: cleanFullName,
                 courseCode: sessionData.courseCode || "N/A",
                 classCode: sessionData.classCode || "N/A",
+                batch: sessionData.batch || "",
                 roomNo: sessionData.roomNo || "N/A"
             });
             setSubmitted(true);

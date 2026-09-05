@@ -16,9 +16,14 @@
 
     box-shadow: 5px 0 20px rgba(0, 0, 0, 0.1);
 
+    position: sticky;
+    top: 0;
+    flex-shrink: 0;
+
     transition:
         width 0.3s ease,
-        opacity 0.3s ease;
+        opacity 0.3s ease,
+        padding 0.3s ease;
 
     box-sizing: border-box;
 }
@@ -33,6 +38,7 @@
     padding: 0;
     overflow: hidden;
     opacity: 0;
+    pointer-events: none;
 }
 
 

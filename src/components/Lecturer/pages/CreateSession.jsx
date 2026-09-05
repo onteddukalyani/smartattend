@@ -1,19 +1,30 @@
 import { collection, addDoc } from "firebase/firestore";
 import { auth, db } from "../../../firebase";
 
-export async function createAttendanceSession(classCode, courseCode, roomNo) {
+export async function createAttendanceSession(classCode, courseCode, roomNo, batch = "", lecturerInfo = {}) {
     const now = Date.now();
     const expiresAt = now + 2 * 60 * 1000;
+    const currentUser = auth.currentUser;
+
+    const lecturerName = lecturerInfo?.name || currentUser?.displayName || (currentUser?.email ? currentUser.email.split("@")[0] : "Lecturer");
+    const lecturerEmail = (lecturerInfo?.email || currentUser?.email || "").toLowerCase().trim();
+    const lecturerDept = lecturerInfo?.department || lecturerInfo?.branch || "General";
+
     const docRef = await addDoc(
         collection(db, "attendance_sessions"),
         {
             classCode: classCode,
+            batch: batch || "",
             courseCode: courseCode,
             roomNo: roomNo,
             createdAt: now,
             expiresAt: expiresAt,
             active: true,
-            ownerId: auth.currentUser.uid
+            ownerId: currentUser ? currentUser.uid : "",
+            ownerEmail: lecturerEmail,
+            lecturerName: lecturerName,
+            lecturerEmail: lecturerEmail,
+            lecturerDepartment: lecturerDept
         }
     );
     return docRef.id;

@@ -8,13 +8,13 @@ import {
 import Login from "./components/login";
 import AdminDashboard from "./components/Admin/AdminDashboard";
 import QrScannerApp from "./components/Common/Scanner";
+import Settings from "./components/Common/Settings";
 
 // Lecturer imports
 import LecturerDashboard from "./components/Lecturer/LecturerDashboard";
 import LecturerDashboardView from "./components/Lecturer/pages/Dashboard";
 import LecturerPage from "./components/Lecturer/pages/Generateqr";
 import StudentForm from "./components/Lecturer/pages/StudentForm";
-import LecturerSettings from "./components/Lecturer/pages/Settings";
 import AttendanceData from "./components/Lecturer/pages/AttendanceData";
 import FaceScanner from "./components/Lecturer/pages/FaceScanner";
 import ClassesData, { SessionAttendanceData } from "./components/Lecturer/pages/SessionData";
@@ -24,7 +24,7 @@ import StudentsList from "./components/Lecturer/pages/StudentsList";
 // Student imports
 import StudentDashboard from "./components/Student/StudentDashboard";
 import StudentDashboardView from "./components/Student/pages/Dashboard";
-import StudentSettings from "./components/Student/pages/Settings";
+import Statistics from "./components/Student/pages/Statistics";
 
 import ProtectedRoute from "./components/ProtectedRoute";
 import { useAuth } from "./components/authcontext";
@@ -151,7 +151,7 @@ function App() {
           <Route index element={<LecturerDashboardView />} />
           <Route path="lecturerpage" element={<LecturerPage />} />
           <Route path="student-form" element={<StudentForm />} />
-          <Route path="settings" element={<LecturerSettings />} />
+          <Route path="settings" element={<Settings />} />
           <Route path="attendance-data" element={<AttendanceData />} />
           <Route path="facedetection" element={<FaceScanner />} />
           <Route path="attendance-sessions" element={<ClassesData />} />
@@ -182,8 +182,8 @@ function App() {
         >
           <Route index element={<StudentDashboardView />} />
           <Route path="mark-attendance" element={<QrScannerApp />} />
-          <Route path="statistics" element={<StudentDashboardView />} />
-          <Route path="settings" element={<StudentSettings />} />
+          <Route path="statistics" element={<Statistics />} />
+          <Route path="settings" element={<Settings />} />
         </Route>
         <Route path="*" element={<Navigate to="/student" replace />} />
       </Routes>

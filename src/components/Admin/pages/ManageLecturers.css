@@ -210,6 +210,24 @@
   margin-top: 2px;
 }
 
+.classes-conducted-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(99, 102, 241, 0.1);
+  color: #4f46e5;
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  padding: 4px 10px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.classes-conducted-badge strong {
+  font-weight: 800;
+  font-size: 14px;
+}
+
 .approved-badge {
   display: inline-flex;
   align-items: center;

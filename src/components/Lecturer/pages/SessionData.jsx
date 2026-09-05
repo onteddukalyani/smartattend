@@ -8,7 +8,7 @@ import { useTableSort, SortIcon } from "../../Common/useTableSort";
 import './AttendanceData.css';
 
 function ClassesData() {
-    const { user } = useAuth();
+    const { user, profile } = useAuth();
     const [sessions, setSessions] = useState([]);
     const [loading, setLoading] = useState(true);
     const navigate = useNavigate();
@@ -24,8 +24,7 @@ function ClassesData() {
         try {
             const recordsQuery = query(
                 collection(db, "attendance_records"),
-                where("sessionId", "==", session.id),
-                where("ownerId", "==", user.uid)
+                where("sessionId", "==", session.id)
             );
             const recordsSnapshot = await getDocs(recordsQuery);
             const batch = writeBatch(db);
@@ -45,14 +44,56 @@ function ClassesData() {
     useEffect(() => {
         const getSessions = async () => {
             try {
-                const snapshot = await getDocs(query(
-                    collection(db, "attendance_sessions"),
-                    where("ownerId", "==", user.uid)
-                ));
-                setSessions(snapshot.docs.map((sessionDoc) => ({
-                    id: sessionDoc.id,
-                    ...sessionDoc.data()
-                })));
+                // Fetch all sessions and users to resolve lecturer names
+                const [sessionsSnapshot, usersSnapshot, authUsersSnapshot] = await Promise.all([
+                    getDocs(collection(db, "attendance_sessions")),
+                    getDocs(collection(db, "users")).catch(() => ({ docs: [] })),
+                    getDocs(collection(db, "authorizedUsers")).catch(() => ({ docs: [] }))
+                ]);
+
+                const userMap = new Map();
+                usersSnapshot.docs.forEach((d) => {
+                    const u = d.data();
+                    if (u.name) {
+                        userMap.set(d.id, u.name);
+                        if (u.email) userMap.set(u.email.toLowerCase().trim(), u.name);
+                    }
+                });
+                authUsersSnapshot.docs.forEach((d) => {
+                    const u = d.data();
+                    if (u.name) {
+                        userMap.set(d.id.toLowerCase().trim(), u.name);
+                        if (u.email) userMap.set(u.email.toLowerCase().trim(), u.name);
+                    }
+                });
+
+                const userUid = user?.uid;
+                const userEmail = (user?.email || "").toLowerCase().trim();
+                const isAdmin = profile?.role === "admin";
+
+                const allSessions = sessionsSnapshot.docs
+                    .map((sessionDoc) => {
+                        const data = sessionDoc.data();
+                        const ownerEmail = (data.ownerEmail || data.lecturerEmail || "").toLowerCase().trim();
+                        const ownerId = data.ownerId;
+                        const resolvedLecturer = data.lecturerName || userMap.get(ownerId) || userMap.get(ownerEmail) || (ownerEmail ? ownerEmail.split("@")[0] : "Faculty");
+
+                        return {
+                            id: sessionDoc.id,
+                            ...data,
+                            lecturerName: resolvedLecturer
+                        };
+                    })
+                    .filter((sess) => {
+                        if (isAdmin) return true;
+                        const ownerEmail = (sess.ownerEmail || sess.lecturerEmail || "").toLowerCase().trim();
+                        const ownerId = sess.ownerId;
+                        if (userUid && ownerId === userUid) return true;
+                        if (userEmail && (ownerEmail === userEmail || ownerId === userEmail)) return true;
+                        return false;
+                    });
+
+                setSessions(allSessions);
             } catch (error) {
                 console.error("Error getting sessions:", error);
             } finally {
@@ -61,7 +102,7 @@ function ClassesData() {
         };
 
         getSessions();
-    }, [user]);
+    }, [user, profile]);
 
     if (loading) {
         return <p>Loading sessions...</p>;
@@ -88,9 +129,17 @@ function ClassesData() {
                                 <th className="sortable-th" onClick={() => requestSort("classCode")} title="Click to sort by Class Code">
                                     Class Code <SortIcon sortConfig={sortConfig} columnKey="classCode" />
                                 </th>
+                                <th className="sortable-th" onClick={() => requestSort("batch")} title="Click to sort by Batch">
+                                    Batch <SortIcon sortConfig={sortConfig} columnKey="batch" />
+                                </th>
                                 <th className="sortable-th" onClick={() => requestSort("courseCode")} title="Click to sort by Course Code">
                                     Course Code <SortIcon sortConfig={sortConfig} columnKey="courseCode" />
                                 </th>
+                                {profile?.role === "admin" && (
+                                    <th className="sortable-th" onClick={() => requestSort("lecturerName")} title="Click to sort by Lecturer">
+                                        Lecturer <SortIcon sortConfig={sortConfig} columnKey="lecturerName" />
+                                    </th>
+                                )}
                                 <th className="sortable-th" onClick={() => requestSort("roomNo")} title="Click to sort by Room No">
                                     Room No <SortIcon sortConfig={sortConfig} columnKey="roomNo" />
                                 </th>
@@ -106,13 +155,21 @@ function ClassesData() {
                         <tbody>
                             {sortedSessions.map((session) => (
                                 <tr key={session.id} onClick={() => navigate(`/lecturer/attendance-sessions/${session.id}`)}>
-                                    <td>{session.classCode || "N/A"}</td>
+                                    <td><strong>{session.classCode || "N/A"}</strong></td>
+                                    <td>{session.batch || "—"}</td>
                                     <td>{session.courseCode || "N/A"}</td>
+                                    {profile?.role === "admin" && <td>{session.lecturerName || "Faculty"}</td>}
                                     <td>{session.roomNo || "N/A"}</td>
                                     <td>{session.createdAt ? new Date(session.createdAt).toLocaleDateString() : "N/A"}</td>
                                     <td>{session.createdAt ? new Date(session.createdAt).toLocaleTimeString() : "N/A"}</td>
                                     <td>
-                                        <button type="button" onClick={() => navigate(`/lecturer/attendance-sessions/${session.id}`)}>
+                                        <button
+                                            type="button"
+                                            onClick={(event) => {
+                                                event.stopPropagation();
+                                                navigate(`/lecturer/attendance-sessions/${session.id}`);
+                                            }}
+                                        >
                                             View Attendance
                                         </button>
                                         <button
@@ -165,16 +222,35 @@ export function SessionAttendanceData() {
                     return;
                 }
 
-                setSession({ id: sessionSnapshot.id, ...sessionSnapshot.data() });
+                const sessData = sessionSnapshot.data();
+
+                // If lecturer name missing, attempt lookup from users
+                let lecturerDisplay = sessData.lecturerName;
+                if (!lecturerDisplay) {
+                    const ownerEmail = sessData.ownerEmail || sessData.lecturerEmail;
+                    if (ownerEmail) {
+                        const userSnap = await getDoc(doc(db, "authorizedUsers", ownerEmail.toLowerCase())).catch(() => ({ exists: () => false }));
+                        if (userSnap.exists() && userSnap.data().name) {
+                            lecturerDisplay = userSnap.data().name;
+                        } else {
+                            lecturerDisplay = ownerEmail.split("@")[0];
+                        }
+                    } else {
+                        lecturerDisplay = "Faculty";
+                    }
+                }
+
+                setSession({ id: sessionSnapshot.id, ...sessData, lecturerName: lecturerDisplay });
+
                 const recordsQuery = query(
                     collection(db, "attendance_records"),
-                    where("ownerId", "==", user.uid)
+                    where("sessionId", "==", sessionId)
                 );
                 const recordsSnapshot = await getDocs(recordsQuery);
                 const rawRecords = recordsSnapshot.docs.map((recordDoc) => ({
                     id: recordDoc.id,
                     ...recordDoc.data()
-                })).filter((record) => record.sessionId === sessionId);
+                }));
 
                 rawRecords.sort((a, b) => {
                     const rollA = a.rollNo || "";
@@ -220,6 +296,24 @@ export function SessionAttendanceData() {
                 )}
             </div>
             <h2>Attendance - {session.classCode}</h2>
+            <div style={{
+                background: "#ffffff",
+                border: "1px solid #e2e8f0",
+                borderRadius: "12px",
+                padding: "12px 18px",
+                marginBottom: "20px",
+                display: "flex",
+                flexWrap: "wrap",
+                gap: "16px",
+                fontSize: "0.9rem",
+                color: "#475569"
+            }}>
+                <span><strong>Lecturer:</strong> {session.lecturerName || "Faculty"}</span>
+                {session.batch && <span><strong>Batch:</strong> {session.batch}</span>}
+                <span><strong>Course Code:</strong> {session.courseCode || "N/A"}</span>
+                <span><strong>Room:</strong> {session.roomNo || "N/A"}</span>
+                <span><strong>Total Students Present:</strong> <strong style={{ color: "#10b981" }}>{records.length}</strong></span>
+            </div>
             {records.length === 0 ? <p>No students submitted attendance for this session.</p> : (
                 <div className="attendance-table-scroll">
                     <table id="session-attendance-table">

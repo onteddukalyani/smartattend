@@ -47,13 +47,17 @@ const ManageLecturers = () => {
     try {
       setLoading(true);
 
-      const [usersSnap, authUsersSnap] = await Promise.all([
+      const [usersSnap, authUsersSnap, sessionsSnap] = await Promise.all([
         getDocs(collection(db, "users")).catch((e) => {
           console.warn("Could not read users collection:", e);
           return { docs: [] };
         }),
         getDocs(collection(db, "authorizedUsers")).catch((e) => {
           console.warn("Could not read authorizedUsers collection:", e);
+          return { docs: [] };
+        }),
+        getDocs(collection(db, "attendance_sessions")).catch((e) => {
+          console.warn("Could not read attendance_sessions collection:", e);
           return { docs: [] };
         })
       ]);
@@ -112,7 +116,29 @@ const ManageLecturers = () => {
         }
       });
 
-      const lecturerList = Array.from(lecturerMap.values());
+      // 3. Match conducted classes from attendance_sessions
+      const sessionsList = sessionsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+
+      const lecturerList = Array.from(lecturerMap.values()).map((lec) => {
+        const emailLower = (lec.email || "").toLowerCase().trim();
+        const userUid = lec.userDocId || (!lec.id?.includes("@") ? lec.id : null);
+        const emailId = lec.emailDocId || (lec.id?.includes("@") ? lec.id : null);
+
+        const mySessions = sessionsList.filter((sess) => {
+          const ownerId = sess.ownerId;
+          const ownerEmail = (sess.ownerEmail || sess.lecturerEmail || "").toLowerCase().trim();
+          if (userUid && ownerId === userUid) return true;
+          if (emailId && (ownerId === emailId || ownerEmail === emailId)) return true;
+          if (emailLower && (ownerEmail === emailLower || ownerId === emailLower)) return true;
+          return false;
+        });
+
+        return {
+          ...lec,
+          classesConducted: mySessions.length
+        };
+      });
+
       lecturerList.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
       setLecturers(lecturerList);
     } catch (error) {
@@ -383,6 +409,9 @@ const ManageLecturers = () => {
                 <th className="sortable-th" onClick={() => requestSort("department")} title="Click to sort by Department">
                   Department <SortIcon sortConfig={sortConfig} columnKey="department" />
                 </th>
+                <th className="sortable-th" onClick={() => requestSort("classesConducted")} title="Click to sort by Classes Conducted">
+                  Classes Conducted <SortIcon sortConfig={sortConfig} columnKey="classesConducted" />
+                </th>
                 <th className="sortable-th" onClick={() => requestSort("approved")} title="Click to sort by Approval">
                   Approval <SortIcon sortConfig={sortConfig} columnKey="approved" />
                 </th>
@@ -430,6 +459,12 @@ const ManageLecturers = () => {
 
                   <td>
                     {lecturer.department || "-"}
+                  </td>
+
+                  <td>
+                    <span className="classes-conducted-badge">
+                      <strong>{lecturer.classesConducted || 0}</strong> {lecturer.classesConducted === 1 ? "class" : "classes"}
+                    </span>
                   </td>
 
                   <td>

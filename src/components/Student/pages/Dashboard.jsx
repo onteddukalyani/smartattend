@@ -20,9 +20,7 @@ import {
     FaCheckCircle,
     FaBookOpen,
     FaClock,
-    FaSyncAlt,
-    FaEdit,
-    FaCheck
+    FaSyncAlt
 } from "react-icons/fa";
 import { MdQrCodeScanner } from "react-icons/md";
 import { db } from "../../../firebase";
@@ -37,19 +35,10 @@ export default function StudentDashboard() {
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
     const [search, setSearch] = useState("");
-    const [customRoll, setCustomRoll] = useState(() => {
-        return localStorage.getItem("smartattend_student_roll") || "";
-    });
-    const [isEditingRoll, setIsEditingRoll] = useState(false);
-    const [editRollInput, setEditRollInput] = useState("");
 
-    // Identify primary student roll number
-    const activeRollNo = (
-        customRoll ||
-        profile?.rollNo ||
-        user?.email?.split("@")[0] ||
-        ""
-    ).trim().toUpperCase();
+    // Identify primary student roll number: default strictly and immutably from Gmail email (e.g. 25bcs108@iiitdwd.ac.in -> 25BCS108)
+    const emailRoll = (user?.email || "").split("@")[0].trim().toUpperCase();
+    const activeRollNo = (profile?.rollNo || emailRoll || "").trim().toUpperCase();
 
     const [fetchedStudentData, setFetchedStudentData] = useState(null);
 
@@ -238,35 +227,12 @@ export default function StudentDashboard() {
                     <div className="student-hero-info">
                         <h1>Welcome, {studentName} 👋</h1>
                         <div className="student-hero-badges">
-                            {isEditingRoll ? (
-                                <span className="roll-edit-inline">
-                                    <input
-                                        type="text"
-                                        value={editRollInput}
-                                        onChange={(e) => setEditRollInput(e.target.value)}
-                                        placeholder="Enter Roll No"
-                                        autoFocus
-                                        onKeyDown={(e) => {
-                                            if (e.key === "Enter") handleSaveRollNumber();
-                                            if (e.key === "Escape") setIsEditingRoll(false);
-                                        }}
-                                    />
-                                    <button type="button" onClick={handleSaveRollNumber}>
-                                        <FaCheck /> Save
-                                    </button>
-                                </span>
-                            ) : (
-                                <span
-                                    className="student-roll-badge"
-                                    onClick={() => {
-                                        setEditRollInput(activeRollNo);
-                                        setIsEditingRoll(true);
-                                    }}
-                                    title="Click to change active roll number"
-                                >
-                                    <FaIdCard /> {activeRollNo || "Set Roll Number"} <FaEdit style={{ marginLeft: "4px", fontSize: "0.75rem", opacity: 0.8 }} />
-                                </span>
-                            )}
+                            <span
+                                className="student-roll-badge non-editable"
+                                title={`Verified Roll Number: ${activeRollNo}`}
+                            >
+                                <FaIdCard /> {activeRollNo || "Student"}
+                            </span>
                             <span className="student-sub-badge">
                                 {studentBranch} • Semester {studentSemester}
                             </span>
@@ -374,7 +340,7 @@ export default function StudentDashboard() {
                         <p>
                             {search
                                 ? "Try a different search term."
-                                : `No records found under Roll Number "${activeRollNo}". If your roll number is different, click your roll number badge above to change it.`}
+                                : `No records found under Roll Number "${activeRollNo}". Classes you attend and submit attendance for will appear here automatically.`}
                         </p>
                         {!search && (
                             <Link to="/student/mark-attendance" className="scan-qr-cta" style={{ display: "inline-flex", margin: "0 auto" }}>

@@ -3,11 +3,9 @@
 ========================================================= */
 
 .admin-sidebar {
-  position: fixed;
+  position: sticky;
   top: 0;
-  left: 0;
-  bottom: 0;
-
+  height: 100vh;
   width: 288px;
 
   background: #ffffff;
@@ -15,15 +13,18 @@
 
   display: flex;
   flex-direction: column;
+  flex-shrink: 0;
 
   z-index: 1000;
-
   overflow: hidden;
+  box-sizing: border-box;
 
   transition:
-    width 0.25s ease,
-    transform 0.25s ease,
-    box-shadow 0.25s ease;
+    width 0.3s ease,
+    opacity 0.3s ease,
+    padding 0.3s ease,
+    transform 0.3s ease,
+    box-shadow 0.3s ease;
 }
 
 
@@ -33,12 +34,16 @@
 
 .admin-sidebar.sidebar-open {
   width: 288px;
+  opacity: 1;
 }
 
 
 .admin-sidebar.sidebar-closed {
   width: 0;
+  padding: 0;
   border-right: none;
+  opacity: 0;
+  pointer-events: none;
 }
 
 

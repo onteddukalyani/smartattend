@@ -10,6 +10,7 @@ import { onAuthStateChanged } from "firebase/auth";
 import {
   doc,
   getDoc,
+  setDoc,
   collection,
   getDocs,
   query,
@@ -30,6 +31,63 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
+
+  // =========================================================
+  // AUTO-PERSIST NEW STUDENTS TO FIRESTORE (USERS & AUTHORIZEDUSERS)
+  // =========================================================
+
+  const ensureStudentRegistered = async (email, displayName, existingDoc) => {
+    try {
+      if (!email) return existingDoc;
+      const cleanEmail = email.toLowerCase().trim();
+      const roll = (existingDoc?.rollNo || cleanEmail.split("@")[0]).toUpperCase().trim();
+
+      let detectedBranch = existingDoc?.branch || "General";
+      if (detectedBranch === "General") {
+        if (/bcs/i.test(roll)) detectedBranch = "Computer Science";
+        else if (/bds/i.test(roll)) detectedBranch = "Data Science";
+        else if (/bec/i.test(roll)) detectedBranch = "Electronics";
+      }
+
+      const payload = {
+        name: existingDoc?.name || displayName || "Student",
+        email: cleanEmail,
+        rollNo: roll,
+        branch: detectedBranch,
+        semester: existingDoc?.semester || "1",
+        role: "student",
+        status: "active",
+        faceRegistered: existingDoc?.faceRegistered ?? false,
+        createdAt: existingDoc?.createdAt || Date.now()
+      };
+
+      // Ensure user record exists in users collection under Roll Number document ID
+      const userRef = doc(db, "users", roll);
+      const userSnap = await getDoc(userRef).catch(() => ({ exists: () => false }));
+      if (!userSnap.exists()) {
+        await setDoc(userRef, payload, { merge: true }).catch((err) => {
+          console.warn("Could not auto-create student in users:", err);
+        });
+      }
+
+      // Also ensure student is present in authorizedUsers
+      const authUserRef = doc(db, "authorizedUsers", cleanEmail);
+      const authSnap = await getDoc(authUserRef).catch(() => ({ exists: () => false }));
+      if (!authSnap.exists()) {
+        await setDoc(authUserRef, {
+          ...payload,
+          approved: true
+        }, { merge: true }).catch((err) => {
+          console.warn("Could not auto-create student in authorizedUsers:", err);
+        });
+      }
+
+      return payload;
+    } catch (e) {
+      console.warn("Error ensuring student registration:", e);
+      return existingDoc;
+    }
+  };
 
   // =========================================================
   // FIND USER IN authorizedUsers
@@ -159,8 +217,10 @@ export const AuthProvider = ({ children }) => {
               }
             }
 
+            const defaultRoll = currentUser.email.split("@")[0].toUpperCase();
             setUser(currentUser);
             setProfile({
+              rollNo: authorizedUser.rollNo || defaultRoll,
               ...authorizedUser,
               role: databaseRole || "student",
               approved: true
@@ -168,18 +228,20 @@ export const AuthProvider = ({ children }) => {
             return;
           }
 
-          // If not in authorizedUsers, retrieve full student profile using roll number
+          // If not in authorizedUsers, retrieve or register full student profile using roll number
           const studentDoc = await findStudentProfile(currentUser.email);
+          const registered = await ensureStudentRegistered(currentUser.email, currentUser.displayName, studentDoc);
           const studentProfile = {
-            id: studentDoc?.rollNo || currentUser.email,
+            id: registered?.rollNo || studentDoc?.rollNo || currentUser.email,
             email: currentUser.email,
-            name: studentDoc?.name || currentUser.displayName || "Student",
-            rollNo: studentDoc?.rollNo || currentUser.email.split("@")[0].toUpperCase(),
-            branch: studentDoc?.branch || "General",
-            semester: studentDoc?.semester || "1",
+            name: registered?.name || studentDoc?.name || currentUser.displayName || "Student",
+            rollNo: registered?.rollNo || studentDoc?.rollNo || currentUser.email.split("@")[0].toUpperCase(),
+            branch: registered?.branch || studentDoc?.branch || "General",
+            semester: registered?.semester || studentDoc?.semester || "1",
             role: "student",
             approved: true,
-            ...studentDoc
+            ...studentDoc,
+            ...registered
           };
 
           setUser(currentUser);
@@ -218,20 +280,22 @@ export const AuthProvider = ({ children }) => {
     const currentUser = result.user;
 
     // -------------------------------------------------------
-    // STUDENT: ANY ACCOUNT CAN LOGIN
+    // STUDENT: ANY ACCOUNT CAN LOGIN & AUTO-REGISTERS
     // -------------------------------------------------------
     if (selected === "student") {
       const studentDoc = await findStudentProfile(currentUser.email);
+      const registered = await ensureStudentRegistered(currentUser.email, currentUser.displayName, studentDoc);
       const studentProfile = {
-        id: studentDoc?.rollNo || currentUser.email,
+        id: registered?.rollNo || studentDoc?.rollNo || currentUser.email,
         email: currentUser.email,
-        name: studentDoc?.name || currentUser.displayName || "Student",
-        rollNo: studentDoc?.rollNo || currentUser.email.split("@")[0].toUpperCase(),
-        branch: studentDoc?.branch || "General",
-        semester: studentDoc?.semester || "1",
+        name: registered?.name || studentDoc?.name || currentUser.displayName || "Student",
+        rollNo: registered?.rollNo || studentDoc?.rollNo || currentUser.email.split("@")[0].toUpperCase(),
+        branch: registered?.branch || studentDoc?.branch || "General",
+        semester: registered?.semester || studentDoc?.semester || "1",
         role: "student",
         approved: true,
-        ...studentDoc
+        ...studentDoc,
+        ...registered
       };
 
       localStorage.setItem("smartattend-user-role", "student");

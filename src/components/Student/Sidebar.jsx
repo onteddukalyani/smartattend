@@ -23,6 +23,12 @@ function Sidebar({ hidden, onClose }) {
         { icon: <FaCog />, text: "Settings", path: "/student/settings" },
     ];
 
+    const handleLinkClick = () => {
+        if (window.innerWidth <= 800 && onClose) {
+            onClose();
+        }
+    };
+
     return (
         <aside className={`sidebar ${hidden ? "hidden" : ""}`}>
             <div className="sidebar-top">
@@ -48,7 +54,7 @@ function Sidebar({ hidden, onClose }) {
                                     : (location.pathname.startsWith(item.path) ? "active" : "")
                             }
                         >
-                            <Link to={item.path} onClick={onClose}>
+                            <Link to={item.path} onClick={handleLinkClick}>
                                 <span className="menu-icon">
                                     {item.icon}
                                 </span>
