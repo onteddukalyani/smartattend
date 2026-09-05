@@ -714,3 +714,236 @@
     border-radius: 14px;
   }
 }
+
+/* =========================================================
+   MIDNIGHT THEME COMPATIBILITY
+========================================================= */
+
+[data-theme="midnight"] .attendance-overview,
+[data-theme="midnight"] .admin-attendance-page {
+  color: #f8fafc;
+}
+
+[data-theme="midnight"] .attendance-header h1 {
+  color: #f8fafc;
+}
+
+[data-theme="midnight"] .attendance-header p {
+  color: #94a3b8;
+}
+
+[data-theme="midnight"] .refresh-attendance {
+  background: #131b2e;
+  border-color: #1e293b;
+  color: #818cf8;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+[data-theme="midnight"] .refresh-attendance:hover {
+  background: #1a243b;
+  border-color: #6366f1;
+  color: #ffffff;
+  box-shadow: 0 4px 14px rgba(99, 102, 241, 0.3);
+}
+
+/* Overall Attendance Card */
+[data-theme="midnight"] .overall-attendance-card {
+  background: #131b2e;
+  border-color: #1e293b;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35);
+}
+
+[data-theme="midnight"] .card-label {
+  color: #818cf8;
+}
+
+[data-theme="midnight"] .overall-attendance-info h2 {
+  color: #f8fafc;
+}
+
+[data-theme="midnight"] .overall-attendance-info p {
+  color: #94a3b8;
+}
+
+[data-theme="midnight"] .overall-progress-track {
+  background: #1e293b;
+}
+
+[data-theme="midnight"] .overall-progress span {
+  color: #f8fafc;
+}
+
+/* Statistics Grid */
+[data-theme="midnight"] .attendance-stat-card {
+  background: #131b2e;
+  border-color: #1e293b;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
+}
+
+[data-theme="midnight"] .attendance-stat-card:hover {
+  border-color: rgba(99, 102, 241, 0.45);
+  background: #162035;
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.5);
+}
+
+[data-theme="midnight"] .attendance-stat-card.present .attendance-stat-icon {
+  background: rgba(16, 185, 129, 0.15);
+  color: #34d399;
+}
+
+[data-theme="midnight"] .attendance-stat-card.classes .attendance-stat-icon {
+  background: rgba(99, 102, 241, 0.18);
+  color: #818cf8;
+}
+
+[data-theme="midnight"] .attendance-stat-card.leave .attendance-stat-icon {
+  background: rgba(14, 165, 233, 0.18);
+  color: #38bdf8;
+}
+
+[data-theme="midnight"] .attendance-stat-card span {
+  color: #94a3b8;
+}
+
+[data-theme="midnight"] .attendance-stat-card strong {
+  color: #f8fafc;
+}
+
+/* Sections & Panels */
+[data-theme="midnight"] .attendance-section {
+  background: #131b2e;
+  border-color: #1e293b;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35);
+}
+
+[data-theme="midnight"] .section-heading h2 {
+  color: #f8fafc;
+}
+
+[data-theme="midnight"] .section-heading p {
+  color: #94a3b8;
+}
+
+/* Recent Recorded Classes Cards */
+[data-theme="midnight"] .recent-session {
+  background: #1a233a;
+  border-color: #25334d;
+}
+
+[data-theme="midnight"] .recent-session:hover {
+  background: #202c48;
+  border-color: rgba(99, 102, 241, 0.5);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+  transform: translateY(-1px);
+}
+
+[data-theme="midnight"] .session-icon.active-icon {
+  background: rgba(239, 68, 68, 0.18);
+  color: #f87171;
+}
+
+[data-theme="midnight"] .session-icon.completed-icon {
+  background: rgba(99, 102, 241, 0.18);
+  color: #818cf8;
+}
+
+[data-theme="midnight"] .session-details strong {
+  color: #f8fafc;
+}
+
+[data-theme="midnight"] .session-details span {
+  color: #94a3b8;
+}
+
+[data-theme="midnight"] .session-status.active {
+  background: rgba(239, 68, 68, 0.18);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+[data-theme="midnight"] .session-status.completed {
+  background: #1e293b;
+  color: #94a3b8;
+  border: 1px solid #334155;
+}
+
+/* Search Bar */
+[data-theme="midnight"] .attendance-search {
+  background: #1a233a;
+  border-color: #25334d;
+  color: #94a3b8;
+}
+
+[data-theme="midnight"] .attendance-search:focus-within {
+  border-color: #818cf8;
+  box-shadow: 0 0 0 3px rgba(129, 140, 248, 0.15);
+}
+
+[data-theme="midnight"] .attendance-search input {
+  color: #f8fafc;
+}
+
+[data-theme="midnight"] .attendance-search input::placeholder {
+  color: #64748b;
+}
+
+/* Attendance Table */
+[data-theme="midnight"] .attendance-table-wrapper {
+  background: #131b2e;
+  border-color: #1e293b;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+}
+
+[data-theme="midnight"] .attendance-table th {
+  background: #1a233a;
+  color: #94a3b8;
+  border-bottom: 2px solid #25334d;
+}
+
+[data-theme="midnight"] .attendance-table td {
+  border-bottom: 1px solid #1e293b;
+  color: #e2e8f0;
+}
+
+[data-theme="midnight"] .attendance-table tbody tr:hover {
+  background: #182239;
+}
+
+[data-theme="midnight"] .student-info strong {
+  color: #f8fafc;
+}
+
+[data-theme="midnight"] .student-info span {
+  color: #94a3b8;
+}
+
+[data-theme="midnight"] .roll-number {
+  color: #818cf8;
+}
+
+[data-theme="midnight"] .branch-badge {
+  background: rgba(99, 102, 241, 0.18);
+  color: #a5b4fc;
+  border: 1px solid rgba(99, 102, 241, 0.3);
+}
+
+[data-theme="midnight"] .percentage-bar {
+  background: #1e293b;
+}
+
+[data-theme="midnight"] .view-icon-btn {
+  background: #1a233a;
+  border-color: #25334d;
+  color: #818cf8;
+}
+
+[data-theme="midnight"] .view-icon-btn:hover {
+  background: linear-gradient(135deg, #6366f1, #4f46e5);
+  color: #ffffff;
+  border-color: #6366f1;
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.35);
+}
+
+[data-theme="midnight"] .no-students {
+  color: #94a3b8;
+}

@@ -198,3 +198,61 @@
         padding: 12px;
     }
 }
+
+/* =========================================================
+   MIDNIGHT THEME COMPATIBILITY
+========================================================= */
+
+[data-theme="midnight"] .attendance-data-page {
+    background: transparent;
+    color: #f8fafc;
+}
+
+[data-theme="midnight"] .attendance-data-page h2 {
+    color: #f8fafc;
+}
+
+[data-theme="midnight"] .back-to-sessions-btn,
+[data-theme="midnight"] .back-to-dashboard-btn {
+    background: #131b2e;
+    border-color: #1e293b;
+    color: #818cf8;
+}
+
+[data-theme="midnight"] .back-to-sessions-btn:hover,
+[data-theme="midnight"] .back-to-dashboard-btn:hover {
+    background: #1a233a;
+    border-color: #6366f1;
+    color: #ffffff;
+}
+
+[data-theme="midnight"] .attendance-data-page table {
+    background: #131b2e;
+    border-color: #1e293b;
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35);
+}
+
+[data-theme="midnight"] .attendance-data-page th {
+    background: #1a233a;
+    color: #94a3b8;
+    border-bottom: 2px solid #25334d;
+}
+
+[data-theme="midnight"] .attendance-data-page td {
+    color: #e2e8f0;
+    border-bottom: 1px solid #1e293b;
+}
+
+[data-theme="midnight"] .attendance-data-page tbody tr:nth-child(even) {
+    background: #151f35;
+}
+
+[data-theme="midnight"] .attendance-data-page tbody tr:hover {
+    background: #1d2b49;
+}
+
+[data-theme="midnight"] .attendance-data-page > p {
+    background: #131b2e;
+    border-color: #1e293b;
+    color: #94a3b8;
+}

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 import {
   FaGoogle,
@@ -14,6 +15,7 @@ import { useAuth } from "./authcontext";
 import "./login.css";
 
 const Login = () => {
+  const navigate = useNavigate();
 
   const {
     loginWithGoogle
@@ -60,6 +62,15 @@ const Login = () => {
       "LOGIN SUCCESS:",
       authorizedUser
     );
+
+    const roleTarget = String(authorizedUser?.role || selectedRole || "student").toLowerCase().trim();
+    if (roleTarget === "admin" || roleTarget === "administrator" || roleTarget === "superadmin") {
+      navigate("/admin", { replace: true });
+    } else if (roleTarget === "lecturer" || roleTarget === "faculty") {
+      navigate("/lecturer", { replace: true });
+    } else {
+      navigate("/student", { replace: true });
+    }
 
   } catch (error) {
     console.error(

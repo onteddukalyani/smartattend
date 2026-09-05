@@ -110,69 +110,71 @@ function Settings() {
             <div className="st-profile-hero-card">
                 <div className="st-hero-cover-gradient" />
                 <div className="st-hero-body">
-                    <div className="st-avatar-container">
-                        {user?.photoURL && !profileImageFailed ? (
-                            <img
-                                className="st-hero-avatar-img"
-                                src={user.photoURL}
-                                alt="Profile Avatar"
-                                onError={() => setProfileImageFailed(true)}
-                            />
-                        ) : (
-                            <div className="st-hero-avatar-initial" aria-hidden="true">
-                                {initial}
-                            </div>
-                        )}
-                        <span className="st-avatar-online-badge" title="Active & Verified Account" />
-                    </div>
-
-                    <div className="st-hero-info">
-                        <div className="st-hero-title-row">
-                            <h1 className="st-user-name">{displayName}</h1>
-                            <span className={`st-role-pill ${roleInfo.badgeClass}`}>
-                                {roleInfo.icon}
-                                <span>{roleInfo.label}</span>
-                            </span>
+                    <div className="st-hero-profile-group">
+                        <div className="st-avatar-container">
+                            {user?.photoURL && !profileImageFailed ? (
+                                <img
+                                    className="st-hero-avatar-img"
+                                    src={user.photoURL}
+                                    alt="Profile Avatar"
+                                    onError={() => setProfileImageFailed(true)}
+                                />
+                            ) : (
+                                <div className="st-hero-avatar-initial" aria-hidden="true">
+                                    {initial}
+                                </div>
+                            )}
+                            <span className="st-avatar-online-badge" title="Active & Verified Account" />
                         </div>
 
-                        <div className="st-hero-meta-row">
-                            <span className="st-meta-item">
-                                <FaEnvelope className="st-meta-icon" />
-                                <span>{user?.email || "No email available"}</span>
-                                {user?.email && (
-                                    <button
-                                        type="button"
-                                        className="st-mini-copy"
-                                        onClick={() => handleCopy(user.email, "email")}
-                                        title="Copy Email"
-                                    >
-                                        {copiedField === "email" ? <FaCheck className="st-copied" /> : <FaCopy />}
-                                    </button>
-                                )}
-                            </span>
-
-                            {rawRole === "student" && studentRoll && studentRoll !== "N/A" && (
-                                <span className="st-meta-item st-roll-chip">
-                                    <FaIdCard className="st-meta-icon" />
-                                    <span>{studentRoll}</span>
-                                    <button
-                                        type="button"
-                                        className="st-mini-copy"
-                                        onClick={() => handleCopy(studentRoll, "roll")}
-                                        title="Copy Roll Number"
-                                    >
-                                        {copiedField === "roll" ? <FaCheck className="st-copied" /> : <FaCopy />}
-                                    </button>
+                        <div className="st-hero-info">
+                            <div className="st-hero-title-row">
+                                <h1 className="st-user-name">{displayName}</h1>
+                                <span className={`st-role-pill ${roleInfo.badgeClass}`}>
+                                    {roleInfo.icon}
+                                    <span>{roleInfo.label}</span>
                                 </span>
-                            )}
+                            </div>
+
+                            <div className="st-hero-meta-row">
+                                <span className="st-meta-item">
+                                    <FaEnvelope className="st-meta-icon" />
+                                    <span className="st-meta-text">{user?.email || "No email available"}</span>
+                                    {user?.email && (
+                                        <button
+                                            type="button"
+                                            className="st-mini-copy"
+                                            onClick={() => handleCopy(user.email, "email")}
+                                            title="Copy Email"
+                                        >
+                                            {copiedField === "email" ? <FaCheck className="st-copied" /> : <FaCopy />}
+                                        </button>
+                                    )}
+                                </span>
+
+                                {rawRole === "student" && studentRoll && studentRoll !== "N/A" && (
+                                    <span className="st-meta-item st-roll-chip">
+                                        <FaIdCard className="st-meta-icon" />
+                                        <span>{studentRoll}</span>
+                                        <button
+                                            type="button"
+                                            className="st-mini-copy"
+                                            onClick={() => handleCopy(studentRoll, "roll")}
+                                            title="Copy Roll Number"
+                                        >
+                                            {copiedField === "roll" ? <FaCheck className="st-copied" /> : <FaCopy />}
+                                        </button>
+                                    </span>
+                                )}
+                            </div>
                         </div>
                     </div>
 
                     <div className="st-hero-quick-kpis">
                         <div className="st-kpi-chip">
-                            <span className="st-kpi-label">Status</span>
+                            <span className="st-kpi-label">Account Status</span>
                             <span className="st-kpi-val st-text-success">
-                                <FaCheckCircle /> Verified
+                                <FaCheckCircle /> Active &amp; Verified
                             </span>
                         </div>
                         <div className="st-kpi-chip">
@@ -200,12 +202,14 @@ function Settings() {
                     <div className="st-details-list">
                         {/* Account Type */}
                         <div className="st-detail-row">
-                            <div className="st-detail-icon-wrap">
-                                {roleInfo.icon}
-                            </div>
-                            <div className="st-detail-info">
-                                <span className="st-detail-title">Account Type</span>
-                                <span className="st-detail-desc">Platform authorization role</span>
+                            <div className="st-detail-left">
+                                <div className="st-detail-icon-wrap">
+                                    {roleInfo.icon}
+                                </div>
+                                <div className="st-detail-info">
+                                    <span className="st-detail-title">Account Type</span>
+                                    <span className="st-detail-desc">Platform authorization role</span>
+                                </div>
                             </div>
                             <div className="st-detail-value">
                                 <span className={`st-role-pill ${roleInfo.badgeClass}`}>
@@ -218,12 +222,14 @@ function Settings() {
                         {rawRole === "student" && (
                             <>
                                 <div className="st-detail-row">
-                                    <div className="st-detail-icon-wrap">
-                                        <FaIdCard />
-                                    </div>
-                                    <div className="st-detail-info">
-                                        <span className="st-detail-title">Student Roll No</span>
-                                        <span className="st-detail-desc">Unique university identifier</span>
+                                    <div className="st-detail-left">
+                                        <div className="st-detail-icon-wrap">
+                                            <FaIdCard />
+                                        </div>
+                                        <div className="st-detail-info">
+                                            <span className="st-detail-title">Student Roll No</span>
+                                            <span className="st-detail-desc">University identifier</span>
+                                        </div>
                                     </div>
                                     <div className="st-detail-value">
                                         <span className="st-code-val">{studentRoll}</span>
@@ -231,12 +237,14 @@ function Settings() {
                                 </div>
 
                                 <div className="st-detail-row">
-                                    <div className="st-detail-icon-wrap">
-                                        <FaUniversity />
-                                    </div>
-                                    <div className="st-detail-info">
-                                        <span className="st-detail-title">Branch / Program</span>
-                                        <span className="st-detail-desc">Academic department</span>
+                                    <div className="st-detail-left">
+                                        <div className="st-detail-icon-wrap">
+                                            <FaUniversity />
+                                        </div>
+                                        <div className="st-detail-info">
+                                            <span className="st-detail-title">Branch / Program</span>
+                                            <span className="st-detail-desc">Academic department</span>
+                                        </div>
                                     </div>
                                     <div className="st-detail-value">
                                         <span className="st-text-bold">{profile?.branch || profile?.department || "General"}</span>
@@ -244,12 +252,14 @@ function Settings() {
                                 </div>
 
                                 <div className="st-detail-row">
-                                    <div className="st-detail-icon-wrap">
-                                        <FaLayerGroup />
-                                    </div>
-                                    <div className="st-detail-info">
-                                        <span className="st-detail-title">Semester</span>
-                                        <span className="st-detail-desc">Current enrolled term</span>
+                                    <div className="st-detail-left">
+                                        <div className="st-detail-icon-wrap">
+                                            <FaLayerGroup />
+                                        </div>
+                                        <div className="st-detail-info">
+                                            <span className="st-detail-title">Semester</span>
+                                            <span className="st-detail-desc">Current enrolled term</span>
+                                        </div>
                                     </div>
                                     <div className="st-detail-value">
                                         <span className="st-badge-light">
@@ -264,12 +274,14 @@ function Settings() {
                         {(rawRole === "lecturer" || rawRole === "faculty") && (
                             <>
                                 <div className="st-detail-row">
-                                    <div className="st-detail-icon-wrap">
-                                        <FaUniversity />
-                                    </div>
-                                    <div className="st-detail-info">
-                                        <span className="st-detail-title">Department</span>
-                                        <span className="st-detail-desc">Teaching faculty unit</span>
+                                    <div className="st-detail-left">
+                                        <div className="st-detail-icon-wrap">
+                                            <FaUniversity />
+                                        </div>
+                                        <div className="st-detail-info">
+                                            <span className="st-detail-title">Department</span>
+                                            <span className="st-detail-desc">Faculty unit</span>
+                                        </div>
                                     </div>
                                     <div className="st-detail-value">
                                         <span className="st-text-bold">{profile?.department || "Computer Science"}</span>
@@ -277,12 +289,14 @@ function Settings() {
                                 </div>
 
                                 <div className="st-detail-row">
-                                    <div className="st-detail-icon-wrap">
-                                        <FaChalkboardTeacher />
-                                    </div>
-                                    <div className="st-detail-info">
-                                        <span className="st-detail-title">Designation</span>
-                                        <span className="st-detail-desc">Academic appointment</span>
+                                    <div className="st-detail-left">
+                                        <div className="st-detail-icon-wrap">
+                                            <FaChalkboardTeacher />
+                                        </div>
+                                        <div className="st-detail-info">
+                                            <span className="st-detail-title">Designation</span>
+                                            <span className="st-detail-desc">Academic rank</span>
+                                        </div>
                                     </div>
                                     <div className="st-detail-value">
                                         <span className="st-text-bold">{profile?.designation || "Faculty Member"}</span>
@@ -291,12 +305,14 @@ function Settings() {
 
                                 {profile?.cabin && (
                                     <div className="st-detail-row">
-                                        <div className="st-detail-icon-wrap">
-                                            <FaClock />
-                                        </div>
-                                        <div className="st-detail-info">
-                                            <span className="st-detail-title">Office / Cabin</span>
-                                            <span className="st-detail-desc">Faculty location</span>
+                                        <div className="st-detail-left">
+                                            <div className="st-detail-icon-wrap">
+                                                <FaClock />
+                                            </div>
+                                            <div className="st-detail-info">
+                                                <span className="st-detail-title">Office / Cabin</span>
+                                                <span className="st-detail-desc">Faculty location</span>
+                                            </div>
                                         </div>
                                         <div className="st-detail-value">
                                             <span className="st-text-bold">{profile.cabin}</span>
@@ -310,12 +326,14 @@ function Settings() {
                         {(rawRole === "admin" || rawRole === "administrator" || rawRole === "superadmin") && (
                             <>
                                 <div className="st-detail-row">
-                                    <div className="st-detail-icon-wrap">
-                                        <FaShieldAlt />
-                                    </div>
-                                    <div className="st-detail-info">
-                                        <span className="st-detail-title">Administration Unit</span>
-                                        <span className="st-detail-desc">System governance</span>
+                                    <div className="st-detail-left">
+                                        <div className="st-detail-icon-wrap">
+                                            <FaShieldAlt />
+                                        </div>
+                                        <div className="st-detail-info">
+                                            <span className="st-detail-title">Administration Unit</span>
+                                            <span className="st-detail-desc">Governance branch</span>
+                                        </div>
                                     </div>
                                     <div className="st-detail-value">
                                         <span className="st-text-bold">{profile?.department || "Central Administration"}</span>
@@ -323,12 +341,14 @@ function Settings() {
                                 </div>
 
                                 <div className="st-detail-row">
-                                    <div className="st-detail-icon-wrap">
-                                        <FaLock />
-                                    </div>
-                                    <div className="st-detail-info">
-                                        <span className="st-detail-title">Access Scope</span>
-                                        <span className="st-detail-desc">Full root privilege</span>
+                                    <div className="st-detail-left">
+                                        <div className="st-detail-icon-wrap">
+                                            <FaLock />
+                                        </div>
+                                        <div className="st-detail-info">
+                                            <span className="st-detail-title">Access Scope</span>
+                                            <span className="st-detail-desc">System permissions</span>
+                                        </div>
                                     </div>
                                     <div className="st-detail-value">
                                         <span className="st-role-pill badge-admin">Master Control</span>
@@ -339,12 +359,14 @@ function Settings() {
 
                         {/* Auth Provider */}
                         <div className="st-detail-row">
-                            <div className="st-detail-icon-wrap">
-                                <FaGoogle />
-                            </div>
-                            <div className="st-detail-info">
-                                <span className="st-detail-title">Authentication Method</span>
-                                <span className="st-detail-desc">Sign-in security credential</span>
+                            <div className="st-detail-left">
+                                <div className="st-detail-icon-wrap">
+                                    <FaGoogle />
+                                </div>
+                                <div className="st-detail-info">
+                                    <span className="st-detail-title">Authentication Method</span>
+                                    <span className="st-detail-desc">Security credential</span>
+                                </div>
                             </div>
                             <div className="st-detail-value">
                                 <span className="st-text-bold">{provider}</span>

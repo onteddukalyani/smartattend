@@ -188,6 +188,11 @@
   flex-shrink: 0;
 }
 
+.record-avatar.session-avatar {
+  background: #ede9fe;
+  color: #6366f1;
+}
+
 .record-meta {
   flex: 1;
   min-width: 0;
@@ -220,6 +225,180 @@
 .record-time small {
   font-size: 11px;
   color: var(--text-muted, #94a3b8);
+}
+
+/* Badges */
+.present-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: #ecfdf5;
+  color: #059669;
+  padding: 4px 9px;
+  border-radius: 6px;
+  font-weight: 700;
+  font-size: 0.78rem;
+  border: 1px solid #a7f3d0;
+}
+
+.live-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: #fee2e2;
+  color: #dc2626;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-weight: 800;
+  font-size: 0.76rem;
+  border: 1px solid #fca5a5;
+  animation: pulseLive 1.5s infinite;
+}
+
+.closed-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: #f1f5f9;
+  color: #64748b;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-weight: 600;
+  font-size: 0.76rem;
+  border: 1px solid #e2e8f0;
+}
+
+@keyframes pulseLive {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+/* =========================================================
+   MIDNIGHT THEME COMPATIBILITY
+   ========================================================= */
+
+[data-theme="midnight"] .admin-overview {
+  color: #f8fafc;
+}
+
+[data-theme="midnight"] .admin-page-header h1 {
+  color: #f8fafc;
+}
+
+[data-theme="midnight"] .admin-page-header p {
+  color: #94a3b8;
+}
+
+/* Stat Cards in Midnight */
+[data-theme="midnight"] .admin-stat-card {
+  background: #131b2e;
+  border-color: #1e293b;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
+}
+
+[data-theme="midnight"] .admin-stat-card:hover {
+  border-color: rgba(99, 102, 241, 0.45);
+  background: #162035;
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.5);
+}
+
+[data-theme="midnight"] .stat-icon {
+  background: rgba(99, 102, 241, 0.15);
+  color: #818cf8;
+}
+
+[data-theme="midnight"] .admin-stat-card span {
+  color: #94a3b8;
+}
+
+[data-theme="midnight"] .admin-stat-card strong {
+  color: #f8fafc;
+}
+
+/* Recent Attendance Submissions & Recent Classes Panels */
+[data-theme="midnight"] .admin-panel {
+  background: #131b2e;
+  border-color: #1e293b;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35);
+}
+
+[data-theme="midnight"] .panel-header h2 {
+  color: #f8fafc;
+}
+
+[data-theme="midnight"] .panel-header p {
+  color: #94a3b8;
+}
+
+[data-theme="midnight"] .panel-view-all {
+  background: #1a233a;
+  border-color: #2e3e5c;
+  color: #818cf8;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+[data-theme="midnight"] .panel-view-all:hover {
+  background: linear-gradient(135deg, #6366f1, #4f46e5);
+  color: #ffffff;
+  border-color: #6366f1;
+  box-shadow: 0 4px 16px rgba(99, 102, 241, 0.4);
+}
+
+[data-theme="midnight"] .empty-state {
+  color: #94a3b8;
+}
+
+/* Recent Records & Sessions Cards in Midnight */
+[data-theme="midnight"] .recent-record-item {
+  background: #1a233a;
+  border-color: #25334d;
+}
+
+[data-theme="midnight"] .recent-record-item:hover {
+  background: #202c48;
+  border-color: rgba(99, 102, 241, 0.45);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+  transform: translateY(-1px);
+}
+
+[data-theme="midnight"] .record-avatar {
+  background: rgba(16, 185, 129, 0.15);
+  color: #34d399;
+}
+
+[data-theme="midnight"] .record-avatar.session-avatar {
+  background: rgba(99, 102, 241, 0.18);
+  color: #818cf8;
+}
+
+[data-theme="midnight"] .record-meta strong {
+  color: #f8fafc;
+}
+
+[data-theme="midnight"] .record-meta span {
+  color: #94a3b8;
+}
+
+[data-theme="midnight"] .record-time small {
+  color: #64748b;
+}
+
+[data-theme="midnight"] .present-badge {
+  background: rgba(16, 185, 129, 0.16);
+  color: #34d399;
+  border-color: rgba(16, 185, 129, 0.3);
+}
+
+[data-theme="midnight"] .live-badge {
+  background: rgba(239, 68, 68, 0.16);
+  color: #f87171;
+  border-color: rgba(239, 68, 68, 0.3);
+}
+
+[data-theme="midnight"] .closed-badge {
+  background: #1e293b;
+  color: #94a3b8;
+  border-color: #334155;
 }
 
 /* =========================================================

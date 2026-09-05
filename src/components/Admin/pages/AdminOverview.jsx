@@ -313,7 +313,7 @@ const AdminOverview = () => {
             <div className="recent-records-list">
               {recentSessions.map((sess) => (
                 <div key={sess.id} className="recent-record-item">
-                  <div className="record-avatar" style={{ background: "#e0e7ff", color: "#4f46e5" }}>
+                  <div className="record-avatar session-avatar">
                     <FaChalkboard />
                   </div>
                   <div className="record-meta">

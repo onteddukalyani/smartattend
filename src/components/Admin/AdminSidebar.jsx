@@ -59,7 +59,7 @@ const AdminSidebar = ({ isOpen, onClose }) => {
           </div>
 
           <div className="admin-brand-text">
-            <h2>SmartAttend</h2>
+            <h2><strong>SmartAttend</strong></h2>
             <span>Administration</span>
           </div>
 
