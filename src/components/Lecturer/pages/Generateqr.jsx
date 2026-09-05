@@ -130,7 +130,7 @@ function GenerateQR() {
                         <option value="CSE-B">CSE-B</option>
                         <option value="DSAI">DSAI</option>
                         <option value="ECE">ECE</option>
-                        <option value="MECH">MECH</option>
+                        <option value="AIC">AIC</option>
                     </select>
 
                     <label htmlFor="batch-year">Batch</label>
