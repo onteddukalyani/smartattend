@@ -41,11 +41,11 @@ export default function LecturerCourses() {
     const [formData, setFormData] = useState({
         courseCode: "",
         courseName: "",
-        department: profile?.department || profile?.branch || "CSE",
+        department: (profile?.department && String(profile?.department).toLowerCase() !== "general") ? profile.department : ((profile?.branch && String(profile?.branch).toLowerCase() !== "general") ? profile.branch : "CSE"),
         semester: "1",
         credits: "3",
-        defaultRoom: "LH-101",
-        batch: "2024",
+        defaultRoom: "C003",
+        batch: "2025",
         description: ""
     });
 
@@ -152,7 +152,7 @@ export default function LecturerCourses() {
                 department: formData.department,
                 semester: formData.semester,
                 credits: Number(formData.credits) || 3,
-                defaultRoom: formData.defaultRoom.trim() || "LH-101",
+                defaultRoom: formData.defaultRoom.trim() || "C003",
                 lecturerEmail: lecturerEmail,
                 lecturerName: lecturerName,
                 batch: formData.batch,
@@ -166,11 +166,11 @@ export default function LecturerCourses() {
             setFormData({
                 courseCode: "",
                 courseName: "",
-                department: profile?.department || profile?.branch || "CSE",
-                semester: "1",
+                department: (profile?.department && String(profile?.department).toLowerCase() !== "general") ? profile.department : ((profile?.branch && String(profile?.branch).toLowerCase() !== "general") ? profile.branch : "CSE"),
+                semester: "3",
                 credits: "3",
-                defaultRoom: "LH-101",
-                batch: "2024",
+                defaultRoom: "C003",
+                batch: "2025",
                 description: ""
             });
         } catch (err) {
@@ -335,7 +335,7 @@ export default function LecturerCourses() {
                                     <div className="lecturer-course-detail-row">
                                         <FaDoorOpen />
                                         <span>
-                                            Default Room: <strong>{course.defaultRoom || "LH-101"}</strong>
+                                            Default Room: <strong>{course.defaultRoom || "C003"}</strong>
                                         </span>
                                     </div>
                                     <div className="lecturer-course-detail-row">
@@ -451,8 +451,7 @@ export default function LecturerCourses() {
                                         <option value="CSE">CSE</option>
                                         <option value="DSAI">DSAI</option>
                                         <option value="ECE">ECE</option>
-                                        <option value="MECH">MECH</option>
-                                        <option value="General">General</option>
+                                        <option value="AIC">AIC</option>
                                     </select>
                                 </div>
                             </div>
@@ -474,7 +473,7 @@ export default function LecturerCourses() {
                                     <label style={{ fontSize: "0.85rem", fontWeight: 700, color: "var(--text-main, #0f172a)" }}>Default Classroom</label>
                                     <input
                                         type="text"
-                                        placeholder="e.g. LH-101"
+                                        placeholder="e.g. C003"
                                         value={formData.defaultRoom}
                                         onChange={(e) => setFormData({ ...formData, defaultRoom: e.target.value })}
                                         style={{ padding: "10px 14px", background: "var(--surface-soft, #f8fafc)", border: "1px solid var(--border, #e2e8f0)", borderRadius: "10px", fontSize: "0.9rem", color: "var(--text-main, #0f172a)", outline: "none" }}

@@ -38,9 +38,13 @@ const AttendanceOverview = () => {
     try {
       setLoading(true);
 
-      const [usersSnap, authUsersSnap, sessionsSnap, recordsSnap] = await Promise.all([
+      const [usersSnap, studentsSnap, authUsersSnap, sessionsSnap, recordsSnap] = await Promise.all([
         getDocs(collection(db, "users")).catch((err) => {
           console.warn("Could not read users collection:", err);
+          return { docs: [], size: 0 };
+        }),
+        getDocs(collection(db, "students")).catch((err) => {
+          console.warn("Could not read students collection:", err);
           return { docs: [], size: 0 };
         }),
         getDocs(collection(db, "authorizedUsers")).catch((err) => {
@@ -79,7 +83,7 @@ const AttendanceOverview = () => {
         return false;
       };
 
-      // Merge students from both collections keyed by email or rollNo
+      // Merge students from all collections keyed by email or rollNo
       const studentMap = new Map();
 
       // 1. Process authorizedUsers first
@@ -94,7 +98,19 @@ const AttendanceOverview = () => {
         }
       });
 
-      // 2. Process users collection
+      // 2. Process students collection
+      studentsSnap.docs.forEach((docSnap) => {
+        const d = docSnap.data();
+        const key = (d.email || d.rollNo || docSnap.id).toLowerCase().trim();
+        const existing = studentMap.get(key) || {};
+        studentMap.set(key, {
+          ...existing,
+          ...d,
+          id: docSnap.id
+        });
+      });
+
+      // 3. Process users collection
       usersSnap.docs.forEach((docSnap) => {
         const d = docSnap.data();
         if (isStudentDoc(d, docSnap.id)) {
@@ -140,8 +156,8 @@ const AttendanceOverview = () => {
       // Average rate across students
       const avgRate = studentList.length > 0
         ? Math.round(
-            studentList.reduce((acc, s) => acc + s.attendanceRate, 0) / studentList.length
-          )
+          studentList.reduce((acc, s) => acc + s.attendanceRate, 0) / studentList.length
+        )
         : 0;
 
       setStudents(studentList);
@@ -375,7 +391,7 @@ const AttendanceOverview = () => {
                   </td>
 
                   <td>
-                    <span className="branch-badge">{student.branch || "General"}</span>
+                    <span className="branch-badge">{(student.branch && String(student.branch).toLowerCase() !== "general") ? student.branch : "CSE"}</span>
                   </td>
 
                   <td>

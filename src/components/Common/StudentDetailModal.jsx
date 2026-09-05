@@ -42,7 +42,7 @@ const StudentDetailModal = ({ student, onClose }) => {
 
         // Fetch all attendance records for this student's roll number
         const cleanRoll = String(student.rollNo).trim().toUpperCase();
-        
+
         let recordsQuery;
         // If user is lecturer, they can query where ownerId == user.uid, or if admin query all
         const isAdminUser = profile?.role === "admin" || user?.email === "onteddukalyani@gmail.com";
@@ -154,7 +154,7 @@ const StudentDetailModal = ({ student, onClose }) => {
                 {student.status === "active" ? "Active Student" : "Disabled"}
               </span>
               <span className="badge-branch">
-                {student.branch || "General"} {student.semester ? `• Sem ${student.semester}` : ""}
+                {(student.branch && String(student.branch).toLowerCase() !== "general") ? student.branch : "CSE"} {student.semester ? `• Sem ${student.semester}` : ""}
               </span>
             </div>
           </div>
@@ -225,7 +225,7 @@ const StudentDetailModal = ({ student, onClose }) => {
                 <FaGraduationCap className="info-icon" />
                 <div>
                   <label>Branch & Semester</label>
-                  <span>{student.branch || "N/A"} - Semester {student.semester || "1"}</span>
+                  <span>{(student.branch && String(student.branch).toLowerCase() !== "general") ? student.branch : "CSE"} - Semester {student.semester || "1"}</span>
                 </div>
               </div>
 

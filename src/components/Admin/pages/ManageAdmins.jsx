@@ -50,7 +50,11 @@ const ManageAdmins = () => {
     try {
       setLoading(true);
 
-      const [usersSnap, authUsersSnap] = await Promise.all([
+      const [adminsSnap, usersSnap, authUsersSnap] = await Promise.all([
+        getDocs(collection(db, "admins")).catch((e) => {
+          console.warn("Could not read admins collection:", e);
+          return { docs: [] };
+        }),
         getDocs(collection(db, "users")).catch((e) => {
           console.warn("Could not read users collection:", e);
           return { docs: [] };
@@ -63,29 +67,53 @@ const ManageAdmins = () => {
 
       const adminMap = new Map();
 
-      // 1. Ingest authorized admins from authorizedUsers
+      // 1. Ingest admins from dedicated admins collection
+      adminsSnap.docs.forEach((docSnap) => {
+        const data = docSnap.data();
+        const email = (data.email || (docSnap.id.includes("@") ? docSnap.id : "")).toLowerCase().trim();
+        const key = email || docSnap.id;
+        adminMap.set(key, {
+          id: docSnap.id,
+          adminDocId: docSnap.id,
+          emailDocId: docSnap.id.includes("@") ? docSnap.id : null,
+          userDocId: null,
+          ...data,
+          email: email || data.email || "",
+          name: data.name || (email ? email.split("@")[0] : "Administrator"),
+          department: data.department || "Administration",
+          designation: data.designation || "System Administrator",
+          phone: data.phone || "",
+          role: "admin",
+          status: data.status || "active"
+        });
+      });
+
+      // 2. Ingest authorized admins from authorizedUsers
       authUsersSnap.docs.forEach((docSnap) => {
         const data = docSnap.data();
         const role = String(data.role || "").toLowerCase().trim();
         if (role === "admin" || role === "administrator" || role === "superadmin") {
-          const email = (data.email || docSnap.id).toLowerCase().trim();
-          adminMap.set(email, {
-            id: docSnap.id,
+          const email = (data.email || (docSnap.id.includes("@") ? docSnap.id : "")).toLowerCase().trim();
+          const key = email || docSnap.id;
+          const existing = adminMap.get(key) || {};
+          adminMap.set(key, {
+            ...existing,
+            id: existing.id || docSnap.id,
             emailDocId: docSnap.id,
-            userDocId: null,
+            userDocId: existing.userDocId || null,
             ...data,
-            email,
-            name: data.name || email.split("@")[0],
-            department: data.department || "Administration",
-            designation: data.designation || "System Administrator",
-            phone: data.phone || "",
+            email: email || existing.email || "",
+            name: data.name || existing.name || (email ? email.split("@")[0] : "Administrator"),
+            department: data.department || existing.department || "Administration",
+            designation: data.designation || existing.designation || "System Administrator",
+            phone: data.phone || existing.phone || "",
             role: "admin",
-            status: data.status || "active"
+            status: data.status || existing.status || "active"
           });
         }
       });
 
-      // 2. Ingest admin profiles from users collection
+      // 3. Ingest admin profiles from users collection
       usersSnap.docs.forEach((docSnap) => {
         const data = docSnap.data();
         const role = String(data.role || "").toLowerCase().trim();
@@ -97,7 +125,7 @@ const ManageAdmins = () => {
           adminMap.set(key, {
             ...existing,
             ...data,
-            id: docSnap.id,
+            id: existing.id || docSnap.id,
             userDocId: docSnap.id,
             emailDocId: existing.emailDocId || (email ? email : null),
             email: email || existing.email || "",
@@ -139,13 +167,24 @@ const ManageAdmins = () => {
     try {
       setUpdating(adminUser.id);
       const emailKey = adminUser.email ? adminUser.email.toLowerCase().trim() : null;
+      const prefix = emailKey ? emailKey.split("@")[0] : null;
+      const adminDocId = adminUser.adminDocId || adminUser.id;
       const userDocId = adminUser.userDocId || (adminUser.id && !adminUser.id.includes("@") ? adminUser.id : null);
 
+      if (adminDocId) {
+        await setDoc(doc(db, "admins", adminDocId), { status: newStatus }, { merge: true }).catch(() => {});
+      }
       if (emailKey) {
-        await setDoc(doc(db, "authorizedUsers", emailKey), { status: newStatus }, { merge: true });
+        await setDoc(doc(db, "admins", emailKey), { status: newStatus }, { merge: true }).catch(() => {});
+        await setDoc(doc(db, "authorizedUsers", emailKey), { status: newStatus }, { merge: true }).catch(() => {});
+      }
+      if (prefix) {
+        await setDoc(doc(db, "admins", prefix), { status: newStatus }, { merge: true }).catch(() => {});
+        await setDoc(doc(db, "authorizedUsers", prefix), { status: newStatus }, { merge: true }).catch(() => {});
+        await setDoc(doc(db, "users", prefix), { status: newStatus }, { merge: true }).catch(() => {});
       }
       if (userDocId) {
-        await updateDoc(doc(db, "users", userDocId), { status: newStatus }).catch(() => {});
+        await setDoc(doc(db, "users", userDocId), { status: newStatus }, { merge: true }).catch(() => {});
       }
 
       setAdmins((prev) =>
@@ -185,10 +224,21 @@ const ManageAdmins = () => {
     try {
       setUpdating(adminUser.id);
       const emailKey = adminUser.email ? adminUser.email.toLowerCase().trim() : null;
+      const prefix = emailKey ? emailKey.split("@")[0] : null;
+      const adminDocId = adminUser.adminDocId || adminUser.id;
       const userDocId = adminUser.userDocId || (adminUser.id && !adminUser.id.includes("@") ? adminUser.id : null);
 
+      if (adminDocId) {
+        await deleteDoc(doc(db, "admins", adminDocId)).catch(() => {});
+      }
       if (emailKey) {
+        await deleteDoc(doc(db, "admins", emailKey)).catch(() => {});
         await deleteDoc(doc(db, "authorizedUsers", emailKey)).catch(() => {});
+      }
+      if (prefix) {
+        await deleteDoc(doc(db, "admins", prefix)).catch(() => {});
+        await deleteDoc(doc(db, "authorizedUsers", prefix)).catch(() => {});
+        await deleteDoc(doc(db, "users", prefix)).catch(() => {});
       }
       if (userDocId) {
         await deleteDoc(doc(db, "users", userDocId)).catch(() => {});

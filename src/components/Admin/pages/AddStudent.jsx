@@ -43,8 +43,8 @@ const AddStudent = () => {
     rollNo: "",
     email: "",
     phone: "",
-    branch: "",
-    semester: "",
+    branch: "CSE",
+    semester: "1",
     gender: "",
     dob: ""
   });
@@ -95,66 +95,86 @@ const AddStudent = () => {
       const cleanRollNo = form.rollNo.trim().toUpperCase();
       const cleanEmail = form.email.trim().toLowerCase();
 
-      // Check duplicate roll number
-      const rollQuery = query(
-        collection(db, "users"),
-        where("rollNo", "==", cleanRollNo)
-      );
-      const rollSnapshot = await getDocs(rollQuery);
-      if (!rollSnapshot.empty) {
-        const existingStudent = rollSnapshot.docs[0].data();
+      // Check duplicate roll number across collections
+      const [rollSnapUsers, rollSnapStudents] = await Promise.all([
+        getDocs(query(collection(db, "users"), where("rollNo", "==", cleanRollNo))).catch(() => ({ empty: true, docs: [] })),
+        getDocs(query(collection(db, "students"), where("rollNo", "==", cleanRollNo))).catch(() => ({ empty: true, docs: [] }))
+      ]);
+
+      if (!rollSnapUsers.empty || !rollSnapStudents.empty) {
+        const existingStudent = (!rollSnapUsers.empty ? rollSnapUsers.docs[0].data() : rollSnapStudents.docs[0].data());
         setError(`Roll number ${cleanRollNo} is already registered to "${existingStudent.name || "Student"}".`);
         return;
       }
 
-      // Check duplicate email
-      const emailQuery = query(
-        collection(db, "users"),
-        where("email", "==", cleanEmail)
-      );
-      const emailSnapshot = await getDocs(emailQuery);
-      if (!emailSnapshot.empty) {
-        const existingDoc = emailSnapshot.docs[0];
+      // Check duplicate email across collections
+      const [emailSnapUsers, emailSnapStudents, emailSnapAuth] = await Promise.all([
+        getDocs(query(collection(db, "users"), where("email", "==", cleanEmail))).catch(() => ({ empty: true, docs: [] })),
+        getDocs(query(collection(db, "students"), where("email", "==", cleanEmail))).catch(() => ({ empty: true, docs: [] })),
+        getDocs(query(collection(db, "authorizedUsers"), where("email", "==", cleanEmail))).catch(() => ({ empty: true, docs: [] }))
+      ]);
+
+      if (!emailSnapUsers.empty || !emailSnapStudents.empty || !emailSnapAuth.empty) {
+        const existingDoc = !emailSnapUsers.empty
+          ? emailSnapUsers.docs[0]
+          : (!emailSnapStudents.empty ? emailSnapStudents.docs[0] : emailSnapAuth.docs[0]);
         const existingData = existingDoc.data();
-        if (existingData.role === "lecturer") {
+        if (existingData.role === "lecturer" || existingData.role === "faculty") {
           setLecturerConflict({
             docId: existingDoc.id,
             name: existingData.name || "Lecturer",
             email: cleanEmail
           });
           setError(`This email (${cleanEmail}) is currently registered under Lecturers as "${existingData.name || "Faculty"}". You can convert this account to a Student below, or remove it from Manage Lecturers.`);
+          return;
         } else {
           setError(`This email is already registered to student "${existingData.name || "Existing Student"}" (Roll No: ${existingData.rollNo || "N/A"}).`);
+          return;
         }
-        return;
       }
 
-      // Save student with Roll Number as the Document ID
-      await setDoc(doc(db, "users", cleanRollNo), {
+      const prefix = cleanEmail.split("@")[0].toLowerCase().trim();
+      const studentPayload = {
         ...form,
         name: form.name.trim(),
         rollNo: cleanRollNo,
         email: cleanEmail,
-        branch: form.branch || "General",
+        branch: (form.branch && String(form.branch).toLowerCase() !== "general") ? form.branch : "CSE",
         semester: form.semester || "1",
         role: "student",
         status: "active",
+        approved: true,
         faceRegistered: false,
         createdAt: serverTimestamp()
-      });
+      };
 
-      // Synchronize to authorizedUsers for instant Google Login access
+      // 1. Save in students collection (by Roll No, prefix, and email)
+      await setDoc(doc(db, "students", cleanRollNo), studentPayload);
+      if (prefix && prefix !== cleanRollNo.toLowerCase()) {
+        await setDoc(doc(db, "students", prefix), studentPayload, { merge: true }).catch(() => { });
+      }
+      if (cleanEmail && cleanEmail !== cleanRollNo.toLowerCase()) {
+        await setDoc(doc(db, "students", cleanEmail), studentPayload, { merge: true }).catch(() => { });
+      }
+
+      // 2. Save student with Roll Number and prefix in users collection
+      await setDoc(doc(db, "users", cleanRollNo), studentPayload);
+      if (prefix && prefix !== cleanRollNo.toLowerCase()) {
+        await setDoc(doc(db, "users", prefix), studentPayload, { merge: true }).catch(() => { });
+      }
+
+      // 3. Synchronize to authorizedUsers for instant Google Login access
       await setDoc(doc(db, "authorizedUsers", cleanEmail), {
-        name: form.name.trim(),
-        rollNo: cleanRollNo,
-        email: cleanEmail,
-        branch: form.branch || "General",
-        semester: form.semester || "1",
-        role: "student",
-        approved: true,
-        status: "active",
+        ...studentPayload,
         createdAt: Date.now()
       }, { merge: true }).catch((e) => console.warn("authorizedUsers sync error:", e));
+
+      if (prefix && prefix !== cleanEmail) {
+        await setDoc(doc(db, "authorizedUsers", prefix), {
+          ...studentPayload,
+          createdAt: Date.now()
+        }, { merge: true }).catch(() => { });
+      }
 
       navigate("/admin/students");
     } catch (err) {
@@ -171,32 +191,49 @@ const AddStudent = () => {
       setSaving(true);
       const cleanRollNo = form.rollNo.trim().toUpperCase();
       const cleanEmail = form.email.trim().toLowerCase();
+      const prefix = cleanEmail.split("@")[0].toLowerCase().trim();
 
       // Delete old doc if its ID was not cleanRollNo
       if (lecturerConflict.docId !== cleanRollNo) {
-        await deleteDoc(doc(db, "users", lecturerConflict.docId));
+        await deleteDoc(doc(db, "users", lecturerConflict.docId)).catch(() => { });
       }
 
-      // Save student with Roll Number as the Document ID
-      await setDoc(doc(db, "users", cleanRollNo), {
+      const studentPayload = {
         name: form.name.trim() || lecturerConflict.name,
         rollNo: cleanRollNo,
         email: cleanEmail,
-        branch: form.branch || "General",
+        branch: (form.branch && String(form.branch).toLowerCase() !== "general") ? form.branch : "CSE",
         semester: form.semester || "1",
         phone: form.phone || "",
         gender: form.gender || "",
         dob: form.dob || "",
         role: "student",
         status: "active",
+        approved: true,
         faceRegistered: false,
         updatedAt: serverTimestamp()
-      });
+      };
+
+      // Save student in students and users collections
+      await setDoc(doc(db, "students", cleanRollNo), studentPayload);
+      if (prefix && prefix !== cleanRollNo.toLowerCase()) {
+        await setDoc(doc(db, "students", prefix), studentPayload, { merge: true }).catch(() => { });
+      }
+      await setDoc(doc(db, "users", cleanRollNo), studentPayload);
 
       try {
-        await deleteDoc(doc(db, "authorizedUsers", cleanEmail));
+        await setDoc(doc(db, "authorizedUsers", cleanEmail), {
+          ...studentPayload,
+          createdAt: Date.now()
+        }, { merge: true });
+        if (prefix && prefix !== cleanEmail) {
+          await setDoc(doc(db, "authorizedUsers", prefix), {
+            ...studentPayload,
+            createdAt: Date.now()
+          }, { merge: true });
+        }
       } catch (authErr) {
-        console.warn("Could not delete from authorizedUsers:", authErr);
+        console.warn("Could not update authorizedUsers:", authErr);
       }
 
       alert(`✅ Successfully converted ${cleanEmail} to a registered student (Roll No: ${cleanRollNo})!`);
@@ -229,7 +266,7 @@ const AddStudent = () => {
         "Roll Number": "23BCS002",
         "Full Name": "Priya Patel",
         "Email": "priya.23bcs002@iiitdwd.ac.in",
-        "Branch": "DSAI",
+        "Branch": "CSE",
         "Semester": "4",
         "Phone": "9876543211",
         "Gender": "Female"
@@ -238,7 +275,7 @@ const AddStudent = () => {
         "Roll Number": "23BCS003",
         "Full Name": "Anand Kumar",
         "Email": "anand.23bcs003@iiitdwd.ac.in",
-        "Branch": "ECE",
+        "Branch": "CSE",
         "Semester": "4",
         "Phone": "9876543212",
         "Gender": "Male"
@@ -294,7 +331,15 @@ const AddStudent = () => {
           const name = getVal(["fullname", "name", "studentname", "student"]);
           const rollNo = getVal(["rollno", "rollnumber", "roll", "regno", "id"]).toUpperCase();
           const email = getVal(["email", "emailaddress", "mail"]).toLowerCase();
-          const branch = getVal(["branch", "department", "dept"]) || "General";
+          let rawBranch = getVal(["branch", "department", "dept"]);
+          let branch = (rawBranch && String(rawBranch).toLowerCase() !== "general") ? rawBranch : "";
+          if (!branch) {
+            if (/bcs/i.test(rollNo)) branch = "CSE";
+            else if (/bds/i.test(rollNo)) branch = "DSAI";
+            else if (/bec/i.test(rollNo)) branch = "ECE";
+            else if (/aic/i.test(rollNo)) branch = "AIC";
+            else branch = "CSE";
+          }
           const semester = getVal(["semester", "sem", "year"]) || "1";
           const phone = getVal(["phone", "phonenumber", "mobile", "contact"]);
           const gender = getVal(["gender", "sex"]);
@@ -353,15 +398,22 @@ const AddStudent = () => {
       setBulkSaving(true);
       setBulkError("");
 
-      // Fetch existing students from both collections to avoid duplicates
-      const [existingUsersSnapshot, authUsersSnap] = await Promise.all([
+      // Fetch existing students from all collections to avoid duplicates
+      const [existingUsersSnapshot, existingStudentsSnap, authUsersSnap] = await Promise.all([
         getDocs(collection(db, "users")).catch(() => ({ docs: [] })),
+        getDocs(collection(db, "students")).catch(() => ({ docs: [] })),
         getDocs(collection(db, "authorizedUsers")).catch(() => ({ docs: [] }))
       ]);
       const existingRolls = new Set();
       const existingEmails = new Set();
 
       existingUsersSnapshot.docs.forEach((docSnap) => {
+        const d = docSnap.data();
+        if (d.rollNo) existingRolls.add(d.rollNo.toUpperCase().trim());
+        if (d.email) existingEmails.add(d.email.toLowerCase().trim());
+      });
+
+      existingStudentsSnap.docs.forEach((docSnap) => {
         const d = docSnap.data();
         if (d.rollNo) existingRolls.add(d.rollNo.toUpperCase().trim());
         if (d.email) existingEmails.add(d.email.toLowerCase().trim());
@@ -388,15 +440,15 @@ const AddStudent = () => {
         }
       }
 
-      // Write in Firestore batches of up to 200 (2 ops per student = 400 ops <= 500 limit)
-      const BATCH_SIZE = 200;
+      // Write in Firestore batches of up to 75 (max 6 ops per student = 450 ops <= 500 limit)
+      const BATCH_SIZE = 75;
       for (let i = 0; i < studentsToInsert.length; i += BATCH_SIZE) {
         const chunk = studentsToInsert.slice(i, i + BATCH_SIZE);
         const batch = writeBatch(db);
 
         for (const student of chunk) {
-          const newDocRef = doc(db, "users", student.rollNo);
-          batch.set(newDocRef, {
+          const prefix = student.email ? student.email.split("@")[0].toLowerCase().trim() : "";
+          const studentPayload = {
             name: student.name,
             rollNo: student.rollNo,
             email: student.email,
@@ -406,22 +458,36 @@ const AddStudent = () => {
             gender: student.gender,
             role: "student",
             status: "active",
+            approved: true,
             faceRegistered: false,
             createdAt: serverTimestamp()
-          });
+          };
 
-          const authUserRef = doc(db, "authorizedUsers", student.email);
-          batch.set(authUserRef, {
-            name: student.name,
-            rollNo: student.rollNo,
-            email: student.email,
-            branch: student.branch,
-            semester: student.semester,
-            role: "student",
-            approved: true,
-            status: "active",
-            createdAt: Date.now()
-          }, { merge: true });
+          // 1. Write to students collection
+          batch.set(doc(db, "students", student.rollNo), studentPayload);
+          if (prefix && prefix !== student.rollNo.toLowerCase()) {
+            batch.set(doc(db, "students", prefix), studentPayload, { merge: true });
+          }
+
+          // 2. Write to users collection
+          batch.set(doc(db, "users", student.rollNo), studentPayload);
+          if (prefix && prefix !== student.rollNo.toLowerCase()) {
+            batch.set(doc(db, "users", prefix), studentPayload, { merge: true });
+          }
+
+          // 3. Write to authorizedUsers collection
+          if (student.email) {
+            batch.set(doc(db, "authorizedUsers", student.email), {
+              ...studentPayload,
+              createdAt: Date.now()
+            }, { merge: true });
+          }
+          if (prefix && prefix !== student.email) {
+            batch.set(doc(db, "authorizedUsers", prefix), {
+              ...studentPayload,
+              createdAt: Date.now()
+            }, { merge: true });
+          }
         }
 
         await batch.commit();

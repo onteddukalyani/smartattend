@@ -159,8 +159,25 @@ function StudentForm() {
 
         setLookingUp(true);
         try {
-            // 1. Direct document ID lookup first
-            const directSnap = await getDoc(doc(db, "users", targetRoll));
+            // 1. Direct document ID lookup in students collection
+            const studentDirectSnap = await getDoc(doc(db, "students", targetRoll)).catch(() => ({ exists: () => false }));
+            if (studentDirectSnap.exists()) {
+                const studentData = studentDirectSnap.data();
+                setVerifiedStudent(studentData);
+                setLookupDone(true);
+                if (studentData.name) {
+                    setFormData((prev) => ({
+                        ...prev,
+                        fullName: studentData.name,
+                        branch: studentData.branch || prev.branch,
+                        email: studentData.email || prev.email
+                    }));
+                }
+                return;
+            }
+
+            // 2. Direct document ID lookup in users collection
+            const directSnap = await getDoc(doc(db, "users", targetRoll)).catch(() => ({ exists: () => false }));
             if (directSnap.exists()) {
                 const studentData = directSnap.data();
                 setVerifiedStudent(studentData);
@@ -176,12 +193,33 @@ function StudentForm() {
                 return;
             }
 
-            // 2. Query users collection by uppercase rollNo
+            // 3. Query students collection by uppercase rollNo
+            const studentRollQ = query(
+                collection(db, "students"),
+                where("rollNo", "==", targetRoll)
+            );
+            const studentRollSnap = await getDocs(studentRollQ).catch(() => ({ empty: true }));
+            if (!studentRollSnap.empty) {
+                const studentData = studentRollSnap.docs[0].data();
+                setVerifiedStudent(studentData);
+                setLookupDone(true);
+                if (studentData.name) {
+                    setFormData((prev) => ({
+                        ...prev,
+                        fullName: studentData.name,
+                        branch: studentData.branch || prev.branch,
+                        email: studentData.email || prev.email
+                    }));
+                }
+                return;
+            }
+
+            // 4. Query users collection by uppercase rollNo
             const q = query(
                 collection(db, "users"),
                 where("rollNo", "==", targetRoll)
             );
-            const snapshot = await getDocs(q);
+            const snapshot = await getDocs(q).catch(() => ({ empty: true }));
 
             if (!snapshot.empty) {
                 const studentData = snapshot.docs[0].data();
@@ -198,12 +236,12 @@ function StudentForm() {
                 return;
             }
 
-            // 3. Query users collection by lowercase rollNo
+            // 5. Query users collection by lowercase rollNo
             const qLower = query(
                 collection(db, "users"),
                 where("rollNo", "==", targetRoll.toLowerCase())
             );
-            const snapLower = await getDocs(qLower);
+            const snapLower = await getDocs(qLower).catch(() => ({ empty: true }));
 
             if (!snapLower.empty) {
                 const studentData = snapLower.docs[0].data();
@@ -220,7 +258,7 @@ function StudentForm() {
                 return;
             }
 
-            // 4. Check authorizedUsers by rollNo
+            // 6. Check authorizedUsers by rollNo
             const authRollQuery = query(
                 collection(db, "authorizedUsers"),
                 where("rollNo", "==", targetRoll)
@@ -241,11 +279,22 @@ function StudentForm() {
                 return;
             }
 
-            // 5. Check authorizedUsers direct document ID (email, e.g., 25bcs108@iiitdwd.ac.in)
-            const possibleEmail = targetRoll.includes("@") ? targetRoll.toLowerCase() : `${targetRoll.toLowerCase()}@iiitdwd.ac.in`;
-            const authDocSnap = await getDoc(doc(db, "authorizedUsers", possibleEmail)).catch(() => ({ exists: () => false }));
-            if (authDocSnap.exists()) {
-                const studentData = authDocSnap.data();
+            // 7. Check direct prefix / email document IDs in students & authorizedUsers
+            const prefix = targetRoll.toLowerCase().trim();
+            const possibleEmail = targetRoll.includes("@") ? targetRoll.toLowerCase() : `${prefix}@iiitdwd.ac.in`;
+
+            const [authDocSnap, studentPrefixSnap, studentEmailSnap] = await Promise.all([
+                getDoc(doc(db, "authorizedUsers", possibleEmail)).catch(() => ({ exists: () => false })),
+                getDoc(doc(db, "students", prefix)).catch(() => ({ exists: () => false })),
+                getDoc(doc(db, "students", possibleEmail)).catch(() => ({ exists: () => false }))
+            ]);
+
+            const matchedDoc = studentPrefixSnap.exists()
+                ? studentPrefixSnap
+                : (studentEmailSnap.exists() ? studentEmailSnap : (authDocSnap.exists() ? authDocSnap : null));
+
+            if (matchedDoc) {
+                const studentData = matchedDoc.data();
                 setVerifiedStudent(studentData);
                 setLookupDone(true);
                 if (studentData.name) {
@@ -379,44 +428,38 @@ function StudentForm() {
                 submittedAt: Date.now()
             });
 
-            // Ensure student profile is registered in users collection so admin sees them immediately
-            const userDocRef = doc(db, "users", cleanRollNo);
-            const userSnap = await getDoc(userDocRef).catch(() => ({ exists: () => false }));
-            if (!userSnap.exists()) {
-                let detectedBranch = formData.branch || "General";
-                if (detectedBranch === "General") {
-                    if (/bcs/i.test(cleanRollNo)) detectedBranch = "Computer Science";
-                    else if (/bds/i.test(cleanRollNo)) detectedBranch = "Data Science";
-                    else if (/bec/i.test(cleanRollNo)) detectedBranch = "Electronics";
-                    else if (/bec/i.test(cleanRollNo)) detectedBranch = "AIC";
-                }
-                await setDoc(userDocRef, {
-                    name: cleanFullName,
-                    rollNo: cleanRollNo,
-                    email: studentEmail || `${cleanRollNo.toLowerCase()}@iiitdwd.ac.in`,
-                    branch: detectedBranch,
-                    semester: "1",
-                    role: "student",
-                    status: "active",
-                    faceRegistered: false,
-                    createdAt: Date.now()
-                }, { merge: true }).catch((err) => console.warn("Could not auto-register student in users:", err));
+            // Ensure student profile is registered in students collection and users collection so admin sees them immediately
+            let detectedBranch = (formData.branch && String(formData.branch).toLowerCase() !== "general") ? formData.branch : "";
+            if (!detectedBranch) {
+                if (/bcs/i.test(cleanRollNo)) detectedBranch = "CSE";
+                else if (/bds/i.test(cleanRollNo)) detectedBranch = "DSAI";
+                else if (/bec/i.test(cleanRollNo)) detectedBranch = "ECE";
+                else if (/aic/i.test(cleanRollNo)) detectedBranch = "AIC";
+                else detectedBranch = "CSE";
             }
 
+            const studentPayload = {
+                name: cleanFullName,
+                rollNo: cleanRollNo,
+                email: studentEmail || `${cleanRollNo.toLowerCase()}@iiitdwd.ac.in`,
+                branch: detectedBranch,
+                semester: "1",
+                role: "student",
+                status: "active",
+                faceRegistered: false,
+                createdAt: Date.now()
+            };
+
+            await setDoc(doc(db, "students", cleanRollNo), studentPayload, { merge: true }).catch(() => {});
+            await setDoc(doc(db, "users", cleanRollNo), studentPayload, { merge: true }).catch(() => {});
+
             if (studentEmail) {
-                const authUserRef = doc(db, "authorizedUsers", studentEmail);
-                const authSnap = await getDoc(authUserRef).catch(() => ({ exists: () => false }));
-                if (!authSnap.exists()) {
-                    await setDoc(authUserRef, {
-                        name: cleanFullName,
-                        rollNo: cleanRollNo,
-                        email: studentEmail,
-                        role: "student",
-                        approved: true,
-                        status: "active",
-                        createdAt: Date.now()
-                    }, { merge: true }).catch((err) => console.warn("Could not auto-register student in authorizedUsers:", err));
+                const prefix = studentEmail.split("@")[0].toLowerCase().trim();
+                if (prefix) {
+                    await setDoc(doc(db, "students", prefix), studentPayload, { merge: true }).catch(() => {});
+                    await setDoc(doc(db, "users", prefix), studentPayload, { merge: true }).catch(() => {});
                 }
+                await setDoc(doc(db, "authorizedUsers", studentEmail), studentPayload, { merge: true }).catch(() => {});
             }
 
             // Persist the student's active roll number for immediate dashboard recognition

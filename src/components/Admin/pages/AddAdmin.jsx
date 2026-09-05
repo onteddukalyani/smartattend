@@ -94,11 +94,25 @@ const AddAdmin = () => {
         createdAt: Date.now()
       };
 
-      // 1. Save to authorizedUsers collection
-      await setDoc(doc(db, "authorizedUsers", cleanEmail), adminData, { merge: true });
+      const prefix = cleanEmail.split("@")[0].toLowerCase().trim();
 
-      // 2. Save/merge into users collection
-      await setDoc(doc(db, "users", cleanEmail), adminData, { merge: true });
+      // 1. Save to dedicated admins collection with document ID as username (before @) and email
+      await setDoc(doc(db, "admins", prefix), adminData, { merge: true });
+      if (prefix !== cleanEmail) {
+        await setDoc(doc(db, "admins", cleanEmail), adminData, { merge: true });
+      }
+
+      // 2. Save to authorizedUsers collection
+      await setDoc(doc(db, "authorizedUsers", prefix), adminData, { merge: true });
+      if (prefix !== cleanEmail) {
+        await setDoc(doc(db, "authorizedUsers", cleanEmail), adminData, { merge: true });
+      }
+
+      // 3. Save/merge into users collection
+      await setDoc(doc(db, "users", prefix), adminData, { merge: true });
+      if (prefix !== cleanEmail) {
+        await setDoc(doc(db, "users", cleanEmail), adminData, { merge: true });
+      }
 
       alert(`✅ Administrator ${form.name} (${cleanEmail}) added successfully!`);
       navigate("/admin/admins");
@@ -218,6 +232,7 @@ const AddAdmin = () => {
       const batch = writeBatch(db);
 
       validRows.forEach((adm) => {
+        const prefix = adm.email.split("@")[0].toLowerCase().trim();
         const adminData = {
           name: adm.name,
           email: adm.email,
@@ -231,11 +246,20 @@ const AddAdmin = () => {
           createdAt: Date.now()
         };
 
-        const authRef = doc(db, "authorizedUsers", adm.email);
-        batch.set(authRef, adminData, { merge: true });
+        batch.set(doc(db, "admins", prefix), adminData, { merge: true });
+        if (prefix !== adm.email) {
+          batch.set(doc(db, "admins", adm.email), adminData, { merge: true });
+        }
 
-        const userRef = doc(db, "users", adm.email);
-        batch.set(userRef, adminData, { merge: true });
+        batch.set(doc(db, "authorizedUsers", prefix), adminData, { merge: true });
+        if (prefix !== adm.email) {
+          batch.set(doc(db, "authorizedUsers", adm.email), adminData, { merge: true });
+        }
+
+        batch.set(doc(db, "users", prefix), adminData, { merge: true });
+        if (prefix !== adm.email) {
+          batch.set(doc(db, "users", adm.email), adminData, { merge: true });
+        }
       });
 
       await batch.commit();

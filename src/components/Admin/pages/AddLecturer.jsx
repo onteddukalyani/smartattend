@@ -111,11 +111,11 @@ const AddLecturer = () => {
         return;
       }
 
-      // 1. Authorize lecturer for Google Login in authorizedUsers
-      await setDoc(authorizedUserRef, {
+      const prefix = cleanEmail.split("@")[0].toLowerCase().trim();
+      const lecturerData = {
         name: form.name.trim(),
         email: cleanEmail,
-        department: form.department.trim() || "General",
+        department: (form.department.trim() && form.department.trim().toLowerCase() !== "general") ? form.department.trim() : "Computer Science & Engineering",
         designation: form.designation,
         phone: form.phone.trim(),
         cabin: form.cabin.trim(),
@@ -123,21 +123,31 @@ const AddLecturer = () => {
         approved: true,
         status: "active",
         createdAt: Date.now()
-      });
+      };
 
-      // 2. Register profile in users collection
-      await addDoc(collection(db, "users"), {
-        name: form.name.trim(),
-        email: cleanEmail,
-        department: form.department.trim() || "General",
-        designation: form.designation,
-        phone: form.phone.trim(),
-        cabin: form.cabin.trim(),
-        role: "lecturer",
-        approved: true,
-        status: "active",
+      // 1. Save to dedicated lecturers collection
+      await setDoc(doc(db, "lecturers", prefix), lecturerData, { merge: true });
+      if (prefix !== cleanEmail) {
+        await setDoc(doc(db, "lecturers", cleanEmail), lecturerData, { merge: true });
+      }
+
+      // 2. Authorize lecturer for Google Login in authorizedUsers
+      await setDoc(doc(db, "authorizedUsers", prefix), lecturerData, { merge: true });
+      if (prefix !== cleanEmail) {
+        await setDoc(doc(db, "authorizedUsers", cleanEmail), lecturerData, { merge: true });
+      }
+
+      // 3. Register profile in users collection
+      await setDoc(doc(db, "users", prefix), {
+        ...lecturerData,
         createdAt: serverTimestamp()
-      });
+      }, { merge: true });
+      if (prefix !== cleanEmail) {
+        await setDoc(doc(db, "users", cleanEmail), {
+          ...lecturerData,
+          createdAt: serverTimestamp()
+        }, { merge: true });
+      }
 
       navigate("/admin/lecturers");
 
@@ -323,9 +333,8 @@ const AddLecturer = () => {
         const batch = writeBatch(db);
 
         for (const lecturer of chunk) {
-          // 1. Authorize in authorizedUsers
-          const authUserRef = doc(db, "authorizedUsers", lecturer.email);
-          batch.set(authUserRef, {
+          const prefix = lecturer.email.split("@")[0].toLowerCase().trim();
+          const lecturerPayload = {
             name: lecturer.name,
             email: lecturer.email,
             department: lecturer.department,
@@ -336,22 +345,31 @@ const AddLecturer = () => {
             approved: true,
             status: "active",
             createdAt: Date.now()
-          });
+          };
 
-          // 2. Register profile in users collection
-          const userDocRef = doc(collection(db, "users"));
-          batch.set(userDocRef, {
-            name: lecturer.name,
-            email: lecturer.email,
-            department: lecturer.department,
-            designation: lecturer.designation,
-            phone: lecturer.phone,
-            cabin: lecturer.cabin,
-            role: "lecturer",
-            approved: true,
-            status: "active",
+          // 1. Save to lecturers collection under prefix and email
+          batch.set(doc(db, "lecturers", prefix), lecturerPayload, { merge: true });
+          if (prefix !== lecturer.email) {
+            batch.set(doc(db, "lecturers", lecturer.email), lecturerPayload, { merge: true });
+          }
+
+          // 2. Authorize in authorizedUsers under prefix and email
+          batch.set(doc(db, "authorizedUsers", prefix), lecturerPayload, { merge: true });
+          if (prefix !== lecturer.email) {
+            batch.set(doc(db, "authorizedUsers", lecturer.email), lecturerPayload, { merge: true });
+          }
+
+          // 3. Register profile in users collection under prefix and email
+          batch.set(doc(db, "users", prefix), {
+            ...lecturerPayload,
             createdAt: serverTimestamp()
-          });
+          }, { merge: true });
+          if (prefix !== lecturer.email) {
+            batch.set(doc(db, "users", lecturer.email), {
+              ...lecturerPayload,
+              createdAt: serverTimestamp()
+            }, { merge: true });
+          }
         }
 
         await batch.commit();

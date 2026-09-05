@@ -48,7 +48,11 @@ const ManageLecturers = () => {
     try {
       setLoading(true);
 
-      const [usersSnap, authUsersSnap, sessionsSnap, recordsSnap] = await Promise.all([
+      const [lecturersSnap, usersSnap, authUsersSnap, sessionsSnap, recordsSnap] = await Promise.all([
+        getDocs(collection(db, "lecturers")).catch((e) => {
+          console.warn("Could not read lecturers collection:", e);
+          return { docs: [] };
+        }),
         getDocs(collection(db, "users")).catch((e) => {
           console.warn("Could not read users collection:", e);
           return { docs: [] };
@@ -69,7 +73,7 @@ const ManageLecturers = () => {
 
       // Build cross-collection user lookup maps
       const lookupMaps = buildUserLookupMaps(
-        usersSnap.docs,
+        [...lecturersSnap.docs, ...usersSnap.docs],
         authUsersSnap.docs,
         recordsSnap.docs,
         sessionsSnap.docs
@@ -77,33 +81,59 @@ const ManageLecturers = () => {
 
       const lecturerMap = new Map();
 
-      // 1. Ingest authorized faculty from authorizedUsers
+      // 1. Ingest faculty from lecturers collection
+      lecturersSnap.docs.forEach((docSnap) => {
+        const data = docSnap.data();
+        const email = (data.email || (docSnap.id.includes("@") ? docSnap.id : "")).toLowerCase().trim();
+        const key = email || docSnap.id;
+        lecturerMap.set(key, {
+          id: docSnap.id,
+          lecturerDocId: docSnap.id,
+          emailDocId: docSnap.id.includes("@") ? docSnap.id : null,
+          userDocId: null,
+          ...data,
+          email: email || data.email || "",
+          uid: data.uid || lookupMaps.emailToUid.get(email) || null,
+          name: data.name || (email ? email.split("@")[0] : "Lecturer"),
+          department: (data.department && String(data.department).toLowerCase() !== "general") ? data.department : "Computer Science & Engineering",
+          designation: data.designation || "Assistant Professor",
+          phone: data.phone || "",
+          cabin: data.cabin || "",
+          role: "lecturer",
+          approved: data.approved !== false,
+          status: data.status || "active"
+        });
+      });
+
+      // 2. Ingest authorized faculty from authorizedUsers
       authUsersSnap.docs.forEach((docSnap) => {
         const data = docSnap.data();
         const role = String(data.role || "").toLowerCase().trim();
         if (role === "lecturer" || role === "faculty" || role === "professor") {
           const email = (data.email || (docSnap.id.includes("@") ? docSnap.id : "")).toLowerCase().trim();
           const key = email || docSnap.id;
+          const existing = lecturerMap.get(key) || {};
           lecturerMap.set(key, {
-            id: docSnap.id,
+            ...existing,
+            id: existing.id || docSnap.id,
             emailDocId: docSnap.id,
-            userDocId: null,
+            userDocId: existing.userDocId || null,
             ...data,
-            email,
-            uid: data.uid || lookupMaps.emailToUid.get(email) || null,
-            name: data.name || (email ? email.split("@")[0] : "Lecturer"),
-            department: data.department || "General",
-            designation: data.designation || "Assistant Professor",
-            phone: data.phone || "",
-            cabin: data.cabin || "",
+            email: email || existing.email || "",
+            uid: data.uid || existing.uid || lookupMaps.emailToUid.get(email) || null,
+            name: data.name || existing.name || (email ? email.split("@")[0] : "Lecturer"),
+            department: (data.department && String(data.department).toLowerCase() !== "general") ? data.department : ((existing.department && String(existing.department).toLowerCase() !== "general") ? existing.department : "Computer Science & Engineering"),
+            designation: data.designation || existing.designation || "Assistant Professor",
+            phone: data.phone || existing.phone || "",
+            cabin: data.cabin || existing.cabin || "",
             role: "lecturer",
-            approved: data.approved !== false,
-            status: data.status || "active"
+            approved: data.approved !== false && existing.approved !== false,
+            status: data.status || existing.status || "active"
           });
         }
       });
 
-      // 2. Ingest lecturer profiles from users collection
+      // 3. Ingest lecturer profiles from users collection
       usersSnap.docs.forEach((docSnap) => {
         const data = docSnap.data();
         const role = String(data.role || "").toLowerCase().trim();
@@ -121,7 +151,7 @@ const ManageLecturers = () => {
             email: email || existing.email || "",
             uid: data.uid || existing.uid || lookupMaps.emailToUid.get(email) || null,
             name: data.name || existing.name || (email ? email.split("@")[0] : "Lecturer"),
-            department: data.department || existing.department || "General",
+            department: (data.department && String(data.department).toLowerCase() !== "general") ? data.department : ((existing.department && String(existing.department).toLowerCase() !== "general") ? existing.department : "Computer Science & Engineering"),
             designation: data.designation || existing.designation || "Assistant Professor",
             phone: data.phone || existing.phone || "",
             cabin: data.cabin || existing.cabin || "",
@@ -163,20 +193,39 @@ const ManageLecturers = () => {
       setUpdating(lecturer.id);
 
       const emailKey = lecturer.email ? lecturer.email.toLowerCase().trim() : null;
+      const prefix = emailKey ? emailKey.split("@")[0] : null;
+      const lecturerDocId = lecturer.lecturerDocId || lecturer.id;
       const userDocId = lecturer.userDocId || (lecturer.id && !lecturer.id.includes("@") ? lecturer.id : null);
 
       const promises = [];
 
-      // Update in users collection
+      // 1. Update in lecturers collection
+      if (lecturerDocId) {
+        promises.push(setDoc(doc(db, "lecturers", lecturerDocId), changes, { merge: true }));
+      }
+      if (prefix) {
+        promises.push(setDoc(doc(db, "lecturers", prefix), changes, { merge: true }));
+      }
+      if (emailKey) {
+        promises.push(setDoc(doc(db, "lecturers", emailKey), { ...lecturer, ...changes, role: "lecturer" }, { merge: true }));
+      }
+
+      // 2. Update in users collection
       if (userDocId) {
         promises.push(setDoc(doc(db, "users", userDocId), changes, { merge: true }));
       } else if (emailKey) {
         promises.push(setDoc(doc(db, "users", emailKey), { ...lecturer, ...changes, role: "lecturer" }, { merge: true }));
       }
+      if (prefix) {
+        promises.push(setDoc(doc(db, "users", prefix), changes, { merge: true }));
+      }
 
-      // Update in authorizedUsers collection
+      // 3. Update in authorizedUsers collection
       if (emailKey) {
         promises.push(setDoc(doc(db, "authorizedUsers", emailKey), changes, { merge: true }));
+      }
+      if (prefix) {
+        promises.push(setDoc(doc(db, "authorizedUsers", prefix), changes, { merge: true }));
       }
 
       await Promise.all(promises);
@@ -241,16 +290,27 @@ const ManageLecturers = () => {
     try {
       setUpdating(lecturer.id);
       const emailKey = lecturer.email ? lecturer.email.toLowerCase().trim() : null;
+      const prefix = emailKey ? emailKey.split("@")[0] : null;
+      const lecturerDocId = lecturer.lecturerDocId || lecturer.id;
       const userDocId = lecturer.userDocId || lecturer.id;
 
       const promises = [];
+      if (lecturerDocId) {
+        promises.push(deleteDoc(doc(db, "lecturers", lecturerDocId)).catch(() => { }));
+      }
+      if (prefix) {
+        promises.push(deleteDoc(doc(db, "lecturers", prefix)).catch(() => { }));
+        promises.push(deleteDoc(doc(db, "authorizedUsers", prefix)).catch(() => { }));
+        promises.push(deleteDoc(doc(db, "users", prefix)).catch(() => { }));
+      }
       if (userDocId) {
-        promises.push(deleteDoc(doc(db, "users", userDocId)).catch(() => {}));
+        promises.push(deleteDoc(doc(db, "users", userDocId)).catch(() => { }));
       }
       if (emailKey) {
-        promises.push(deleteDoc(doc(db, "authorizedUsers", emailKey)).catch(() => {}));
+        promises.push(deleteDoc(doc(db, "lecturers", emailKey)).catch(() => { }));
+        promises.push(deleteDoc(doc(db, "authorizedUsers", emailKey)).catch(() => { }));
         if (emailKey !== userDocId) {
-          promises.push(deleteDoc(doc(db, "users", emailKey)).catch(() => {}));
+          promises.push(deleteDoc(doc(db, "users", emailKey)).catch(() => { }));
         }
       }
 

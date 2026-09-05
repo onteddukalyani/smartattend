@@ -61,12 +61,8 @@ const ProtectedRoute = ({ allowedRole, children }) => {
     return <Navigate to="/login" replace />;
   }
 
-  // Admin and lecturer must be approved
-  if (
-    (profile.role === "admin" ||
-      profile.role === "lecturer") &&
-    profile.approved !== true
-  ) {
+  // Account must be approved
+  if (profile.approved === false) {
     return (
       <div
         style={{

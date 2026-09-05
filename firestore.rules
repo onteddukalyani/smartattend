@@ -13,6 +13,16 @@ service cloud.firestore {
         );
     }
 
+    function hasAdminDoc(email) {
+      return exists(/databases/$(database)/documents/admins/$(email.lower())) ||
+             exists(/databases/$(database)/documents/admins/$(email.lower().split('@')[0]));
+    }
+
+    function hasLecturerDoc(email) {
+      return exists(/databases/$(database)/documents/lecturers/$(email.lower())) ||
+             exists(/databases/$(database)/documents/lecturers/$(email.lower().split('@')[0]));
+    }
+
     function hasAuthorizedDoc(email) {
       return exists(/databases/$(database)/documents/authorizedUsers/$(email.lower()));
     }
@@ -23,12 +33,24 @@ service cloud.firestore {
         : '';
     }
 
+    function hasUserDoc(email) {
+      return exists(/databases/$(database)/documents/users/$(email.lower()));
+    }
+
+    function getUserRole(email) {
+      return hasUserDoc(email)
+        ? get(/databases/$(database)/documents/users/$(email.lower())).data.role
+        : '';
+    }
+
     function isAdmin(auth) {
       return auth != null 
         && 'email' in auth.token 
         && (
           isSuperAdmin(auth) || 
-          getRole(auth.token.email) == 'admin'
+          hasAdminDoc(auth.token.email) ||
+          getRole(auth.token.email) == 'admin' ||
+          getUserRole(auth.token.email) == 'admin'
         );
     }
 
@@ -37,8 +59,35 @@ service cloud.firestore {
         && 'email' in auth.token 
         && (
           isAdmin(auth) || 
-          getRole(auth.token.email) == 'lecturer'
+          hasLecturerDoc(auth.token.email) ||
+          getRole(auth.token.email) == 'lecturer' ||
+          getRole(auth.token.email) == 'faculty' ||
+          getUserRole(auth.token.email) == 'lecturer' ||
+          getUserRole(auth.token.email) == 'faculty'
         );
+    }
+
+    // Rules for admins collection
+    match /admins/{adminId} {
+      allow read: if request.auth != null;
+      allow create, update, delete: if request.auth != null && isAdmin(request.auth);
+    }
+
+    // Rules for lecturers collection
+    match /lecturers/{lecturerId} {
+      allow read: if request.auth != null;
+      allow create, update, delete: if request.auth != null && (isAdmin(request.auth) || isLecturer(request.auth));
+    }
+
+    // Rules for students collection
+    match /students/{studentId} {
+      allow read: if request.auth != null;
+      allow create, update, delete: if request.auth != null && (
+        isAdmin(request.auth) || 
+        isLecturer(request.auth) ||
+        (resource != null && 'email' in resource.data && resource.data.email != null && request.auth.token.email.lower() == resource.data.email.lower()) ||
+        studentId == request.auth.uid
+      );
     }
 
     // Rules for authorizedUsers
@@ -48,17 +97,13 @@ service cloud.firestore {
       allow write: if request.auth != null && isAdmin(request.auth);
     }
 
-    // Rules for users (Students and Lecturers profiles)
+    // Rules for users (Universal profiles sync)
     match /users/{userId} {
-      // Anyone authenticated in the institute can view profiles
       allow read: if request.auth != null;
-      
-      // Anyone authenticated in the institute can add/register profiles
       allow create: if request.auth != null;
-      
-      // Admins can edit/delete any profile; users can update their own
       allow update, delete: if request.auth != null && (
         isAdmin(request.auth) || 
+        isLecturer(request.auth) ||
         (resource != null && 'email' in resource.data && resource.data.email != null && request.auth.token.email.lower() == resource.data.email.lower()) ||
         userId == request.auth.uid
       );
@@ -66,16 +111,9 @@ service cloud.firestore {
 
     // Rules for attendance_sessions
     match /attendance_sessions/{sessionId} {
-      // Anyone (including students without an account) can read session details to validate QR codes
       allow get: if true;
-      
-      // Authenticated users can list sessions
       allow list: if request.auth != null;
-      
-      // Authenticated users can create sessions
       allow create: if request.auth != null;
-      
-      // Lecturer who created session or Admin can edit/delete
       allow update, delete: if request.auth != null && (
         isAdmin(request.auth) ||
         (resource != null && 'ownerId' in resource.data && resource.data.ownerId == request.auth.uid)
@@ -84,20 +122,28 @@ service cloud.firestore {
 
     // Rules for attendance_records
     match /attendance_records/{recordId} {
-      // Anyone can check if their record already exists
       allow get: if true;
-      
-      // Authenticated users can list records
       allow list: if request.auth != null;
-      
-      // Active sessions allow creating attendance records
       allow create, update: if true;
-      
-      // Lecturer who created the session or Admin can delete records
       allow delete: if request.auth != null && (
         isAdmin(request.auth) ||
         (resource != null && 'ownerId' in resource.data && resource.data.ownerId == request.auth.uid)
       );
+    }
+
+    // Rules for courses
+    match /courses/{courseId} {
+      allow read: if request.auth != null;
+      allow create, update, delete: if request.auth != null && (
+        isAdmin(request.auth) || 
+        isLecturer(request.auth)
+      );
+    }
+
+    // Rules for institution settings
+    match /institution_settings/{docId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && isAdmin(request.auth);
     }
   }
 }

@@ -48,17 +48,21 @@ export default function StudentDashboard() {
     // Resolve student profile name directly if not loaded
     useEffect(() => {
         if (!activeRollNo) return;
-        getDoc(doc(db, "users", activeRollNo))
-            .then((snap) => {
-                if (snap.exists()) {
-                    setFetchedStudentData(snap.data());
-                }
-            })
-            .catch(() => {});
+        Promise.all([
+            getDoc(doc(db, "students", activeRollNo)).catch(() => ({ exists: () => false })),
+            getDoc(doc(db, "users", activeRollNo)).catch(() => ({ exists: () => false }))
+        ]).then(([studentSnap, userSnap]) => {
+            if (studentSnap.exists()) {
+                setFetchedStudentData(studentSnap.data());
+            } else if (userSnap.exists()) {
+                setFetchedStudentData(userSnap.data());
+            }
+        }).catch(() => { });
     }, [activeRollNo]);
 
     const studentName = profile?.name || fetchedStudentData?.name || user?.displayName || "Student";
-    const studentBranch = profile?.branch || fetchedStudentData?.branch || "General";
+    const rawBranch = profile?.branch || fetchedStudentData?.branch;
+    const studentBranch = (rawBranch && String(rawBranch).toLowerCase() !== "general") ? rawBranch : "CSE";
     const studentSemester = profile?.semester || fetchedStudentData?.semester || "1";
 
     // Build list of candidate roll numbers to guarantee matching

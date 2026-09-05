@@ -77,11 +77,15 @@ export default function ManageCourses() {
         return () => unsubscribe();
     }, []);
 
-    // 2. Fetch lecturers from authorizedUsers & users (strictly faculty/lecturers only)
+    // 2. Fetch lecturers from lecturers, authorizedUsers & users (strictly faculty/lecturers only)
     useEffect(() => {
         const fetchLecturers = async () => {
             try {
-                const [authSnap, usersSnap] = await Promise.all([
+                const [lecturersSnap, authSnap, usersSnap] = await Promise.all([
+                    getDocs(collection(db, "lecturers")).catch((e) => {
+                        console.warn("Could not read lecturers:", e);
+                        return { docs: [] };
+                    }),
                     getDocs(collection(db, "authorizedUsers")).catch((e) => {
                         console.warn("Could not read authorizedUsers:", e);
                         return { docs: [] };
@@ -94,7 +98,20 @@ export default function ManageCourses() {
 
                 const lectMap = new Map();
 
-                // 1. Ingest authorized faculty from authorizedUsers collection
+                // 1. Ingest faculty from lecturers collection
+                lecturersSnap.docs.forEach((d) => {
+                    const data = d.data();
+                    const email = (data.email || (d.id.includes("@") ? d.id : "")).toLowerCase().trim();
+                    if (email && email.includes("@")) {
+                        lectMap.set(email, {
+                            email,
+                            name: data.name || (email ? email.split("@")[0] : "Lecturer"),
+                            department: (data.department && String(data.department).toLowerCase() !== "general") ? data.department : ((data.branch && String(data.branch).toLowerCase() !== "general") ? data.branch : "CSE")
+                        });
+                    }
+                });
+
+                // 2. Ingest authorized faculty from authorizedUsers collection
                 authSnap.docs.forEach((d) => {
                     const data = d.data();
                     const role = String(data.role || "").toLowerCase().trim();
@@ -103,16 +120,17 @@ export default function ManageCourses() {
                     if (isFaculty) {
                         const email = (data.email || (d.id.includes("@") ? d.id : "")).toLowerCase().trim();
                         if (email && email.includes("@")) {
+                            const existing = lectMap.get(email) || {};
                             lectMap.set(email, {
                                 email,
-                                name: data.name || (email ? email.split("@")[0] : "Lecturer"),
-                                department: data.department || data.branch || "General"
+                                name: data.name || existing.name || (email ? email.split("@")[0] : "Lecturer"),
+                                department: (data.department && String(data.department).toLowerCase() !== "general") ? data.department : ((data.branch && String(data.branch).toLowerCase() !== "general") ? data.branch : ((existing.department && String(existing.department).toLowerCase() !== "general") ? existing.department : "CSE"))
                             });
                         }
                     }
                 });
 
-                // 2. Ingest faculty from users collection
+                // 3. Ingest faculty from users collection
                 usersSnap.docs.forEach((d) => {
                     const data = d.data();
                     const role = String(data.role || "").toLowerCase().trim();
@@ -127,7 +145,7 @@ export default function ManageCourses() {
                             lectMap.set(email, {
                                 email,
                                 name: data.name || existing.name || (email ? email.split("@")[0] : "Lecturer"),
-                                department: data.department || data.branch || existing.department || "General"
+                                department: (data.department && String(data.department).toLowerCase() !== "general") ? data.department : ((data.branch && String(data.branch).toLowerCase() !== "general") ? data.branch : ((existing.department && String(existing.department).toLowerCase() !== "general") ? existing.department : "CSE"))
                             });
                         }
                     }
@@ -390,6 +408,7 @@ export default function ManageCourses() {
                         <option value="all">All Departments</option>
                         <option value="CSE">Computer Science (CSE)</option>
                         <option value="DSAI">Data Science & AI (DSAI)</option>
+                        <option value="ECE">Electronics (ECE)</option>
                         <option value="AIC">AI and Computing</option>
                     </select>
 
@@ -565,8 +584,7 @@ export default function ManageCourses() {
                                         <option value="CSE">CSE</option>
                                         <option value="DSAI">DSAI</option>
                                         <option value="ECE">ECE</option>
-                                        <option value="MECH">MECH</option>
-                                        <option value="General">General</option>
+                                        <option value="AIC">AIC</option>
                                     </select>
                                 </div>
                             </div>

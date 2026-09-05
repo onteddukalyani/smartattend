@@ -36,155 +36,169 @@ export const AuthProvider = ({ children }) => {
   // AUTO-PERSIST NEW STUDENTS TO FIRESTORE (USERS & AUTHORIZEDUSERS)
   // =========================================================
 
-  const ensureStudentRegistered = async (email, displayName, existingDoc) => {
-    try {
-      if (!email) return existingDoc;
-      const cleanEmail = email.toLowerCase().trim();
-      const roll = (existingDoc?.rollNo || cleanEmail.split("@")[0]).toUpperCase().trim();
-
-      let detectedBranch = existingDoc?.branch || "General";
-      if (detectedBranch === "General") {
-        if (/bcs/i.test(roll)) detectedBranch = "Computer Science";
-        else if (/bds/i.test(roll)) detectedBranch = "Data Science";
-        else if (/bec/i.test(roll)) detectedBranch = "Electronics";
-      }
-
-      const payload = {
-        name: existingDoc?.name || displayName || "Student",
-        email: cleanEmail,
-        rollNo: roll,
-        branch: detectedBranch,
-        semester: existingDoc?.semester || "1",
-        role: "student",
-        status: "active",
-        faceRegistered: existingDoc?.faceRegistered ?? false,
-        createdAt: existingDoc?.createdAt || Date.now()
-      };
-
-      // Ensure user record exists in users collection under Roll Number document ID
-      const userRef = doc(db, "users", roll);
-      const userSnap = await getDoc(userRef).catch(() => ({ exists: () => false }));
-      if (!userSnap.exists()) {
-        await setDoc(userRef, payload, { merge: true }).catch((err) => {
-          console.warn("Could not auto-create student in users:", err);
-        });
-      }
-
-      // Also ensure student is present in authorizedUsers
-      const authUserRef = doc(db, "authorizedUsers", cleanEmail);
-      const authSnap = await getDoc(authUserRef).catch(() => ({ exists: () => false }));
-      if (!authSnap.exists()) {
-        await setDoc(authUserRef, {
-          ...payload,
-          approved: true
-        }, { merge: true }).catch((err) => {
-          console.warn("Could not auto-create student in authorizedUsers:", err);
-        });
-      }
-
-      return payload;
-    } catch (e) {
-      console.warn("Error ensuring student registration:", e);
-      return existingDoc;
-    }
-  };
-
   // =========================================================
-  // FIND USER IN authorizedUsers
+  // LOOKUP REGISTERED USER IN FIRESTORE
   // =========================================================
 
-  const findAuthorizedUser = async (email) => {
-    if (!email) {
-      return null;
-    }
-
-    try {
-      const userRef = doc(
-        db,
-        "authorizedUsers",
-        email
-      );
-
-      const userSnap = await getDoc(userRef);
-
-      if (!userSnap.exists()) {
-        return null;
-      }
-
-      return {
-        id: userSnap.id,
-        ...userSnap.data()
-      };
-    } catch (error) {
-      console.error("Error checking authorizedUsers:", error);
-      return null;
-    }
-  };
-
-  // =========================================================
-  // FIND STUDENT PROFILE IN users (Roll Number as ID)
-  // =========================================================
-
-  const findStudentProfile = async (email) => {
+  const lookupUserInSystem = async (email) => {
     if (!email) return null;
     const cleanEmail = email.toLowerCase().trim();
-    const rollFromEmail = cleanEmail.split("@")[0].toUpperCase();
+    const prefix = cleanEmail.split("@")[0].toLowerCase().trim(); // Before @
+    const rollFromEmail = prefix.toUpperCase();
 
     try {
-      // 1. Direct lookup by Roll Number as Document ID
-      const rollDoc = await getDoc(doc(db, "users", rollFromEmail));
-      if (rollDoc.exists()) {
-        const d = rollDoc.data();
-        return {
-          id: rollDoc.id,
-          ...d,
-          rollNo: d.rollNo || rollFromEmail,
-          name: d.name || cleanEmail.split("@")[0],
-          role: "student",
-          approved: true
-        };
+      // 1. Check admins collection by prefix
+      const adminPrefixSnap = await getDoc(doc(db, "admins", prefix)).catch(() => ({ exists: () => false }));
+      if (adminPrefixSnap.exists()) {
+        const d = adminPrefixSnap.data();
+        return { id: adminPrefixSnap.id, ...d, email: d.email || cleanEmail, role: "admin" };
       }
 
-      // 2. Query users collection by email
-      const emailQ = query(
-        collection(db, "users"),
-        where("email", "==", cleanEmail)
-      );
-      const emailSnap = await getDocs(emailQ);
+      // 2. Check admins collection by email doc ID
+      const adminEmailSnap = await getDoc(doc(db, "admins", cleanEmail)).catch(() => ({ exists: () => false }));
+      if (adminEmailSnap.exists()) {
+        const d = adminEmailSnap.data();
+        return { id: adminEmailSnap.id, ...d, email: cleanEmail, role: "admin" };
+      }
+
+      // 3. Query admins collection by email field
+      const adminQuery = query(collection(db, "admins"), where("email", "==", cleanEmail));
+      const adminQuerySnap = await getDocs(adminQuery).catch(() => ({ empty: true }));
+      if (!adminQuerySnap.empty) {
+        const d = adminQuerySnap.docs[0].data();
+        return { id: adminQuerySnap.docs[0].id, ...d, email: cleanEmail, role: "admin" };
+      }
+
+      // 4. Check lecturers collection by prefix
+      const lectPrefixSnap = await getDoc(doc(db, "lecturers", prefix)).catch(() => ({ exists: () => false }));
+      if (lectPrefixSnap.exists()) {
+        const d = lectPrefixSnap.data();
+        return { id: lectPrefixSnap.id, ...d, email: d.email || cleanEmail, role: "lecturer" };
+      }
+
+      // 5. Check lecturers collection by email doc ID
+      const lectEmailSnap = await getDoc(doc(db, "lecturers", cleanEmail)).catch(() => ({ exists: () => false }));
+      if (lectEmailSnap.exists()) {
+        const d = lectEmailSnap.data();
+        return { id: lectEmailSnap.id, ...d, email: cleanEmail, role: "lecturer" };
+      }
+
+      // 6. Query lecturers collection by email field
+      const lectQuery = query(collection(db, "lecturers"), where("email", "==", cleanEmail));
+      const lectQuerySnap = await getDocs(lectQuery).catch(() => ({ empty: true }));
+      if (!lectQuerySnap.empty) {
+        const d = lectQuerySnap.docs[0].data();
+        return { id: lectQuerySnap.docs[0].id, ...d, email: cleanEmail, role: "lecturer" };
+      }
+
+      // 7. Check students collection by direct Roll Number ID (e.g. "23BCS001")
+      const studentRollSnap = await getDoc(doc(db, "students", rollFromEmail)).catch(() => ({ exists: () => false }));
+      if (studentRollSnap.exists()) {
+        const d = studentRollSnap.data();
+        return { id: studentRollSnap.id, ...d, rollNo: d.rollNo || rollFromEmail, email: d.email || cleanEmail, role: "student" };
+      }
+
+      // 8. Check students collection by prefix before @
+      const studentPrefixSnap = await getDoc(doc(db, "students", prefix)).catch(() => ({ exists: () => false }));
+      if (studentPrefixSnap.exists()) {
+        const d = studentPrefixSnap.data();
+        return { id: studentPrefixSnap.id, ...d, rollNo: d.rollNo || rollFromEmail, email: d.email || cleanEmail, role: "student" };
+      }
+
+      // 9. Check students collection by email doc ID
+      const studentEmailDocSnap = await getDoc(doc(db, "students", cleanEmail)).catch(() => ({ exists: () => false }));
+      if (studentEmailDocSnap.exists()) {
+        const d = studentEmailDocSnap.data();
+        return { id: studentEmailDocSnap.id, ...d, rollNo: d.rollNo || rollFromEmail, email: d.email || cleanEmail, role: "student" };
+      }
+
+      // 10. Query students collection by email field
+      const studentEmailQ = query(collection(db, "students"), where("email", "==", cleanEmail));
+      const studentEmailQuerySnap = await getDocs(studentEmailQ).catch(() => ({ empty: true }));
+      if (!studentEmailQuerySnap.empty) {
+        const d = studentEmailQuerySnap.docs[0].data();
+        return { id: studentEmailQuerySnap.docs[0].id, ...d, rollNo: d.rollNo || rollFromEmail, email: d.email || cleanEmail, role: "student" };
+      }
+
+      // 11. Query students collection by rollNo field
+      const studentRollFieldQ = query(collection(db, "students"), where("rollNo", "==", rollFromEmail));
+      const studentRollFieldSnap = await getDocs(studentRollFieldQ).catch(() => ({ empty: true }));
+      if (!studentRollFieldSnap.empty) {
+        const d = studentRollFieldSnap.docs[0].data();
+        return { id: studentRollFieldSnap.docs[0].id, ...d, rollNo: d.rollNo || rollFromEmail, email: d.email || cleanEmail, role: "student" };
+      }
+
+      // 12. Check authorizedUsers direct doc ID (prefix before @)
+      const authPrefixSnap = await getDoc(doc(db, "authorizedUsers", prefix)).catch(() => ({ exists: () => false }));
+      if (authPrefixSnap.exists()) {
+        const d = authPrefixSnap.data();
+        return { id: authPrefixSnap.id, ...d, email: d.email || cleanEmail, role: String(d.role || "admin").trim().toLowerCase() };
+      }
+
+      // 13. Check authorizedUsers direct doc ID (full email)
+      const authRef = doc(db, "authorizedUsers", cleanEmail);
+      const authSnap = await getDoc(authRef).catch(() => ({ exists: () => false }));
+      if (authSnap.exists()) {
+        const d = authSnap.data();
+        return { id: authSnap.id, ...d, email: cleanEmail, role: String(d.role || "").trim().toLowerCase() };
+      }
+
+      // 14. Check users collection by prefix before @
+      const userPrefixRef = doc(db, "users", prefix);
+      const userPrefixSnap = await getDoc(userPrefixRef).catch(() => ({ exists: () => false }));
+      if (userPrefixSnap.exists()) {
+        const d = userPrefixSnap.data();
+        return { id: userPrefixSnap.id, ...d, rollNo: d.rollNo || (d.role === "student" ? rollFromEmail : undefined), email: d.email || cleanEmail, role: String(d.role || (d.rollNo ? "student" : "admin")).trim().toLowerCase() };
+      }
+
+      // 15. Check users collection by direct Roll Number ID
+      const userRollRef = doc(db, "users", rollFromEmail);
+      const userRollSnap = await getDoc(userRollRef).catch(() => ({ exists: () => false }));
+      if (userRollSnap.exists()) {
+        const d = userRollSnap.data();
+        return { id: userRollSnap.id, ...d, rollNo: d.rollNo || rollFromEmail, email: d.email || cleanEmail, role: String(d.role || (d.rollNo ? "student" : "")).trim().toLowerCase() };
+      }
+
+      // 16. Check users collection by full email doc ID
+      const userEmailRef = doc(db, "users", cleanEmail);
+      const userEmailSnap = await getDoc(userEmailRef).catch(() => ({ exists: () => false }));
+      if (userEmailSnap.exists()) {
+        const d = userEmailSnap.data();
+        return { id: userEmailSnap.id, ...d, email: cleanEmail, role: String(d.role || "").trim().toLowerCase() };
+      }
+
+      // 17. Query users collection by email field
+      const emailQ = query(collection(db, "users"), where("email", "==", cleanEmail));
+      const emailSnap = await getDocs(emailQ).catch(() => ({ empty: true }));
       if (!emailSnap.empty) {
         const docSnap = emailSnap.docs[0];
         const d = docSnap.data();
-        return {
-          id: docSnap.id,
-          ...d,
-          rollNo: d.rollNo || rollFromEmail,
-          name: d.name || cleanEmail.split("@")[0],
-          role: "student",
-          approved: true
-        };
+        return { id: docSnap.id, ...d, email: cleanEmail, role: String(d.role || (d.rollNo ? "student" : "")).trim().toLowerCase() };
       }
 
-      // 3. Fallback: derived roll number from email
-      return {
-        id: rollFromEmail,
-        rollNo: rollFromEmail,
-        email: cleanEmail,
-        name: cleanEmail.split("@")[0],
-        branch: "General",
-        semester: "1",
-        role: "student",
-        approved: true
-      };
+      // 18. Query authorizedUsers collection by email field
+      const authEmailQ = query(collection(db, "authorizedUsers"), where("email", "==", cleanEmail));
+      const authEmailSnap = await getDocs(authEmailQ).catch(() => ({ empty: true }));
+      if (!authEmailSnap.empty) {
+        const docSnap = authEmailSnap.docs[0];
+        const d = docSnap.data();
+        return { id: docSnap.id, ...d, email: cleanEmail, role: String(d.role || "").trim().toLowerCase() };
+      }
+
+      // Not found anywhere in admins, lecturers, students, authorizedUsers, or users -> NOT REGISTERED
+      return null;
     } catch (err) {
-      console.error("Error looking up student profile:", err);
-      return {
-        id: rollFromEmail,
-        rollNo: rollFromEmail,
-        email: cleanEmail,
-        role: "student",
-        approved: true
-      };
+      console.error("Error looking up user in system:", err);
+      return null;
     }
+  };
+
+  // Helper to normalize role names
+  const normalizeRole = (rawRole) => {
+    const r = String(rawRole || "").trim().toLowerCase();
+    if (r === "administrator" || r === "superadmin" || r === "admin") return "admin";
+    if (r === "faculty" || r === "professor" || r === "lecturer") return "lecturer";
+    return "student";
   };
 
   // =========================================================
@@ -196,75 +210,88 @@ export const AuthProvider = ({ children }) => {
       auth,
       async (currentUser) => {
         try {
-          if (!currentUser) {
+          if (!currentUser || !currentUser.email) {
             setUser(null);
             setProfile(null);
             return;
           }
 
-          const authorizedUser = await findAuthorizedUser(currentUser.email);
+          const registeredUser = await lookupUserInSystem(currentUser.email);
 
-          // If the account is found in authorizedUsers
-          if (authorizedUser) {
-            const databaseRole = String(authorizedUser.role || "").trim().toLowerCase();
-
-            if (databaseRole === "admin" || databaseRole === "lecturer") {
-              if (authorizedUser.approved !== true) {
-                await firebaseLogoutUser();
-                setUser(null);
-                setProfile(null);
-                return;
-              }
-            }
-
-            const defaultRoll = currentUser.email.split("@")[0].toUpperCase();
-            setUser(currentUser);
-            const enrichedProfile = {
-              rollNo: authorizedUser.rollNo || defaultRoll,
-              ...authorizedUser,
-              uid: currentUser.uid,
-              role: databaseRole || "student",
-              approved: true
-            };
-            setProfile(enrichedProfile);
-
-            // Sync auth UID into authorizedUsers & users in Firestore
-            if (currentUser.uid) {
-              const cleanEmail = currentUser.email.toLowerCase().trim();
-              setDoc(doc(db, "authorizedUsers", cleanEmail), {
-                uid: currentUser.uid,
-                lastLoginAt: Date.now()
-              }, { merge: true }).catch(() => {});
-
-              setDoc(doc(db, "users", cleanEmail), {
-                uid: currentUser.uid,
-                email: cleanEmail,
-                name: authorizedUser.name || currentUser.displayName || cleanEmail.split("@")[0],
-                role: databaseRole || "lecturer",
-                lastLoginAt: Date.now()
-              }, { merge: true }).catch(() => {});
-            }
+          // If user is NOT registered in the system, deny access and sign out
+          if (!registeredUser) {
+            console.warn("Unregistered user attempted access:", currentUser.email);
+            await firebaseLogoutUser();
+            setUser(null);
+            setProfile(null);
             return;
           }
 
-          // If not in authorizedUsers, retrieve or register full student profile using roll number
-          const studentDoc = await findStudentProfile(currentUser.email);
-          const registered = await ensureStudentRegistered(currentUser.email, currentUser.displayName, studentDoc);
-          const studentProfile = {
-            id: registered?.rollNo || studentDoc?.rollNo || currentUser.email,
-            email: currentUser.email,
-            name: registered?.name || studentDoc?.name || currentUser.displayName || "Student",
-            rollNo: registered?.rollNo || studentDoc?.rollNo || currentUser.email.split("@")[0].toUpperCase(),
-            branch: registered?.branch || studentDoc?.branch || "General",
-            semester: registered?.semester || studentDoc?.semester || "1",
-            role: "student",
+          // If account is deactivated or unapproved, deny access
+          if (registeredUser.status === "disabled" || registeredUser.approved === false) {
+            console.warn("Deactivated or unapproved user attempted access:", currentUser.email);
+            await firebaseLogoutUser();
+            setUser(null);
+            setProfile(null);
+            return;
+          }
+
+          const databaseRole = normalizeRole(registeredUser.role);
+          const cleanEmail = currentUser.email.toLowerCase().trim();
+          const prefix = cleanEmail.split("@")[0].toLowerCase().trim();
+          const cleanRollNo = registeredUser.rollNo || (databaseRole === "student" ? prefix.toUpperCase() : undefined);
+          const branch = (registeredUser.branch && String(registeredUser.branch).toLowerCase() !== "general")
+            ? registeredUser.branch
+            : ((registeredUser.department && String(registeredUser.department).toLowerCase() !== "general") ? registeredUser.department : "CSE");
+
+          const enrichedProfile = {
+            id: registeredUser.id || cleanRollNo || cleanEmail,
+            ...registeredUser,
+            rollNo: cleanRollNo,
+            email: cleanEmail,
+            name: registeredUser.name || currentUser.displayName || prefix,
+            branch: branch,
+            semester: registeredUser.semester || "1",
+            uid: currentUser.uid,
+            role: databaseRole,
             approved: true,
-            ...studentDoc,
-            ...registered
+            status: registeredUser.status || "active"
           };
 
           setUser(currentUser);
-          setProfile(studentProfile);
+          setProfile(enrichedProfile);
+
+          // Sync auth UID and clean branch into Firestore
+          if (currentUser.uid) {
+            const loginSync = {
+              uid: currentUser.uid,
+              lastLoginAt: Date.now(),
+              branch: branch,
+              role: databaseRole
+            };
+
+            setDoc(doc(db, "authorizedUsers", cleanEmail), loginSync, { merge: true }).catch(() => { });
+
+            if (databaseRole === "student") {
+              const studentId = cleanRollNo || prefix;
+              setDoc(doc(db, "students", studentId), loginSync, { merge: true }).catch(() => { });
+              setDoc(doc(db, "users", studentId), loginSync, { merge: true }).catch(() => { });
+              if (prefix && prefix !== studentId) {
+                setDoc(doc(db, "students", prefix), loginSync, { merge: true }).catch(() => { });
+                setDoc(doc(db, "users", prefix), loginSync, { merge: true }).catch(() => { });
+              }
+            } else if (databaseRole === "lecturer") {
+              setDoc(doc(db, "lecturers", prefix), loginSync, { merge: true }).catch(() => { });
+              setDoc(doc(db, "lecturers", cleanEmail), loginSync, { merge: true }).catch(() => { });
+              setDoc(doc(db, "users", prefix), loginSync, { merge: true }).catch(() => { });
+              setDoc(doc(db, "users", cleanEmail), loginSync, { merge: true }).catch(() => { });
+            } else if (databaseRole === "admin") {
+              setDoc(doc(db, "admins", prefix), loginSync, { merge: true }).catch(() => { });
+              setDoc(doc(db, "admins", cleanEmail), loginSync, { merge: true }).catch(() => { });
+              setDoc(doc(db, "users", prefix), loginSync, { merge: true }).catch(() => { });
+              setDoc(doc(db, "users", cleanEmail), loginSync, { merge: true }).catch(() => { });
+            }
+          }
 
         } catch (error) {
           console.error("Error restoring authentication:", error);
@@ -280,7 +307,7 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   // =========================================================
-  // GOOGLE LOGIN
+  // GOOGLE LOGIN (STRICT: ONLY PRE-REGISTERED USERS ALLOWED)
   // =========================================================
 
   const loginWithGoogle = async (selectedRole) => {
@@ -298,78 +325,107 @@ export const AuthProvider = ({ children }) => {
     const result = await firebaseLoginWithGoogle();
     const currentUser = result.user;
 
-    // -------------------------------------------------------
-    // STUDENT: ANY ACCOUNT CAN LOGIN & AUTO-REGISTERS
-    // -------------------------------------------------------
-    if (selected === "student") {
-      const studentDoc = await findStudentProfile(currentUser.email);
-      const registered = await ensureStudentRegistered(currentUser.email, currentUser.displayName, studentDoc);
-      const studentProfile = {
-        id: registered?.rollNo || studentDoc?.rollNo || currentUser.email,
-        email: currentUser.email,
-        name: registered?.name || studentDoc?.name || currentUser.displayName || "Student",
-        rollNo: registered?.rollNo || studentDoc?.rollNo || currentUser.email.split("@")[0].toUpperCase(),
-        branch: registered?.branch || studentDoc?.branch || "General",
-        semester: registered?.semester || studentDoc?.semester || "1",
-        role: "student",
-        approved: true,
-        ...studentDoc,
-        ...registered
-      };
-
-      localStorage.setItem("smartattend-user-role", "student");
-      setUser(currentUser);
-      setProfile(studentProfile);
-      return studentProfile;
-    }
-
-    // -------------------------------------------------------
-    // ADMIN & LECTURER: ENFORCE AUTHORIZATION
-    // -------------------------------------------------------
-    const authorizedUser = await findAuthorizedUser(currentUser.email);
-
-    if (!authorizedUser) {
+    if (!currentUser || !currentUser.email) {
       await firebaseLogoutUser();
-      throw new Error(`This Google account is not registered as a ${selected} by the institution.`);
+      throw new Error("Unable to retrieve Google user credentials. Please try again.");
     }
 
-    if (authorizedUser.approved !== true) {
+    const cleanEmail = currentUser.email.toLowerCase().trim();
+
+    // -------------------------------------------------------
+    // STRICT VERIFICATION: MUST EXIST IN SYSTEM (AUTHORIZEDUSERS OR USERS OR STUDENTS)
+    // -------------------------------------------------------
+    const registeredUser = await lookupUserInSystem(cleanEmail);
+
+    if (!registeredUser) {
+      // User is completely unregistered - kick out immediately
       await firebaseLogoutUser();
-      throw new Error(`Your ${selected} account has not been approved by the institution.`);
+      throw new Error(
+        `Access Denied: This Google account (${currentUser.email}) is not registered in the system. Only pre-registered students and staff can log in. Please contact the administrator to get your account registered.`
+      );
     }
 
-    const databaseRole = String(authorizedUser.role || "").trim().toLowerCase();
+    // Check account status & approval
+    if (registeredUser.status === "disabled") {
+      await firebaseLogoutUser();
+      throw new Error(
+        `Access Denied: Your account (${currentUser.email}) has been deactivated by the administrator.`
+      );
+    }
 
+    if (registeredUser.approved === false) {
+      await firebaseLogoutUser();
+      throw new Error(
+        `Access Denied: Your account (${currentUser.email}) is pending approval by the institution administrator.`
+      );
+    }
+
+    // Role verification
+    const databaseRole = normalizeRole(registeredUser.role);
     if (databaseRole !== selected) {
       await firebaseLogoutUser();
-      throw new Error(`You selected "${selected}", but this account is registered as "${databaseRole}".`);
+      throw new Error(
+        `Role Mismatch: You selected "${selected}", but your account is registered as "${databaseRole}". Please select "${databaseRole}" to log in.`
+      );
     }
 
+    // Set role & session
     localStorage.setItem("smartattend-user-role", selected);
-    const enrichedAuthUser = {
-      ...authorizedUser,
+
+    const prefix = cleanEmail.split("@")[0].toLowerCase().trim();
+    const cleanRollNo = registeredUser.rollNo || (databaseRole === "student" ? prefix.toUpperCase() : undefined);
+    const branch = (registeredUser.branch && String(registeredUser.branch).toLowerCase() !== "general")
+      ? registeredUser.branch
+      : ((registeredUser.department && String(registeredUser.department).toLowerCase() !== "general") ? registeredUser.department : "CSE");
+
+    const enrichedProfile = {
+      id: registeredUser.id || cleanRollNo || cleanEmail,
+      ...registeredUser,
+      rollNo: cleanRollNo,
+      email: cleanEmail,
+      name: registeredUser.name || currentUser.displayName || prefix,
+      branch: branch,
+      semester: registeredUser.semester || "1",
       uid: currentUser.uid,
+      role: databaseRole,
+      approved: true,
+      status: "active"
+    };
+
+    setUser(currentUser);
+    setProfile(enrichedProfile);
+
+    // Sync auth UID and clean branch into Firestore
+    const loginSync = {
+      uid: currentUser.uid,
+      lastLoginAt: Date.now(),
+      branch: branch,
       role: databaseRole
     };
-    setUser(currentUser);
-    setProfile(enrichedAuthUser);
 
-    // Sync auth UID into authorizedUsers & users in Firestore
-    const cleanEmail = currentUser.email.toLowerCase().trim();
-    setDoc(doc(db, "authorizedUsers", cleanEmail), {
-      uid: currentUser.uid,
-      lastLoginAt: Date.now()
-    }, { merge: true }).catch(() => {});
+    setDoc(doc(db, "authorizedUsers", cleanEmail), loginSync, { merge: true }).catch(() => { });
 
-    setDoc(doc(db, "users", cleanEmail), {
-      uid: currentUser.uid,
-      email: cleanEmail,
-      name: authorizedUser.name || currentUser.displayName || cleanEmail.split("@")[0],
-      role: databaseRole,
-      lastLoginAt: Date.now()
-    }, { merge: true }).catch(() => {});
+    if (databaseRole === "student") {
+      const studentId = cleanRollNo || prefix;
+      setDoc(doc(db, "students", studentId), loginSync, { merge: true }).catch(() => { });
+      setDoc(doc(db, "users", studentId), loginSync, { merge: true }).catch(() => { });
+      if (prefix && prefix !== studentId) {
+        setDoc(doc(db, "students", prefix), loginSync, { merge: true }).catch(() => { });
+        setDoc(doc(db, "users", prefix), loginSync, { merge: true }).catch(() => { });
+      }
+    } else if (databaseRole === "lecturer") {
+      setDoc(doc(db, "lecturers", prefix), loginSync, { merge: true }).catch(() => { });
+      setDoc(doc(db, "lecturers", cleanEmail), loginSync, { merge: true }).catch(() => { });
+      setDoc(doc(db, "users", prefix), loginSync, { merge: true }).catch(() => { });
+      setDoc(doc(db, "users", cleanEmail), loginSync, { merge: true }).catch(() => { });
+    } else if (databaseRole === "admin") {
+      setDoc(doc(db, "admins", prefix), loginSync, { merge: true }).catch(() => { });
+      setDoc(doc(db, "admins", cleanEmail), loginSync, { merge: true }).catch(() => { });
+      setDoc(doc(db, "users", prefix), loginSync, { merge: true }).catch(() => { });
+      setDoc(doc(db, "users", cleanEmail), loginSync, { merge: true }).catch(() => { });
+    }
 
-    return enrichedAuthUser;
+    return enrichedProfile;
   };
 
   // =========================================================

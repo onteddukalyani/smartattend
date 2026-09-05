@@ -20,9 +20,13 @@ function StudentsList() {
     const getStudents = async () => {
         try {
             setLoading(true);
-            const [usersSnap, authUsersSnap] = await Promise.all([
+            const [usersSnap, studentsSnap, authUsersSnap] = await Promise.all([
                 getDocs(collection(db, "users")).catch((err) => {
                     console.warn("Could not read users:", err);
+                    return { docs: [] };
+                }),
+                getDocs(collection(db, "students")).catch((err) => {
+                    console.warn("Could not read students:", err);
                     return { docs: [] };
                 }),
                 getDocs(collection(db, "authorizedUsers")).catch((err) => {
@@ -51,7 +55,15 @@ function StudentsList() {
                 }
             });
 
-            // 2. users
+            // 2. students collection
+            studentsSnap.docs.forEach((doc) => {
+                const d = doc.data();
+                const key = (d.email || d.rollNo || doc.id).toLowerCase().trim();
+                const existing = studentMap.get(key) || {};
+                studentMap.set(key, { ...existing, ...d, id: doc.id });
+            });
+
+            // 3. users
             usersSnap.docs.forEach((doc) => {
                 const d = doc.data();
                 if (isStudentDoc(d, doc.id)) {
@@ -186,7 +198,7 @@ function StudentsList() {
                                     <td><strong>{student.rollNo || "N/A"}</strong></td>
                                     <td>{student.name || "N/A"}</td>
                                     <td>{student.email || "N/A"}</td>
-                                    <td>{student.branch || "N/A"}</td>
+                                    <td>{(student.branch && String(student.branch).toLowerCase() !== "general") ? student.branch : "CSE"}</td>
                                     <td>{student.semester || "N/A"}</td>
                                     <td>
                                         <span className={`status-badge ${student.status === "active" ? "active" : "disabled"}`}>

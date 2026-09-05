@@ -56,10 +56,11 @@ function GenerateQR() {
         setIsGenerating(true);
         setErrorMessage("");
         try {
+            const rawDept = profile?.department || profile?.branch;
             const lecturerInfo = {
                 name: profile?.name || user?.displayName || (user?.email ? user.email.split("@")[0] : "Lecturer"),
                 email: user?.email || "",
-                department: profile?.department || profile?.branch || "General"
+                department: (rawDept && String(rawDept).toLowerCase() !== "general") ? rawDept : "CSE"
             };
             const id = await createAttendanceSession(classCode, courseCode.trim(), roomNo.trim(), batch, lecturerInfo);
             setSessionId(id);

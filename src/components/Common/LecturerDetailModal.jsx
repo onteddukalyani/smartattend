@@ -48,7 +48,7 @@ const LecturerDetailModal = ({ lecturer, onClose }) => {
         setLoading(true);
 
         // Fetch all attendance sessions, records, and user maps
-        const [sessionsSnap, recordsSnap, usersSnap, authUsersSnap] = await Promise.all([
+        const [sessionsSnap, recordsSnap, lecturersSnap, usersSnap, authUsersSnap] = await Promise.all([
           getDocs(collection(db, "attendance_sessions")).catch((e) => {
             console.warn("Could not read attendance_sessions:", e);
             return { docs: [] };
@@ -57,12 +57,13 @@ const LecturerDetailModal = ({ lecturer, onClose }) => {
             console.warn("Could not read attendance_records:", e);
             return { docs: [] };
           }),
+          getDocs(collection(db, "lecturers")).catch(() => ({ docs: [] })),
           getDocs(collection(db, "users")).catch(() => ({ docs: [] })),
           getDocs(collection(db, "authorizedUsers")).catch(() => ({ docs: [] }))
         ]);
 
         const lookupMaps = buildUserLookupMaps(
-          usersSnap.docs,
+          [...lecturersSnap.docs, ...usersSnap.docs],
           authUsersSnap.docs,
           recordsSnap.docs,
           sessionsSnap.docs
@@ -242,7 +243,7 @@ const LecturerDetailModal = ({ lecturer, onClose }) => {
                 <FaBuilding className="info-icon" />
                 <div>
                   <label>Department / Branch</label>
-                  <span>{lecturer.department || "General"}</span>
+                  <span>{(lecturer.department && String(lecturer.department).toLowerCase() !== "general") ? lecturer.department : "Computer Science & Engineering"}</span>
                 </div>
               </div>
 

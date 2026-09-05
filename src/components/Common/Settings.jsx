@@ -247,7 +247,7 @@ function Settings() {
                                         </div>
                                     </div>
                                     <div className="st-detail-value">
-                                        <span className="st-text-bold">{profile?.branch || profile?.department || "General"}</span>
+                                        <span className="st-text-bold">{(profile?.branch && String(profile?.branch).toLowerCase() !== "general") ? profile.branch : ((profile?.department && String(profile?.department).toLowerCase() !== "general") ? profile.department : "CSE")}</span>
                                     </div>
                                 </div>
 

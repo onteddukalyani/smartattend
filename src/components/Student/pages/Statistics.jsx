@@ -48,17 +48,21 @@ export default function Statistics() {
     // Fetch student profile details from Firestore
     useEffect(() => {
         if (!activeRollNo) return;
-        getDoc(doc(db, "users", activeRollNo))
-            .then((snap) => {
-                if (snap.exists()) {
-                    setFetchedStudentData(snap.data());
-                }
-            })
-            .catch(() => {});
+        Promise.all([
+            getDoc(doc(db, "students", activeRollNo)).catch(() => ({ exists: () => false })),
+            getDoc(doc(db, "users", activeRollNo)).catch(() => ({ exists: () => false }))
+        ]).then(([studentSnap, userSnap]) => {
+            if (studentSnap.exists()) {
+                setFetchedStudentData(studentSnap.data());
+            } else if (userSnap.exists()) {
+                setFetchedStudentData(userSnap.data());
+            }
+        }).catch(() => { });
     }, [activeRollNo]);
 
     const studentName = profile?.name || fetchedStudentData?.name || user?.displayName || "Student";
-    const studentBranch = profile?.branch || fetchedStudentData?.branch || "General";
+    const rawBranch = profile?.branch || fetchedStudentData?.branch;
+    const studentBranch = (rawBranch && String(rawBranch).toLowerCase() !== "general") ? rawBranch : "CSE";
     const studentSemester = profile?.semester || fetchedStudentData?.semester || "1";
 
     // Build candidate roll numbers for matching
@@ -186,7 +190,8 @@ export default function Statistics() {
 
         // Track attended classes per course
         records.forEach((rec) => {
-            const course = (rec.courseCode || "General").trim().toUpperCase();
+            const rawCourse = rec.courseCode || rec.classCode || "";
+            const course = (!rawCourse || rawCourse.toLowerCase() === "general" || rawCourse === "N/A") ? "CSE" : rawCourse.trim().toUpperCase();
             if (!statsMap[course]) {
                 statsMap[course] = { course, attended: 0, total: 0, records: [] };
             }
@@ -315,13 +320,12 @@ export default function Statistics() {
                     <div className="stats-kpi-value-row">
                         <span className="stats-kpi-number">{overallPercentage}%</span>
                         <span
-                            className={`stats-status-badge ${
-                                overallPercentage >= 75
-                                    ? "status-safe"
-                                    : overallPercentage >= 65
+                            className={`stats-status-badge ${overallPercentage >= 75
+                                ? "status-safe"
+                                : overallPercentage >= 65
                                     ? "status-warning"
                                     : "status-danger"
-                            }`}
+                                }`}
                         >
                             {overallPercentage >= 75 ? (
                                 <><FaCheckCircle /> On Track</>
@@ -341,8 +345,8 @@ export default function Statistics() {
                                     overallPercentage >= 75
                                         ? "#10b981"
                                         : overallPercentage >= 65
-                                        ? "#f59e0b"
-                                        : "#ef4444"
+                                            ? "#f59e0b"
+                                            : "#ef4444"
                             }}
                         />
                     </div>
@@ -435,13 +439,12 @@ export default function Statistics() {
                                         <h3>{item.course}</h3>
                                     </div>
                                     <span
-                                        className={`stats-subject-badge ${
-                                            item.percentage >= 75
-                                                ? "status-safe"
-                                                : item.percentage >= 65
+                                        className={`stats-subject-badge ${item.percentage >= 75
+                                            ? "status-safe"
+                                            : item.percentage >= 65
                                                 ? "status-warning"
                                                 : "status-danger"
-                                        }`}
+                                            }`}
                                     >
                                         {item.percentage}%
                                     </span>
@@ -456,8 +459,8 @@ export default function Statistics() {
                                                 item.percentage >= 75
                                                     ? "#10b981"
                                                     : item.percentage >= 65
-                                                    ? "#f59e0b"
-                                                    : "#ef4444"
+                                                        ? "#f59e0b"
+                                                        : "#ef4444"
                                         }}
                                     />
                                 </div>
@@ -554,16 +557,16 @@ export default function Statistics() {
                                     const dateObj = r.submittedAt ? new Date(r.submittedAt) : null;
                                     const formattedDate = dateObj
                                         ? dateObj.toLocaleDateString("en-US", {
-                                              month: "short",
-                                              day: "numeric",
-                                              year: "numeric"
-                                          })
+                                            month: "short",
+                                            day: "numeric",
+                                            year: "numeric"
+                                        })
                                         : "N/A";
                                     const formattedTime = dateObj
                                         ? dateObj.toLocaleTimeString("en-US", {
-                                              hour: "2-digit",
-                                              minute: "2-digit"
-                                          })
+                                            hour: "2-digit",
+                                            minute: "2-digit"
+                                        })
                                         : "";
 
                                     return (

@@ -48,7 +48,7 @@ const ManageStudents = () => {
     rollNo: "",
     name: "",
     email: "",
-    branch: "General",
+    branch: "CSE",
     semester: "1",
     phone: "",
     status: "active"
@@ -66,9 +66,13 @@ const ManageStudents = () => {
     try {
       setLoading(true);
 
-      const [usersSnap, authUsersSnap] = await Promise.all([
+      const [usersSnap, studentsSnap, authUsersSnap] = await Promise.all([
         getDocs(collection(db, "users")).catch((e) => {
           console.warn("Could not read users collection:", e);
+          return { docs: [] };
+        }),
+        getDocs(collection(db, "students")).catch((e) => {
+          console.warn("Could not read students collection:", e);
           return { docs: [] };
         }),
         getDocs(collection(db, "authorizedUsers")).catch((e) => {
@@ -96,7 +100,30 @@ const ManageStudents = () => {
         }
       });
 
-      // 2. Ingest students from users collection
+      // 2. Ingest students from students collection
+      studentsSnap.docs.forEach((docSnap) => {
+        const data = docSnap.data();
+        const currentId = docSnap.id;
+        const roll = (data.rollNo || currentId).trim().toUpperCase();
+        const existing = studentsMap.get(roll) || {};
+        studentsMap.set(roll, {
+          ...existing,
+          ...data,
+          id: currentId === roll ? currentId : (existing.id || currentId),
+          userDocId: currentId,
+          rollNo: roll,
+          name: data.name || existing.name || "Student",
+          email: data.email || existing.email || "",
+          branch: (data.branch && String(data.branch).toLowerCase() !== "general") ? data.branch : ((existing.branch && String(existing.branch).toLowerCase() !== "general") ? existing.branch : "CSE"),
+          semester: data.semester || existing.semester || "1",
+          phone: data.phone || existing.phone || "",
+          status: data.status || existing.status || "active",
+          faceRegistered: data.faceRegistered || existing.faceRegistered || false,
+          role: "student"
+        });
+      });
+
+      // 3. Ingest students from users collection
       usersSnap.docs.forEach((studentDoc) => {
         const data = studentDoc.data();
         const currentId = studentDoc.id;
@@ -131,7 +158,7 @@ const ManageStudents = () => {
           rollNo: roll,
           name: data.name || existing.name || "Student",
           email: data.email || existing.email || "",
-          branch: data.branch || existing.branch || "General",
+          branch: (data.branch && String(data.branch).toLowerCase() !== "general") ? data.branch : ((existing.branch && String(existing.branch).toLowerCase() !== "general") ? existing.branch : "CSE"),
           semester: data.semester || existing.semester || "1",
           phone: data.phone || existing.phone || "",
           status: data.status || existing.status || "active",
@@ -154,6 +181,149 @@ const ManageStudents = () => {
       console.error("Error loading students:", error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Comprehensive migration of separated collections (students, lecturers, admins) & General → CSE in Firestore
+  const migrateGeneralToCSEInFirestore = async () => {
+    try {
+      setCleaningUp(true);
+      let updatedCount = 0;
+
+      // 1. Process users & separate into students, lecturers, admins
+      const usersSnap = await getDocs(collection(db, "users")).catch(() => ({ docs: [] }));
+      for (const docSnap of usersSnap.docs) {
+        const d = docSnap.data();
+        const role = String(d.role || "").toLowerCase().trim();
+        const email = (d.email || (docSnap.id.includes("@") ? docSnap.id : "")).toLowerCase().trim();
+        const prefix = email ? email.split("@")[0] : docSnap.id.toLowerCase();
+        const rollNo = (d.rollNo || (/^\d{2}[a-zA-Z]{3}\d{2,4}$/i.test(docSnap.id) ? docSnap.id : "")).toUpperCase();
+
+        const updates = {};
+        if (d.branch && String(d.branch).toLowerCase() === "general") updates.branch = "CSE";
+        if (d.department && String(d.department).toLowerCase() === "general") updates.department = "CSE";
+
+        const mergedData = { ...d, ...updates };
+
+        // Ensure proper branch / department defaults
+        if (!mergedData.branch && (role === "student" || rollNo)) mergedData.branch = "CSE";
+
+        if (role === "student" || rollNo || mergedData.semester) {
+          mergedData.role = "student";
+          if (!mergedData.branch || String(mergedData.branch).toLowerCase() === "general") mergedData.branch = "CSE";
+          const studentDocId = rollNo || prefix || docSnap.id;
+          await setDoc(doc(db, "students", studentDocId), mergedData, { merge: true }).catch(() => {});
+          if (prefix && prefix !== studentDocId) {
+            await setDoc(doc(db, "students", prefix), mergedData, { merge: true }).catch(() => {});
+          }
+        } else if (role === "lecturer" || role === "faculty" || role === "professor") {
+          mergedData.role = "lecturer";
+          if (!mergedData.department || String(mergedData.department).toLowerCase() === "general") mergedData.department = "Computer Science & Engineering";
+          const lectDocId = prefix || docSnap.id;
+          await setDoc(doc(db, "lecturers", lectDocId), mergedData, { merge: true }).catch(() => {});
+          if (email && email !== lectDocId) {
+            await setDoc(doc(db, "lecturers", email), mergedData, { merge: true }).catch(() => {});
+          }
+        } else if (role === "admin" || role === "superadmin" || role === "administrator") {
+          mergedData.role = "admin";
+          const adminDocId = prefix || docSnap.id;
+          await setDoc(doc(db, "admins", adminDocId), mergedData, { merge: true }).catch(() => {});
+          if (email && email !== adminDocId) {
+            await setDoc(doc(db, "admins", email), mergedData, { merge: true }).catch(() => {});
+          }
+        }
+
+        if (Object.keys(updates).length > 0) {
+          await setDoc(doc(db, "users", docSnap.id), updates, { merge: true }).catch(() => {});
+          updatedCount++;
+        }
+      }
+
+      // 2. students collection
+      const studentsSnap = await getDocs(collection(db, "students")).catch(() => ({ docs: [] }));
+      for (const docSnap of studentsSnap.docs) {
+        const d = docSnap.data();
+        const updates = {};
+        if (!d.branch || String(d.branch).toLowerCase() === "general") updates.branch = "CSE";
+        if (d.department && String(d.department).toLowerCase() === "general") updates.department = "CSE";
+        if (Object.keys(updates).length > 0) {
+          await setDoc(doc(db, "students", docSnap.id), updates, { merge: true }).catch(() => {});
+          updatedCount++;
+        }
+      }
+
+      // 3. lecturers collection
+      const lecturersSnap = await getDocs(collection(db, "lecturers")).catch(() => ({ docs: [] }));
+      for (const docSnap of lecturersSnap.docs) {
+        const d = docSnap.data();
+        const updates = {};
+        if (d.branch && String(d.branch).toLowerCase() === "general") updates.branch = "CSE";
+        if (d.department && String(d.department).toLowerCase() === "general") updates.department = "Computer Science & Engineering";
+        if (Object.keys(updates).length > 0) {
+          await setDoc(doc(db, "lecturers", docSnap.id), updates, { merge: true }).catch(() => {});
+          updatedCount++;
+        }
+      }
+
+      // 4. admins collection
+      const adminsSnap = await getDocs(collection(db, "admins")).catch(() => ({ docs: [] }));
+      for (const docSnap of adminsSnap.docs) {
+        const d = docSnap.data();
+        const updates = {};
+        if (d.branch && String(d.branch).toLowerCase() === "general") updates.branch = "CSE";
+        if (d.department && String(d.department).toLowerCase() === "general") updates.department = "Administration";
+        if (Object.keys(updates).length > 0) {
+          await setDoc(doc(db, "admins", docSnap.id), updates, { merge: true }).catch(() => {});
+          updatedCount++;
+        }
+      }
+
+      // 5. authorizedUsers collection
+      const authSnap = await getDocs(collection(db, "authorizedUsers")).catch(() => ({ docs: [] }));
+      for (const docSnap of authSnap.docs) {
+        const d = docSnap.data();
+        const updates = {};
+        if (d.branch && String(d.branch).toLowerCase() === "general") updates.branch = "CSE";
+        if (d.department && String(d.department).toLowerCase() === "general") updates.department = "CSE";
+        if (Object.keys(updates).length > 0) {
+          await setDoc(doc(db, "authorizedUsers", docSnap.id), updates, { merge: true }).catch(() => {});
+          updatedCount++;
+        }
+      }
+
+      // 6. courses collection
+      const coursesSnap = await getDocs(collection(db, "courses")).catch(() => ({ docs: [] }));
+      for (const docSnap of coursesSnap.docs) {
+        const d = docSnap.data();
+        const updates = {};
+        if (!d.department || String(d.department).toLowerCase() === "general") updates.department = "CSE";
+        if (d.courseCode && String(d.courseCode).toLowerCase() === "general") updates.courseCode = "CSE";
+        if (Object.keys(updates).length > 0) {
+          await setDoc(doc(db, "courses", docSnap.id), updates, { merge: true }).catch(() => {});
+          updatedCount++;
+        }
+      }
+
+      // 7. attendance_sessions collection
+      const sessionsSnap = await getDocs(collection(db, "attendance_sessions")).catch(() => ({ docs: [] }));
+      for (const docSnap of sessionsSnap.docs) {
+        const d = docSnap.data();
+        const updates = {};
+        if (d.lecturerDepartment && String(d.lecturerDepartment).toLowerCase() === "general") updates.lecturerDepartment = "CSE";
+        if (d.courseCode && String(d.courseCode).toLowerCase() === "general") updates.courseCode = "CSE";
+        if (Object.keys(updates).length > 0) {
+          await setDoc(doc(db, "attendance_sessions", docSnap.id), updates, { merge: true }).catch(() => {});
+          updatedCount++;
+        }
+      }
+
+      alert(`✅ Database Organized & Migrated!\n• Collections separated into 'students', 'lecturers', 'admins'.\n• Updated ${updatedCount} records to 'CSE' branch.`);
+      await loadStudents();
+    } catch (err) {
+      console.error("Migration error:", err);
+      alert("Migration failed: " + err.message);
+    } finally {
+      setCleaningUp(false);
     }
   };
 
@@ -186,7 +356,9 @@ const ManageStudents = () => {
           if (!rollDoc.exists()) {
             await setDoc(doc(db, "users", roll), { ...data, rollNo: roll, role: "student" });
           }
+          await setDoc(doc(db, "students", roll), { ...data, rollNo: roll, role: "student" }, { merge: true }).catch(() => { });
           await deleteDoc(doc(db, "users", currentId));
+          await deleteDoc(doc(db, "students", currentId)).catch(() => { });
           deleted++;
         }
       }
@@ -209,17 +381,26 @@ const ManageStudents = () => {
       setUpdating(student.id);
       const roll = (student.rollNo || student.id).trim().toUpperCase();
       const emailKey = student.email ? student.email.toLowerCase().trim() : null;
+      const prefix = emailKey ? emailKey.split("@")[0].toLowerCase().trim() : null;
 
       const promises = [
-        setDoc(doc(db, "users", roll), { status: newStatus }, { merge: true })
+        setDoc(doc(db, "users", roll), { status: newStatus }, { merge: true }),
+        setDoc(doc(db, "students", roll), { status: newStatus }, { merge: true })
       ];
 
       if (student.id && student.id !== roll) {
         promises.push(setDoc(doc(db, "users", student.id), { status: newStatus }, { merge: true }));
+        promises.push(setDoc(doc(db, "students", student.id), { status: newStatus }, { merge: true }).catch(() => { }));
       }
 
       if (emailKey) {
-        promises.push(setDoc(doc(db, "authorizedUsers", emailKey), { status: newStatus }, { merge: true }).catch(() => {}));
+        promises.push(setDoc(doc(db, "authorizedUsers", emailKey), { status: newStatus }, { merge: true }).catch(() => { }));
+        promises.push(setDoc(doc(db, "students", emailKey), { status: newStatus }, { merge: true }).catch(() => { }));
+      }
+
+      if (prefix && prefix !== emailKey && prefix !== roll.toLowerCase()) {
+        promises.push(setDoc(doc(db, "authorizedUsers", prefix), { status: newStatus }, { merge: true }).catch(() => { }));
+        promises.push(setDoc(doc(db, "students", prefix), { status: newStatus }, { merge: true }).catch(() => { }));
       }
 
       await Promise.all(promises);
@@ -250,17 +431,26 @@ const ManageStudents = () => {
       setUpdating(student.id);
       const roll = (student.rollNo || student.id).trim().toUpperCase();
       const email = student.email ? student.email.toLowerCase().trim() : null;
+      const prefix = email ? email.split("@")[0].toLowerCase().trim() : null;
 
       const promises = [
-        deleteDoc(doc(db, "users", roll)).catch(() => {})
+        deleteDoc(doc(db, "users", roll)).catch(() => { }),
+        deleteDoc(doc(db, "students", roll)).catch(() => { })
       ];
 
       if (student.id && student.id !== roll) {
-        promises.push(deleteDoc(doc(db, "users", student.id)).catch(() => {}));
+        promises.push(deleteDoc(doc(db, "users", student.id)).catch(() => { }));
+        promises.push(deleteDoc(doc(db, "students", student.id)).catch(() => { }));
       }
 
       if (email) {
-        promises.push(deleteDoc(doc(db, "authorizedUsers", email)).catch(() => {}));
+        promises.push(deleteDoc(doc(db, "authorizedUsers", email)).catch(() => { }));
+        promises.push(deleteDoc(doc(db, "students", email)).catch(() => { }));
+      }
+
+      if (prefix && prefix !== email && prefix !== roll.toLowerCase()) {
+        promises.push(deleteDoc(doc(db, "authorizedUsers", prefix)).catch(() => { }));
+        promises.push(deleteDoc(doc(db, "students", prefix)).catch(() => { }));
       }
 
       await Promise.all(promises);
@@ -283,7 +473,7 @@ const ManageStudents = () => {
       rollNo: student.rollNo || "",
       name: student.name || "",
       email: student.email || "",
-      branch: student.branch || "General",
+      branch: (student.branch && String(student.branch).toLowerCase() !== "general") ? student.branch : "CSE",
       semester: student.semester || "1",
       phone: student.phone || "",
       status: student.status || "active"
@@ -312,13 +502,17 @@ const ManageStudents = () => {
 
       const cleanRollNo = editForm.rollNo.trim().toUpperCase();
       const cleanEmail = editForm.email.trim().toLowerCase();
+      const prefix = cleanEmail.split("@")[0].toLowerCase().trim();
       const oldDocId = editingStudent.id;
       const oldRollNo = (editingStudent.rollNo || "").trim().toUpperCase();
 
       // Check if new roll number is taken by another student
       if (cleanRollNo !== oldRollNo && cleanRollNo !== oldDocId) {
-        const checkDoc = await getDoc(doc(db, "users", cleanRollNo));
-        if (checkDoc.exists()) {
+        const [checkUserDoc, checkStudentDoc] = await Promise.all([
+          getDoc(doc(db, "users", cleanRollNo)).catch(() => ({ exists: () => false })),
+          getDoc(doc(db, "students", cleanRollNo)).catch(() => ({ exists: () => false }))
+        ]);
+        if (checkUserDoc.exists() || checkStudentDoc.exists()) {
           setEditError(`Roll number ${cleanRollNo} is already in use by another student.`);
           return;
         }
@@ -330,16 +524,22 @@ const ManageStudents = () => {
         rollNo: cleanRollNo,
         name: editForm.name.trim(),
         email: cleanEmail,
-        branch: editForm.branch.trim() || "General",
+        branch: (editForm.branch && String(editForm.branch).toLowerCase() !== "general") ? editForm.branch.trim() : "CSE",
         semester: editForm.semester || "1",
         phone: editForm.phone.trim() || "",
         status: editForm.status,
         updatedAt: serverTimestamp()
       };
 
-      // 1. Always save student using Roll Number as Document ID
-      const newDocRef = doc(db, "users", cleanRollNo);
-      await setDoc(newDocRef, updatedData);
+      // 1. Save in students and users collections using Roll Number as Document ID
+      await setDoc(doc(db, "students", cleanRollNo), updatedData);
+      if (prefix && prefix !== cleanRollNo.toLowerCase()) {
+        await setDoc(doc(db, "students", prefix), updatedData, { merge: true }).catch(() => { });
+      }
+      await setDoc(doc(db, "users", cleanRollNo), updatedData);
+      if (prefix && prefix !== cleanRollNo.toLowerCase()) {
+        await setDoc(doc(db, "users", prefix), updatedData, { merge: true }).catch(() => { });
+      }
 
       // 2. Also update authorizedUsers if matching email exists
       if (cleanEmail) {
@@ -347,21 +547,34 @@ const ManageStudents = () => {
           await setDoc(doc(db, "authorizedUsers", cleanEmail), {
             name: editForm.name.trim(),
             rollNo: cleanRollNo,
-            branch: editForm.branch.trim() || "General",
+            branch: (editForm.branch && String(editForm.branch).toLowerCase() !== "general") ? editForm.branch.trim() : "CSE",
             semester: editForm.semester || "1",
             phone: editForm.phone.trim() || "",
             status: editForm.status,
             role: "student"
           }, { merge: true });
+
+          if (prefix && prefix !== cleanEmail) {
+            await setDoc(doc(db, "authorizedUsers", prefix), {
+              name: editForm.name.trim(),
+              rollNo: cleanRollNo,
+              branch: (editForm.branch && String(editForm.branch).toLowerCase() !== "general") ? editForm.branch.trim() : "CSE",
+              semester: editForm.semester || "1",
+              phone: editForm.phone.trim() || "",
+              status: editForm.status,
+              role: "student"
+            }, { merge: true }).catch(() => { });
+          }
         } catch (authErr) {
           console.warn("Could not update authorizedUsers:", authErr);
         }
       }
 
-      // 3. If previous document had a legacy random ID or different rollNo, remove old doc
+      // 3. If previous document had a legacy random ID or different rollNo, remove old docs
       if (oldDocId && oldDocId !== cleanRollNo) {
         try {
           await deleteDoc(doc(db, "users", oldDocId));
+          await deleteDoc(doc(db, "students", oldDocId)).catch(() => { });
         } catch (delErr) {
           console.warn("Could not delete legacy student doc:", delErr);
         }
@@ -419,6 +632,18 @@ const ManageStudents = () => {
           >
             <FaSyncAlt className={loading ? "fa-spin" : ""} />
             {loading ? "Refreshing..." : "Refresh"}
+          </button>
+
+          <button
+            className="add-student-btn"
+            style={{ background: "#6366f1", color: "#ffffff" }}
+            type="button"
+            disabled={cleaningUp}
+            onClick={migrateGeneralToCSEInFirestore}
+            title="Scan database and migrate any 'General' records to 'CSE' in Firestore"
+          >
+            <FaSyncAlt className={cleaningUp ? "fa-spin" : ""} />
+            {cleaningUp ? "Updating DB..." : "Migrate General → CSE"}
           </button>
 
           {legacyDocsCount > 0 && (
@@ -772,7 +997,7 @@ const ManageStudents = () => {
                     <option value="CSE">CSE</option>
                     <option value="DSAI">DSAI</option>
                     <option value="ECE">ECE</option>
-                    <option value="General">General</option>
+                    <option value="AIC">AIC</option>
                   </select>
                 </div>
 

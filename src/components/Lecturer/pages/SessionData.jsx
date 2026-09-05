@@ -44,14 +44,22 @@ function ClassesData() {
     useEffect(() => {
         const getSessions = async () => {
             try {
-                // Fetch all sessions and users to resolve lecturer names
-                const [sessionsSnapshot, usersSnapshot, authUsersSnapshot] = await Promise.all([
+                // Fetch all sessions, lecturers, and users to resolve lecturer names
+                const [sessionsSnapshot, lecturersSnapshot, usersSnapshot, authUsersSnapshot] = await Promise.all([
                     getDocs(collection(db, "attendance_sessions")),
+                    getDocs(collection(db, "lecturers")).catch(() => ({ docs: [] })),
                     getDocs(collection(db, "users")).catch(() => ({ docs: [] })),
                     getDocs(collection(db, "authorizedUsers")).catch(() => ({ docs: [] }))
                 ]);
 
                 const userMap = new Map();
+                lecturersSnapshot.docs.forEach((d) => {
+                    const u = d.data();
+                    if (u.name) {
+                        userMap.set(d.id, u.name);
+                        if (u.email) userMap.set(u.email.toLowerCase().trim(), u.name);
+                    }
+                });
                 usersSnapshot.docs.forEach((d) => {
                     const u = d.data();
                     if (u.name) {

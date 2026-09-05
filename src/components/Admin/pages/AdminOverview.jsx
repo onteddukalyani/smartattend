@@ -13,6 +13,7 @@ import {
 } from "react-icons/fa";
 import { collection, getDocs, query, where } from "firebase/firestore";
 import { db } from "../../../firebase";
+import { autoMigrateAndOrganizeFirestore } from "../../../utils/firestoreMigration";
 import "./AdminOverview.css";
 
 const AdminOverview = () => {
@@ -28,13 +29,26 @@ const AdminOverview = () => {
   const [recentSessions, setRecentSessions] = useState([]);
   const [loading, setLoading] = useState(true);
 
+  useEffect(() => {
+    // Run background migration to ensure separated collections & CSE defaults in Firebase
+    autoMigrateAndOrganizeFirestore().then((count) => {
+      if (count > 0) {
+        console.log(`✅ Auto-migrated ${count} Firebase documents to separated collections & CSE.`);
+      }
+    });
+  }, []);
+
   const fetchOverviewData = async () => {
     try {
       setLoading(true);
 
-      const [usersSnap, sessionsSnap, recordsSnap, authUsersSnap] = await Promise.all([
+      const [usersSnap, studentsSnap, sessionsSnap, recordsSnap, authUsersSnap] = await Promise.all([
         getDocs(collection(db, "users")).catch((e) => {
           console.warn("Could not read users collection:", e);
+          return { docs: [], size: 0 };
+        }),
+        getDocs(collection(db, "students")).catch((e) => {
+          console.warn("Could not read students collection:", e);
           return { docs: [], size: 0 };
         }),
         getDocs(collection(db, "attendance_sessions")).catch((e) => {
@@ -71,7 +85,14 @@ const AdminOverview = () => {
         }
       });
 
-      // 2. Process users collection
+      // 2. Process students collection
+      studentsSnap.docs.forEach((docSnap) => {
+        const d = docSnap.data();
+        const roll = (d.rollNo || docSnap.id).toUpperCase().trim();
+        studentSet.add(roll);
+      });
+
+      // 3. Process users collection
       usersSnap.docs.forEach((docSnap) => {
         const d = docSnap.data();
         const role = String(d.role || "").toLowerCase().trim();
