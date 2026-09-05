@@ -152,7 +152,7 @@ function GenerateQR() {
                         type="text"
                         value={roomNo}
                         onChange={(e) => setRoomNo(e.target.value)}
-                        placeholder="e.g. LH-101, C003"
+                        placeholder="e.g. C002, C003"
                         required
                     />
                     <button onClick={handleGenerateQR} className="genqr-btn" disabled={isGenerating}>

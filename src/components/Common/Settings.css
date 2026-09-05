@@ -239,24 +239,26 @@
     color: #10b981 !important;
 }
 
-/* Quick KPI Chips */
+/* Quick KPI Chips (Horizontal Same-Line Layout) */
 .st-hero-quick-kpis {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 10px;
+    flex-wrap: wrap;
     flex-shrink: 0;
 }
 
 .st-kpi-chip {
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
+    display: inline-flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
     background: #f8fafc;
     border: 1px solid #e2e8f0;
-    padding: 10px 16px;
-    border-radius: 14px;
-    text-align: right;
+    padding: 8px 14px;
+    border-radius: 12px;
     box-sizing: border-box;
+    white-space: nowrap;
 }
 
 .st-kpi-label {
@@ -264,55 +266,22 @@
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.04em;
-    color: #94a3b8;
+    color: #64748b;
+    display: inline-flex;
+    align-items: center;
 }
 
 .st-kpi-val {
-    font-size: 13.5px;
+    font-size: 13px;
     font-weight: 700;
     color: #0f172a;
     display: inline-flex;
     align-items: center;
-    justify-content: flex-end;
     gap: 5px;
 }
 
 .st-text-success {
     color: #059669;
-}
-
-/* --------------------------------------------------------------------------
-   Role Badges
-   -------------------------------------------------------------------------- */
-.st-role-pill {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 4px 10px;
-    border-radius: 20px;
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 0.02em;
-    text-transform: uppercase;
-    flex-shrink: 0;
-}
-
-.badge-student {
-    background: rgba(16, 185, 129, 0.12);
-    color: #047857;
-    border: 1px solid rgba(16, 185, 129, 0.25);
-}
-
-.badge-lecturer {
-    background: rgba(14, 165, 233, 0.12);
-    color: #0369a1;
-    border: 1px solid rgba(14, 165, 233, 0.25);
-}
-
-.badge-admin {
-    background: rgba(99, 102, 241, 0.12);
-    color: #4338ca;
-    border: 1px solid rgba(99, 102, 241, 0.25);
 }
 
 /* --------------------------------------------------------------------------
@@ -942,7 +911,9 @@
     }
 
     .st-kpi-chip {
-        text-align: left;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
     }
 }
 
