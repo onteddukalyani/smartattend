@@ -128,12 +128,30 @@
   font-size: 13px;
 }
 
-@media (max-width: 650px) {
+@media (max-width: 800px) {
   .admin-profile-page {
-    padding: 18px;
+    padding: 16px 14px calc(88px + env(safe-area-inset-bottom, 0px)) !important;
+  }
+
+  .admin-profile-header h1 {
+    font-size: 22px;
+  }
+
+  .admin-profile-card {
+    padding: 20px 16px;
+    border-radius: 16px;
+  }
+
+  .admin-profile-top {
+    flex-direction: column;
+    text-align: center;
+    gap: 14px;
+    padding-bottom: 20px;
   }
 
   .admin-profile-details {
     grid-template-columns: 1fr;
+    gap: 14px;
+    padding: 20px 0;
   }
 }

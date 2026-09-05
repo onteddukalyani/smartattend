@@ -23,18 +23,35 @@ function Dashboard() {
 
     useEffect(() => {
         const getDashboardCounts = async () => {
+            if (!user) return;
             try {
+                const userEmail = (user?.email || "").toLowerCase().trim();
+                const userPrefix = userEmail ? userEmail.split("@")[0] : "";
+                const userUid = user?.uid || "";
+
                 const [sessionsSnapshot, recordsSnapshot] = await Promise.all([
-                    getDocs(query(collection(db, "attendance_sessions"), where("ownerId", "==", user.uid))),
-                    getDocs(query(collection(db, "attendance_records"), where("ownerId", "==", user.uid)))
+                    getDocs(collection(db, "attendance_sessions")),
+                    getDocs(collection(db, "attendance_records"))
                 ]);
-                const sessions = sessionsSnapshot.docs
+
+                const isMySession = (data) => {
+                    const ownerId = String(data.ownerId || "").toLowerCase().trim();
+                    const ownerEmail = String(data.ownerEmail || data.lecturerEmail || "").toLowerCase().trim();
+                    if (userUid && ownerId === userUid.toLowerCase()) return true;
+                    if (userEmail && (ownerEmail === userEmail || ownerId === userEmail)) return true;
+                    if (userPrefix && (ownerId === userPrefix || ownerEmail.includes(userPrefix))) return true;
+                    return false;
+                };
+
+                const mySessions = sessionsSnapshot.docs
                     .map((sessionDoc) => ({
                         id: sessionDoc.id,
                         ...sessionDoc.data()
                     }))
-                    .sort((firstSession, secondSession) => secondSession.createdAt - firstSession.createdAt);
-                setRecentSessions(sessions.slice(0, 3));
+                    .filter((s) => isMySession(s))
+                    .sort((firstSession, secondSession) => (secondSession.createdAt || 0) - (firstSession.createdAt || 0));
+
+                setRecentSessions(mySessions.slice(0, 3));
                 const now = Date.now();
                 const startOfToday = new Date();
                 startOfToday.setHours(0, 0, 0, 0);
@@ -43,20 +60,19 @@ function Dashboard() {
 
                 recordsSnapshot.docs.forEach((recordDoc) => {
                     const record = recordDoc.data();
-                    if (record.rollNo) {
-                        studentRollNumbers.add(record.rollNo);
-                    }
-                    if (record.submittedAt >= startOfToday.getTime()) {
-                        attendanceToday += 1;
+                    if (isMySession(record) || mySessions.some((s) => s.id === record.sessionId)) {
+                        if (record.rollNo) {
+                            studentRollNumbers.add(record.rollNo);
+                        }
+                        if (record.submittedAt >= startOfToday.getTime()) {
+                            attendanceToday += 1;
+                        }
                     }
                 });
 
                 setCounts({
-                    sessions: sessionsSnapshot.size,
-                    activeSessions: sessionsSnapshot.docs.filter((sessionDoc) => {
-                        const session = sessionDoc.data();
-                        return session.active !== false && session.expiresAt > now;
-                    }).length,
+                    sessions: mySessions.length,
+                    activeSessions: mySessions.filter((s) => s.active !== false && (s.expiresAt || 0) > now).length,
                     students: studentRollNumbers.size,
                     attendanceToday
                 });

@@ -14,9 +14,11 @@ import AddStudent from "./pages/AddStudent";
 import AttendanceOverview from "./pages/AttendanceOverview";
 import InstitutionSettings from "./pages/InstitutionSettings";
 import AdminProfile from "./pages/AdminProfile";
+import ManageCourses from "./pages/ManageCourses";
 import Settings from "../Common/Settings";
 import ClassesData, { SessionAttendanceData } from "../Lecturer/pages/SessionData";
 import "./AdminDashboard.css";
+import BottomNav from "./BottomNav";
 
 const AdminDashboard = () => {
   const [sidebarOpen, setSidebarOpen] = useState(window.innerWidth > 900);
@@ -42,6 +44,7 @@ const AdminDashboard = () => {
             <Route path="lecturers/add" element={<AddLecturer />} />
             <Route path="add-lecturer" element={<AddLecturer />} />
             <Route path="attendance" element={<AttendanceOverview />} />
+            <Route path="courses" element={<ManageCourses />} />
             <Route path="classes" element={<ClassesData />} />
             <Route path="classes/:sessionId" element={<SessionAttendanceData />} />
             <Route path="institution" element={<InstitutionSettings />} />
@@ -50,6 +53,7 @@ const AdminDashboard = () => {
           </Routes>
         </main>
       </div>
+      <BottomNav />
     </div>
   );
 };

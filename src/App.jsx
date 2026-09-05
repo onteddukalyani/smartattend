@@ -20,6 +20,7 @@ import FaceScanner from "./components/Lecturer/pages/FaceScanner";
 import ClassesData, { SessionAttendanceData } from "./components/Lecturer/pages/SessionData";
 import ActiveSessions from "./components/Lecturer/pages/ActiveSessions";
 import StudentsList from "./components/Lecturer/pages/StudentsList";
+import LecturerCourses from "./components/Lecturer/pages/LecturerCourses";
 
 // Student imports
 import StudentDashboard from "./components/Student/StudentDashboard";
@@ -158,6 +159,7 @@ function App() {
           <Route path="active-sessions" element={<ActiveSessions />} />
           <Route path="attendance-sessions/:sessionId" element={<SessionAttendanceData />} />
           <Route path="students" element={<StudentsList />} />
+          <Route path="courses" element={<LecturerCourses />} />
           <Route path="scanqr" element={<QrScannerApp />} />
         </Route>
         <Route path="*" element={<Navigate to="/lecturer" replace />} />

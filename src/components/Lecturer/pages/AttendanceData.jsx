@@ -16,28 +16,48 @@ function AttendanceData() {
 
     useEffect(() => {
         const getAttendance = async () => {
+            if (!user) return;
             try {
+                const userEmail = (user?.email || "").toLowerCase().trim();
+                const userPrefix = userEmail ? userEmail.split("@")[0] : "";
+                const userUid = user?.uid || "";
+
                 const [recordsSnapshot, sessionsSnapshot] = await Promise.all([
-                    getDocs(query(collection(db, "attendance_records"), where("ownerId", "==", user.uid))),
-                    getDocs(query(collection(db, "attendance_sessions"), where("ownerId", "==", user.uid)))
+                    getDocs(collection(db, "attendance_records")),
+                    getDocs(collection(db, "attendance_sessions"))
                 ]);
 
-                const sessions = new Map(
-                    sessionsSnapshot.docs.map((sessionDoc) => [
-                        sessionDoc.id,
-                        sessionDoc.data()
-                    ])
-                );
+                const isMyData = (data) => {
+                    const ownerId = String(data.ownerId || "").toLowerCase().trim();
+                    const ownerEmail = String(data.ownerEmail || data.lecturerEmail || "").toLowerCase().trim();
+                    if (userUid && ownerId === userUid.toLowerCase()) return true;
+                    if (userEmail && (ownerEmail === userEmail || ownerId === userEmail)) return true;
+                    if (userPrefix && (ownerId === userPrefix || ownerEmail.includes(userPrefix))) return true;
+                    return false;
+                };
 
-                const data = recordsSnapshot.docs.map((recordDoc) => ({
-                    id: recordDoc.id,
-                    ...recordDoc.data(),
-                    session: sessions.get(recordDoc.data().sessionId)
-                })).sort((a, b) => {
-                    const rollA = a.rollNo || "";
-                    const rollB = b.rollNo || "";
-                    return rollA.localeCompare(rollB, undefined, { numeric: true, sensitivity: 'base' });
+                const mySessionsMap = new Map();
+                sessionsSnapshot.docs.forEach((sessionDoc) => {
+                    const data = sessionDoc.data();
+                    if (isMyData(data)) {
+                        mySessionsMap.set(sessionDoc.id, data);
+                    }
                 });
+
+                const data = recordsSnapshot.docs
+                    .filter((recordDoc) => {
+                        const rec = recordDoc.data();
+                        return isMyData(rec) || mySessionsMap.has(rec.sessionId);
+                    })
+                    .map((recordDoc) => ({
+                        id: recordDoc.id,
+                        ...recordDoc.data(),
+                        session: mySessionsMap.get(recordDoc.data().sessionId) || { classCode: recordDoc.data().classCode, roomNo: recordDoc.data().roomNo }
+                    })).sort((a, b) => {
+                        const rollA = a.rollNo || "";
+                        const rollB = b.rollNo || "";
+                        return rollA.localeCompare(rollB, undefined, { numeric: true, sensitivity: 'base' });
+                    });
 
                 setRecords(data);
 

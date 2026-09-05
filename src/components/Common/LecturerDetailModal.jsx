@@ -19,6 +19,7 @@ import { collection, getDocs, query, where } from "firebase/firestore";
 import { db } from "../../firebase";
 import { downloadExcel } from "../../DownloadExcel";
 import { useTableSort, SortIcon } from "./useTableSort";
+import { buildUserLookupMaps, normalizeSessions, doesSessionBelongToLecturer } from "./sessionMatcher";
 import "./StudentDetailModal.css";
 
 const LecturerDetailModal = ({ lecturer, onClose }) => {
@@ -46,11 +47,26 @@ const LecturerDetailModal = ({ lecturer, onClose }) => {
       try {
         setLoading(true);
 
-        // Fetch all attendance sessions
-        const [sessionsSnap, recordsSnap] = await Promise.all([
-          getDocs(collection(db, "attendance_sessions")),
-          getDocs(collection(db, "attendance_records"))
+        // Fetch all attendance sessions, records, and user maps
+        const [sessionsSnap, recordsSnap, usersSnap, authUsersSnap] = await Promise.all([
+          getDocs(collection(db, "attendance_sessions")).catch((e) => {
+            console.warn("Could not read attendance_sessions:", e);
+            return { docs: [] };
+          }),
+          getDocs(collection(db, "attendance_records")).catch((e) => {
+            console.warn("Could not read attendance_records:", e);
+            return { docs: [] };
+          }),
+          getDocs(collection(db, "users")).catch(() => ({ docs: [] })),
+          getDocs(collection(db, "authorizedUsers")).catch(() => ({ docs: [] }))
         ]);
+
+        const lookupMaps = buildUserLookupMaps(
+          usersSnap.docs,
+          authUsersSnap.docs,
+          recordsSnap.docs,
+          sessionsSnap.docs
+        );
 
         // Count attendees per session
         const countMap = new Map();
@@ -64,24 +80,19 @@ const LecturerDetailModal = ({ lecturer, onClose }) => {
           }
         });
 
-        // Filter sessions that belong to this lecturer
-        const emailLower = (lecturer.email || "").toLowerCase().trim();
-        const userUid = lecturer.userDocId || (!lecturer.id?.includes("@") ? lecturer.id : null);
-        const emailId = lecturer.emailDocId || (lecturer.id?.includes("@") ? lecturer.id : null);
+        // Comprehensive session list
+        const sessionsList = normalizeSessions(sessionsSnap.docs, recordsSnap.docs, lookupMaps);
 
-        const lecturerSessions = sessionsSnap.docs
-          .map((docSnap) => ({
-            id: docSnap.id,
-            ...docSnap.data()
-          }))
-          .filter((sess) => {
-            const ownerId = sess.ownerId;
-            const ownerEmail = (sess.ownerEmail || sess.lecturerEmail || "").toLowerCase().trim();
-            if (userUid && ownerId === userUid) return true;
-            if (emailId && (ownerId === emailId || ownerEmail === emailId)) return true;
-            if (emailLower && (ownerEmail === emailLower || ownerId === emailLower)) return true;
-            return false;
-          });
+        // Count total lecturers to handle sole lecturer fallback
+        const facultyCount = authUsersSnap.docs.filter((d) => {
+          const r = String(d.data().role || "").toLowerCase();
+          return r === "lecturer" || r === "faculty";
+        }).length || 1;
+
+        // Filter sessions that belong to this lecturer
+        const lecturerSessions = sessionsList.filter((sess) =>
+          doesSessionBelongToLecturer(sess, lecturer, lookupMaps, facultyCount)
+        );
 
         // Calculate total attendees for this lecturer's sessions
         lecturerSessions.forEach((sess) => {

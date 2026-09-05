@@ -2,6 +2,7 @@ import {
     FaCog,
     FaSignOutAlt,
     FaGraduationCap,
+    FaBookOpen,
 } from "react-icons/fa";
 import { IoQrCodeOutline } from "react-icons/io5";
 import { SiGoogleclassroom } from "react-icons/si";
@@ -18,6 +19,7 @@ function Sidebar({ hidden, onClose }) {
     const menu = [
         { icon: <RiDashboardFill />, text: "Dashboard", path: "/lecturer" },
         { icon: <IoQrCodeOutline />, text: "New Session", path: '/lecturer/lecturerpage' },
+        { icon: <FaBookOpen />, text: "Courses", path: "/lecturer/courses" },
         { icon: <SiGoogleclassroom />, text: "Classes", path: "/lecturer/attendance-sessions" },
         { icon: <FaCog />, text: "Settings", path: "/lecturer/settings" }
     ];

@@ -1,23 +1,23 @@
 import React from "react";
 import { Link, useLocation } from "react-router-dom";
 import { FaHome, FaCog, FaBookOpen } from "react-icons/fa";
-import { IoQrCodeOutline } from "react-icons/io5";
-import { SiGoogleclassroom } from "react-icons/si";
+import { MdQrCodeScanner } from "react-icons/md";
+import { BsBarChart } from "react-icons/bs";
 import "./BottomNav.css";
 
 function BottomNav() {
     const location = useLocation();
 
     const items = [
-        { path: "/lecturer", text: "Dashboard", icon: <FaHome />, end: true },
-        { path: "/lecturer/courses", text: "Courses", icon: <FaBookOpen /> },
-        { path: "/lecturer/lecturerpage", text: "New QR", icon: <IoQrCodeOutline />, isElevated: true },
-        { path: "/lecturer/attendance-sessions", text: "Classes", icon: <SiGoogleclassroom /> },
-        { path: "/lecturer/settings", text: "Settings", icon: <FaCog /> }
+        { path: "/student", text: "Home", icon: <FaHome />, end: true },
+        { path: "/student/statistics", text: "Attendance", icon: <BsBarChart />, end: true },
+        { path: "/student/mark-attendance", text: "Scan QR", icon: <MdQrCodeScanner />, isElevated: true },
+        { path: "/student/statistics", text: "Courses", icon: <FaBookOpen /> },
+        { path: "/student/settings", text: "Settings", icon: <FaCog /> }
     ];
 
     return (
-        <nav className="bottom-nav lecturer-bottom-nav">
+        <nav className="bottom-nav student-bottom-nav">
             <div className="bottom-nav-container">
                 {items.map((item, index) => {
                     const isActive = item.end

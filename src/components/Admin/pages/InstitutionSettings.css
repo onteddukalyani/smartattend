@@ -238,11 +238,33 @@
 
 @media (max-width: 800px) {
   .institution-settings-page {
-    padding: 18px;
+    padding: 16px 14px calc(88px + env(safe-area-inset-bottom, 0px)) !important;
+  }
+
+  .settings-header h1 {
+    font-size: 22px;
+  }
+
+  .settings-card {
+    padding: 18px 14px;
+    border-radius: 16px;
   }
 
   .institution-info,
   .settings-grid {
     grid-template-columns: 1fr;
+    gap: 14px;
+  }
+
+  .settings-actions {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .save-settings-btn {
+    width: 100%;
+    justify-content: center;
+    padding: 12px;
   }
 }

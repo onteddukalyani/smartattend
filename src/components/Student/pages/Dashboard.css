@@ -9,6 +9,7 @@
     display: flex;
     flex-direction: column;
     gap: 24px;
+    box-sizing: border-box;
 }
 
 /* Hero Profile Banner */
@@ -55,6 +56,7 @@
     font-size: 26px;
     font-weight: 800;
     box-shadow: 0 4px 14px rgba(99, 102, 241, 0.35);
+    flex-shrink: 0;
 }
 
 .student-hero-info h1 {
@@ -151,6 +153,7 @@
     align-items: center;
     justify-content: center;
     font-size: 22px;
+    flex-shrink: 0;
 }
 
 .student-stat-icon.blue {
@@ -326,6 +329,7 @@
 /* Attendance Table */
 .student-table-wrap {
     overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
 }
 
 .student-att-table {
@@ -333,6 +337,7 @@
     border-collapse: collapse;
     font-size: 0.88rem;
     text-align: left;
+    min-width: 600px;
 }
 
 .student-att-table th {
@@ -458,9 +463,10 @@
    MOBILE RESPONSIVE
    ========================================= */
 
-@media (max-width: 768px) {
+@media (max-width: 800px) {
     .student-dashboard {
-        padding: 16px 12px 100px;
+        padding: 16px 14px calc(88px + env(safe-area-inset-bottom, 0px)) !important;
+        gap: 16px;
     }
 
     .student-hero-banner {
@@ -503,21 +509,29 @@
 
     .records-controls {
         width: 100%;
-        justify-content: space-between;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 10px;
     }
 
     .records-search {
         width: 100%;
     }
 
-    .student-att-table th,
-    .student-att-table td {
-        padding: 12px 14px;
-        white-space: nowrap;
+    .download-export-btn,
+    .dashboard-refresh-btn {
+        width: 100%;
+        justify-content: center;
+    }
+
+    .student-stats-grid {
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
     }
 }
 
-
-.student-statistics-page {
-    padding: 100px;
+@media (max-width: 480px) {
+    .student-stats-grid {
+        grid-template-columns: 1fr;
+    }
 }

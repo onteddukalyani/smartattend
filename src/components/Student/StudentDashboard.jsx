@@ -3,6 +3,7 @@ import { Outlet } from "react-router-dom";
 import { useAuth } from '../authcontext';
 import Navbar from './Navbar';
 import Sidebar from './Sidebar';
+import BottomNav from './BottomNav';
 import Login from '../login';
 
 function StudentDashboard() {
@@ -26,6 +27,7 @@ function StudentDashboard() {
                 />
                 <Outlet />
             </div>
+            <BottomNav />
         </div>
     );
 }

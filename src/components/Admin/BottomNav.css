@@ -1,13 +1,13 @@
 /* =========================================================
-   ULTRA-MODERN GLASSMORPHIC LECTURER BOTTOM NAVIGATION
+   ULTRA-MODERN GLASSMORPHIC ADMIN BOTTOM NAVIGATION
    ========================================================= */
 
-.bottom-nav.lecturer-bottom-nav {
+.bottom-nav.admin-bottom-nav {
   display: none;
 }
 
 @media (max-width: 800px) {
-  .bottom-nav.lecturer-bottom-nav {
+  .bottom-nav.admin-bottom-nav {
     display: flex;
     justify-content: center;
     align-items: center;
@@ -27,8 +27,8 @@
     transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
   }
 
-  [data-theme="midnight"] .bottom-nav.lecturer-bottom-nav,
-  .dark-theme .bottom-nav.lecturer-bottom-nav {
+  [data-theme="midnight"] .bottom-nav.admin-bottom-nav,
+  .dark-theme .bottom-nav.admin-bottom-nav {
     background: rgba(15, 23, 42, 0.92);
     border-top: 1px solid rgba(51, 65, 85, 0.7);
     box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.45);
@@ -42,7 +42,6 @@
     max-width: 540px;
     height: 64px;
     padding: 0 8px;
-    position: relative;
   }
 
   .bottom-nav-item {
@@ -113,48 +112,6 @@
     animation: pillPop 0.25s cubic-bezier(0.16, 1, 0.3, 1);
   }
 
-  /* =========================================================
-     ELEVATED CENTER BUTTON (NEW QR CODE SESSION)
-     ========================================================= */
-
-  .bottom-nav-item.elevated {
-    margin-top: -12px;
-  }
-
-  .bottom-nav-item.elevated .bottom-nav-icon-wrap {
-    width: 48px;
-    height: 48px;
-    border-radius: 16px;
-    background: linear-gradient(135deg, #10b981, #059669);
-    color: #ffffff;
-    font-size: 24px;
-    box-shadow: 0 8px 20px rgba(16, 185, 129, 0.45);
-    border: 3px solid var(--surface, #ffffff);
-    transform: translateY(-6px);
-  }
-
-  [data-theme="midnight"] .bottom-nav-item.elevated .bottom-nav-icon-wrap,
-  .dark-theme .bottom-nav-item.elevated .bottom-nav-icon-wrap {
-    border-color: #0f172a;
-    box-shadow: 0 8px 24px rgba(16, 185, 129, 0.6);
-  }
-
-  .bottom-nav-item.elevated .bottom-nav-label {
-    color: var(--text-main, #0f172a);
-    font-weight: 700;
-    margin-top: -2px;
-  }
-
-  .bottom-nav-item.elevated.active .bottom-nav-icon-wrap {
-    background: linear-gradient(135deg, #059669, #047857);
-    transform: translateY(-8px) scale(1.08);
-    box-shadow: 0 10px 25px rgba(16, 185, 129, 0.6);
-  }
-
-  .bottom-nav-item.elevated:active .bottom-nav-icon-wrap {
-    transform: translateY(-4px) scale(0.92);
-  }
-
   @keyframes pillPop {
     0% {
       transform: scaleX(0);
@@ -167,12 +124,18 @@
   }
 
   /* Ensure content is not hidden behind the fixed bottom nav on mobile */
-  .app-content,
-  .dashboard-page,
-  .attendance-data-page,
-  .active-sessions-page,
-  .qrpage,
-  .students-list-page {
-    padding-bottom: calc(84px + env(safe-area-inset-bottom, 0px)) !important;
+  .admin-content,
+  .admin-main,
+  .admin-dashboard,
+  .admin-overview,
+  .manage-admins-page,
+  .manage-students,
+  .manage-lecturers,
+  .manage-courses-page,
+  .add-student-page,
+  .attendance-overview,
+  .institution-settings-page,
+  .admin-profile-page {
+    padding-bottom: calc(88px + env(safe-area-inset-bottom, 0px)) !important;
   }
 }

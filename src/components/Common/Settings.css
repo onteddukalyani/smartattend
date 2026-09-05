@@ -2,6 +2,7 @@
     max-width: 960px;
     margin: 0 auto;
     padding: 32px 30px 110px;
+    box-sizing: border-box;
 }
 
 .settings-header {
@@ -14,6 +15,7 @@
     font-size: 0.76rem;
     font-weight: 800;
     letter-spacing: 0.12em;
+    text-transform: uppercase;
 }
 
 .settings-header h1 {
@@ -93,6 +95,7 @@
     flex-direction: column;
     gap: 4px;
     flex: 1;
+    min-width: 0;
 }
 
 .profile-name-row {
@@ -175,7 +178,7 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    gap: 20px;
+    gap: 16px;
     padding-top: 12px;
     border-top: 1px solid #e5e7eb;
 }
@@ -308,17 +311,42 @@
     font-size: 0.8rem !important;
 }
 
-@media (max-width: 720px) {
+@media (max-width: 800px) {
     .settings-page {
-        padding: 24px 16px 120px;
+        padding: 16px 14px calc(88px + env(safe-area-inset-bottom, 0px)) !important;
     }
 
     .settings-grid {
         grid-template-columns: 1fr;
+        gap: 16px;
     }
 
     .settings-header h1 {
-        font-size: 1.7rem;
+        font-size: 1.5rem;
+    }
+
+    .profile-summary {
+        gap: 12px;
+    }
+
+    .profile-avatar,
+    .profile-avatar-fallback {
+        width: 56px;
+        height: 56px;
+        flex: 0 0 56px;
+    }
+}
+
+@media (max-width: 480px) {
+    .profile-detail {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 4px;
+    }
+
+    .profile-detail dd {
+        max-width: 100%;
+        text-align: left;
     }
 }
 

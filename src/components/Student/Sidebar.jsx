@@ -1,5 +1,5 @@
 import {
-    FaCog,
+    FaCog, FaHome,
     FaGraduationCap,
     FaSignOutAlt,
     FaUser,
@@ -7,7 +7,6 @@ import {
 } from "react-icons/fa";
 import { MdQrCodeScanner, MdLogout } from "react-icons/md";
 import { BsBarChart } from "react-icons/bs";
-import { RiDashboardFill } from "react-icons/ri";
 import { Link, useLocation } from "react-router-dom";
 import { useAuth } from "../authcontext";
 import "./Sidebar.css";
@@ -17,7 +16,7 @@ function Sidebar({ hidden, onClose }) {
     const location = useLocation();
 
     const menu = [
-        { icon: <RiDashboardFill />, text: "Dashboard", path: "/student" },
+        { icon: <FaHome />, text: "Dashboard", path: "/student" },
         { icon: <MdQrCodeScanner />, text: "Mark Attendance", path: "/student/mark-attendance" },
         { icon: <BsBarChart />, text: "My Attendance", path: "/student/statistics" },
         { icon: <FaCog />, text: "Settings", path: "/student/settings" },

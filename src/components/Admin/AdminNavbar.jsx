@@ -38,23 +38,7 @@ const AdminNavbar = ({ onMenuClick }) => {
         </button>
 
 
-        <div className="admin-brand">
 
-          <div className="admin-brand-logo">
-            SA
-          </div>
-
-          <div>
-            <strong>
-              SmartAttend
-            </strong>
-
-            <span>
-              IIIT Dharwad
-            </span>
-          </div>
-
-        </div>
 
       </div>
 
@@ -62,16 +46,6 @@ const AdminNavbar = ({ onMenuClick }) => {
       {/* ================= RIGHT ================= */}
 
       <div className="admin-navbar-right">
-
-        <button
-          type="button"
-          className="admin-notification"
-          title="Notifications"
-        >
-          <FaBell />
-          <span className="notification-dot"></span>
-        </button>
-
 
         <div className="admin-user">
 

@@ -28,6 +28,7 @@ import {
 import { db } from "../../../firebase";
 import LecturerDetailModal from "../../Common/LecturerDetailModal";
 import { useTableSort, SortIcon } from "../../Common/useTableSort";
+import { buildUserLookupMaps, normalizeSessions, doesSessionBelongToLecturer } from "../../Common/sessionMatcher";
 
 import "./ManageLecturers.css";
 
@@ -47,7 +48,7 @@ const ManageLecturers = () => {
     try {
       setLoading(true);
 
-      const [usersSnap, authUsersSnap, sessionsSnap] = await Promise.all([
+      const [usersSnap, authUsersSnap, sessionsSnap, recordsSnap] = await Promise.all([
         getDocs(collection(db, "users")).catch((e) => {
           console.warn("Could not read users collection:", e);
           return { docs: [] };
@@ -59,8 +60,20 @@ const ManageLecturers = () => {
         getDocs(collection(db, "attendance_sessions")).catch((e) => {
           console.warn("Could not read attendance_sessions collection:", e);
           return { docs: [] };
+        }),
+        getDocs(collection(db, "attendance_records")).catch((e) => {
+          console.warn("Could not read attendance_records collection:", e);
+          return { docs: [] };
         })
       ]);
+
+      // Build cross-collection user lookup maps
+      const lookupMaps = buildUserLookupMaps(
+        usersSnap.docs,
+        authUsersSnap.docs,
+        recordsSnap.docs,
+        sessionsSnap.docs
+      );
 
       const lecturerMap = new Map();
 
@@ -69,14 +82,16 @@ const ManageLecturers = () => {
         const data = docSnap.data();
         const role = String(data.role || "").toLowerCase().trim();
         if (role === "lecturer" || role === "faculty" || role === "professor") {
-          const email = (data.email || docSnap.id).toLowerCase().trim();
-          lecturerMap.set(email, {
+          const email = (data.email || (docSnap.id.includes("@") ? docSnap.id : "")).toLowerCase().trim();
+          const key = email || docSnap.id;
+          lecturerMap.set(key, {
             id: docSnap.id,
             emailDocId: docSnap.id,
             userDocId: null,
             ...data,
             email,
-            name: data.name || email.split("@")[0],
+            uid: data.uid || lookupMaps.emailToUid.get(email) || null,
+            name: data.name || (email ? email.split("@")[0] : "Lecturer"),
             department: data.department || "General",
             designation: data.designation || "Assistant Professor",
             phone: data.phone || "",
@@ -93,18 +108,19 @@ const ManageLecturers = () => {
         const data = docSnap.data();
         const role = String(data.role || "").toLowerCase().trim();
         if (role === "lecturer" || role === "faculty" || role === "professor") {
-          const email = (data.email || "").toLowerCase().trim();
+          const email = (data.email || (docSnap.id.includes("@") ? docSnap.id : "")).toLowerCase().trim();
           const key = email || docSnap.id;
           const existing = lecturerMap.get(key) || {};
 
           lecturerMap.set(key, {
             ...existing,
             ...data,
-            id: docSnap.id,
+            id: existing.id || docSnap.id,
             userDocId: docSnap.id,
             emailDocId: existing.emailDocId || (email ? email : null),
             email: email || existing.email || "",
-            name: data.name || existing.name || "Lecturer",
+            uid: data.uid || existing.uid || lookupMaps.emailToUid.get(email) || null,
+            name: data.name || existing.name || (email ? email.split("@")[0] : "Lecturer"),
             department: data.department || existing.department || "General",
             designation: data.designation || existing.designation || "Assistant Professor",
             phone: data.phone || existing.phone || "",
@@ -116,22 +132,16 @@ const ManageLecturers = () => {
         }
       });
 
-      // 3. Match conducted classes from attendance_sessions
-      const sessionsList = sessionsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      // 3. Build comprehensive sessions list with resolved owner metadata
+      const sessionsList = normalizeSessions(sessionsSnap.docs, recordsSnap.docs, lookupMaps);
 
-      const lecturerList = Array.from(lecturerMap.values()).map((lec) => {
-        const emailLower = (lec.email || "").toLowerCase().trim();
-        const userUid = lec.userDocId || (!lec.id?.includes("@") ? lec.id : null);
-        const emailId = lec.emailDocId || (lec.id?.includes("@") ? lec.id : null);
+      const allFacultyList = Array.from(lecturerMap.values());
+      const totalFacultyCount = allFacultyList.length;
 
-        const mySessions = sessionsList.filter((sess) => {
-          const ownerId = sess.ownerId;
-          const ownerEmail = (sess.ownerEmail || sess.lecturerEmail || "").toLowerCase().trim();
-          if (userUid && ownerId === userUid) return true;
-          if (emailId && (ownerId === emailId || ownerEmail === emailId)) return true;
-          if (emailLower && (ownerEmail === emailLower || ownerId === emailLower)) return true;
-          return false;
-        });
+      const lecturerList = allFacultyList.map((lec) => {
+        const mySessions = sessionsList.filter((sess) =>
+          doesSessionBelongToLecturer(sess, lec, lookupMaps, totalFacultyCount)
+        );
 
         return {
           ...lec,

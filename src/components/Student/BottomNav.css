@@ -1,13 +1,13 @@
 /* =========================================================
-   ULTRA-MODERN GLASSMORPHIC LECTURER BOTTOM NAVIGATION
+   ULTRA-MODERN GLASSMORPHIC STUDENT BOTTOM NAVIGATION
    ========================================================= */
 
-.bottom-nav.lecturer-bottom-nav {
+.bottom-nav.student-bottom-nav {
   display: none;
 }
 
 @media (max-width: 800px) {
-  .bottom-nav.lecturer-bottom-nav {
+  .bottom-nav.student-bottom-nav {
     display: flex;
     justify-content: center;
     align-items: center;
@@ -27,8 +27,8 @@
     transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
   }
 
-  [data-theme="midnight"] .bottom-nav.lecturer-bottom-nav,
-  .dark-theme .bottom-nav.lecturer-bottom-nav {
+  [data-theme="midnight"] .bottom-nav.student-bottom-nav,
+  .dark-theme .bottom-nav.student-bottom-nav {
     background: rgba(15, 23, 42, 0.92);
     border-top: 1px solid rgba(51, 65, 85, 0.7);
     box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.45);
@@ -114,7 +114,7 @@
   }
 
   /* =========================================================
-     ELEVATED CENTER BUTTON (NEW QR CODE SESSION)
+     ELEVATED CENTER BUTTON (SCAN CLASS QR CODE)
      ========================================================= */
 
   .bottom-nav-item.elevated {
@@ -125,10 +125,10 @@
     width: 48px;
     height: 48px;
     border-radius: 16px;
-    background: linear-gradient(135deg, #10b981, #059669);
+    background: linear-gradient(135deg, #6366f1, #4f46e5);
     color: #ffffff;
     font-size: 24px;
-    box-shadow: 0 8px 20px rgba(16, 185, 129, 0.45);
+    box-shadow: 0 8px 20px rgba(99, 102, 241, 0.45);
     border: 3px solid var(--surface, #ffffff);
     transform: translateY(-6px);
   }
@@ -136,7 +136,7 @@
   [data-theme="midnight"] .bottom-nav-item.elevated .bottom-nav-icon-wrap,
   .dark-theme .bottom-nav-item.elevated .bottom-nav-icon-wrap {
     border-color: #0f172a;
-    box-shadow: 0 8px 24px rgba(16, 185, 129, 0.6);
+    box-shadow: 0 8px 24px rgba(99, 102, 241, 0.6);
   }
 
   .bottom-nav-item.elevated .bottom-nav-label {
@@ -146,9 +146,9 @@
   }
 
   .bottom-nav-item.elevated.active .bottom-nav-icon-wrap {
-    background: linear-gradient(135deg, #059669, #047857);
+    background: linear-gradient(135deg, #4f46e5, #4338ca);
     transform: translateY(-8px) scale(1.08);
-    box-shadow: 0 10px 25px rgba(16, 185, 129, 0.6);
+    box-shadow: 0 10px 25px rgba(99, 102, 241, 0.6);
   }
 
   .bottom-nav-item.elevated:active .bottom-nav-icon-wrap {
@@ -166,13 +166,11 @@
     }
   }
 
-  /* Ensure content is not hidden behind the fixed bottom nav on mobile */
-  .app-content,
-  .dashboard-page,
-  .attendance-data-page,
-  .active-sessions-page,
-  .qrpage,
-  .students-list-page {
+  /* Ensure student pages don't get covered on mobile */
+  .student-dashboard-page,
+  .statistics-page,
+  .settings-container,
+  .app-content {
     padding-bottom: calc(84px + env(safe-area-inset-bottom, 0px)) !important;
   }
 }

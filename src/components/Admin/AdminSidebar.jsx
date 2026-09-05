@@ -8,6 +8,7 @@ import {
   FaUserGraduate,
   FaClipboardCheck,
   FaChalkboard,
+  FaBookOpen,
   FaCog,
   FaUserCircle,
   FaSignOutAlt,
@@ -30,50 +31,21 @@ const AdminSidebar = ({ isOpen, onClose }) => {
   };
 
   const menuItems = [
-    {
-      path: "/admin",
-      label: "Dashboard",
-      icon: FaHome,
-      end: true
-    },
-    {
-      path: "/admin/admins",
-      label: "Manage Admins",
-      icon: FaUserShield
-    },
-    {
-      path: "/admin/lecturers",
-      label: "Manage Lecturers",
-      icon: FaChalkboardTeacher
-    },
-    {
-      path: "/admin/students",
-      label: "Students",
-      icon: FaUserGraduate
-    },
-    {
-      path: "/admin/attendance",
-      label: "Attendance",
-      icon: FaClipboardCheck
-    },
-    {
-      path: "/admin/classes",
-      label: "Classes",
-      icon: FaChalkboard
-    },
-    {
-      path: "/admin/settings",
-      label: "Settings",
-      icon: FaCog
-    }
+    { path: "/admin", label: "Dashboard", icon: FaHome, end: true },
+    { path: "/admin/admins", label: "Manage Admins", icon: FaUserShield },
+    { path: "/admin/lecturers", label: "Manage Lecturers", icon: FaChalkboardTeacher },
+    { path: "/admin/students", label: "Students", icon: FaUserGraduate },
+    { path: "/admin/courses", label: "Courses", icon: FaBookOpen },
+    { path: "/admin/attendance", label: "Attendance", icon: FaClipboardCheck },
+    { path: "/admin/classes", label: "Classes", icon: FaChalkboard },
+    { path: "/admin/settings", label: "Settings", icon: FaCog }
   ];
 
 
   return (
     <aside
-      className={`admin-sidebar ${
-        isOpen ? "sidebar-open" : "sidebar-closed"
-      }`}
+      className={`admin-sidebar ${isOpen ? "sidebar-open" : "sidebar-closed"
+        }`}
     >
 
       {/* ================= HEADER ================= */}
@@ -123,8 +95,7 @@ const AdminSidebar = ({ isOpen, onClose }) => {
               end={item.end}
               onClick={handleLinkClick}
               className={({ isActive }) =>
-                `admin-nav-link ${
-                  isActive ? "active" : ""
+                `admin-nav-link ${isActive ? "active" : ""
                 }`
               }
             >
@@ -151,8 +122,7 @@ const AdminSidebar = ({ isOpen, onClose }) => {
           to="/admin/profile"
           onClick={handleLinkClick}
           className={({ isActive }) =>
-            `admin-bottom-link ${
-              isActive ? "active" : ""
+            `admin-bottom-link ${isActive ? "active" : ""
             }`
           }
         >

@@ -1,7 +1,12 @@
+/* =========================================================
+   ADMIN OVERVIEW - RESPONSIVE MOBILE & DESKTOP STYLES
+   ========================================================= */
+
 .admin-overview {
   padding: 28px;
   max-width: 1500px;
   margin: 0 auto;
+  box-sizing: border-box;
 }
 
 .admin-page-header {
@@ -21,7 +26,7 @@
 }
 
 .admin-page-header p {
-  margin-top: 6px;
+  margin: 6px 0 0;
   color: var(--text-muted, #777);
   font-size: 14px;
 }
@@ -35,7 +40,7 @@
 
 .admin-stat-card {
   background: var(--surface, white);
-  border-radius: 14px;
+  border-radius: 16px;
   padding: 20px;
   display: flex;
   align-items: center;
@@ -53,7 +58,7 @@
 .stat-icon {
   width: 48px;
   height: 48px;
-  border-radius: 12px;
+  border-radius: 14px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -88,7 +93,7 @@
 .admin-panel {
   background: var(--surface, white);
   border: 1px solid var(--border, #eee);
-  border-radius: 16px;
+  border-radius: 18px;
   padding: 24px;
   box-shadow: 0 4px 15px var(--shadow, rgba(0, 0, 0, 0.04));
 }
@@ -98,6 +103,8 @@
   justify-content: space-between;
   align-items: center;
   margin-bottom: 18px;
+  flex-wrap: wrap;
+  gap: 12px;
 }
 
 .panel-header h2 {
@@ -119,8 +126,8 @@
   gap: 8px;
   background: var(--surface-soft, #f8fafc);
   border: 1px solid var(--border, #e2e8f0);
-  border-radius: 8px;
-  padding: 6px 14px;
+  border-radius: 10px;
+  padding: 8px 16px;
   color: var(--accent, #6366f1);
   font-weight: 700;
   font-size: 13px;
@@ -143,10 +150,6 @@
 
 .panel-view-all:hover svg {
   transform: translateX(3px);
-}
-
-.panel-view-all:active {
-  transform: translateY(0);
 }
 
 .empty-state {
@@ -219,7 +222,11 @@
   color: var(--text-muted, #94a3b8);
 }
 
-@media (max-width: 1000px) {
+/* =========================================================
+   MOBILE RESPONSIVENESS
+   ========================================================= */
+
+@media (max-width: 1024px) {
   .admin-stats {
     grid-template-columns: repeat(2, 1fr);
   }
@@ -228,8 +235,74 @@
   }
 }
 
-@media (max-width: 600px) {
+@media (max-width: 800px) {
+  .admin-overview {
+    padding: 16px 14px calc(88px + env(safe-area-inset-bottom, 0px)) !important;
+  }
+
+  .admin-page-header {
+    flex-direction: column;
+    align-items: stretch;
+    margin-bottom: 20px;
+    gap: 12px;
+  }
+
+  .admin-page-header h1 {
+    font-size: 22px;
+  }
+
+  .admin-stats {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+    margin-bottom: 18px;
+  }
+
+  .admin-stat-card {
+    padding: 14px;
+    border-radius: 14px;
+    gap: 10px;
+  }
+
+  .stat-icon {
+    width: 40px;
+    height: 40px;
+    font-size: 17px;
+    border-radius: 10px;
+  }
+
+  .admin-stat-card strong {
+    font-size: 20px;
+  }
+
+  .admin-panel {
+    padding: 18px 14px;
+    border-radius: 16px;
+  }
+
+  .panel-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .panel-view-all {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+@media (max-width: 480px) {
   .admin-stats {
     grid-template-columns: 1fr;
+  }
+
+  .recent-record-item {
+    padding: 10px;
+    gap: 10px;
+  }
+
+  .record-avatar {
+    width: 34px;
+    height: 34px;
+    font-size: 14px;
   }
 }

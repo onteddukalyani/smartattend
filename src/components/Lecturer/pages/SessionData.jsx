@@ -69,7 +69,12 @@ function ClassesData() {
 
                 const userUid = user?.uid;
                 const userEmail = (user?.email || "").toLowerCase().trim();
-                const isAdmin = profile?.role === "admin";
+                const isAdmin = 
+                    profile?.role === "admin" || 
+                    profile?.role === "administrator" || 
+                    profile?.role === "superadmin" || 
+                    localStorage.getItem("smartattend-user-role") === "admin" || 
+                    window.location.pathname.startsWith("/admin");
 
                 const allSessions = sessionsSnapshot.docs
                     .map((sessionDoc) => {
@@ -153,35 +158,38 @@ function ClassesData() {
                             </tr>
                         </thead>
                         <tbody>
-                            {sortedSessions.map((session) => (
-                                <tr key={session.id} onClick={() => navigate(`/lecturer/attendance-sessions/${session.id}`)}>
-                                    <td><strong>{session.classCode || "N/A"}</strong></td>
-                                    <td>{session.batch || "—"}</td>
-                                    <td>{session.courseCode || "N/A"}</td>
-                                    {profile?.role === "admin" && <td>{session.lecturerName || "Faculty"}</td>}
-                                    <td>{session.roomNo || "N/A"}</td>
-                                    <td>{session.createdAt ? new Date(session.createdAt).toLocaleDateString() : "N/A"}</td>
-                                    <td>{session.createdAt ? new Date(session.createdAt).toLocaleTimeString() : "N/A"}</td>
-                                    <td>
-                                        <button
-                                            type="button"
-                                            onClick={(event) => {
-                                                event.stopPropagation();
-                                                navigate(`/lecturer/attendance-sessions/${session.id}`);
-                                            }}
-                                        >
-                                            View Attendance
-                                        </button>
-                                        <button
-                                            type="button"
-                                            className="remove-session-btn"
-                                            onClick={(event) => removeSession(event, session)}
-                                        >
-                                            Remove
-                                        </button>
-                                    </td>
-                                </tr>
-                            ))}
+                            {sortedSessions.map((session) => {
+                                const basePath = profile?.role === "admin" ? "/admin/classes" : "/lecturer/attendance-sessions";
+                                return (
+                                    <tr key={session.id} onClick={() => navigate(`${basePath}/${session.id}`)}>
+                                        <td><strong>{session.classCode || "N/A"}</strong></td>
+                                        <td>{session.batch || "—"}</td>
+                                        <td>{session.courseCode || "N/A"}</td>
+                                        {profile?.role === "admin" && <td>{session.lecturerName || "Faculty"}</td>}
+                                        <td>{session.roomNo || "N/A"}</td>
+                                        <td>{session.createdAt ? new Date(session.createdAt).toLocaleDateString() : "N/A"}</td>
+                                        <td>{session.createdAt ? new Date(session.createdAt).toLocaleTimeString() : "N/A"}</td>
+                                        <td>
+                                            <button
+                                                type="button"
+                                                onClick={(event) => {
+                                                    event.stopPropagation();
+                                                    navigate(`${basePath}/${session.id}`);
+                                                }}
+                                            >
+                                                View Attendance
+                                            </button>
+                                            <button
+                                                type="button"
+                                                className="remove-session-btn"
+                                                onClick={(event) => removeSession(event, session)}
+                                            >
+                                                Remove
+                                            </button>
+                                        </td>
+                                    </tr>
+                                );
+                            })}
                         </tbody>
                     </table>
                 </div>
@@ -196,7 +204,8 @@ export function SessionAttendanceData() {
     const [records, setRecords] = useState([]);
     const [loading, setLoading] = useState(true);
     const navigate = useNavigate();
-    const { user } = useAuth();
+    const { user, profile } = useAuth();
+    const basePath = profile?.role === "admin" ? "/admin/classes" : "/lecturer/attendance-sessions";
 
     const { sortedItems: sortedRecords, sortConfig, requestSort } = useTableSort(records, "rollNo", "asc");
 
@@ -276,7 +285,7 @@ export function SessionAttendanceData() {
     if (!session) {
         return (
             <div className="attendance-data-page">
-                <button className="back-to-sessions-btn" onClick={() => navigate("/lecturer/attendance-sessions")}>⬅️ Back to Sessions</button>
+                <button className="back-to-sessions-btn" onClick={() => navigate(basePath)}>⬅️ Back to Sessions</button>
                 <p>Session not found.</p>
             </div>
         );
@@ -285,7 +294,7 @@ export function SessionAttendanceData() {
     return (
         <div className="attendance-data-page">
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px", flexWrap: "wrap", gap: "10px" }}>
-                <button className="back-to-sessions-btn" onClick={() => navigate("/lecturer/attendance-sessions")}>⬅️ Back to Sessions</button>
+                <button className="back-to-sessions-btn" onClick={() => navigate(basePath)}>⬅️ Back to Sessions</button>
                 {records.length > 0 && (
                     <button
                         className="download-excel-btn"

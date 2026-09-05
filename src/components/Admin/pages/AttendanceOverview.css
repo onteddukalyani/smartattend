@@ -634,7 +634,7 @@
 }
 
 /* =========================================================
-   RESPONSIVE
+   RESPONSIVE (MOBILE & TABLET)
 ========================================================= */
 
 @media (max-width: 1150px) {
@@ -652,27 +652,65 @@
   }
 }
 
-@media (max-width: 768px) {
+@media (max-width: 800px) {
   .attendance-overview,
   .admin-attendance-page {
-    padding: 18px 14px;
+    padding: 16px 14px calc(88px + env(safe-area-inset-bottom, 0px)) !important;
     gap: 18px;
+  }
+
+  .attendance-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 14px;
+  }
+
+  .attendance-header h1 {
+    font-size: 22px;
+  }
+
+  .refresh-attendance {
+    width: 100%;
+    justify-content: center;
+    padding: 12px;
+  }
+
+  .overall-attendance-card {
+    padding: 20px 16px;
+    border-radius: 16px;
+    gap: 18px;
+    align-items: center;
+    text-align: center;
+  }
+
+  .overall-attendance-info {
+    align-items: center;
   }
 
   .attendance-stat-grid {
     grid-template-columns: 1fr;
+    gap: 12px;
   }
 
   .recent-sessions {
     grid-template-columns: 1fr;
+    gap: 14px;
   }
 
   .section-heading {
     flex-direction: column;
-    align-items: flex-start;
+    align-items: stretch;
+    gap: 12px;
   }
 
   .attendance-search {
     max-width: 100%;
+    width: 100%;
+  }
+
+  .table-wrapper {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    border-radius: 14px;
   }
 }

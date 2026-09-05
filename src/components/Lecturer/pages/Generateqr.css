@@ -1,25 +1,29 @@
 .qrpage {
     min-height: calc(100vh - 80px);
-    padding: clamp(28px, 5vw, 72px) clamp(18px, 5vw, 76px);
+    padding: clamp(24px, 4vw, 56px) clamp(16px, 4vw, 48px);
     color: #1f2937;
-    background: #f5f7fb;
+    background: var(--page-bg, #f5f7fb);
+    box-sizing: border-box;
+    max-width: 900px;
+    margin: 0 auto;
 }
 
 .child-qr-result-heading {
-    color: var(--dash-text);
+    color: var(--dash-text, inherit);
 }
 
 .qrpage-header {
     max-width: 760px;
-    margin: 0 auto 32px;
+    margin: 0 auto 28px;
 }
 
 .qrpage-kicker {
-    margin: 0 0 8px;
+    margin: 0 0 6px;
     color: #6d28d9;
     font-size: 0.72rem;
     font-weight: 800;
     letter-spacing: 0.14em;
+    text-transform: uppercase;
 }
 
 .qrpage h1,
@@ -29,45 +33,46 @@
 }
 
 .qrpage h1 {
-    margin-bottom: 10px;
-    font-size: clamp(1.8rem, 4vw, 3.2rem);
-    letter-spacing: -0.03em;
+    margin-bottom: 8px;
+    font-size: clamp(1.6rem, 3.5vw, 2.4rem);
+    letter-spacing: -0.02em;
+    color: var(--text-main, #102b57);
 }
 
 .qrpage-header>p:last-child {
     margin-bottom: 0;
-    color: #475569;
-    font-size: 1rem;
+    color: var(--text-muted, #64748b);
+    font-size: 0.95rem;
 }
 
 .qrpage-layout {
     display: grid;
-    grid-template-columns: minmax(260px, 0.8fr) minmax(300px, 1.2fr);
-    gap: 24px;
-    max-width: 760px;
+    grid-template-columns: minmax(260px, 0.9fr) minmax(280px, 1.1fr);
+    gap: 20px;
+    max-width: 850px;
     margin: 0 auto;
 }
 
 .qr-builder,
 .qr-result {
     border: 1px solid rgba(130, 140, 160, 0.16);
-    border-radius: 22px;
+    border-radius: 20px;
     box-shadow: 0 18px 42px -24px rgba(100, 116, 139, 0.46);
+    background: var(--surface, #ffffff);
 }
 
 .qr-builder {
     display: flex;
     flex-direction: column;
-    padding: 28px;
-    background: linear-gradient(180deg, #ffffff 0%, #f4f7fb 100%);
+    padding: 24px;
 }
 
 .qr-section-heading,
 .qr-result-heading {
     display: flex;
     align-items: flex-start;
-    gap: 13px;
-    margin-bottom: 28px;
+    gap: 12px;
+    margin-bottom: 22px;
 }
 
 .qr-step {
@@ -84,43 +89,47 @@
 }
 
 .qrpage h2 {
-    margin-bottom: 5px;
-    font-size: 1.25rem;
+    margin-bottom: 4px;
+    font-size: 1.2rem;
+    color: var(--text-main, #102b57);
 }
 
 .qr-section-heading p,
 .qr-empty-state p,
 .qr-result-note {
     margin-bottom: 0;
-    color: #475569;
-    font-size: 0.88rem;
+    color: var(--text-muted, #64748b);
+    font-size: 0.85rem;
 }
 
 .qr-builder label {
-    margin: 0 0 8px;
-    color: #374151;
-    font-size: 0.8rem;
-    font-weight: 750;
+    margin: 0 0 6px;
+    color: var(--text-main, #374151);
+    font-size: 0.82rem;
+    font-weight: 700;
 }
 
 .qr-builder select,
 .qr-builder input {
     width: 100%;
     box-sizing: border-box;
-    margin-bottom: 18px;
-    padding: 13px 14px;
-    color: #1f2937;
-    background: #f8fafc;
-    border: 1px solid rgba(130, 140, 160, 0.22);
-    border-radius: 9px;
+    margin-bottom: 16px;
+    padding: 11px 14px;
+    color: var(--text-main, #1f2937);
+    background: var(--surface-soft, #f8fafc);
+    border: 1px solid var(--border, #cbd5e1);
+    border-radius: 10px;
     font: inherit;
+    font-size: 0.9rem;
     outline: none;
+    transition: all 0.15s ease;
 }
 
 .qr-builder select:focus,
 .qr-builder input:focus {
-    border-color: #8b5cf6;
-    box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.14);
+    border-color: #6366f1;
+    background: #ffffff;
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
 }
 
 .genqr-btn {
@@ -128,20 +137,21 @@
     align-items: center;
     justify-content: space-between;
     margin-top: auto;
-    padding: 14px 20px;
+    padding: 12px 18px;
     color: var(--btn-primary-text, #ffffff);
-    background: var(--btn-primary-bg, linear-gradient(135deg, #8b5cf6, #6366f1));
+    background: var(--btn-primary-bg, linear-gradient(135deg, #6366f1, #4338ca));
     border: 0;
     border-radius: 11px;
     cursor: pointer;
     font: inherit;
-    font-weight: 750;
+    font-weight: 700;
+    font-size: 0.92rem;
     box-shadow: var(--btn-primary-shadow, 0 4px 14px rgba(99, 102, 241, 0.28));
     transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .genqr-btn:hover:not(:disabled) {
-    background: var(--btn-primary-hover, linear-gradient(135deg, #7c3aed, #4f46e5));
+    background: var(--btn-primary-hover, linear-gradient(135deg, #4f46e5, #3730a3));
     transform: translateY(-2px);
     box-shadow: 0 6px 18px rgba(99, 102, 241, 0.38);
 }
@@ -157,27 +167,26 @@
 }
 
 .qr-error {
-    margin: 14px 0 0;
+    margin: 12px 0 0;
     color: #b44f43;
     font-size: 0.84rem;
 }
 
 .qr-result {
     display: grid;
-    min-height: 390px;
+    min-height: 380px;
     place-items: center;
-    padding: 28px;
+    padding: 24px;
     text-align: center;
-    background: linear-gradient(180deg, #ffffff 0%, #f4f7fb 100%);
 }
 
 .qr-result-ready {
-    background: #ffffff;
+    background: var(--surface, #ffffff);
 }
 
 .qr-result-heading {
     width: 100%;
-    margin-bottom: 18px;
+    margin-bottom: 16px;
     text-align: left;
 }
 
@@ -204,28 +213,32 @@
     padding: 14px;
     background: #ffffff;
     border: 1px solid #dce8e5;
-    border-radius: 12px;
+    border-radius: 14px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
 }
 
 .qr-code-frame canvas {
     display: block;
-    max-width: 100%;
-    height: auto;
+    max-width: 100% !important;
+    height: auto !important;
 }
 
 .qr-result-note {
-    margin: 16px 0 12px;
+    margin: 16px 0 10px;
 }
 
 .qr-expiry {
     display: flex;
     gap: 5px;
-    color: #475569;
+    color: var(--text-muted, #475569);
     font-size: 0.82rem;
+    justify-content: center;
 }
 
 .qr-expiry strong {
-    color: #6d28d9;
+    color: #6366f1;
 }
 
 .qr-empty-state {
@@ -234,28 +247,30 @@
 
 .qr-empty-mark {
     display: grid;
-    width: 68px;
-    height: 68px;
-    margin: 0 auto 18px;
+    width: 64px;
+    height: 64px;
+    margin: 0 auto 16px;
     place-items: center;
-    color: #6d28d9;
+    color: #6366f1;
     background: #ffffff;
     border: 1px dashed #a78bfa;
     border-radius: 14px;
-    font-weight: 850;
+    font-weight: 800;
     letter-spacing: 0.08em;
 }
 
-@media (max-width: 680px) {
+@media (max-width: 800px) {
     .qrpage {
-        padding: 32px 16px 112px;
+        padding: 16px 14px calc(88px + env(safe-area-inset-bottom, 0px)) !important;
     }
 
     .qrpage-layout {
         grid-template-columns: 1fr;
+        gap: 16px;
     }
 
     .qr-result {
-        min-height: 330px;
+        min-height: 320px;
+        padding: 20px 16px;
     }
 }

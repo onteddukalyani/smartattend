@@ -1,7 +1,12 @@
+/* =========================================================
+   MANAGE STUDENTS - RESPONSIVE MOBILE & DESKTOP STYLES
+   ========================================================= */
+
 .manage-students {
   padding: 28px;
   max-width: 1500px;
   margin: 0 auto;
+  box-sizing: border-box;
 }
 
 .students-header {
@@ -27,8 +32,8 @@
 
 .add-student-btn {
   border: none;
-  padding: 11px 20px;
-  border-radius: 10px;
+  padding: 12px 22px;
+  border-radius: 12px;
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -55,7 +60,7 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 20px;
+  gap: 16px;
   margin-bottom: 18px;
   flex-wrap: wrap;
 }
@@ -63,7 +68,7 @@
 .student-search {
   background: var(--surface, white);
   border: 1px solid var(--border, #ddd);
-  border-radius: 10px;
+  border-radius: 12px;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -71,6 +76,12 @@
   width: 420px;
   max-width: 100%;
   box-shadow: 0 2px 8px var(--shadow, rgba(0, 0, 0, 0.04));
+  transition: all 0.2s ease;
+}
+
+.student-search:focus-within {
+  border-color: var(--accent, #6366f1);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
 }
 
 .student-search svg {
@@ -95,15 +106,16 @@
 .students-table-container {
   background: var(--surface, white);
   border: 1px solid var(--border, #eee);
-  border-radius: 16px;
+  border-radius: 18px;
   overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
   box-shadow: 0 4px 20px var(--shadow, rgba(0, 0, 0, 0.04));
 }
 
 .students-table {
   width: 100%;
   border-collapse: collapse;
-  min-width: 950px;
+  min-width: 900px;
 }
 
 .students-table th {
@@ -213,9 +225,9 @@
 }
 
 .student-actions button {
-  width: 34px;
-  height: 34px;
-  border-radius: 8px;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
   border: 1px solid var(--border, #ddd);
   background: var(--surface-soft, #f8fafc);
   color: var(--text-muted, #64748b);
@@ -235,15 +247,18 @@
   box-shadow: 0 3px 8px rgba(99, 102, 241, 0.25);
 }
 
-.student-actions button:active {
-  transform: translateY(0);
-}
-
 .student-actions button.delete-button:hover {
   background: var(--btn-danger-bg, #fee2e2) !important;
   color: var(--btn-danger-text, #dc2626) !important;
   border-color: var(--btn-danger-border, #fca5a5) !important;
   box-shadow: 0 3px 8px rgba(220, 38, 38, 0.2) !important;
+}
+
+.student-actions button.edit-button:hover {
+  background: #3b82f6 !important;
+  color: #ffffff !important;
+  border-color: #3b82f6 !important;
+  box-shadow: 0 3px 8px rgba(59, 130, 246, 0.25) !important;
 }
 
 .students-empty,
@@ -259,15 +274,12 @@
   margin-bottom: 12px;
 }
 
-/* =========================================
-   EDIT STUDENT MODAL
-   ========================================= */
-
+/* Edit Student Modal */
 .edit-modal-overlay {
   position: fixed;
   inset: 0;
   background: rgba(15, 23, 42, 0.6);
-  backdrop-filter: blur(4px);
+  backdrop-filter: blur(6px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -280,22 +292,11 @@
   color: var(--text-main, #1e293b);
   width: 100%;
   max-width: 600px;
-  border-radius: 16px;
+  border-radius: 20px;
   box-shadow: 0 20px 40px rgba(0, 0, 0, 0.25);
   border: 1px solid var(--border, #e2e8f0);
   overflow: hidden;
   animation: modalFadeIn 0.2s ease-out;
-}
-
-@keyframes modalFadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(12px) scale(0.98);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
 }
 
 .edit-modal-header {
@@ -312,44 +313,10 @@
   font-weight: 800;
 }
 
-.edit-modal-header p {
-  margin: 4px 0 0;
-  font-size: 0.85rem;
-  color: var(--text-muted, #64748b);
-}
-
-.close-modal-btn {
-  background: transparent;
-  border: none;
-  font-size: 1.1rem;
-  cursor: pointer;
-  color: var(--text-muted, #64748b);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 4px;
-  border-radius: 6px;
-  transition: all 0.15s ease;
-}
-
-.close-modal-btn:hover {
-  background: var(--surface-soft, #f1f5f9);
-  color: var(--text-main, #0f172a);
-}
-
 .edit-student-form {
   padding: 24px;
-}
-
-.edit-form-error {
-  background: #fee2e2;
-  color: #991b1b;
-  padding: 10px 14px;
-  border-radius: 8px;
-  font-size: 0.85rem;
-  font-weight: 600;
-  margin-bottom: 16px;
-  border: 1px solid #fca5a5;
+  max-height: 75vh;
+  overflow-y: auto;
 }
 
 .edit-form-grid {
@@ -367,25 +334,25 @@
 .edit-form-field label {
   font-size: 0.82rem;
   font-weight: 700;
-  color: var(--text-main, #1e293b);
 }
 
 .edit-form-field input,
 .edit-form-field select {
-  padding: 9px 12px;
-  border-radius: 8px;
+  padding: 10px 14px;
+  border-radius: 10px;
   border: 1px solid var(--border, #cbd5e1);
   background: var(--surface-soft, #f8fafc);
   color: var(--text-main, inherit);
   font-size: 0.9rem;
   outline: none;
-  transition: border-color 0.15s ease;
+  transition: all 0.15s ease;
 }
 
 .edit-form-field input:focus,
 .edit-form-field select:focus {
   border-color: var(--accent, #6366f1);
   background: var(--surface, #ffffff);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
 }
 
 .edit-modal-footer {
@@ -398,8 +365,8 @@
 }
 
 .edit-modal-footer .cancel-btn {
-  padding: 9px 18px;
-  border-radius: 8px;
+  padding: 10px 18px;
+  border-radius: 10px;
   border: 1px solid var(--border, #cbd5e1);
   background: transparent;
   color: var(--text-main, inherit);
@@ -408,24 +375,74 @@
 }
 
 .edit-modal-footer .save-btn {
-  padding: 9px 20px;
-  border-radius: 8px;
+  padding: 10px 22px;
+  border-radius: 10px;
   border: none;
   background: var(--btn-primary-bg, linear-gradient(135deg, #6366f1, #4338ca));
   color: #ffffff;
   font-weight: 700;
   cursor: pointer;
-  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.25);
 }
 
-.edit-modal-footer .save-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
+/* =========================================================
+   MOBILE RESPONSIVENESS
+   ========================================================= */
 
-.student-actions button.edit-button:hover {
-  background: #3b82f6 !important;
-  color: #ffffff !important;
-  border-color: #3b82f6 !important;
-  box-shadow: 0 3px 8px rgba(59, 130, 246, 0.25) !important;
+@media (max-width: 800px) {
+  .manage-students {
+    padding: 16px 14px calc(88px + env(safe-area-inset-bottom, 0px)) !important;
+  }
+
+  .students-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 14px;
+    margin-bottom: 20px;
+  }
+
+  .students-header h1 {
+    font-size: 22px;
+  }
+
+  .add-student-btn {
+    width: 100%;
+    justify-content: center;
+    padding: 12px 18px;
+  }
+
+  .students-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+
+  .student-search {
+    width: 100%;
+    padding: 10px 14px;
+  }
+
+  .edit-form-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .edit-modal-content {
+    width: 96%;
+    max-height: 85vh;
+  }
+
+  .edit-student-form {
+    padding: 16px;
+  }
+
+  .edit-modal-footer {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .edit-modal-footer .cancel-btn,
+  .edit-modal-footer .save-btn {
+    width: 100%;
+    text-align: center;
+  }
 }

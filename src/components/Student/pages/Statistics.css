@@ -507,6 +507,7 @@
 /* 4. Table Styles */
 .student-statistics-page .stats-table-wrapper {
     overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
     border: 1px solid var(--border, #e2e8f0);
     border-radius: 14px;
 }
@@ -516,6 +517,7 @@
     border-collapse: collapse;
     font-size: 0.88rem;
     text-align: left;
+    min-width: 600px;
 }
 
 .student-statistics-page .stats-data-table thead th {
@@ -635,14 +637,21 @@
 }
 
 /* Responsive Breakpoints */
-@media (max-width: 768px) {
+@media (max-width: 800px) {
     .student-statistics-page {
-        padding: 16px;
+        padding: 16px 14px calc(88px + env(safe-area-inset-bottom, 0px)) !important;
         gap: 16px;
     }
 
     .student-statistics-page .stats-header-banner {
-        padding: 20px;
+        padding: 20px 16px;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 16px;
+    }
+
+    .student-statistics-page .stats-header-info {
+        gap: 14px;
     }
 
     .student-statistics-page .stats-header-info h1 {
@@ -651,17 +660,22 @@
 
     .student-statistics-page .stats-header-actions {
         width: 100%;
-        justify-content: stretch;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 10px;
     }
 
     .student-statistics-page .stats-btn-refresh,
     .student-statistics-page .stats-btn-export {
-        flex: 1;
+        width: 100%;
         justify-content: center;
     }
 
     .student-statistics-page .stats-controls-row {
         width: 100%;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 10px;
     }
 
     .student-statistics-page .stats-filter-dropdown-wrap,
@@ -672,5 +686,24 @@
     .student-statistics-page .stats-course-select,
     .student-statistics-page .stats-search-box input {
         width: 100% !important;
+    }
+
+    .student-statistics-page .stats-kpi-grid {
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+    }
+
+    .student-statistics-page .stats-subjects-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 480px) {
+    .student-statistics-page .stats-kpi-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .student-statistics-page .stats-kpi-card {
+        padding: 16px;
     }
 }

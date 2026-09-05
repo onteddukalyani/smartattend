@@ -219,12 +219,31 @@ export const AuthProvider = ({ children }) => {
 
             const defaultRoll = currentUser.email.split("@")[0].toUpperCase();
             setUser(currentUser);
-            setProfile({
+            const enrichedProfile = {
               rollNo: authorizedUser.rollNo || defaultRoll,
               ...authorizedUser,
+              uid: currentUser.uid,
               role: databaseRole || "student",
               approved: true
-            });
+            };
+            setProfile(enrichedProfile);
+
+            // Sync auth UID into authorizedUsers & users in Firestore
+            if (currentUser.uid) {
+              const cleanEmail = currentUser.email.toLowerCase().trim();
+              setDoc(doc(db, "authorizedUsers", cleanEmail), {
+                uid: currentUser.uid,
+                lastLoginAt: Date.now()
+              }, { merge: true }).catch(() => {});
+
+              setDoc(doc(db, "users", cleanEmail), {
+                uid: currentUser.uid,
+                email: cleanEmail,
+                name: authorizedUser.name || currentUser.displayName || cleanEmail.split("@")[0],
+                role: databaseRole || "lecturer",
+                lastLoginAt: Date.now()
+              }, { merge: true }).catch(() => {});
+            }
             return;
           }
 
@@ -327,9 +346,30 @@ export const AuthProvider = ({ children }) => {
     }
 
     localStorage.setItem("smartattend-user-role", selected);
+    const enrichedAuthUser = {
+      ...authorizedUser,
+      uid: currentUser.uid,
+      role: databaseRole
+    };
     setUser(currentUser);
-    setProfile(authorizedUser);
-    return authorizedUser;
+    setProfile(enrichedAuthUser);
+
+    // Sync auth UID into authorizedUsers & users in Firestore
+    const cleanEmail = currentUser.email.toLowerCase().trim();
+    setDoc(doc(db, "authorizedUsers", cleanEmail), {
+      uid: currentUser.uid,
+      lastLoginAt: Date.now()
+    }, { merge: true }).catch(() => {});
+
+    setDoc(doc(db, "users", cleanEmail), {
+      uid: currentUser.uid,
+      email: cleanEmail,
+      name: authorizedUser.name || currentUser.displayName || cleanEmail.split("@")[0],
+      role: databaseRole,
+      lastLoginAt: Date.now()
+    }, { merge: true }).catch(() => {});
+
+    return enrichedAuthUser;
   };
 
   // =========================================================

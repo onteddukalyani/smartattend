@@ -12,15 +12,27 @@ function ActiveSessions() {
 
     useEffect(() => {
         const getActiveSessions = async () => {
+            if (!user) return;
             try {
-                const snapshot = await getDocs(query(
-                    collection(db, "attendance_sessions"),
-                    where("ownerId", "==", user.uid)
-                ));
+                const userEmail = (user?.email || "").toLowerCase().trim();
+                const userPrefix = userEmail ? userEmail.split("@")[0] : "";
+                const userUid = user?.uid || "";
+
+                const snapshot = await getDocs(collection(db, "attendance_sessions"));
                 const now = Date.now();
+
+                const isMySession = (data) => {
+                    const ownerId = String(data.ownerId || "").toLowerCase().trim();
+                    const ownerEmail = String(data.ownerEmail || data.lecturerEmail || "").toLowerCase().trim();
+                    if (userUid && ownerId === userUid.toLowerCase()) return true;
+                    if (userEmail && (ownerEmail === userEmail || ownerId === userEmail)) return true;
+                    if (userPrefix && (ownerId === userPrefix || ownerEmail.includes(userPrefix))) return true;
+                    return false;
+                };
+
                 setActiveSessions(snapshot.docs
                     .map((sessionDoc) => ({ id: sessionDoc.id, ...sessionDoc.data() }))
-                    .filter((session) => session.active !== false && session.expiresAt > now));
+                    .filter((session) => isMySession(session) && session.active !== false && (session.expiresAt || 0) > now));
             } catch (error) {
                 console.error("Error getting active sessions:", error);
             }

@@ -888,36 +888,69 @@
 }
 
 /* =========================================================
-   RESPONSIVE DESIGN
+   RESPONSIVE DESIGN (MOBILE & TABLET)
    ========================================================= */
 @media (max-width: 900px) {
   .manage-admins-page {
-    padding: 20px 16px 100px;
+    padding: 16px 14px calc(88px + env(safe-area-inset-bottom, 0px)) !important;
     gap: 18px;
   }
 
   .manage-admins-page .admins-hero-banner {
-    padding: 22px 20px;
+    padding: 20px 16px;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 16px;
   }
 
   .manage-admins-page .hero-content h1 {
-    font-size: 24px;
+    font-size: 22px;
+  }
+
+  .manage-admins-page .hero-actions {
+    flex-direction: column;
+    width: 100%;
+    gap: 10px;
+  }
+
+  .manage-admins-page .hero-btn {
+    width: 100%;
+    justify-content: center;
+    padding: 12px;
   }
 
   .manage-admins-page .table-controls-bar {
     flex-direction: column;
     align-items: stretch;
+    gap: 12px;
   }
 
   .manage-admins-page .search-actions-wrapper {
     max-width: 100%;
+    width: 100%;
+  }
+
+  .manage-admins-page .modern-search-box {
+    width: 100%;
+  }
+
+  .manage-admins-page .admins-table-wrapper {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    border-radius: 16px;
   }
 
   .manage-admins-page .action-btn-text {
-    display: none;
+    display: inline-block;
   }
 
   .manage-admins-page .action-btn {
-    padding: 8px 10px;
+    padding: 8px 12px;
+  }
+}
+
+@media (max-width: 480px) {
+  .manage-admins-page .admins-stats-grid {
+    grid-template-columns: 1fr;
   }
 }

@@ -1,18 +1,48 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useSearchParams } from "react-router-dom";
 import { QRCodeCanvas } from "qrcode.react";
+import { collection, getDocs } from "firebase/firestore";
+import { db } from "../../../firebase";
 import { createAttendanceSession } from "./CreateSession";
 import { useAuth } from "../../authcontext";
-import "./Generateqr.css"
+import "./Generateqr.css";
 
 function GenerateQR() {
     const { user, profile } = useAuth();
+    const [searchParams] = useSearchParams();
+
     const [sessionId, setSessionId] = useState("");
-    const [roomNo, setRoomNo] = useState("");
-    const [courseCode, setCourseCode] = useState("");
-    const [classCode, setClassCode] = useState("");
-    const [batch, setBatch] = useState("");
+    const [roomNo, setRoomNo] = useState(searchParams.get("roomNo") || "");
+    const [courseCode, setCourseCode] = useState(searchParams.get("courseCode") || "");
+    const [classCode, setClassCode] = useState(searchParams.get("classCode") || "");
+    const [batch, setBatch] = useState(searchParams.get("batch") || "");
+    const [availableCourses, setAvailableCourses] = useState([]);
     const [isGenerating, setIsGenerating] = useState(false);
     const [errorMessage, setErrorMessage] = useState("");
+
+    // Load available courses from Firestore
+    useEffect(() => {
+        getDocs(collection(db, "courses"))
+            .then((snap) => {
+                const list = snap.docs.map((d) => ({
+                    id: d.id,
+                    ...d.data()
+                }));
+                setAvailableCourses(list);
+            })
+            .catch((err) => console.warn("Could not load courses for QR page:", err));
+    }, []);
+
+    // When selecting a course from dropdown
+    const handleSelectCourse = (code) => {
+        setCourseCode(code);
+        const matched = availableCourses.find((c) => (c.courseCode || "").toUpperCase() === code.toUpperCase());
+        if (matched) {
+            if (matched.defaultRoom && !roomNo) setRoomNo(matched.defaultRoom);
+            if (matched.department && !classCode) setClassCode(matched.department);
+            if (matched.batch && !batch) setBatch(matched.batch);
+        }
+    };
 
     const handleGenerateQR = async () => {
         if (!classCode || !roomNo.trim()) {
@@ -33,10 +63,6 @@ function GenerateQR() {
             };
             const id = await createAttendanceSession(classCode, courseCode.trim(), roomNo.trim(), batch, lecturerInfo);
             setSessionId(id);
-            console.log("Session ID:", id);
-            console.log("Class Code:", classCode);
-            console.log("Batch:", batch);
-            console.log("Course Code:", courseCode);
         } catch (error) {
             console.error("Error creating session:", error);
             setErrorMessage(error.message || "Could not create an attendance session.");
@@ -63,17 +89,48 @@ function GenerateQR() {
                             <p>Tell students where to check in.</p>
                         </div>
                     </div>
-                    <label htmlFor="class-code">Class</label>
+
+                    {availableCourses.length > 0 && (
+                        <>
+                            <label htmlFor="course-select">Quick Pick Registered Course</label>
+                            <select
+                                id="course-select"
+                                value={courseCode}
+                                onChange={(e) => handleSelectCourse(e.target.value)}
+                            >
+                                <option value="">-- Choose from Catalog or Type Below --</option>
+                                {availableCourses.map((c) => (
+                                    <option key={c.id} value={c.courseCode}>
+                                        {c.courseCode} - {c.courseName} ({c.department})
+                                    </option>
+                                ))}
+                            </select>
+                        </>
+                    )}
+
+                    <label htmlFor="course-code">Course Code *</label>
+                    <input
+                        id="course-code"
+                        type="text"
+                        value={courseCode}
+                        onChange={(e) => setCourseCode(e.target.value)}
+                        placeholder="e.g. CS171, CS301"
+                        required
+                    />
+
+                    <label htmlFor="class-code">Class / Department *</label>
                     <select
                         id="class-code"
                         value={classCode}
                         onChange={(e) => setClassCode(e.target.value)}
                     >
                         <option value="">Select Class</option>
+                        <option value="CSE">CSE</option>
                         <option value="CSE-A">CSE-A</option>
                         <option value="CSE-B">CSE-B</option>
                         <option value="DSAI">DSAI</option>
                         <option value="ECE">ECE</option>
+                        <option value="MECH">MECH</option>
                     </select>
 
                     <label htmlFor="batch-year">Batch</label>
@@ -89,22 +146,13 @@ function GenerateQR() {
                         <option value="2026">2026</option>
                     </select>
 
-                    <label htmlFor="course-code">Course Code</label>
-                    <input
-                        id="course-code"
-                        type="text"
-                        value={courseCode}
-                        onChange={(e) => setCourseCode(e.target.value)}
-                        placeholder="e.g. CS171"
-                        required
-                    />
-                    <label htmlFor="room-number">Room number</label>
+                    <label htmlFor="room-number">Room number *</label>
                     <input
                         id="room-number"
                         type="text"
                         value={roomNo}
                         onChange={(e) => setRoomNo(e.target.value)}
-                        placeholder="e.g. C003"
+                        placeholder="e.g. LH-101, C003"
                         required
                     />
                     <button onClick={handleGenerateQR} className="genqr-btn" disabled={isGenerating}>

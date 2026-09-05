@@ -1,4 +1,4 @@
-import { collection, addDoc } from "firebase/firestore";
+import { collection, addDoc, doc, setDoc } from "firebase/firestore";
 import { auth, db } from "../../../firebase";
 
 export async function createAttendanceSession(classCode, courseCode, roomNo, batch = "", lecturerInfo = {}) {
@@ -27,5 +27,25 @@ export async function createAttendanceSession(classCode, courseCode, roomNo, bat
             lecturerDepartment: lecturerDept
         }
     );
+
+    // Sync lecturer UID to authorizedUsers & users collections in background
+    if (currentUser?.uid && lecturerEmail) {
+        setDoc(doc(db, "authorizedUsers", lecturerEmail), {
+            uid: currentUser.uid,
+            name: lecturerName,
+            department: lecturerDept,
+            lastSessionCreated: now
+        }, { merge: true }).catch(() => {});
+
+        setDoc(doc(db, "users", lecturerEmail), {
+            uid: currentUser.uid,
+            email: lecturerEmail,
+            name: lecturerName,
+            department: lecturerDept,
+            role: "lecturer",
+            lastSessionCreated: now
+        }, { merge: true }).catch(() => {});
+    }
+
     return docRef.id;
 }
