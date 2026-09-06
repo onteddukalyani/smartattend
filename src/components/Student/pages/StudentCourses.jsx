@@ -2,8 +2,6 @@ import React, { useEffect, useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import {
     collection,
-    doc,
-    getDoc,
     getDocs,
     onSnapshot,
     query,
@@ -29,6 +27,7 @@ import {
 } from "react-icons/fa";
 import { db } from "../../../firebase";
 import { useAuth } from "../../authcontext";
+import { getCandidateRolls, computeStudentMetrics } from "../studentAttendanceHelper";
 import "./StudentCourses.css";
 
 export default function StudentCourses() {
@@ -49,38 +48,13 @@ export default function StudentCourses() {
     // Roll number derivation from email prefix / profile
     const emailRoll = (user?.email || "").split("@")[0].trim().toUpperCase();
     const activeRollNo = (profile?.rollNo || emailRoll || "").trim().toUpperCase();
-    const studentDept = profile?.department || profile?.branch || "";
+    const studentDept = profile?.department || profile?.branch || "CSE";
+    const studentSemester = profile?.semester || "1";
 
     // Build candidate roll numbers for matching
     const candidateRolls = useMemo(() => {
-        const set = new Set();
-        if (activeRollNo) {
-            set.add(activeRollNo);
-            set.add(activeRollNo.toLowerCase());
-            const digits = activeRollNo.replace(/\D/g, "");
-            if (digits && digits.length >= 2) set.add(digits);
-        }
-        if (profile?.rollNo) {
-            const r = String(profile.rollNo).trim();
-            set.add(r);
-            set.add(r.toUpperCase());
-            set.add(r.toLowerCase());
-            const digits = r.replace(/\D/g, "");
-            if (digits && digits.length >= 2) set.add(digits);
-        }
-        if (user?.email) {
-            const prefix = user.email.split("@")[0].trim();
-            set.add(prefix);
-            set.add(prefix.toUpperCase());
-            set.add(prefix.toLowerCase());
-            const digits = prefix.replace(/\D/g, "");
-            if (digits && digits.length >= 2) set.add(digits);
-        }
-        if (user?.uid) {
-            set.add(user.uid);
-        }
-        return Array.from(set).filter(Boolean).slice(0, 10);
-    }, [activeRollNo, profile?.rollNo, user?.email, user?.uid]);
+        return getCandidateRolls(user, profile);
+    }, [user, profile]);
 
     // 1. Real-time Courses listener
     useEffect(() => {
@@ -92,7 +66,6 @@ export default function StudentCourses() {
                     id: d.id,
                     ...d.data()
                 }));
-                list.sort((a, b) => (a.courseCode || "").localeCompare(b.courseCode || ""));
                 setCourses(list);
                 setLoading(false);
             },
@@ -151,17 +124,14 @@ export default function StudentCourses() {
         setRefreshing(true);
         try {
             const [coursesSnap, sessionsSnap, recordsSnap] = await Promise.all([
-                getDocs(collection(db, "courses")),
-                getDocs(collection(db, "attendance_sessions")),
+                getDocs(collection(db, "courses")).catch(() => ({ docs: [] })),
+                getDocs(collection(db, "attendance_sessions")).catch(() => ({ docs: [] })),
                 candidateRolls.length > 0
-                    ? getDocs(query(collection(db, "attendance_records"), where("rollNo", "in", candidateRolls)))
+                    ? getDocs(query(collection(db, "attendance_records"), where("rollNo", "in", candidateRolls))).catch(() => ({ docs: [] }))
                     : { docs: [] }
             ]);
 
-            const cList = coursesSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
-            cList.sort((a, b) => (a.courseCode || "").localeCompare(b.courseCode || ""));
-            setCourses(cList);
-
+            setCourses(coursesSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
             setSessions(sessionsSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
             setRecords(recordsSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
         } catch (err) {
@@ -171,117 +141,30 @@ export default function StudentCourses() {
         }
     };
 
-    // Calculate per-course attendance and insights
-    const courseStats = useMemo(() => {
-        // Build session ID to session map
-        const sessionMap = new Map();
-        sessions.forEach((s) => sessionMap.set(s.id, s));
-
-        return courses.map((course) => {
-            const cCode = (course.courseCode || "").trim().toUpperCase();
-
-            // Total sessions conducted for this course
-            const courseSessions = sessions.filter((s) => {
-                const sCourse = (s.courseCode || s.classCode || "").trim().toUpperCase();
-                return sCourse === cCode || (cCode && s.id && s.id.toUpperCase().includes(cCode));
-            });
-            const totalConducted = courseSessions.length;
-
-            // Student attendance records for this course
-            const courseRecords = records.filter((r) => {
-                const rCourse = (r.courseCode || r.classCode || "").trim().toUpperCase();
-                if (rCourse && rCourse === cCode) return true;
-
-                // Match via session ID
-                if (r.sessionId) {
-                    const sess = sessionMap.get(r.sessionId);
-                    if (sess) {
-                        const sCourse = (sess.courseCode || sess.classCode || "").trim().toUpperCase();
-                        return sCourse === cCode;
-                    }
-                }
-                return false;
-            });
-
-            // Unique sessions attended by student
-            const attendedCount = courseRecords.length;
-            const percentage = totalConducted > 0
-                ? Math.min(100, Math.round((attendedCount / totalConducted) * 100))
-                : null;
-
-            // Safety Calculations
-            let status = "none";
-            let leavesAvailable = 0;
-            let classesNeeded = 0;
-
-            if (totalConducted > 0 && percentage !== null) {
-                if (percentage >= 75) {
-                    status = "safe";
-                    // Number of consecutive classes student can miss while staying >= 75%
-                    leavesAvailable = Math.floor((attendedCount - 0.75 * totalConducted) / 0.75);
-                    if (leavesAvailable < 0) leavesAvailable = 0;
-                } else if (percentage >= 65) {
-                    status = "warning";
-                    classesNeeded = Math.ceil((0.75 * totalConducted - attendedCount) / 0.25);
-                    if (classesNeeded < 0) classesNeeded = 0;
-                } else {
-                    status = "danger";
-                    classesNeeded = Math.ceil((0.75 * totalConducted - attendedCount) / 0.25);
-                    if (classesNeeded < 0) classesNeeded = 0;
-                }
-            }
-
-            return {
-                ...course,
-                cCode,
-                totalConducted,
-                attendedCount,
-                percentage,
-                status,
-                leavesAvailable,
-                classesNeeded,
-                history: courseRecords
-            };
+    // Unified metrics computation
+    const metrics = useMemo(() => {
+        return computeStudentMetrics(courses, sessions, records, {
+            branch: studentDept,
+            semester: studentSemester
         });
-    }, [courses, sessions, records]);
-
-    // KPI Metrics across all courses
-    const kpis = useMemo(() => {
-        const total = courseStats.length;
-        const activeSubjects = courseStats.filter((c) => c.totalConducted > 0);
-        const totalPercentSum = activeSubjects.reduce((acc, c) => acc + (c.percentage || 0), 0);
-        const avgPercentage = activeSubjects.length > 0
-            ? Math.round(totalPercentSum / activeSubjects.length)
-            : 0;
-
-        const safeCount = activeSubjects.filter((c) => (c.percentage || 0) >= 75).length;
-        const shortageCount = activeSubjects.filter((c) => (c.percentage || 0) < 75).length;
-
-        return {
-            total,
-            activeCount: activeSubjects.length,
-            avgPercentage,
-            safeCount,
-            shortageCount
-        };
-    }, [courseStats]);
+    }, [courses, sessions, records, studentDept, studentSemester]);
 
     // Unique departments & semesters for filters
     const departments = useMemo(() => {
-        const set = new Set(courses.map((c) => c.department).filter(Boolean));
+        const set = new Set(metrics.coursesWithStats.map((c) => c.department).filter(Boolean));
         return Array.from(set).sort();
-    }, [courses]);
+    }, [metrics.coursesWithStats]);
 
     const semesters = useMemo(() => {
-        const set = new Set(courses.map((c) => String(c.semester)).filter(Boolean));
+        const set = new Set(metrics.coursesWithStats.map((c) => String(c.semester)).filter(Boolean));
         return Array.from(set).sort((a, b) => Number(a) - Number(b));
-    }, [courses]);
+    }, [metrics.coursesWithStats]);
 
     // Filtered Course List
     const filteredCourses = useMemo(() => {
         const q = search.toLowerCase().trim();
 
-        return courseStats.filter((course) => {
+        return metrics.coursesWithStats.filter((course) => {
             // Search match
             const matchSearch =
                 !q ||
@@ -317,7 +200,7 @@ export default function StudentCourses() {
 
             return true;
         });
-    }, [courseStats, search, selectedDepartment, selectedSemester, statusFilter, studentDept]);
+    }, [metrics.coursesWithStats, search, selectedDepartment, selectedSemester, statusFilter, studentDept]);
 
     const getStatusBadge = (course) => {
         if (course.totalConducted === 0 || course.percentage === null) {
@@ -346,7 +229,7 @@ export default function StudentCourses() {
                         </div>
                         <h1 className="sc-header-title">My Courses & Syllabus</h1>
                         <p className="sc-header-desc">
-                            Track real-time subject attendance, faculty contacts, syllabus status, and class eligibility.
+                            Track real-time subject attendance, faculty contacts, syllabus status, and class eligibility for Roll No: <strong>{activeRollNo}</strong>.
                         </p>
                     </div>
                 </div>
@@ -377,18 +260,18 @@ export default function StudentCourses() {
                     <div className="sc-kpi-icon"><FaBookOpen /></div>
                     <div className="sc-kpi-content">
                         <span className="sc-kpi-label">Total Courses</span>
-                        <h3 className="sc-kpi-value">{kpis.total}</h3>
-                        <span className="sc-kpi-sub">{kpis.activeCount} with active sessions</span>
+                        <h3 className="sc-kpi-value">{metrics.totalCoursesCount}</h3>
+                        <span className="sc-kpi-sub">{metrics.activeSubjectsCount} with active sessions</span>
                     </div>
                 </div>
 
                 <div className="sc-kpi-card sc-kpi-average">
                     <div className="sc-kpi-icon"><FaPercentage /></div>
                     <div className="sc-kpi-content">
-                        <span className="sc-kpi-label">Average Attendance</span>
-                        <h3 className="sc-kpi-value">{kpis.avgPercentage}%</h3>
+                        <span className="sc-kpi-label">Overall Attendance</span>
+                        <h3 className="sc-kpi-value">{metrics.overallPercentage}%</h3>
                         <span className="sc-kpi-sub">
-                            {kpis.avgPercentage >= 75 ? "Target Achieved (≥75%)" : "Needs Attention (<75%)"}
+                            {metrics.overallPercentage >= 75 ? "Target Achieved (≥75%)" : "Needs Attention (<75%)"}
                         </span>
                     </div>
                 </div>
@@ -397,7 +280,7 @@ export default function StudentCourses() {
                     <div className="sc-kpi-icon"><FaCheckCircle /></div>
                     <div className="sc-kpi-content">
                         <span className="sc-kpi-label">Safe Subjects</span>
-                        <h3 className="sc-kpi-value">{kpis.safeCount}</h3>
+                        <h3 className="sc-kpi-value">{metrics.safeSubjectsCount}</h3>
                         <span className="sc-kpi-sub">Attendance ≥ 75%</span>
                     </div>
                 </div>
@@ -406,7 +289,7 @@ export default function StudentCourses() {
                     <div className="sc-kpi-icon"><FaExclamationTriangle /></div>
                     <div className="sc-kpi-content">
                         <span className="sc-kpi-label">Low Attendance</span>
-                        <h3 className="sc-kpi-value">{kpis.shortageCount}</h3>
+                        <h3 className="sc-kpi-value">{metrics.shortageSubjectsCount}</h3>
                         <span className="sc-kpi-sub">Below 75% threshold</span>
                     </div>
                 </div>
@@ -437,19 +320,19 @@ export default function StudentCourses() {
                             className={`sc-tab-btn ${statusFilter === "all" ? "active" : ""}`}
                             onClick={() => setStatusFilter("all")}
                         >
-                            All ({courseStats.length})
+                            All ({metrics.coursesWithStats.length})
                         </button>
                         <button
                             className={`sc-tab-btn ${statusFilter === "safe" ? "active" : ""}`}
                             onClick={() => setStatusFilter("safe")}
                         >
-                            Safe ≥75% ({kpis.safeCount})
+                            Safe ≥75% ({metrics.safeSubjectsCount})
                         </button>
                         <button
                             className={`sc-tab-btn ${statusFilter === "shortage" ? "active" : ""}`}
                             onClick={() => setStatusFilter("shortage")}
                         >
-                            Shortage ({kpis.shortageCount})
+                            Shortage ({metrics.shortageSubjectsCount})
                         </button>
                         {studentDept && (
                             <button
@@ -798,7 +681,8 @@ export default function StudentCourses() {
                                     navigate("/student/mark-attendance");
                                 }}
                             >
-                                <FaQrcode /> Scan QR for Class
+                                <FaQrcode />
+                                <span>Mark Attendance</span>
                             </button>
                         </div>
                     </div>

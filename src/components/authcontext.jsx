@@ -239,12 +239,18 @@ export const AuthProvider = ({ children }) => {
             ? registeredUser.branch
             : ((registeredUser.department && String(registeredUser.department).toLowerCase() !== "general") ? registeredUser.department : "CSE");
 
+          const studentRegisteredName = (registeredUser.name && registeredUser.name.trim())
+            ? registeredUser.name.trim()
+            : (registeredUser.fullName && registeredUser.fullName.trim() ? registeredUser.fullName.trim() : "");
+
+          const resolvedName = studentRegisteredName || (databaseRole === "student" ? (cleanRollNo || "Student") : (registeredUser.name || currentUser.displayName || prefix));
+
           const enrichedProfile = {
             id: registeredUser.id || cleanRollNo || cleanEmail,
             ...registeredUser,
             rollNo: cleanRollNo,
             email: cleanEmail,
-            name: registeredUser.name || currentUser.displayName || prefix,
+            name: resolvedName,
             branch: branch,
             semester: registeredUser.semester || "1",
             uid: currentUser.uid,
@@ -342,12 +348,18 @@ export const AuthProvider = ({ children }) => {
       ? registeredUser.branch
       : ((registeredUser.department && String(registeredUser.department).toLowerCase() !== "general") ? registeredUser.department : "CSE");
 
+    const studentRegisteredName = (registeredUser.name && registeredUser.name.trim())
+      ? registeredUser.name.trim()
+      : (registeredUser.fullName && registeredUser.fullName.trim() ? registeredUser.fullName.trim() : "");
+
+    const resolvedName = studentRegisteredName || (databaseRole === "student" ? (cleanRollNo || "Student") : (registeredUser.name || currentUser.displayName || prefix));
+
     const enrichedProfile = {
       id: registeredUser.id || cleanRollNo || cleanEmail,
       ...registeredUser,
       rollNo: cleanRollNo,
       email: cleanEmail,
-      name: registeredUser.name || currentUser.displayName || prefix,
+      name: resolvedName,
       branch: branch,
       semester: registeredUser.semester || "1",
       uid: currentUser.uid,
@@ -361,6 +373,58 @@ export const AuthProvider = ({ children }) => {
     setProfile(enrichedProfile);
 
     return enrichedProfile;
+  };
+
+  // =========================================================
+  // UPDATE PROFILE NAME IN FIRESTORE & REACT STATE
+  // =========================================================
+  const updateProfileName = async (newName) => {
+    if (!newName || !newName.trim()) {
+      throw new Error("Name cannot be empty.");
+    }
+    const cleanName = newName.trim();
+    const cleanEmail = (user?.email || profile?.email || "").toLowerCase().trim();
+    const prefix = cleanEmail ? cleanEmail.split("@")[0].toLowerCase().trim() : "";
+    const role = normalizeRole(profile?.role || "student");
+    const rollNo = (profile?.rollNo || (role === "student" ? prefix.toUpperCase() : "")).trim().toUpperCase();
+
+    const updatePayload = {
+      name: cleanName,
+      fullName: cleanName,
+      updatedAt: Date.now()
+    };
+
+    const promises = [];
+
+    if (role === "student") {
+      if (rollNo) {
+        promises.push(setDoc(doc(db, "students", rollNo), updatePayload, { merge: true }));
+        promises.push(setDoc(doc(db, "users", rollNo), updatePayload, { merge: true }));
+      }
+    } else if (role === "lecturer") {
+      const lectId = profile?.id || prefix || cleanEmail;
+      promises.push(setDoc(doc(db, "lecturers", lectId), updatePayload, { merge: true }));
+      promises.push(setDoc(doc(db, "users", lectId), updatePayload, { merge: true }));
+    } else if (role === "admin") {
+      const adminId = profile?.id || prefix || cleanEmail;
+      promises.push(setDoc(doc(db, "admins", adminId), updatePayload, { merge: true }));
+      promises.push(setDoc(doc(db, "users", adminId), updatePayload, { merge: true }));
+    }
+
+    if (cleanEmail) {
+      promises.push(setDoc(doc(db, "authorizedUsers", cleanEmail), updatePayload, { merge: true }).catch(() => { }));
+    }
+
+    await Promise.all(promises);
+
+    // Update React State immediately across the entire application
+    setProfile((prev) => ({
+      ...(prev || {}),
+      name: cleanName,
+      fullName: cleanName
+    }));
+
+    return cleanName;
   };
 
   // =========================================================
@@ -386,6 +450,7 @@ export const AuthProvider = ({ children }) => {
         profile,
         loading,
         loginWithGoogle,
+        updateProfileName,
         logoutUser: handleLogout
       }}
     >

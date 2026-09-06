@@ -92,6 +92,14 @@
   border-bottom: 1px solid #e2e8f0;
 }
 
+.modal-avatar-container-outer {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
 .modal-avatar-wrapper {
   width: 76px;
   height: 76px;
@@ -103,6 +111,36 @@
   justify-content: center;
   flex-shrink: 0;
   box-shadow: 0 8px 20px rgba(99, 102, 241, 0.25);
+}
+
+.modal-avatar-delete-photo-btn {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  background: #ef4444;
+  color: #ffffff;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 2px solid #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  cursor: pointer;
+  box-shadow: 0 3px 10px rgba(239, 68, 68, 0.45);
+  transition: transform 0.2s ease, background 0.2s ease;
+  z-index: 5;
+}
+
+.modal-avatar-delete-photo-btn:hover {
+  transform: scale(1.15);
+  background: #dc2626;
+}
+
+.modal-avatar-delete-photo-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .modal-avatar-wrapper.lecturer-avatar-theme {

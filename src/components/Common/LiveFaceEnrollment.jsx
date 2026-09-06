@@ -10,16 +10,15 @@ import {
     FaMicrochip,
     FaExclamationTriangle,
     FaVideo,
-    FaMobileAlt,
-    FaInfoCircle,
     FaUpload,
-    FaLock
+    FaLock,
+    FaInfoCircle
 } from "react-icons/fa";
 import "./LiveFaceEnrollment.css";
 
 const MODEL_CDN_URL = "https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/";
 
-export function LiveFaceEnrollment({ onFaceEnrolled, isSaved, initialPhoto = null }) {
+export function LiveFaceEnrollment({ onFaceEnrolled, initialPhoto = null, hideHeader = false }) {
     const videoRef = useRef(null);
     const streamRef = useRef(null);
     const fileInputRef = useRef(null);
@@ -31,7 +30,7 @@ export function LiveFaceEnrollment({ onFaceEnrolled, isSaved, initialPhoto = nul
     const [modelsLoaded, setModelsLoaded] = useState(false);
     const [capturing, setCapturing] = useState(false);
     const [captureStep, setCaptureStep] = useState(0); // 0 to 5 frames
-    const [faceQualityStatus, setFaceQualityStatus] = useState("Ready to enroll biometric face data.");
+    const [faceQualityStatus, setFaceQualityStatus] = useState("Position your face in the camera frame to register biometric vectors.");
     const [statusType, setStatusType] = useState("ready"); // "ready", "capturing", "success", "warning"
     const [enrolledPhoto, setEnrolledPhoto] = useState(initialPhoto);
     const [capturedVector, setCapturedVector] = useState(null);
@@ -57,7 +56,7 @@ export function LiveFaceEnrollment({ onFaceEnrolled, isSaved, initialPhoto = nul
                             }
                         };
                     } catch (e) {
-                        // Some browsers don't support camera query
+                        // Permissions API not supported for camera in some browsers
                     }
                 }
             }
@@ -115,7 +114,7 @@ export function LiveFaceEnrollment({ onFaceEnrolled, isSaved, initialPhoto = nul
     const startCameraStream = async () => {
         setCameraError("");
         setCameraLoading(true);
-        setFaceQualityStatus("Requesting camera access from browser...");
+        setFaceQualityStatus("Requesting camera access...");
         setStatusType("ready");
 
         try {
@@ -141,17 +140,16 @@ export function LiveFaceEnrollment({ onFaceEnrolled, isSaved, initialPhoto = nul
 
                 if (typeof window !== "undefined" && !window.isSecureContext) {
                     setPermissionStatus("insecure");
-                    throw new Error("WebRTC live camera requires HTTPS or localhost. Please use 'Snap Photo / Upload Photo' below.");
+                    throw new Error("WebRTC live camera requires HTTPS or localhost. Please use 'Upload Photo' below.");
                 }
 
                 throw new Error("Camera API is not supported in this browser.");
             }
 
-            // Attempt with user facingMode first, then generic fallback
             let stream = null;
             try {
                 stream = await navigator.mediaDevices.getUserMedia({
-                    video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } },
+                    video: { facingMode: "user", width: { ideal: 1280, min: 640 }, height: { ideal: 720, min: 480 } },
                     audio: false
                 });
             } catch (err1) {
@@ -174,13 +172,13 @@ export function LiveFaceEnrollment({ onFaceEnrolled, isSaved, initialPhoto = nul
             setCameraActive(false);
             if (camErr.name === "NotAllowedError" || camErr.name === "PermissionDeniedError") {
                 setPermissionStatus("denied");
-                setCameraError("Camera permission blocked in browser. Click the lock icon in your URL bar to allow camera.");
+                setCameraError("Camera permission blocked in browser. Click the lock icon in your URL address bar to allow camera access.");
             } else if (camErr.name === "NotReadableError" || camErr.name === "TrackStartError") {
-                setCameraError("Camera is already in use by another app (e.g. Teams, Zoom, or Windows Camera).");
+                setCameraError("Camera is already in use by another application (e.g. Teams, Zoom, or Windows Camera).");
             } else {
                 setCameraError(camErr.message || "Failed to start camera.");
             }
-            setFaceQualityStatus("⚠️ Camera stream unavailable. You can use 'Snap Photo' or 'Upload Face Photo' below.");
+            setFaceQualityStatus("⚠️ Camera stream unavailable. You can use 'Upload Face Photo' below.");
             setStatusType("warning");
         } finally {
             setCameraLoading(false);
@@ -198,7 +196,7 @@ export function LiveFaceEnrollment({ onFaceEnrolled, isSaved, initialPhoto = nul
             videoRef.current.play().catch((e) => console.warn("Video play error:", e));
         }
         setCameraActive(true);
-        setFaceQualityStatus("Position face centered & look directly into camera");
+        setFaceQualityStatus("Look directly into the camera and keep your face inside the guide oval.");
         setStatusType("ready");
     };
 
@@ -208,7 +206,7 @@ export function LiveFaceEnrollment({ onFaceEnrolled, isSaved, initialPhoto = nul
         setCapturing(true);
         setCaptureStep(0);
         setStatusType("capturing");
-        setFaceQualityStatus("Sampling multi-frame biometric vectors (Hold still)...");
+        setFaceQualityStatus("Scanning & extracting 128-dimensional facial vectors (Hold still)...");
 
         try {
             const capturedDescriptors = [];
@@ -230,11 +228,11 @@ export function LiveFaceEnrollment({ onFaceEnrolled, isSaved, initialPhoto = nul
                 if (detection) {
                     capturedDescriptors.push(detection.descriptor);
                 }
-                await new Promise((r) => setTimeout(r, 160)); // 160ms interval between frames
+                await new Promise((r) => setTimeout(r, 160));
             }
 
             if (capturedDescriptors.length < 3) {
-                setFaceQualityStatus("❌ Face not clearly detected. Ensure good lighting and look directly into camera.");
+                setFaceQualityStatus("❌ Face not clearly detected. Ensure good lighting and look directly into the camera.");
                 setStatusType("warning");
                 setCapturing(false);
                 setCaptureStep(0);
@@ -251,11 +249,10 @@ export function LiveFaceEnrollment({ onFaceEnrolled, isSaved, initialPhoto = nul
                 avgDescriptor[i] = sum / capturedDescriptors.length;
             }
 
-            // Generate image thumbnail for avatar
             const photoDataUrl = canvas.toDataURL("image/jpeg", 0.88);
             setEnrolledPhoto(photoDataUrl);
             setCapturedVector(avgDescriptor);
-            setFaceQualityStatus("✅ Biometric Face Data Enrolled Successfully (128-D Vector Ready)");
+            setFaceQualityStatus("✅ Facial biometrics registered successfully! (128-D Vector Ready)");
             setStatusType("success");
 
             // Stop camera stream once captured
@@ -290,11 +287,10 @@ export function LiveFaceEnrollment({ onFaceEnrolled, isSaved, initialPhoto = nul
         if (!file) return;
 
         setCapturing(true);
-        setFaceQualityStatus("Extracting biometric 128-D vector from photo...");
+        setFaceQualityStatus("Extracting 128-D biometric vector from photo...");
         setStatusType("capturing");
 
         try {
-            // Ensure AI models are loaded
             if (!modelsLoaded) {
                 setFaceQualityStatus("Loading neural face recognition models...");
                 await loadAiModels();
@@ -342,17 +338,15 @@ export function LiveFaceEnrollment({ onFaceEnrolled, isSaved, initialPhoto = nul
 
                         setEnrolledPhoto(photoDataUrl);
                         setCapturedVector(descriptorArray);
-                        setFaceQualityStatus("✅ Biometric Face Data Enrolled Successfully (128-D Vector Ready)");
+                        setFaceQualityStatus("✅ Facial biometrics registered successfully! (128-D Vector Ready)");
                         setStatusType("success");
 
-                        // Stop video stream if running
                         if (streamRef.current) {
                             streamRef.current.getTracks().forEach((t) => t.stop());
                             streamRef.current = null;
                             setCameraActive(false);
                         }
 
-                        // Send to parent component
                         if (onFaceEnrolled) {
                             onFaceEnrolled({
                                 faceDescriptor: descriptorArray,
@@ -391,7 +385,7 @@ export function LiveFaceEnrollment({ onFaceEnrolled, isSaved, initialPhoto = nul
     const handleRetake = () => {
         setEnrolledPhoto(null);
         setCapturedVector(null);
-        setFaceQualityStatus("Ready to enroll biometric face data.");
+        setFaceQualityStatus("Position your face in the camera frame to register biometric vectors.");
         setStatusType("ready");
         if (fileInputRef.current) {
             fileInputRef.current.value = "";
@@ -402,8 +396,8 @@ export function LiveFaceEnrollment({ onFaceEnrolled, isSaved, initialPhoto = nul
     };
 
     return (
-        <div className="live-enrollment-card">
-            {/* Hidden Native Camera / Photo File Input */}
+        <div className={`live-enrollment-card ${hideHeader ? "in-modal" : ""}`}>
+            {/* Hidden Photo File Input */}
             <input
                 ref={fileInputRef}
                 type="file"
@@ -413,22 +407,30 @@ export function LiveFaceEnrollment({ onFaceEnrolled, isSaved, initialPhoto = nul
                 onChange={handleNativePhotoCapture}
             />
 
-            {/* Header */}
-            <div className="lfe-header">
-                <div className="lfe-badge-pill">
-                    <FaMicrochip />
-                    <span>NEURAL BIOMETRIC ENGINE</span>
+            {/* Header (rendered only when hideHeader is false) */}
+            {!hideHeader ? (
+                <div className="lfe-header">
+                    <div className="lfe-badge-pill">
+                        <FaMicrochip />
+                        <span>AI BIOMETRIC RECOGNITION</span>
+                    </div>
+                    <h3 className="lfe-title">
+                        <FaUserCheck style={{ color: "#6366f1" }} />
+                        Register Facial Biometrics
+                    </h3>
+                    <p className={`lfe-subtitle status-${statusType}`}>
+                        {faceQualityStatus}
+                    </p>
                 </div>
-                <h4 className="lfe-title">
-                    <FaUserCheck style={{ color: "#6366f1" }} />
-                    Live Facial Data Enrollment
-                </h4>
-                <p className={`lfe-subtitle status-${statusType}`}>
-                    {faceQualityStatus}
-                </p>
-            </div>
+            ) : (
+                /* Dynamic Status Banner when inside a modal/parent header */
+                <div className={`lfe-modal-status-banner status-${statusType}`}>
+                    <span className="lfe-status-indicator-dot" />
+                    <span>{faceQualityStatus}</span>
+                </div>
+            )}
 
-            {/* Viewport Container with Cyber Overlays */}
+            {/* Spacious, High-Visibility Viewport Container */}
             <div className={`lfe-viewport-container ${enrolledPhoto ? "enrolled" : ""} ${capturing ? "capturing" : ""}`}>
                 {/* Cybernetic Corner Brackets */}
                 <span className="lfe-corner-bracket lfe-corner-tl" />
@@ -440,20 +442,20 @@ export function LiveFaceEnrollment({ onFaceEnrolled, isSaved, initialPhoto = nul
                 <div className="lfe-hud-top">
                     <div className="lfe-hud-live-tag">
                         <span className="lfe-live-dot" />
-                        <span>{enrolledPhoto ? "CAPTURED" : cameraActive ? "AI LIVE" : "STANDBY"}</span>
+                        <span>{enrolledPhoto ? "ENROLLED" : cameraActive ? "LIVE CAMERA" : "STANDBY"}</span>
                     </div>
                     <div className="lfe-hud-info-tag">
                         128-D VECTOR
                     </div>
                 </div>
 
-                {/* Face Oval Target Guide */}
+                {/* Large Face Oval Target Guide */}
                 {!enrolledPhoto && cameraActive && <div className="lfe-face-guide" />}
 
                 {/* Laser Scanning Bar */}
                 {!enrolledPhoto && cameraActive && <div className="lfe-scan-laser" />}
 
-                {/* Media (Live Video or Enrolled Photo or Permission Request Box) */}
+                {/* Media Feed */}
                 {enrolledPhoto ? (
                     <img src={enrolledPhoto} alt="Enrolled Student" className="lfe-preview-img" />
                 ) : (
@@ -467,34 +469,37 @@ export function LiveFaceEnrollment({ onFaceEnrolled, isSaved, initialPhoto = nul
                             style={{ display: cameraActive ? "block" : "none" }}
                         />
 
+                        {/* Inactive Standby Hero Box with single clear action pair */}
                         {!cameraActive && (
                             <div className="lfe-camera-placeholder">
-                                <FaCamera className="lfe-camera-placeholder-icon" />
-                                <h5>Choose Camera or Upload Photo</h5>
+                                <div className="lfe-placeholder-icon-wrap">
+                                    <FaCamera className="lfe-camera-placeholder-icon" />
+                                </div>
+                                <h5>Live Face Biometric Camera</h5>
                                 <p>
-                                    Click below to start your webcam or snap / upload a clear face photo.
+                                    Start your webcam to preview your face in real-time, or upload a photo.
                                 </p>
 
                                 <div className="lfe-placeholder-btn-group">
                                     <button
                                         type="button"
-                                        className="lfe-grant-perm-cta"
+                                        className="lfe-primary-cam-btn"
                                         onClick={startCameraStream}
                                         disabled={cameraLoading}
                                     >
                                         {cameraLoading ? (
-                                            <><FaSpinner className="fa-spin" /> Requesting Camera...</>
+                                            <><FaSpinner className="fa-spin" /> Starting Camera...</>
                                         ) : (
-                                            <><FaVideo /> 🎥 Open Webcam &amp; Allow Camera</>
+                                            <><FaVideo /> 🎥 Start Live Camera</>
                                         )}
                                     </button>
 
                                     <button
                                         type="button"
-                                        className="lfe-native-cam-btn"
+                                        className="lfe-secondary-upload-btn"
                                         onClick={() => fileInputRef.current?.click()}
                                     >
-                                        <FaUpload /> 📁 Snap Photo / Upload Image
+                                        <FaUpload /> 📁 Upload Photo
                                     </button>
                                 </div>
 
@@ -531,7 +536,7 @@ export function LiveFaceEnrollment({ onFaceEnrolled, isSaved, initialPhoto = nul
                 )}
             </div>
 
-            {/* Multi-Frame Progress Bar (During Live Capture) */}
+            {/* Multi-Frame Progress Bar during live capture */}
             {capturing && (
                 <div className="lfe-progress-bar-wrapper">
                     <div className="lfe-progress-info">
@@ -547,70 +552,49 @@ export function LiveFaceEnrollment({ onFaceEnrolled, isSaved, initialPhoto = nul
                 </div>
             )}
 
-            {/* Actions */}
-            <div className="lfe-actions">
-                {enrolledPhoto ? (
-                    <>
-                        <span className="lfe-success-badge">
-                            <FaCheckCircle /> Face Biometrics Enrolled
-                        </span>
-                        <button
-                            type="button"
-                            className="lfe-retake-btn"
-                            onClick={handleRetake}
-                        >
-                            <FaRedo /> Retake Capture
-                        </button>
-                    </>
-                ) : cameraActive ? (
-                    <div className="lfe-active-action-row">
-                        <button
-                            type="button"
-                            className="lfe-capture-btn"
-                            onClick={handleCaptureFace}
-                            disabled={capturing || !modelsLoaded}
-                        >
-                            {capturing ? (
-                                <><FaSpinner className="fa-spin" /> Enrolling Multi-Frame Biometrics...</>
-                            ) : (
-                                <><FaCamera /> Capture &amp; Register Facial Data</>
-                            )}
-                        </button>
+            {/* Clean, Non-Duplicated Action Bar (Only shows when camera is active or photo is enrolled) */}
+            {(cameraActive || enrolledPhoto) && (
+                <div className="lfe-actions">
+                    {enrolledPhoto ? (
+                        <>
+                            <span className="lfe-success-badge">
+                                <FaCheckCircle /> Face Biometrics Enrolled
+                            </span>
+                            <button
+                                type="button"
+                                className="lfe-retake-btn"
+                                onClick={handleRetake}
+                            >
+                                <FaRedo /> Retake / Re-scan
+                            </button>
+                        </>
+                    ) : (
+                        <div className="lfe-active-action-row">
+                            <button
+                                type="button"
+                                className="lfe-capture-btn"
+                                onClick={handleCaptureFace}
+                                disabled={capturing || !modelsLoaded}
+                            >
+                                {capturing ? (
+                                    <><FaSpinner className="fa-spin" /> Enrolling Biometrics...</>
+                                ) : (
+                                    <><FaCamera /> 📸 Capture &amp; Register Facial Data</>
+                                )}
+                            </button>
 
-                        <button
-                            type="button"
-                            className="lfe-native-cam-btn-secondary"
-                            onClick={() => fileInputRef.current?.click()}
-                            title="Upload or snap photo from device"
-                        >
-                            <FaUpload /> Upload Photo
-                        </button>
-                    </div>
-                ) : (
-                    <div className="lfe-inactive-action-row">
-                        <button
-                            type="button"
-                            className="lfe-grant-perm-cta"
-                            onClick={startCameraStream}
-                            disabled={cameraLoading}
-                        >
-                            {cameraLoading ? (
-                                <><FaSpinner className="fa-spin" /> Requesting...</>
-                            ) : (
-                                <><FaVideo /> 🎥 Open Webcam &amp; Allow Camera</>
-                            )}
-                        </button>
-
-                        <button
-                            type="button"
-                            className="lfe-native-cam-btn-primary"
-                            onClick={() => fileInputRef.current?.click()}
-                        >
-                            <FaUpload /> 📁 Snap / Upload Photo
-                        </button>
-                    </div>
-                )}
-            </div>
+                            <button
+                                type="button"
+                                className="lfe-secondary-upload-btn"
+                                onClick={() => fileInputRef.current?.click()}
+                                title="Upload or snap photo from device"
+                            >
+                                <FaUpload /> Upload Photo
+                            </button>
+                        </div>
+                    )}
+                </div>
+            )}
         </div>
     );
 }

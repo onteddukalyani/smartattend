@@ -19,13 +19,16 @@ import {
     FaSignOutAlt,
     FaDatabase,
     FaMobileAlt,
-    FaLock
+    FaLock,
+    FaEdit,
+    FaSpinner,
+    FaTimes
 } from "react-icons/fa";
 import { useAuth } from "../authcontext";
 import "./Settings.css";
 
 function Settings() {
-    const { user, profile, loginWithGoogle, logoutUser } = useAuth();
+    const { user, profile, loginWithGoogle, logoutUser, updateProfileName } = useAuth();
     const [theme, setTheme] = useState(() => {
         const savedTheme = localStorage.getItem("smartattend-theme");
         return savedTheme === "midnight" ? "midnight" : "light";
@@ -34,6 +37,13 @@ function Settings() {
     const [loginError, setLoginError] = useState("");
     const [loginLoading, setLoginLoading] = useState(false);
     const [copiedField, setCopiedField] = useState("");
+
+    // Name Editing State
+    const [isEditingName, setIsEditingName] = useState(false);
+    const [nameInput, setNameInput] = useState("");
+    const [savingName, setSavingName] = useState(false);
+    const [nameSuccess, setNameSuccess] = useState("");
+    const [nameError, setNameError] = useState("");
 
     useEffect(() => {
         document.documentElement.dataset.theme = theme;
@@ -58,6 +68,24 @@ function Settings() {
         navigator.clipboard.writeText(text);
         setCopiedField(fieldName);
         setTimeout(() => setCopiedField(""), 2000);
+    };
+
+    const handleSaveName = async (e) => {
+        e?.preventDefault();
+        if (!nameInput.trim()) return;
+        try {
+            setSavingName(true);
+            setNameError("");
+            setNameSuccess("");
+            await updateProfileName(nameInput.trim());
+            setNameSuccess("Name updated and saved to database!");
+            setIsEditingName(false);
+            setTimeout(() => setNameSuccess(""), 3500);
+        } catch (err) {
+            setNameError(err.message || "Failed to update name");
+        } finally {
+            setSavingName(false);
+        }
     };
 
     const rawRole = (profile?.role || localStorage.getItem("smartattend-user-role") || (user?.isAnonymous ? "guest" : "student")).toLowerCase();
@@ -129,12 +157,55 @@ function Settings() {
 
                         <div className="st-hero-info">
                             <div className="st-hero-title-row">
-                                <h1 className="st-user-name">{displayName}</h1>
+                                {isEditingName ? (
+                                    <form onSubmit={handleSaveName} className="st-name-edit-form">
+                                        <input
+                                            type="text"
+                                            className="st-name-edit-input"
+                                            value={nameInput}
+                                            onChange={(e) => setNameInput(e.target.value)}
+                                            placeholder="Enter your full name"
+                                            autoFocus
+                                            disabled={savingName}
+                                        />
+                                        <div className="st-name-edit-btn-group">
+                                            <button type="submit" className="st-name-save-btn" disabled={savingName || !nameInput.trim()}>
+                                                {savingName ? <FaSpinner className="fa-spin" /> : <><FaCheck /> Save</>}
+                                            </button>
+                                            <button type="button" className="st-name-cancel-btn" onClick={() => { setIsEditingName(false); setNameInput(displayName); setNameError(""); }} disabled={savingName}>
+                                                <FaTimes /> Cancel
+                                            </button>
+                                        </div>
+                                    </form>
+                                ) : (
+                                    <div className="st-name-display-wrap">
+                                        <h1 className="st-user-name">{displayName}</h1>
+                                        <button
+                                            type="button"
+                                            className="st-edit-name-btn"
+                                            onClick={() => { setIsEditingName(true); setNameInput(displayName); }}
+                                            title="Edit your display name"
+                                        >
+                                            <FaEdit /> <span>Edit Name</span>
+                                        </button>
+                                    </div>
+                                )}
                                 <span className={`st-role-pill ${roleInfo.badgeClass}`}>
                                     {roleInfo.icon}
                                     <span>{roleInfo.label}</span>
                                 </span>
                             </div>
+
+                            {nameSuccess && (
+                                <div className="st-name-toast-msg success">
+                                    <FaCheck /> {nameSuccess}
+                                </div>
+                            )}
+                            {nameError && (
+                                <div className="st-name-toast-msg error">
+                                    <FaTimes /> {nameError}
+                                </div>
+                            )}
 
                             <div className="st-hero-meta-row">
                                 <span className="st-meta-item">

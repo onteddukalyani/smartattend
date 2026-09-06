@@ -136,6 +136,113 @@
     line-height: 1.2;
 }
 
+.st-name-display-wrap {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.st-edit-name-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 8px;
+    background: rgba(99, 102, 241, 0.1);
+    color: #4f46e5;
+    border: 1px solid rgba(99, 102, 241, 0.25);
+    font-size: 0.8rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.st-edit-name-btn:hover {
+    background: #4f46e5;
+    color: #ffffff;
+    border-color: #4f46e5;
+    transform: translateY(-1px);
+}
+
+.st-name-edit-form {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.st-name-edit-input {
+    padding: 7px 14px;
+    border-radius: 10px;
+    border: 2px solid #6366f1;
+    font-size: 1.1rem;
+    font-weight: 700;
+    outline: none;
+    background: var(--surface, #ffffff);
+    color: var(--text-main, #0f172a);
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+}
+
+.st-name-edit-btn-group {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.st-name-save-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 7px 14px;
+    border-radius: 10px;
+    background: linear-gradient(135deg, #10b981, #059669);
+    color: #ffffff;
+    border: none;
+    font-weight: 700;
+    font-size: 0.86rem;
+    cursor: pointer;
+    box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
+    transition: all 0.2s ease;
+}
+
+.st-name-save-btn:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(16, 185, 129, 0.45);
+}
+
+.st-name-cancel-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 7px 12px;
+    border-radius: 10px;
+    background: var(--surface-soft, #f1f5f9);
+    color: var(--text-muted, #64748b);
+    border: 1px solid var(--border, #cbd5e1);
+    font-weight: 600;
+    font-size: 0.86rem;
+    cursor: pointer;
+}
+
+.st-name-toast-msg {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.84rem;
+    font-weight: 700;
+    margin-top: 2px;
+    animation: stFadeIn 0.2s ease;
+}
+
+.st-name-toast-msg.success {
+    color: #15803d;
+}
+
+.st-name-toast-msg.error {
+    color: #dc2626;
+}
+
 /* Role Pill Badge (Icon & Label) */
 .st-role-pill {
     display: inline-flex;

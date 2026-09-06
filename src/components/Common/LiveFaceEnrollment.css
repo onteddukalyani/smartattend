@@ -1,43 +1,115 @@
 /* =========================================================
-   LIVE FACE ENROLLMENT - MODERN BIOMETRIC AI CAMERA STYLES
+   LIVE FACE ENROLLMENT - MODERN SPACIOUS BIOMETRIC AI STYLES
    ========================================================= */
 
 .live-enrollment-card {
-  background: var(--surface-soft, #f8fafc);
+  background: var(--surface, #ffffff);
   border: 1.5px solid var(--border, #e2e8f0);
-  border-radius: 20px;
-  padding: 24px 20px;
+  border-radius: 24px;
+  padding: 28px 24px;
   text-align: center;
   position: relative;
   overflow: hidden;
-  box-shadow: 0 10px 30px -5px rgba(0, 0, 0, 0.05), 0 0 0 1px rgba(255, 255, 255, 0.8) inset;
+  box-shadow: 0 10px 30px -5px rgba(0, 0, 0, 0.05);
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  margin-top: 14px;
+  margin: 12px auto;
+  max-width: 720px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.live-enrollment-card.in-modal {
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 0;
+  box-shadow: none;
+  margin: 0 auto;
+  max-width: 100%;
 }
 
 [data-theme="midnight"] .live-enrollment-card {
   background: #0f172a;
   border-color: #1e293b;
-  box-shadow: 0 12px 36px -5px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.05) inset;
+  box-shadow: 0 12px 36px -5px rgba(0, 0, 0, 0.4);
+}
+
+[data-theme="midnight"] .live-enrollment-card.in-modal {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+}
+
+/* Modal Status Banner (when header is hidden) */
+.lfe-modal-status-banner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-radius: 12px;
+  background: var(--surface-soft, #f8fafc);
+  border: 1px solid var(--border, #e2e8f0);
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--text-main, #334155);
+  margin-bottom: 16px;
+  text-align: center;
+  transition: all 0.25s ease;
+}
+
+.lfe-modal-status-banner.status-ready {
+  color: #4f46e5;
+  background: rgba(99, 102, 241, 0.08);
+  border-color: rgba(99, 102, 241, 0.2);
+}
+
+.lfe-modal-status-banner.status-capturing {
+  color: #6366f1;
+  background: rgba(99, 102, 241, 0.12);
+  border-color: rgba(99, 102, 241, 0.35);
+}
+
+.lfe-modal-status-banner.status-success {
+  color: #16a34a;
+  background: rgba(22, 163, 74, 0.1);
+  border-color: rgba(22, 163, 74, 0.25);
+}
+
+.lfe-modal-status-banner.status-warning {
+  color: #d97706;
+  background: rgba(217, 119, 6, 0.1);
+  border-color: rgba(217, 119, 6, 0.25);
+}
+
+.lfe-status-indicator-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
 }
 
 /* Card Header */
 .lfe-header {
-  margin-bottom: 18px;
+  margin-bottom: 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
 }
 
 .lfe-badge-pill {
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  padding: 5px 14px;
+  padding: 6px 16px;
   border-radius: 999px;
   background: rgba(99, 102, 241, 0.1);
   color: #6366f1;
-  font-size: 0.82rem;
-  font-weight: 750;
-  letter-spacing: 0.3px;
-  margin-bottom: 8px;
+  font-size: 0.8rem;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  margin-bottom: 10px;
   border: 1px solid rgba(99, 102, 241, 0.2);
 }
 
@@ -48,28 +120,34 @@
 }
 
 .lfe-title {
-  margin: 0 0 6px 0;
-  font-size: 1.15rem;
+  margin: 0 0 8px 0;
+  font-size: 1.35rem;
   font-weight: 800;
   color: var(--text-main, #0f172a);
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: 10px;
 }
 
 .lfe-subtitle {
   margin: 0;
-  font-size: 0.86rem;
+  font-size: 0.92rem;
   color: var(--text-muted, #64748b);
-  line-height: 1.4;
+  line-height: 1.5;
   font-weight: 500;
-  transition: color 0.2s ease;
+  max-width: 480px;
+  transition: all 0.2s ease;
 }
 
 .lfe-subtitle.status-ready {
-  color: #6366f1;
+  color: #4f46e5;
   font-weight: 600;
+}
+
+.lfe-subtitle.status-capturing {
+  color: #6366f1;
+  font-weight: 700;
 }
 
 .lfe-subtitle.status-success {
@@ -83,28 +161,32 @@
 }
 
 /* =========================================================
-   CAMERA VIEWPORT & CYBER OVERLAYS
+   LARGE SPACIOUS CAMERA VIEWPORT & CYBER OVERLAYS
    ========================================================= */
 
 .lfe-viewport-container {
   position: relative;
   width: 100%;
-  max-width: 360px;
-  margin: 0 auto 18px;
-  border-radius: 18px;
+  max-width: 660px;
+  min-height: 440px;
+  height: 480px;
+  margin: 0 auto 20px;
+  border-radius: 20px;
   overflow: hidden;
   background: #020617;
-  aspect-ratio: 4 / 3;
-  box-shadow: 0 12px 28px -4px rgba(0, 0, 0, 0.25), 0 0 0 2px #6366f1;
-  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+  box-shadow: 0 16px 36px -4px rgba(0, 0, 0, 0.28), 0 0 0 2.5px #6366f1;
+  transition: all 0.3s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .lfe-viewport-container.enrolled {
-  box-shadow: 0 12px 28px -4px rgba(16, 185, 129, 0.3), 0 0 0 3px #10b981;
+  box-shadow: 0 16px 36px -4px rgba(16, 185, 129, 0.35), 0 0 0 3px #10b981;
 }
 
 .lfe-viewport-container.capturing {
-  box-shadow: 0 12px 32px -4px rgba(99, 102, 241, 0.5), 0 0 0 3px #818cf8;
+  box-shadow: 0 16px 40px -4px rgba(99, 102, 241, 0.55), 0 0 0 3.5px #818cf8;
 }
 
 .lfe-video {
@@ -115,7 +197,7 @@
   transform: scaleX(-1); /* Mirror camera for natural look */
 }
 
-/* Camera Placeholder & Permission Request Box */
+/* Camera Placeholder Box */
 .lfe-camera-placeholder {
   position: absolute;
   inset: 0;
@@ -123,210 +205,102 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  background: #090d16;
+  background: radial-gradient(circle at 50% 40%, #17213b 0%, #090d16 100%);
   color: #94a3b8;
-  padding: 24px 20px;
+  padding: 30px 24px;
   z-index: 8;
   text-align: center;
+  box-sizing: border-box;
 }
 
-.lfe-camera-placeholder-icon {
-  font-size: 2.4rem;
-  color: #6366f1;
-  margin-bottom: 12px;
-  animation: lfePulseDot 2s infinite ease-in-out;
-}
-
-.lfe-camera-placeholder h5 {
-  margin: 0 0 6px 0;
-  font-size: 0.96rem;
-  font-weight: 750;
-  color: #f1f5f9;
-}
-
-.lfe-camera-placeholder p {
-  margin: 0 0 16px 0;
-  font-size: 0.8rem;
-  color: #94a3b8;
-  max-width: 260px;
-  line-height: 1.4;
-}
-
-.lfe-grant-perm-cta {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 20px;
-  border-radius: 10px;
-  background: linear-gradient(135deg, #6366f1, #4f46e5);
-  color: #ffffff;
-  border: none;
-  font-size: 0.86rem;
-  font-weight: 750;
-  cursor: pointer;
-  box-shadow: 0 4px 14px rgba(99, 102, 241, 0.4);
-  transition: all 0.2s ease;
-}
-
-.lfe-grant-perm-cta:hover {
-  transform: scale(1.03);
-  box-shadow: 0 6px 18px rgba(99, 102, 241, 0.55);
-}
-
-/* =========================================================
-   APP-LIKE PERMISSION CONSENT MODAL / CARD
-   ========================================================= */
-
-.lfe-permission-sheet {
-  background: var(--surface, #ffffff);
-  border: 1.5px solid var(--border, #e2e8f0);
+.lfe-placeholder-icon-wrap {
+  width: 72px;
+  height: 72px;
   border-radius: 20px;
-  padding: 28px 24px;
-  text-align: center;
-  box-shadow: 0 12px 36px -8px rgba(0, 0, 0, 0.08);
-  margin-top: 14px;
-  animation: lfeFadeUp 0.3s ease-out;
-}
-
-[data-theme="midnight"] .lfe-permission-sheet {
-  background: #0f172a;
-  border-color: #1e293b;
-  box-shadow: 0 12px 36px -8px rgba(0, 0, 0, 0.5);
-}
-
-.lfe-perm-icon-bubble {
-  width: 68px;
-  height: 68px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.15) 0%, rgba(79, 70, 229, 0.25) 100%);
+  background: rgba(99, 102, 241, 0.15);
   color: #6366f1;
   display: flex;
   align-items: center;
   justify-content: center;
-  margin: 0 auto 16px;
-  font-size: 30px;
+  font-size: 32px;
+  margin-bottom: 16px;
   box-shadow: 0 0 0 8px rgba(99, 102, 241, 0.08);
   animation: lfePulseBubble 2.5s infinite ease-in-out;
 }
 
-[data-theme="midnight"] .lfe-perm-icon-bubble {
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.25) 0%, rgba(79, 70, 229, 0.35) 100%);
-  color: #818cf8;
-  box-shadow: 0 0 0 8px rgba(99, 102, 241, 0.12);
-}
-
-.lfe-perm-title {
+.lfe-camera-placeholder h5 {
   margin: 0 0 8px 0;
-  font-size: 1.25rem;
+  font-size: 1.15rem;
   font-weight: 800;
-  color: var(--text-main, #0f172a);
+  color: #f8fafc;
 }
 
-.lfe-perm-desc {
+.lfe-camera-placeholder p {
   margin: 0 0 20px 0;
   font-size: 0.88rem;
-  color: var(--text-muted, #64748b);
+  color: #94a3b8;
+  max-width: 340px;
   line-height: 1.5;
-  max-width: 420px;
-  margin-left: auto;
-  margin-right: auto;
 }
 
-.lfe-perm-benefits {
+/* Clean, Balanced Placeholder Buttons */
+.lfe-placeholder-btn-group {
   display: flex;
-  flex-direction: column;
-  gap: 10px;
-  text-align: left;
-  max-width: 380px;
-  margin: 0 auto 24px;
-}
-
-.lfe-perm-benefit-item {
-  display: flex;
-  align-items: flex-start;
   gap: 12px;
-  padding: 10px 14px;
-  border-radius: 12px;
-  background: var(--surface-soft, #f8fafc);
-  border: 1px solid var(--border, #f1f5f9);
-  font-size: 0.82rem;
-  color: var(--text-main, #334155);
+  width: 100%;
+  max-width: 380px;
+  justify-content: center;
+  flex-wrap: wrap;
 }
 
-[data-theme="midnight"] .lfe-perm-benefit-item {
-  background: #1e293b;
-  border-color: #334155;
-  color: #cbd5e1;
-}
-
-.lfe-benefit-icon {
-  color: #6366f1;
-  font-size: 1.1rem;
-  flex-shrink: 0;
-  margin-top: 1px;
-}
-
-.lfe-perm-allow-btn {
+.lfe-primary-cam-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 10px;
-  width: 100%;
-  max-width: 380px;
-  padding: 14px 28px;
-  border-radius: 14px;
-  background: linear-gradient(135deg, #6366f1 0%, #4f46e5 50%, #4338ca 100%);
+  gap: 8px;
+  padding: 13px 24px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
   color: #ffffff;
   border: none;
+  font-size: 0.92rem;
   font-weight: 800;
-  font-size: 0.98rem;
-  letter-spacing: 0.3px;
   cursor: pointer;
-  box-shadow: 0 6px 20px rgba(99, 102, 241, 0.4);
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 4px 16px rgba(99, 102, 241, 0.4);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  flex: 1;
+  min-width: 160px;
 }
 
-.lfe-perm-allow-btn:hover {
+.lfe-primary-cam-btn:hover {
   transform: translateY(-2px);
-  box-shadow: 0 8px 26px rgba(99, 102, 241, 0.55);
-  background: linear-gradient(135deg, #4f46e5 0%, #4338ca 50%, #3730a3 100%);
+  box-shadow: 0 6px 20px rgba(99, 102, 241, 0.55);
+  background: linear-gradient(135deg, #4f46e5 0%, #4338ca 100%);
 }
 
-.lfe-perm-allow-btn:active {
-  transform: translateY(0) scale(0.98);
-}
-
-.lfe-perm-prompt-hint {
-  margin: 12px 0 0 0;
-  font-size: 0.78rem;
-  color: var(--text-muted, #94a3b8);
-  display: flex;
+.lfe-secondary-upload-btn {
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: 8px;
+  padding: 12px 20px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(8px);
+  color: #f8fafc;
+  border: 1.5px solid rgba(255, 255, 255, 0.2);
+  font-size: 0.9rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  flex: 1;
+  min-width: 140px;
 }
 
-.lfe-perm-denied-guide {
-  background: #fef2f2;
-  border: 1.5px solid #fecaca;
-  border-radius: 14px;
-  padding: 16px;
-  margin-bottom: 20px;
-  text-align: left;
-  color: #991b1b;
-  font-size: 0.84rem;
-}
-
-[data-theme="midnight"] .lfe-perm-denied-guide {
-  background: rgba(185, 28, 28, 0.15);
-  border-color: rgba(239, 68, 68, 0.35);
-  color: #fca5a5;
-}
-
-@keyframes lfePulseBubble {
-  0% { box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.3); }
-  70% { box-shadow: 0 0 0 16px rgba(99, 102, 241, 0); }
-  100% { box-shadow: 0 0 0 0 rgba(99, 102, 241, 0); }
+.lfe-secondary-upload-btn:hover {
+  background: rgba(255, 255, 255, 0.18);
+  border-color: #ffffff;
+  transform: translateY(-2px);
 }
 
 .lfe-preview-img {
@@ -341,43 +315,43 @@
 /* Cybernetic Corner Brackets */
 .lfe-corner-bracket {
   position: absolute;
-  width: 22px;
-  height: 22px;
+  width: 26px;
+  height: 26px;
   pointer-events: none;
   z-index: 5;
   transition: all 0.3s ease;
 }
 
 .lfe-corner-tl {
-  top: 10px;
-  left: 10px;
-  border-top: 3.5px solid #6366f1;
-  border-left: 3.5px solid #6366f1;
-  border-top-left-radius: 6px;
+  top: 14px;
+  left: 14px;
+  border-top: 4px solid #6366f1;
+  border-left: 4px solid #6366f1;
+  border-top-left-radius: 8px;
 }
 
 .lfe-corner-tr {
-  top: 10px;
-  right: 10px;
-  border-top: 3.5px solid #6366f1;
-  border-right: 3.5px solid #6366f1;
-  border-top-right-radius: 6px;
+  top: 14px;
+  right: 14px;
+  border-top: 4px solid #6366f1;
+  border-right: 4px solid #6366f1;
+  border-top-right-radius: 8px;
 }
 
 .lfe-corner-bl {
-  bottom: 10px;
-  left: 10px;
-  border-bottom: 3.5px solid #6366f1;
-  border-left: 3.5px solid #6366f1;
-  border-bottom-left-radius: 6px;
+  bottom: 14px;
+  left: 14px;
+  border-bottom: 4px solid #6366f1;
+  border-left: 4px solid #6366f1;
+  border-bottom-left-radius: 8px;
 }
 
 .lfe-corner-br {
-  bottom: 10px;
-  right: 10px;
-  border-bottom: 3.5px solid #6366f1;
-  border-right: 3.5px solid #6366f1;
-  border-bottom-right-radius: 6px;
+  bottom: 14px;
+  right: 14px;
+  border-bottom: 4px solid #6366f1;
+  border-right: 4px solid #6366f1;
+  border-bottom-right-radius: 8px;
 }
 
 .lfe-viewport-container.enrolled .lfe-corner-bracket {
@@ -387,9 +361,9 @@
 /* HUD Top Live Bar */
 .lfe-hud-top {
   position: absolute;
-  top: 10px;
-  left: 12px;
-  right: 12px;
+  top: 14px;
+  left: 16px;
+  right: 16px;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -400,58 +374,58 @@
 .lfe-hud-live-tag {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  background: rgba(15, 23, 42, 0.75);
+  gap: 7px;
+  background: rgba(15, 23, 42, 0.8);
   backdrop-filter: blur(8px);
-  padding: 4px 10px;
+  padding: 5px 12px;
   border-radius: 999px;
   color: #f8fafc;
-  font-size: 0.72rem;
-  font-weight: 750;
+  font-size: 0.75rem;
+  font-weight: 800;
   letter-spacing: 0.5px;
   border: 1px solid rgba(255, 255, 255, 0.15);
 }
 
 .lfe-live-dot {
-  width: 7px;
-  height: 7px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
   background: #10b981;
-  box-shadow: 0 0 8px #10b981;
+  box-shadow: 0 0 10px #10b981;
   animation: lfePulseDot 1.5s infinite;
 }
 
 .lfe-hud-info-tag {
-  background: rgba(15, 23, 42, 0.75);
+  background: rgba(15, 23, 42, 0.8);
   backdrop-filter: blur(8px);
-  padding: 4px 10px;
+  padding: 5px 12px;
   border-radius: 999px;
   color: #a5b4fc;
-  font-size: 0.72rem;
-  font-weight: 700;
-  border: 1px solid rgba(165, 180, 252, 0.2);
+  font-size: 0.75rem;
+  font-weight: 750;
+  border: 1px solid rgba(165, 180, 252, 0.25);
 }
 
-/* Face Oval Target Guide */
+/* Large Face Oval Target Guide */
 .lfe-face-guide {
   position: absolute;
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  width: 145px;
-  height: 185px;
-  border: 2px dashed rgba(99, 102, 241, 0.65);
+  width: 260px;
+  height: 330px;
+  border: 2.5px dashed rgba(99, 102, 241, 0.75);
   border-radius: 50%;
   pointer-events: none;
   z-index: 4;
-  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.18);
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.22);
   transition: all 0.3s ease;
 }
 
 .lfe-viewport-container.capturing .lfe-face-guide {
   border-color: #818cf8;
   border-style: solid;
-  border-width: 2.5px;
+  border-width: 3px;
   animation: lfeGuideGlow 1s infinite alternate;
 }
 
@@ -464,9 +438,9 @@
   position: absolute;
   left: 0;
   right: 0;
-  height: 3px;
+  height: 3.5px;
   background: linear-gradient(90deg, transparent 0%, #6366f1 20%, #818cf8 50%, #6366f1 80%, transparent 100%);
-  box-shadow: 0 0 14px 2px rgba(99, 102, 241, 0.75);
+  box-shadow: 0 0 16px 3px rgba(99, 102, 241, 0.85);
   z-index: 5;
   pointer-events: none;
   animation: lfeScanSweep 2.2s ease-in-out infinite alternate;
@@ -474,7 +448,7 @@
 
 .lfe-viewport-container.capturing .lfe-scan-laser {
   background: linear-gradient(90deg, transparent 0%, #10b981 20%, #34d399 50%, #10b981 80%, transparent 100%);
-  box-shadow: 0 0 16px 3px rgba(16, 185, 129, 0.85);
+  box-shadow: 0 0 18px 4px rgba(16, 185, 129, 0.95);
   animation-duration: 0.9s;
 }
 
@@ -485,34 +459,33 @@
 /* Success Enrolled Overlay */
 .lfe-enrolled-overlay {
   position: absolute;
-  bottom: 12px;
-  left: 12px;
-  right: 12px;
-  background: rgba(15, 23, 42, 0.85);
+  bottom: 14px;
+  left: 14px;
+  right: 14px;
+  background: rgba(15, 23, 42, 0.88);
   backdrop-filter: blur(10px);
-  padding: 8px 14px;
+  padding: 10px 16px;
   border-radius: 12px;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
   color: #34d399;
-  font-size: 0.82rem;
-  font-weight: 750;
-  border: 1px solid rgba(52, 211, 153, 0.3);
+  font-size: 0.88rem;
+  font-weight: 800;
+  border: 1px solid rgba(52, 211, 153, 0.35);
   z-index: 7;
-  animation: lfeFadeUp 0.3s ease-out;
 }
 
 /* Multi-Frame Progress Bar */
 .lfe-progress-bar-wrapper {
-  max-width: 360px;
-  margin: 0 auto 16px;
+  max-width: 520px;
+  margin: 0 auto 18px;
   background: var(--surface, #ffffff);
-  padding: 10px 14px;
-  border-radius: 12px;
-  border: 1px solid var(--border, #e2e8f0);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  padding: 12px 18px;
+  border-radius: 14px;
+  border: 1.5px solid var(--border, #e2e8f0);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04);
 }
 
 [data-theme="midnight"] .lfe-progress-bar-wrapper {
@@ -523,15 +496,15 @@
 .lfe-progress-info {
   display: flex;
   justify-content: space-between;
-  font-size: 0.78rem;
-  font-weight: 700;
+  font-size: 0.84rem;
+  font-weight: 750;
   color: var(--text-main, #334155);
-  margin-bottom: 6px;
+  margin-bottom: 8px;
 }
 
 .lfe-progress-track {
   width: 100%;
-  height: 6px;
+  height: 8px;
   background: var(--surface-soft, #f1f5f9);
   border-radius: 999px;
   overflow: hidden;
@@ -546,7 +519,6 @@
   background: linear-gradient(90deg, #6366f1, #10b981);
   border-radius: 999px;
   transition: width 0.2s ease;
-  animation: lfeBarGlow 1.5s infinite;
 }
 
 /* =========================================================
@@ -555,40 +527,38 @@
 
 .lfe-actions {
   display: flex;
-  gap: 12px;
+  gap: 14px;
   justify-content: center;
   align-items: center;
   flex-wrap: wrap;
+  width: 100%;
+  max-width: 520px;
+  margin: 0 auto;
 }
 
 .lfe-capture-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 9px;
-  padding: 12px 26px;
-  border-radius: 12px;
-  background: linear-gradient(135deg, #6366f1 0%, #4f46e5 50%, #4338ca 100%);
+  gap: 10px;
+  padding: 14px 32px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
   color: #ffffff;
   border: none;
-  font-weight: 750;
-  font-size: 0.92rem;
-  letter-spacing: 0.2px;
+  font-weight: 800;
+  font-size: 0.98rem;
   cursor: pointer;
-  box-shadow: 0 4px 16px rgba(99, 102, 241, 0.35);
+  box-shadow: 0 6px 20px rgba(99, 102, 241, 0.4);
   transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-  position: relative;
-  overflow: hidden;
+  flex: 1;
+  min-width: 220px;
 }
 
 .lfe-capture-btn:hover:not(:disabled) {
   transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(99, 102, 241, 0.45);
-  background: linear-gradient(135deg, #4f46e5 0%, #4338ca 50%, #3730a3 100%);
-}
-
-.lfe-capture-btn:active:not(:disabled) {
-  transform: translateY(0) scale(0.98);
+  box-shadow: 0 8px 26px rgba(99, 102, 241, 0.55);
+  background: linear-gradient(135deg, #4f46e5 0%, #4338ca 100%);
 }
 
 .lfe-capture-btn:disabled {
@@ -601,16 +571,16 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 7px;
-  padding: 10px 20px;
+  gap: 8px;
+  padding: 11px 22px;
   border-radius: 12px;
   background: var(--surface, #ffffff);
   border: 1.5px solid var(--border, #cbd5e1);
   color: var(--text-main, #334155);
-  font-weight: 700;
-  font-size: 0.88rem;
+  font-weight: 750;
+  font-size: 0.9rem;
   cursor: pointer;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
   transition: all 0.2s ease;
 }
 
@@ -626,160 +596,18 @@
   transform: translateY(-1px);
 }
 
-[data-theme="midnight"] .lfe-retake-btn:hover {
-  background: #334155;
-  border-color: #475569;
-}
-
-/* Placeholder Button Group */
-.lfe-placeholder-btn-group {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  width: 100%;
-  max-width: 280px;
-  margin: 10px auto 14px;
-}
-
-.lfe-native-cam-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 11px 18px;
-  border-radius: 12px;
-  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-  color: #ffffff;
-  border: none;
-  font-size: 0.88rem;
-  font-weight: 750;
-  cursor: pointer;
-  box-shadow: 0 4px 14px rgba(16, 185, 129, 0.4);
-  transition: all 0.2s ease;
-}
-
-.lfe-native-cam-btn:hover {
-  transform: scale(1.03);
-  box-shadow: 0 6px 18px rgba(16, 185, 129, 0.55);
-}
-
-.lfe-error-tip {
-  margin-top: 10px;
-  padding: 8px 12px;
-  border-radius: 8px;
-  background: rgba(239, 68, 68, 0.12);
-  border: 1px solid rgba(239, 68, 68, 0.25);
-  color: #fca5a5;
-  font-size: 0.76rem;
-  line-height: 1.35;
-  display: flex;
-  align-items: flex-start;
-  gap: 6px;
-  text-align: left;
-  max-width: 300px;
-}
-
-/* Action Rows */
-.lfe-active-action-row,
-.lfe-inactive-action-row {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  justify-content: center;
-  flex-wrap: wrap;
-  width: 100%;
-}
-
-.lfe-native-cam-btn-primary {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 12px 24px;
-  border-radius: 12px;
-  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-  color: #ffffff;
-  border: none;
-  font-weight: 750;
-  font-size: 0.92rem;
-  cursor: pointer;
-  box-shadow: 0 4px 16px rgba(16, 185, 129, 0.35);
-  transition: all 0.2s ease;
-}
-
-.lfe-native-cam-btn-primary:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(16, 185, 129, 0.45);
-}
-
-.lfe-native-cam-btn-secondary {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 11px 18px;
-  border-radius: 12px;
-  background: var(--surface, #ffffff);
-  border: 1.5px solid var(--border, #cbd5e1);
-  color: var(--text-main, #334155);
-  font-weight: 700;
-  font-size: 0.88rem;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-[data-theme="midnight"] .lfe-native-cam-btn-secondary {
-  background: #1e293b;
-  border-color: #334155;
-  color: #f1f5f9;
-}
-
-.lfe-native-cam-btn-secondary:hover {
-  background: var(--surface-soft, #f1f5f9);
-  border-color: #94a3b8;
-  transform: translateY(-1px);
-}
-
-.lfe-capture-btn-secondary {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 11px 18px;
-  border-radius: 12px;
-  background: var(--surface, #ffffff);
-  border: 1.5px solid var(--border, #cbd5e1);
-  color: var(--text-main, #334155);
-  font-weight: 700;
-  font-size: 0.88rem;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-[data-theme="midnight"] .lfe-capture-btn-secondary {
-  background: #1e293b;
-  border-color: #334155;
-  color: #f1f5f9;
-}
-
-.lfe-capture-btn-secondary:hover {
-  background: var(--surface-soft, #f1f5f9);
-  border-color: #94a3b8;
-  transform: translateY(-1px);
-}
-
 .lfe-success-badge {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 9px 18px;
+  padding: 11px 22px;
   border-radius: 12px;
   background: #dcfce7;
   color: #15803d;
-  font-weight: 750;
-  font-size: 0.88rem;
+  font-weight: 800;
+  font-size: 0.92rem;
   border: 1px solid #bbf7d0;
-  box-shadow: 0 2px 8px rgba(22, 163, 74, 0.12);
+  box-shadow: 0 2px 10px rgba(22, 163, 74, 0.15);
 }
 
 [data-theme="midnight"] .lfe-success-badge {
@@ -788,9 +616,58 @@
   border-color: rgba(74, 222, 128, 0.35);
 }
 
+.lfe-active-action-row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  width: 100%;
+}
+
+.lfe-perm-denied-guide {
+  background: #fef2f2;
+  border: 1.5px solid #fecaca;
+  border-radius: 12px;
+  padding: 14px;
+  margin-top: 14px;
+  text-align: left;
+  color: #991b1b;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  max-width: 380px;
+}
+
+[data-theme="midnight"] .lfe-perm-denied-guide {
+  background: rgba(185, 28, 28, 0.2);
+  border-color: rgba(239, 68, 68, 0.4);
+  color: #fca5a5;
+}
+
+.lfe-error-tip {
+  margin-top: 12px;
+  padding: 8px 14px;
+  border-radius: 8px;
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  color: #fca5a5;
+  font-size: 0.8rem;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+  max-width: 360px;
+}
+
 /* =========================================================
    KEYFRAME ANIMATIONS
    ========================================================= */
+
+@keyframes lfePulseBubble {
+  0% { box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.3); }
+  70% { box-shadow: 0 0 0 16px rgba(99, 102, 241, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(99, 102, 241, 0); }
+}
 
 @keyframes lfePulseDot {
   0% { opacity: 0.6; transform: scale(0.9); }
@@ -799,22 +676,92 @@
 }
 
 @keyframes lfeScanSweep {
-  0% { top: 8%; opacity: 0.8; }
-  100% { top: 90%; opacity: 0.95; }
+  0% { top: 6%; }
+  100% { top: 92%; }
 }
 
 @keyframes lfeGuideGlow {
-  0% { box-shadow: 0 0 12px rgba(99, 102, 241, 0.4); transform: translate(-50%, -50%) scale(0.98); }
-  100% { box-shadow: 0 0 24px rgba(129, 140, 248, 0.8); transform: translate(-50%, -50%) scale(1.02); }
+  0% { box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.22), 0 0 12px rgba(99, 102, 241, 0.4); }
+  100% { box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.22), 0 0 24px rgba(129, 140, 248, 0.85); }
 }
 
-@keyframes lfeFadeUp {
-  0% { opacity: 0; transform: translateY(10px); }
-  100% { opacity: 1; transform: translateY(0); }
-}
+@media (max-width: 600px) {
+  .live-enrollment-card {
+    padding: 16px 12px;
+    border-radius: 18px;
+    margin: 6px auto;
+  }
 
-@keyframes lfeBarGlow {
-  0% { filter: brightness(1); }
-  50% { filter: brightness(1.2); }
-  100% { filter: brightness(1); }
+  .lfe-viewport-container {
+    height: 420px;
+    min-height: 380px;
+    margin-bottom: 16px;
+    border-radius: 18px;
+  }
+  
+  .lfe-camera-placeholder {
+    padding: 24px 16px;
+  }
+
+  .lfe-placeholder-icon-wrap {
+    width: 52px;
+    height: 52px;
+    font-size: 24px;
+    margin-bottom: 10px;
+  }
+
+  .lfe-camera-placeholder h5 {
+    font-size: 1.05rem;
+    margin-bottom: 6px;
+  }
+
+  .lfe-camera-placeholder p {
+    font-size: 0.8rem;
+    margin-bottom: 16px;
+    line-height: 1.4;
+    max-width: 280px;
+  }
+
+  .lfe-placeholder-btn-group {
+    flex-direction: column;
+    gap: 10px;
+    width: 100%;
+    max-width: 270px;
+  }
+
+  .lfe-primary-cam-btn {
+    width: 100%;
+    min-width: 0;
+    padding: 11px 18px;
+    font-size: 0.88rem;
+  }
+
+  .lfe-secondary-upload-btn {
+    width: 100%;
+    min-width: 0;
+    padding: 10px 16px;
+    font-size: 0.85rem;
+  }
+
+  .lfe-actions {
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .lfe-active-action-row {
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .lfe-capture-btn {
+    width: 100%;
+    min-width: 0;
+    padding: 12px 18px;
+    font-size: 0.92rem;
+  }
+
+  .lfe-face-guide {
+    width: 220px;
+    height: 280px;
+  }
 }

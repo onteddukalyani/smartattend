@@ -29,19 +29,21 @@ import { db } from "../../../firebase";
 import { useAuth } from "../../authcontext";
 import { downloadExcel } from "../../../DownloadExcel";
 import { useTableSort, SortIcon } from "../../Common/useTableSort";
+import { getCandidateRolls, computeStudentMetrics } from "../studentAttendanceHelper";
 import "./Statistics.css";
 
 export default function Statistics() {
     const { user, profile } = useAuth();
+    const [courses, setCourses] = useState([]);
+    const [sessions, setSessions] = useState([]);
     const [records, setRecords] = useState([]);
-    const [allSessions, setAllSessions] = useState([]);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
     const [search, setSearch] = useState("");
     const [selectedCourseFilter, setSelectedCourseFilter] = useState("all");
     const [fetchedStudentData, setFetchedStudentData] = useState(null);
 
-    // Roll number strictly derived from Gmail prefix (e.g. 25bcs108@gmail.com -> 25BCS108)
+    // Roll number strictly derived from Gmail prefix or profile
     const emailRoll = (user?.email || "").split("@")[0].trim().toUpperCase();
     const activeRollNo = (profile?.rollNo || emailRoll || "").trim().toUpperCase();
 
@@ -60,40 +62,43 @@ export default function Statistics() {
         }).catch(() => { });
     }, [activeRollNo]);
 
-    const studentName = profile?.name || fetchedStudentData?.name || user?.displayName || "Student";
+    const studentName = fetchedStudentData?.name || profile?.name || activeRollNo || "Student";
     const rawBranch = profile?.branch || fetchedStudentData?.branch;
     const studentBranch = (rawBranch && String(rawBranch).toLowerCase() !== "general") ? rawBranch : "CSE";
     const studentSemester = profile?.semester || fetchedStudentData?.semester || "1";
 
     // Build candidate roll numbers for matching
     const candidateRolls = useMemo(() => {
-        const set = new Set();
-        if (activeRollNo) {
-            set.add(activeRollNo);
-            set.add(activeRollNo.toLowerCase());
-            const digits = activeRollNo.replace(/\D/g, "");
-            if (digits && digits.length >= 2) set.add(digits);
-        }
-        if (profile?.rollNo) {
-            const r = String(profile.rollNo).trim();
-            set.add(r);
-            set.add(r.toUpperCase());
-            set.add(r.toLowerCase());
-            const digits = r.replace(/\D/g, "");
-            if (digits && digits.length >= 2) set.add(digits);
-        }
-        if (user?.email) {
-            const prefix = user.email.split("@")[0].trim();
-            set.add(prefix);
-            set.add(prefix.toUpperCase());
-            set.add(prefix.toLowerCase());
-            const digits = prefix.replace(/\D/g, "");
-            if (digits && digits.length >= 2) set.add(digits);
-        }
-        return Array.from(set).filter(Boolean).slice(0, 10);
-    }, [activeRollNo, profile?.rollNo, user?.email]);
+        return getCandidateRolls(user, profile, fetchedStudentData);
+    }, [user, profile, fetchedStudentData]);
 
-    // Fetch sessions and attendance records in real time
+    // 1. Real-time Courses listener
+    useEffect(() => {
+        const unsubscribeCourses = onSnapshot(
+            collection(db, "courses"),
+            (snapshot) => {
+                const list = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
+                setCourses(list);
+            },
+            (err) => console.warn("Error loading courses:", err)
+        );
+        return () => unsubscribeCourses();
+    }, []);
+
+    // 2. Real-time Sessions listener
+    useEffect(() => {
+        const unsubscribeSessions = onSnapshot(
+            collection(db, "attendance_sessions"),
+            (snapshot) => {
+                const list = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
+                setSessions(list);
+            },
+            (err) => console.warn("Error loading sessions:", err)
+        );
+        return () => unsubscribeSessions();
+    }, []);
+
+    // 3. Real-time Attendance Records listener
     useEffect(() => {
         if (!candidateRolls || candidateRolls.length === 0) {
             setLoading(false);
@@ -102,80 +107,43 @@ export default function Statistics() {
 
         setLoading(true);
 
-        // Fetch all attendance sessions
-        getDocs(collection(db, "attendance_sessions"))
-            .then((sessionsSnap) => {
-                const sessionsList = sessionsSnap.docs.map((d) => ({
-                    id: d.id,
-                    ...d.data()
-                }));
-                setAllSessions(sessionsList);
-            })
-            .catch((err) => console.warn("Could not fetch sessions:", err));
-
-        // Real-time listener for student's attendance records
         const recordsQ = query(
             collection(db, "attendance_records"),
             where("rollNo", "in", candidateRolls)
         );
 
-        const unsubscribe = onSnapshot(
+        const unsubscribeRecords = onSnapshot(
             recordsQ,
             (snapshot) => {
-                const fetched = snapshot.docs.map((docSnap) => {
-                    const data = docSnap.data();
-                    return {
-                        id: docSnap.id,
-                        ...data,
-                        courseCode: data.courseCode || "N/A",
-                        classCode: data.classCode || "N/A",
-                        roomNo: data.roomNo || "N/A"
-                    };
-                });
-
-                fetched.sort((a, b) => (b.submittedAt || 0) - (a.submittedAt || 0));
-                setRecords(fetched);
+                const list = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
+                setRecords(list);
                 setLoading(false);
                 setRefreshing(false);
             },
             (err) => {
-                console.error("Error loading statistics:", err);
+                console.error("Error loading statistics records:", err);
                 setLoading(false);
                 setRefreshing(false);
             }
         );
 
-        return () => unsubscribe();
+        return () => unsubscribeRecords();
     }, [candidateRolls]);
 
     const handleRefresh = async () => {
         setRefreshing(true);
         try {
-            const [sessionsSnap, recordsSnap] = await Promise.all([
-                getDocs(collection(db, "attendance_sessions")),
-                getDocs(query(collection(db, "attendance_records"), where("rollNo", "in", candidateRolls)))
+            const [coursesSnap, sessionsSnap, recordsSnap] = await Promise.all([
+                getDocs(collection(db, "courses")).catch(() => ({ docs: [] })),
+                getDocs(collection(db, "attendance_sessions")).catch(() => ({ docs: [] })),
+                candidateRolls.length > 0
+                    ? getDocs(query(collection(db, "attendance_records"), where("rollNo", "in", candidateRolls))).catch(() => ({ docs: [] }))
+                    : { docs: [] }
             ]);
 
-            const sessionsList = sessionsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
-            setAllSessions(sessionsList);
-
-            const sessionsMap = new Map();
-            sessionsList.forEach((s) => sessionsMap.set(s.id, s));
-
-            const fetched = recordsSnap.docs.map((docSnap) => {
-                const data = docSnap.data();
-                const sessionInfo = sessionsMap.get(data.sessionId) || {};
-                return {
-                    id: docSnap.id,
-                    ...data,
-                    courseCode: data.courseCode || sessionInfo.courseCode || "N/A",
-                    classCode: data.classCode || sessionInfo.classCode || "N/A",
-                    roomNo: data.roomNo || sessionInfo.roomNo || "N/A"
-                };
-            });
-
-            fetched.sort((a, b) => (b.submittedAt || 0) - (a.submittedAt || 0));
-            setRecords(fetched);
+            setCourses(coursesSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
+            setSessions(sessionsSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
+            setRecords(recordsSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
         } catch (err) {
             console.error("Manual refresh error:", err);
         } finally {
@@ -183,61 +151,23 @@ export default function Statistics() {
         }
     };
 
-    // Calculate subject-wise metrics
-    const subjectStats = useMemo(() => {
-        // Collect all distinct courses student has records for, or that exist in sessions
-        const statsMap = {};
-
-        // Track attended classes per course
-        records.forEach((rec) => {
-            const rawCourse = rec.courseCode || rec.classCode || "";
-            const course = (!rawCourse || rawCourse.toLowerCase() === "general" || rawCourse === "N/A") ? "CSE" : rawCourse.trim().toUpperCase();
-            if (!statsMap[course]) {
-                statsMap[course] = { course, attended: 0, total: 0, records: [] };
-            }
-            statsMap[course].attended += 1;
-            statsMap[course].records.push(rec);
+    // Unified metrics computation
+    const metrics = useMemo(() => {
+        return computeStudentMetrics(courses, sessions, records, {
+            branch: studentBranch,
+            semester: studentSemester
         });
-
-        // Track total conducted sessions for matching courses
-        allSessions.forEach((sess) => {
-            const course = (sess.courseCode || "").trim().toUpperCase();
-            if (course && statsMap[course]) {
-                statsMap[course].total += 1;
-            }
-        });
-
-        // If total conducted is less than attended (due to missing sessions), normalize total
-        Object.values(statsMap).forEach((item) => {
-            if (item.total < item.attended) {
-                item.total = item.attended;
-            }
-            item.percentage = item.total > 0 ? Math.round((item.attended / item.total) * 100) : 100;
-        });
-
-        return Object.values(statsMap);
-    }, [records, allSessions]);
-
-    // Overall aggregate statistics
-    const totalAttended = records.length;
-    const totalConducted = subjectStats.reduce((acc, curr) => acc + curr.total, 0) || totalAttended;
-    const totalMissed = Math.max(0, totalConducted - totalAttended);
-    const overallPercentage = totalConducted > 0 ? Math.round((totalAttended / totalConducted) * 100) : (totalAttended > 0 ? 100 : 0);
-
-    // 75% Attendance Requirement Math
-    // Needed to reach 75%: (attended + x) / (conducted + x) >= 0.75  =>  x >= 3*conducted - 4*attended
-    // Can miss while staying >= 75%: attended / (conducted + y) >= 0.75  =>  y <= (attended / 0.75) - conducted
-    const requiredThreshold = 75;
-    const neededToReach75 = Math.max(0, Math.ceil(3 * totalConducted - 4 * totalAttended));
-    const safeToMiss = overallPercentage >= requiredThreshold
-        ? Math.max(0, Math.floor((totalAttended / 0.75) - totalConducted))
-        : 0;
+    }, [courses, sessions, records, studentBranch, studentSemester]);
 
     // Filtered records for table
     const filteredRecords = useMemo(() => {
-        return records.filter((r) => {
+        return metrics.enrichedRecords.filter((r) => {
             const term = search.toLowerCase().trim();
-            const courseMatch = selectedCourseFilter === "all" || (r.courseCode || "").toUpperCase() === selectedCourseFilter.toUpperCase();
+            const courseMatch =
+                selectedCourseFilter === "all" ||
+                (r.courseCode || "").toUpperCase() === selectedCourseFilter.toUpperCase() ||
+                (r.classCode || "").toUpperCase().includes(selectedCourseFilter.toUpperCase());
+
             if (!courseMatch) return false;
 
             if (!term) return true;
@@ -245,10 +175,11 @@ export default function Statistics() {
                 (r.courseCode || "").toLowerCase().includes(term) ||
                 (r.classCode || "").toLowerCase().includes(term) ||
                 (r.roomNo || "").toLowerCase().includes(term) ||
-                (r.rollNo || "").toLowerCase().includes(term)
+                (r.rollNo || "").toLowerCase().includes(term) ||
+                (r.lecturerName || "").toLowerCase().includes(term)
             );
         });
-    }, [records, search, selectedCourseFilter]);
+    }, [metrics.enrichedRecords, search, selectedCourseFilter]);
 
     // Sorting
     const { sortedItems: sortedRecords, sortConfig, requestSort } = useTableSort(filteredRecords, "submittedAt", "desc");
@@ -271,7 +202,7 @@ export default function Statistics() {
                     <div>
                         <h1>Attendance Statistics & Analytics</h1>
                         <p className="stats-subtitle">
-                            Detailed overview of attendance records, subject performance, and compliance metrics.
+                            Detailed overview of attendance records, subject performance, and compliance metrics for Roll No: <strong>{activeRollNo}</strong>.
                         </p>
                         <div className="stats-pill-group">
                             <span className="stats-pill roll-pill">
@@ -300,7 +231,7 @@ export default function Statistics() {
                     <button
                         className="stats-btn-export"
                         onClick={handleExport}
-                        disabled={records.length === 0}
+                        disabled={metrics.enrichedRecords.length === 0}
                         title="Export statistics to Excel"
                     >
                         <FaFileDownload />
@@ -318,18 +249,18 @@ export default function Statistics() {
                         <FaChartPie className="stats-kpi-icon" />
                     </div>
                     <div className="stats-kpi-value-row">
-                        <span className="stats-kpi-number">{overallPercentage}%</span>
+                        <span className="stats-kpi-number">{metrics.overallPercentage}%</span>
                         <span
-                            className={`stats-status-badge ${overallPercentage >= 75
+                            className={`stats-status-badge ${metrics.overallPercentage >= 75
                                 ? "status-safe"
-                                : overallPercentage >= 65
+                                : metrics.overallPercentage >= 65
                                     ? "status-warning"
                                     : "status-danger"
                                 }`}
                         >
-                            {overallPercentage >= 75 ? (
+                            {metrics.overallPercentage >= 75 ? (
                                 <><FaCheckCircle /> On Track</>
-                            ) : overallPercentage >= 65 ? (
+                            ) : metrics.overallPercentage >= 65 ? (
                                 <><FaExclamationTriangle /> Low Attendance</>
                             ) : (
                                 <><FaTimesCircle /> Critical</>
@@ -340,11 +271,11 @@ export default function Statistics() {
                         <div
                             className="stats-kpi-meter-fill"
                             style={{
-                                width: `${Math.min(overallPercentage, 100)}%`,
+                                width: `${Math.min(metrics.overallPercentage, 100)}%`,
                                 backgroundColor:
-                                    overallPercentage >= 75
+                                    metrics.overallPercentage >= 75
                                         ? "#10b981"
-                                        : overallPercentage >= 65
+                                        : metrics.overallPercentage >= 65
                                             ? "#f59e0b"
                                             : "#ef4444"
                             }}
@@ -362,11 +293,11 @@ export default function Statistics() {
                         <FaCalendarCheck className="stats-kpi-icon text-green" />
                     </div>
                     <div className="stats-kpi-value-row">
-                        <span className="stats-kpi-number text-green">{totalAttended}</span>
-                        <span className="stats-kpi-unit">sessions</span>
+                        <span className="stats-kpi-number text-green">{metrics.totalAttended}</span>
+                        <span className="stats-kpi-unit">/ {metrics.totalConducted} classes</span>
                     </div>
                     <p className="stats-kpi-footer-text">
-                        Total verified sessions attended with QR scanning.
+                        Total verified sessions attended with QR &amp; Face verification.
                     </p>
                 </div>
 
@@ -377,11 +308,11 @@ export default function Statistics() {
                         <FaTimesCircle className="stats-kpi-icon text-red" />
                     </div>
                     <div className="stats-kpi-value-row">
-                        <span className="stats-kpi-number text-red">{totalMissed}</span>
+                        <span className="stats-kpi-number text-red">{metrics.totalMissed}</span>
                         <span className="stats-kpi-unit">sessions</span>
                     </div>
                     <p className="stats-kpi-footer-text">
-                        Recorded absences across all course sessions.
+                        Recorded absences across all conducted course sessions.
                     </p>
                 </div>
 
@@ -392,22 +323,22 @@ export default function Statistics() {
                         <FaAward className="stats-kpi-icon text-indigo" />
                     </div>
                     <div className="stats-target-content">
-                        {overallPercentage >= 75 ? (
+                        {metrics.overallPercentage >= 75 ? (
                             <div>
                                 <span className="stats-target-highlight text-green">
-                                    {safeToMiss} {safeToMiss === 1 ? "class" : "classes"}
+                                    {metrics.safeToMiss} {metrics.safeToMiss === 1 ? "class" : "classes"}
                                 </span>
                                 <p className="stats-target-desc">
-                                    You can safely miss up to <strong>{safeToMiss}</strong> more {safeToMiss === 1 ? "class" : "classes"} while maintaining 75% attendance.
+                                    You can safely miss up to <strong>{metrics.safeToMiss}</strong> more {metrics.safeToMiss === 1 ? "class" : "classes"} while maintaining 75% attendance.
                                 </p>
                             </div>
                         ) : (
                             <div>
                                 <span className="stats-target-highlight text-amber">
-                                    +{neededToReach75} {neededToReach75 === 1 ? "class" : "classes"}
+                                    +{metrics.neededToReach75} {metrics.neededToReach75 === 1 ? "class" : "classes"}
                                 </span>
                                 <p className="stats-target-desc">
-                                    Attend the next <strong>{neededToReach75}</strong> consecutive {neededToReach75 === 1 ? "class" : "classes"} without absence to reach 75%.
+                                    Attend the next <strong>{metrics.neededToReach75}</strong> consecutive {metrics.neededToReach75 === 1 ? "class" : "classes"} without absence to reach 75%.
                                 </p>
                             </div>
                         )}
@@ -424,57 +355,73 @@ export default function Statistics() {
                     </div>
                 </div>
 
-                {subjectStats.length === 0 ? (
+                {metrics.coursesWithStats.length === 0 ? (
                     <div className="stats-empty-state">
                         <FaBookOpen className="stats-empty-icon" />
                         <p>No course attendance recorded yet.</p>
                     </div>
                 ) : (
                     <div className="stats-subjects-grid">
-                        {subjectStats.map((item, idx) => (
-                            <div key={idx} className="stats-subject-item">
-                                <div className="stats-subject-top">
-                                    <div className="stats-subject-title">
-                                        <FaBookOpen className="stats-subject-icon" />
-                                        <h3>{item.course}</h3>
+                        {metrics.coursesWithStats.map((item, idx) => {
+                            const pct = item.percentage;
+                            const isSafe = pct !== null && pct >= 75;
+                            const isWarning = pct !== null && pct >= 65 && pct < 75;
+                            const isDanger = pct !== null && pct < 65;
+
+                            return (
+                                <div key={idx} className="stats-subject-item">
+                                    <div className="stats-subject-top">
+                                        <div className="stats-subject-title">
+                                            <FaBookOpen className="stats-subject-icon" />
+                                            <h3>{item.courseCode} — {item.courseName}</h3>
+                                        </div>
+                                        <span
+                                            className={`stats-subject-badge ${isSafe
+                                                ? "status-safe"
+                                                : isWarning
+                                                    ? "status-warning"
+                                                    : isDanger
+                                                        ? "status-danger"
+                                                        : "status-muted"
+                                                }`}
+                                        >
+                                            {pct !== null ? `${pct}%` : "No classes"}
+                                        </span>
                                     </div>
-                                    <span
-                                        className={`stats-subject-badge ${item.percentage >= 75
-                                            ? "status-safe"
-                                            : item.percentage >= 65
-                                                ? "status-warning"
-                                                : "status-danger"
-                                            }`}
-                                    >
-                                        {item.percentage}%
-                                    </span>
-                                </div>
 
-                                <div className="stats-subject-meter">
-                                    <div
-                                        className="stats-subject-fill"
-                                        style={{
-                                            width: `${Math.min(item.percentage, 100)}%`,
-                                            backgroundColor:
-                                                item.percentage >= 75
+                                    <div className="stats-subject-meter">
+                                        <div
+                                            className="stats-subject-fill"
+                                            style={{
+                                                width: `${Math.min(pct !== null ? pct : 0, 100)}%`,
+                                                backgroundColor: isSafe
                                                     ? "#10b981"
-                                                    : item.percentage >= 65
+                                                    : isWarning
                                                         ? "#f59e0b"
-                                                        : "#ef4444"
-                                        }}
-                                    />
-                                </div>
+                                                        : isDanger
+                                                            ? "#ef4444"
+                                                            : "#94a3b8"
+                                            }}
+                                        />
+                                    </div>
 
-                                <div className="stats-subject-footer">
-                                    <span>
-                                        Attended: <strong>{item.attended}</strong> / {item.total}
-                                    </span>
-                                    <span className="stats-subject-status-text">
-                                        {item.percentage >= 75 ? "Eligible" : "At Risk"}
-                                    </span>
+                                    <div className="stats-subject-footer">
+                                        <span>
+                                            Attended: <strong>{item.attendedCount}</strong> / {item.totalConducted}
+                                        </span>
+                                        <span className="stats-subject-status-text">
+                                            {item.totalConducted === 0 ? (
+                                                "Pending Sessions"
+                                            ) : isSafe ? (
+                                                <span style={{ color: "#10b981", fontWeight: 700 }}>Eligible (+{item.leavesAvailable} Leaves Safe)</span>
+                                            ) : (
+                                                <span style={{ color: "#ef4444", fontWeight: 700 }}>At Risk (Need +{item.classesNeeded} Classes)</span>
+                                            )}
+                                        </span>
+                                    </div>
                                 </div>
-                            </div>
-                        ))}
+                            );
+                        })}
                     </div>
                 )}
             </div>
@@ -497,10 +444,10 @@ export default function Statistics() {
                                 className="stats-course-select"
                                 aria-label="Filter by course"
                             >
-                                <option value="all">All Courses</option>
-                                {subjectStats.map((s, idx) => (
-                                    <option key={idx} value={s.course}>
-                                        {s.course}
+                                <option value="all">All Courses ({metrics.coursesWithStats.length})</option>
+                                {metrics.coursesWithStats.map((s, idx) => (
+                                    <option key={idx} value={s.courseCode}>
+                                        {s.courseCode} ({s.attendedCount} Attended)
                                     </option>
                                 ))}
                             </select>
@@ -536,13 +483,13 @@ export default function Statistics() {
                                 <tr>
                                     <th>#</th>
                                     <th onClick={() => requestSort("submittedAt")}>
-                                        Date & Time <SortIcon config={sortConfig} columnKey="submittedAt" />
+                                        Date &amp; Time <SortIcon config={sortConfig} columnKey="submittedAt" />
                                     </th>
                                     <th onClick={() => requestSort("courseCode")}>
-                                        Course Code <SortIcon config={sortConfig} columnKey="courseCode" />
+                                        Course / Subject <SortIcon config={sortConfig} columnKey="courseCode" />
                                     </th>
                                     <th onClick={() => requestSort("classCode")}>
-                                        Class <SortIcon config={sortConfig} columnKey="classCode" />
+                                        Class Code <SortIcon config={sortConfig} columnKey="classCode" />
                                     </th>
                                     <th onClick={() => requestSort("roomNo")}>
                                         Room No <SortIcon config={sortConfig} columnKey="roomNo" />
@@ -586,7 +533,7 @@ export default function Statistics() {
                                                 </span>
                                             </td>
                                             <td>{r.classCode || "N/A"}</td>
-                                            <td>{r.roomNo || "N/A"}</td>
+                                            <td>Room {r.roomNo || "N/A"}</td>
                                             <td>
                                                 <span className="stats-table-status-badge">
                                                     <FaCheckCircle /> Present

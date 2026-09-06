@@ -75,54 +75,65 @@ const AttendanceOverview = () => {
       });
 
       const isStudentDoc = (d, id) => {
-        const r = String(d.role || "").toLowerCase().trim();
+        const r = String(d?.role || "").toLowerCase().trim();
         if (r === "student") return true;
         if (r === "lecturer" || r === "faculty" || r === "admin") return false;
-        if (d.rollNo || d.semester || d.branch) return true;
+        if (d?.rollNo || d?.semester || d?.branch) return true;
         if (/^\d{2}[a-zA-Z]{3}\d{2,4}$/i.test(id)) return true;
         return false;
       };
 
-      // Merge students from all collections keyed by email or rollNo
+      const getCanonicalRoll = (d, id) => {
+        if (d?.rollNo && String(d.rollNo).trim()) {
+          const r = String(d.rollNo).trim();
+          return (r.includes("@") ? r.split("@")[0] : r).toUpperCase();
+        }
+        if (d?.email && String(d.email).includes("@")) {
+          return String(d.email).split("@")[0].trim().toUpperCase();
+        }
+        if (id && String(id).includes("@")) {
+          return String(id).split("@")[0].trim().toUpperCase();
+        }
+        return String(id || "").trim().toUpperCase();
+      };
+
+      // Merge students from all collections strictly by canonical Roll Number
       const studentMap = new Map();
 
-      // 1. Process authorizedUsers first
-      authUsersSnap.docs.forEach((docSnap) => {
+      const mergeOverviewStudent = (docSnap) => {
         const d = docSnap.data();
-        if (isStudentDoc(d, docSnap.id)) {
-          const key = (d.email || d.rollNo || docSnap.id).toLowerCase().trim();
-          studentMap.set(key, {
-            id: docSnap.id,
-            ...d
-          });
-        }
-      });
+        if (!isStudentDoc(d, docSnap.id)) return;
+        const roll = getCanonicalRoll(d, docSnap.id);
+        if (!roll) return;
 
-      // 2. Process students collection
-      studentsSnap.docs.forEach((docSnap) => {
-        const d = docSnap.data();
-        const key = (d.email || d.rollNo || docSnap.id).toLowerCase().trim();
-        const existing = studentMap.get(key) || {};
-        studentMap.set(key, {
+        const existing = studentMap.get(roll) || {};
+        const cleanEmail = (d.email || existing.email || (roll.toLowerCase() + "@iiitdwd.ac.in")).toLowerCase().trim();
+        const branch = (d.branch && String(d.branch).toLowerCase() !== "general")
+          ? d.branch
+          : ((existing.branch && String(existing.branch).toLowerCase() !== "general") ? existing.branch : "CSE");
+
+        studentMap.set(roll, {
           ...existing,
           ...d,
-          id: docSnap.id
+          id: roll,
+          rollNo: roll,
+          name: d.name || existing.name || "Student",
+          email: cleanEmail,
+          branch: branch,
+          semester: d.semester || existing.semester || "1",
+          faceRegistered: d.faceRegistered ?? existing.faceRegistered ?? false,
+          role: "student"
         });
-      });
+      };
+
+      // 1. Process authorizedUsers
+      authUsersSnap.docs.forEach(mergeOverviewStudent);
+
+      // 2. Process students collection
+      studentsSnap.docs.forEach(mergeOverviewStudent);
 
       // 3. Process users collection
-      usersSnap.docs.forEach((docSnap) => {
-        const d = docSnap.data();
-        if (isStudentDoc(d, docSnap.id)) {
-          const key = (d.email || d.rollNo || docSnap.id).toLowerCase().trim();
-          const existing = studentMap.get(key) || {};
-          studentMap.set(key, {
-            ...existing,
-            ...d,
-            id: docSnap.id
-          });
-        }
-      });
+      usersSnap.docs.forEach(mergeOverviewStudent);
 
       // Map real students from database
       const studentList = Array.from(studentMap.values()).map((data) => {
@@ -442,6 +453,10 @@ const AttendanceOverview = () => {
         <StudentDetailModal
           student={selectedStudent}
           onClose={() => setSelectedStudent(null)}
+          onUpdate={(updated) => {
+            if (!updated) return;
+            setSelectedStudent(updated);
+          }}
         />
       )}
     </div>

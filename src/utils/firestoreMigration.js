@@ -34,11 +34,8 @@ export async function autoMigrateAndOrganizeFirestore() {
       if (role === "student" || rollNo || merged.semester) {
         merged.role = "student";
         if (!merged.branch || String(merged.branch).toLowerCase() === "general") merged.branch = "CSE";
-        const studentId = rollNo || prefix || currentId;
+        const studentId = rollNo || (prefix ? prefix.toUpperCase() : currentId.toUpperCase());
         await setDoc(doc(db, "students", studentId), merged, { merge: true }).catch(() => {});
-        if (prefix && prefix !== studentId) {
-          await setDoc(doc(db, "students", prefix), merged, { merge: true }).catch(() => {});
-        }
         await setDoc(doc(db, "users", studentId), merged, { merge: true }).catch(() => {});
         updatedCount++;
       } else if (role === "lecturer" || role === "faculty" || role === "professor") {

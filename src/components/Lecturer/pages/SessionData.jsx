@@ -1,23 +1,108 @@
 import { useEffect, useState } from "react";
-import { collection, deleteDoc, doc, getDoc, getDocs, query, where, writeBatch } from "firebase/firestore";
-import { useNavigate, useParams } from "react-router-dom";
+import { collection, deleteDoc, doc, getDoc, getDocs, onSnapshot, query, setDoc, where, writeBatch } from "firebase/firestore";
+import { useNavigate, useParams, Link } from "react-router-dom";
 import { db } from "../../../firebase";
 import { useAuth } from "../../authcontext";
 import { downloadExcel } from "../../../DownloadExcel";
 import { useTableSort, SortIcon } from "../../Common/useTableSort";
+import { buildUserLookupMaps, normalizeSessions, doesSessionBelongToLecturer } from "../../Common/sessionMatcher";
+import { FiSearch, FiPlusCircle, FiUsers, FiLayers } from "react-icons/fi";
 import './AttendanceData.css';
 
 function ClassesData() {
     const { user, profile } = useAuth();
-    const [sessions, setSessions] = useState([]);
+    const [allSessionsList, setAllSessionsList] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [activeTab, setActiveTab] = useState("my"); // "my" | "all"
+    const [searchTerm, setSearchTerm] = useState("");
     const navigate = useNavigate();
 
-    const { sortedItems: sortedSessions, sortConfig, requestSort } = useTableSort(sessions, "createdAt", "desc");
+    const isAdmin = 
+        profile?.role === "admin" || 
+        profile?.role === "administrator" || 
+        profile?.role === "superadmin" || 
+        localStorage.getItem("smartattend-user-role") === "admin" || 
+        window.location.pathname.startsWith("/admin");
+
+    const basePath = isAdmin ? "/admin/classes" : "/lecturer/attendance-sessions";
+    const createSessionPath = isAdmin ? "/admin/classes" : "/lecturer/lecturerpage";
+
+    // Setup real-time listener for attendance_sessions and enrich metadata
+    useEffect(() => {
+        let unsubscribeSessions = () => {};
+
+        const setupListeners = async () => {
+            try {
+                // Fetch reference datasets for name & batch auto-resolution
+                const [lecturersSnapshot, usersSnapshot, authUsersSnapshot, coursesSnapshot] = await Promise.all([
+                    getDocs(collection(db, "lecturers")).catch(() => ({ docs: [] })),
+                    getDocs(collection(db, "users")).catch(() => ({ docs: [] })),
+                    getDocs(collection(db, "authorizedUsers")).catch(() => ({ docs: [] })),
+                    getDocs(collection(db, "courses")).catch(() => ({ docs: [] }))
+                ]);
+
+                const courseMap = new Map();
+                coursesSnapshot.docs.forEach((d) => {
+                    const c = d.data();
+                    if (c.courseCode) {
+                        courseMap.set(c.courseCode.toUpperCase().trim(), c);
+                    }
+                    courseMap.set(d.id.toUpperCase().trim(), c);
+                });
+
+                // Listen to real-time changes on attendance_sessions
+                unsubscribeSessions = onSnapshot(collection(db, "attendance_sessions"), async (sessionsSnapshot) => {
+                    const recordsSnapshot = await getDocs(collection(db, "attendance_records")).catch(() => ({ docs: [] }));
+
+                    const lookupMaps = buildUserLookupMaps(
+                        usersSnapshot.docs,
+                        authUsersSnapshot.docs,
+                        recordsSnapshot.docs,
+                        sessionsSnapshot.docs
+                    );
+
+                    const normalized = normalizeSessions(sessionsSnapshot.docs, recordsSnapshot.docs, lookupMaps);
+
+                    const enrichedSessions = normalized.map((sess) => {
+                        const courseKey = (sess.courseCode || sess.classCode || "").toUpperCase().trim();
+                        const matchedCourse = courseMap.get(courseKey) || {};
+                        const rawBatch = (sess.batch || "").toString().trim();
+                        const resolvedBatch = (rawBatch && rawBatch !== "—") ? rawBatch : (matchedCourse.batch || "2025");
+
+                        // Auto-heal missing batch in Firestore if not set
+                        if (!rawBatch || rawBatch === "—") {
+                            setDoc(doc(db, "attendance_sessions", sess.id), { batch: resolvedBatch }, { merge: true }).catch(() => {});
+                        }
+
+                        return {
+                            ...sess,
+                            batch: resolvedBatch,
+                            lecturerName: sess.lecturerName || lookupMaps.uidToName?.get(sess.ownerId) || lookupMaps.emailToName?.get(sess.ownerEmail) || (sess.ownerEmail ? sess.ownerEmail.split("@")[0] : "Faculty")
+                        };
+                    });
+
+                    setAllSessionsList(enrichedSessions);
+                    setLoading(false);
+                }, (error) => {
+                    console.error("Error in real-time sessions listener:", error);
+                    setLoading(false);
+                });
+            } catch (error) {
+                console.error("Error setting up sessions listener:", error);
+                setLoading(false);
+            }
+        };
+
+        setupListeners();
+
+        return () => {
+            unsubscribeSessions();
+        };
+    }, [user, profile]);
 
     const removeSession = async (event, session) => {
         event.stopPropagation();
-        if (!window.confirm(`Remove the ${session.classCode || "selected"} session?`)) {
+        if (!window.confirm(`Remove the ${session.classCode || "selected"} session and its attendance records?`)) {
             return;
         }
 
@@ -34,140 +119,156 @@ function ClassesData() {
             });
             batch.delete(doc(db, "attendance_sessions", session.id));
             await batch.commit();
-            setSessions((currentSessions) => currentSessions.filter(({ id }) => id !== session.id));
+            setAllSessionsList((currentSessions) => currentSessions.filter(({ id }) => id !== session.id));
         } catch (error) {
             console.error("Error removing session:", error);
             window.alert("Could not remove this session.");
         }
     };
 
-    useEffect(() => {
-        const getSessions = async () => {
-            try {
-                // Fetch all sessions, lecturers, users, and courses to resolve lecturer names and course batches
-                const [sessionsSnapshot, lecturersSnapshot, usersSnapshot, authUsersSnapshot, coursesSnapshot] = await Promise.all([
-                    getDocs(collection(db, "attendance_sessions")),
-                    getDocs(collection(db, "lecturers")).catch(() => ({ docs: [] })),
-                    getDocs(collection(db, "users")).catch(() => ({ docs: [] })),
-                    getDocs(collection(db, "authorizedUsers")).catch(() => ({ docs: [] })),
-                    getDocs(collection(db, "courses")).catch(() => ({ docs: [] }))
-                ]);
+    // Filter sessions based on role, tab, and search query
+    const currentLecturerObj = {
+        uid: user?.uid || "",
+        email: user?.email || profile?.email || "",
+        name: profile?.name || user?.displayName || "",
+        role: profile?.role || "lecturer"
+    };
 
-                const userMap = new Map();
-                lecturersSnapshot.docs.forEach((d) => {
-                    const u = d.data();
-                    if (u.name) {
-                        userMap.set(d.id, u.name);
-                        if (u.email) userMap.set(u.email.toLowerCase().trim(), u.name);
-                    }
-                });
-                usersSnapshot.docs.forEach((d) => {
-                    const u = d.data();
-                    if (u.name) {
-                        userMap.set(d.id, u.name);
-                        if (u.email) userMap.set(u.email.toLowerCase().trim(), u.name);
-                    }
-                });
-                authUsersSnapshot.docs.forEach((d) => {
-                    const u = d.data();
-                    if (u.name) {
-                        userMap.set(d.id.toLowerCase().trim(), u.name);
-                        if (u.email) userMap.set(u.email.toLowerCase().trim(), u.name);
-                    }
-                });
+    const mySessions = allSessionsList.filter((sess) => 
+        doesSessionBelongToLecturer(sess, currentLecturerObj, {}, allSessionsList.length <= 1 ? 1 : 100)
+    );
 
-                const courseMap = new Map();
-                coursesSnapshot.docs.forEach((d) => {
-                    const c = d.data();
-                    if (c.courseCode) {
-                        courseMap.set(c.courseCode.toUpperCase().trim(), c);
-                    }
-                    courseMap.set(d.id.toUpperCase().trim(), c);
-                });
+    // If user is admin, they always see all sessions; if lecturer, depends on activeTab
+    const tabSessions = (isAdmin || activeTab === "all") ? allSessionsList : mySessions;
 
-                const userUid = user?.uid;
-                const userEmail = (user?.email || "").toLowerCase().trim();
-                const userPrefix = userEmail ? userEmail.split("@")[0] : "";
-                const userName = (profile?.name || user?.displayName || "").toLowerCase().trim();
-                const isAdmin = 
-                    profile?.role === "admin" || 
-                    profile?.role === "administrator" || 
-                    profile?.role === "superadmin" || 
-                    localStorage.getItem("smartattend-user-role") === "admin" || 
-                    window.location.pathname.startsWith("/admin");
+    const filteredSessions = tabSessions.filter((sess) => {
+        if (!searchTerm.trim()) return true;
+        const term = searchTerm.toLowerCase().trim();
+        const classCode = String(sess.classCode || "").toLowerCase();
+        const courseCode = String(sess.courseCode || "").toLowerCase();
+        const roomNo = String(sess.roomNo || "").toLowerCase();
+        const batch = String(sess.batch || "").toLowerCase();
+        const lecturerName = String(sess.lecturerName || "").toLowerCase();
+        const lecturerEmail = String(sess.lecturerEmail || sess.ownerEmail || "").toLowerCase();
 
-                const isMySession = (data) => {
-                    if (isAdmin) return true;
-                    const ownerEmail = String(data.ownerEmail || data.lecturerEmail || "").toLowerCase().trim();
-                    const ownerId = String(data.ownerId || "").toLowerCase().trim();
-                    const sessLectName = String(data.lecturerName || "").toLowerCase().trim();
+        return (
+            classCode.includes(term) ||
+            courseCode.includes(term) ||
+            roomNo.includes(term) ||
+            batch.includes(term) ||
+            lecturerName.includes(term) ||
+            lecturerEmail.includes(term)
+        );
+    });
 
-                    if (userUid && (ownerId === userUid.toLowerCase() || ownerEmail === userUid.toLowerCase())) return true;
-                    if (userEmail && (ownerEmail === userEmail || ownerId === userEmail)) return true;
-                    if (userPrefix && (ownerId === userPrefix || ownerEmail.startsWith(userPrefix) || ownerEmail.includes(userPrefix))) return true;
-                    if (userName && sessLectName && (sessLectName.includes(userName) || userName.includes(sessLectName))) return true;
-
-                    // If unassigned or legacy session, show to lecturer
-                    if (!ownerEmail && !ownerId) return true;
-
-                    return false;
-                };
-
-                const allSessions = sessionsSnapshot.docs
-                    .map((sessionDoc) => {
-                        const data = sessionDoc.data();
-                        const ownerEmail = (data.ownerEmail || data.lecturerEmail || "").toLowerCase().trim();
-                        const ownerId = data.ownerId;
-                        const resolvedLecturer = data.lecturerName || userMap.get(ownerId) || userMap.get(ownerEmail) || (ownerEmail ? ownerEmail.split("@")[0] : "Faculty");
-
-                        const courseKey = (data.courseCode || data.classCode || "").toUpperCase().trim();
-                        const matchedCourse = courseMap.get(courseKey) || {};
-                        const rawBatch = (data.batch || "").toString().trim();
-                        const resolvedBatch = (rawBatch && rawBatch !== "—") ? rawBatch : (matchedCourse.batch || "2025");
-
-                        // Auto-heal missing batch in Firestore doc if missing
-                        if (!rawBatch || rawBatch === "—") {
-                            setDoc(doc(db, "attendance_sessions", sessionDoc.id), { batch: resolvedBatch }, { merge: true }).catch(() => {});
-                        }
-
-                        return {
-                            id: sessionDoc.id,
-                            ...data,
-                            batch: resolvedBatch,
-                            lecturerName: resolvedLecturer
-                        };
-                    })
-                    .filter((sess) => isMySession(sess));
-
-                setSessions(allSessions);
-            } catch (error) {
-                console.error("Error getting sessions:", error);
-            } finally {
-                setLoading(false);
-            }
-        };
-
-        getSessions();
-    }, [user, profile]);
+    const { sortedItems: sortedSessions, sortConfig, requestSort } = useTableSort(filteredSessions, "createdAt", "desc");
 
     if (loading) {
-        return <p>Loading sessions...</p>;
+        return (
+            <div className="attendance-data-page">
+                <p>Loading attendance sessions from database...</p>
+            </div>
+        );
     }
 
     return (
         <div className="attendance-data-page">
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px", flexWrap: "wrap", gap: "10px" }}>
-                <h2>Attendance Sessions</h2>
-                {sessions.length > 0 && (
-                    <button
-                        className="download-excel-btn"
-                        onClick={() => downloadExcel("classes-sessions-table", `Sessions-List-${new Date().toISOString().slice(0, 10)}`)}
-                    >
-                        📥 Download Excel
-                    </button>
-                )}
+            <div className="classes-header-bar">
+                <div>
+                    <h2>Attendance Sessions</h2>
+                    <p style={{ margin: 0, fontSize: "0.9rem", color: "var(--text-muted, #64748b)" }}>
+                        View live and past lecture attendance sessions recorded via QR check-ins.
+                    </p>
+                </div>
+                <div className="classes-header-actions">
+                    {sortedSessions.length > 0 && (
+                        <button
+                            className="download-excel-btn"
+                            onClick={() => downloadExcel("classes-sessions-table", `Sessions-List-${new Date().toISOString().slice(0, 10)}`)}
+                        >
+                            📥 Download Excel
+                        </button>
+                    )}
+                    {!isAdmin && (
+                        <Link to="/lecturer/lecturerpage" className="classes-new-session-btn">
+                            <FiPlusCircle /> Start New Session (QR)
+                        </Link>
+                    )}
+                </div>
             </div>
-            {sessions.length === 0 ? <p>No attendance sessions yet.</p> : (
+
+            {/* Tab switchers for Lecturer */}
+            {!isAdmin && (
+                <div className="classes-tabs">
+                    <button
+                        type="button"
+                        className={`classes-tab ${activeTab === "my" ? "active" : ""}`}
+                        onClick={() => setActiveTab("my")}
+                    >
+                        <FiUsers /> My Sessions ({mySessions.length})
+                    </button>
+                    <button
+                        type="button"
+                        className={`classes-tab ${activeTab === "all" ? "active" : ""}`}
+                        onClick={() => setActiveTab("all")}
+                    >
+                        <FiLayers /> All Institution Sessions ({allSessionsList.length})
+                    </button>
+                </div>
+            )}
+
+            {/* Search Filter Bar */}
+            {allSessionsList.length > 0 && (
+                <div className="classes-search-wrapper">
+                    <FiSearch className="classes-search-icon" />
+                    <input
+                        type="text"
+                        className="classes-search-input"
+                        placeholder="Search by class, course, batch, room, faculty..."
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                    />
+                </div>
+            )}
+
+            {/* Empty State or Table Display */}
+            {allSessionsList.length === 0 ? (
+                <div className="classes-empty-card">
+                    <div className="classes-empty-icon">📅</div>
+                    <h3>No Attendance Sessions Yet</h3>
+                    <p>
+                        Attendance sessions are created when a lecturer or administrator starts a class and generates a dynamic QR code for students to scan.
+                    </p>
+                    <Link to={createSessionPath} className="classes-new-session-btn" style={{ display: "inline-flex", margin: "0 auto" }}>
+                        <FiPlusCircle /> Generate QR Code to Take Attendance
+                    </Link>
+                </div>
+            ) : sortedSessions.length === 0 ? (
+                <div className="classes-empty-card">
+                    <div className="classes-empty-icon">🔍</div>
+                    <h3>No Matching Sessions Found</h3>
+                    <p>
+                        {searchTerm ? `No sessions match "${searchTerm}". Try adjusting your search query.` : activeTab === "my" ? "You haven't generated any attendance sessions under this account yet. Click below to view all institution sessions or generate a new QR." : "No sessions found in this view."}
+                    </p>
+                    {activeTab === "my" && (
+                        <button
+                            type="button"
+                            className="classes-tab active"
+                            style={{ margin: "0 auto 12px" }}
+                            onClick={() => setActiveTab("all")}
+                        >
+                            View All Institution Sessions ({allSessionsList.length})
+                        </button>
+                    )}
+                    {!isAdmin && (
+                        <div>
+                            <Link to="/lecturer/lecturerpage" className="classes-new-session-btn" style={{ display: "inline-flex", margin: "0 auto" }}>
+                                <FiPlusCircle /> Generate QR Code Now
+                            </Link>
+                        </div>
+                    )}
+                </div>
+            ) : (
                 <div className="attendance-table-scroll">
                     <table id="classes-sessions-table">
                         <thead>
@@ -181,7 +282,7 @@ function ClassesData() {
                                 <th className="sortable-th" onClick={() => requestSort("courseCode")} title="Click to sort by Course Code">
                                     Course Code <SortIcon sortConfig={sortConfig} columnKey="courseCode" />
                                 </th>
-                                {profile?.role === "admin" && (
+                                {(isAdmin || activeTab === "all") && (
                                     <th className="sortable-th" onClick={() => requestSort("lecturerName")} title="Click to sort by Lecturer">
                                         Lecturer <SortIcon sortConfig={sortConfig} columnKey="lecturerName" />
                                     </th>
@@ -200,13 +301,12 @@ function ClassesData() {
                         </thead>
                         <tbody>
                             {sortedSessions.map((session) => {
-                                const basePath = profile?.role === "admin" ? "/admin/classes" : "/lecturer/attendance-sessions";
                                 return (
                                     <tr key={session.id} onClick={() => navigate(`${basePath}/${session.id}`)}>
                                         <td><strong>{session.classCode || "N/A"}</strong></td>
                                         <td>{session.batch || "—"}</td>
                                         <td>{session.courseCode || "N/A"}</td>
-                                        {profile?.role === "admin" && <td>{session.lecturerName || "Faculty"}</td>}
+                                        {(isAdmin || activeTab === "all") && <td>{session.lecturerName || "Faculty"}</td>}
                                         <td>{session.roomNo || "N/A"}</td>
                                         <td>{session.createdAt ? new Date(session.createdAt).toLocaleDateString() : "N/A"}</td>
                                         <td>{session.createdAt ? new Date(session.createdAt).toLocaleTimeString() : "N/A"}</td>
@@ -265,10 +365,13 @@ export function SessionAttendanceData() {
     };
 
     useEffect(() => {
+        let unsubscribeRecords = () => {};
+
         const getAttendance = async () => {
             try {
                 const sessionSnapshot = await getDoc(doc(db, "attendance_sessions", sessionId));
                 if (!sessionSnapshot.exists()) {
+                    setLoading(false);
                     return;
                 }
 
@@ -307,42 +410,61 @@ export function SessionAttendanceData() {
 
                 setSession({ id: sessionSnapshot.id, ...sessData, batch: resolvedBatch, lecturerName: lecturerDisplay });
 
+                // Real-time listener for attendance records of this session
                 const recordsQuery = query(
                     collection(db, "attendance_records"),
                     where("sessionId", "==", sessionId)
                 );
-                const recordsSnapshot = await getDocs(recordsQuery);
-                const rawRecords = recordsSnapshot.docs.map((recordDoc) => ({
-                    id: recordDoc.id,
-                    ...recordDoc.data()
-                }));
 
-                rawRecords.sort((a, b) => {
-                    const rollA = a.rollNo || "";
-                    const rollB = b.rollNo || "";
-                    return rollA.localeCompare(rollB, undefined, { numeric: true, sensitivity: 'base' });
+                unsubscribeRecords = onSnapshot(recordsQuery, (recordsSnapshot) => {
+                    const rawRecords = recordsSnapshot.docs.map((recordDoc) => ({
+                        id: recordDoc.id,
+                        ...recordDoc.data()
+                    }));
+
+                    rawRecords.sort((a, b) => {
+                        const rollA = a.rollNo || "";
+                        const rollB = b.rollNo || "";
+                        return rollA.localeCompare(rollB, undefined, { numeric: true, sensitivity: 'base' });
+                    });
+
+                    setRecords(rawRecords);
+                    setLoading(false);
+                }, (err) => {
+                    console.error("Error in records listener:", err);
+                    setLoading(false);
                 });
 
-                setRecords(rawRecords);
             } catch (error) {
                 console.error("Error getting attendance:", error);
-            } finally {
                 setLoading(false);
             }
         };
 
         getAttendance();
+
+        return () => {
+            unsubscribeRecords();
+        };
     }, [sessionId, user]);
 
     if (loading) {
-        return <p>Loading attendance...</p>;
+        return (
+            <div className="attendance-data-page">
+                <p>Loading attendance data...</p>
+            </div>
+        );
     }
 
     if (!session) {
         return (
             <div className="attendance-data-page">
                 <button className="back-to-sessions-btn" onClick={() => navigate(basePath)}>⬅️ Back to Sessions</button>
-                <p>Session not found.</p>
+                <div className="classes-empty-card">
+                    <div className="classes-empty-icon">⚠️</div>
+                    <h3>Session Not Found</h3>
+                    <p>The requested attendance session does not exist or may have been deleted.</p>
+                </div>
             </div>
         );
     }
@@ -368,7 +490,13 @@ export function SessionAttendanceData() {
                 <span className="session-summary-item"><strong>Room:</strong> {session.roomNo || "N/A"}</span>
                 <span className="session-summary-item"><strong>Total Students Present:</strong> <strong style={{ color: "#10b981" }}>{records.length}</strong></span>
             </div>
-            {records.length === 0 ? <p>No students submitted attendance for this session.</p> : (
+            {records.length === 0 ? (
+                <div className="classes-empty-card">
+                    <div className="classes-empty-icon">👥</div>
+                    <h3>No Submissions Yet</h3>
+                    <p>No students have submitted attendance for this session yet. As students scan the QR code, their attendance will appear here live in real-time.</p>
+                </div>
+            ) : (
                 <div className="attendance-table-scroll">
                     <table id="session-attendance-table">
                         <thead>

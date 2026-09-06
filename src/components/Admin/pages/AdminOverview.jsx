@@ -65,6 +65,20 @@ const AdminOverview = () => {
         })
       ]);
 
+      const getCanonicalRoll = (d, id) => {
+        if (d?.rollNo && String(d.rollNo).trim()) {
+          const r = String(d.rollNo).trim();
+          return (r.includes("@") ? r.split("@")[0] : r).toUpperCase();
+        }
+        if (d?.email && String(d.email).includes("@")) {
+          return String(d.email).split("@")[0].trim().toUpperCase();
+        }
+        if (id && String(id).includes("@")) {
+          return String(id).split("@")[0].trim().toUpperCase();
+        }
+        return String(id || "").trim().toUpperCase();
+      };
+
       const studentSet = new Set();
       const lecturerSet = new Set();
       let admins = 0;
@@ -80,16 +94,16 @@ const AdminOverview = () => {
         } else if (role === "admin") {
           admins++;
         } else if (role === "student") {
-          const roll = (d.rollNo || email).toUpperCase().trim();
-          studentSet.add(roll);
+          const roll = getCanonicalRoll(d, docSnap.id);
+          if (roll) studentSet.add(roll);
         }
       });
 
       // 2. Process students collection
       studentsSnap.docs.forEach((docSnap) => {
         const d = docSnap.data();
-        const roll = (d.rollNo || docSnap.id).toUpperCase().trim();
-        studentSet.add(roll);
+        const roll = getCanonicalRoll(d, docSnap.id);
+        if (roll) studentSet.add(roll);
       });
 
       // 3. Process users collection
@@ -97,7 +111,6 @@ const AdminOverview = () => {
         const d = docSnap.data();
         const role = String(d.role || "").toLowerCase().trim();
         const email = (d.email || "").toLowerCase().trim();
-        const roll = (d.rollNo || docSnap.id).toUpperCase().trim();
 
         if (role === "lecturer" || role === "faculty" || role === "professor") {
           lecturerSet.add(email || docSnap.id);
@@ -111,7 +124,8 @@ const AdminOverview = () => {
             /^\d{2}[a-zA-Z]{3}\d{2,4}$/i.test(docSnap.id);
 
           if (isStudent) {
-            studentSet.add(roll);
+            const roll = getCanonicalRoll(d, docSnap.id);
+            if (roll) studentSet.add(roll);
           }
         }
       });

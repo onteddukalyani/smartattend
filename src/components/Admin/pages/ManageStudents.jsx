@@ -11,7 +11,8 @@ import {
   FaEye,
   FaEdit,
   FaTimes,
-  FaSyncAlt
+  FaSyncAlt,
+  FaUserTimes
 } from "react-icons/fa";
 
 import {
@@ -24,12 +25,14 @@ import {
   setDoc,
   updateDoc,
   deleteDoc,
+  deleteField,
   serverTimestamp
 } from "firebase/firestore";
 
 import { db } from "../../../firebase";
 import StudentDetailModal from "../../Common/StudentDetailModal";
 import { useTableSort, SortIcon } from "../../Common/useTableSort";
+import { removeStudentFaceAndBiometrics } from "../../../utils/biometricManager";
 
 import "./ManageStudents.css";
 
@@ -81,91 +84,77 @@ const ManageStudents = () => {
         })
       ]);
 
+      const getCanonicalRoll = (d, id) => {
+        if (d?.rollNo && String(d.rollNo).trim()) {
+          const r = String(d.rollNo).trim();
+          return (r.includes("@") ? r.split("@")[0] : r).toUpperCase();
+        }
+        if (d?.email && String(d.email).includes("@")) {
+          return String(d.email).split("@")[0].trim().toUpperCase();
+        }
+        if (id && String(id).includes("@")) {
+          return String(id).split("@")[0].trim().toUpperCase();
+        }
+        return String(id || "").trim().toUpperCase();
+      };
+
       const studentsMap = new Map();
       let legacyCount = 0;
 
-      // 1. Ingest students from authorizedUsers
-      authUsersSnap.docs.forEach((docSnap) => {
+      const isStudentDoc = (d, id) => {
+        const r = String(d?.role || "").toLowerCase().trim();
+        if (r === "student") return true;
+        if (r === "lecturer" || r === "faculty" || r === "admin") return false;
+        if (d?.rollNo || d?.semester || d?.branch) return true;
+        if (/^\d{2}[a-zA-Z]{3}\d{2,4}$/i.test(id)) return true;
+        return false;
+      };
+
+      const mergeAdminStudent = (docSnap) => {
         const data = docSnap.data();
-        const role = String(data.role || "").toLowerCase().trim();
-        if (role === "student") {
-          const roll = (data.rollNo || docSnap.id).trim().toUpperCase();
-          studentsMap.set(roll, {
-            id: docSnap.id,
-            ...data,
-            rollNo: roll,
-            role: "student",
-            status: data.status || "active"
-          });
-        }
-      });
+        if (!isStudentDoc(data, docSnap.id)) return;
 
-      // 2. Ingest students from students collection
-      studentsSnap.docs.forEach((docSnap) => {
-        const data = docSnap.data();
-        const currentId = docSnap.id;
-        const roll = (data.rollNo || currentId).trim().toUpperCase();
-        const existing = studentsMap.get(roll) || {};
-        studentsMap.set(roll, {
-          ...existing,
-          ...data,
-          id: currentId === roll ? currentId : (existing.id || currentId),
-          userDocId: currentId,
-          rollNo: roll,
-          name: data.name || existing.name || "Student",
-          email: data.email || existing.email || "",
-          branch: (data.branch && String(data.branch).toLowerCase() !== "general") ? data.branch : ((existing.branch && String(existing.branch).toLowerCase() !== "general") ? existing.branch : "CSE"),
-          semester: data.semester || existing.semester || "1",
-          phone: data.phone || existing.phone || "",
-          status: data.status || existing.status || "active",
-          faceRegistered: data.faceRegistered || existing.faceRegistered || false,
-          role: "student"
-        });
-      });
+        const roll = getCanonicalRoll(data, docSnap.id);
+        if (!roll) return;
 
-      // 3. Ingest students from users collection
-      usersSnap.docs.forEach((studentDoc) => {
-        const data = studentDoc.data();
-        const currentId = studentDoc.id;
-        const role = String(data.role || "").toLowerCase().trim();
-
-        // Exclude faculty and admins
-        if (role === "lecturer" || role === "admin" || role === "faculty" || role === "professor") {
-          return;
-        }
-
-        // Detect student by role, rollNo, branch, semester, or roll-like ID
-        const isStudent = role === "student" ||
-          Boolean(data.rollNo) ||
-          Boolean(data.semester) ||
-          Boolean(data.branch) ||
-          /^\d{2}[a-zA-Z]{3}\d{2,4}$/i.test(currentId);
-
-        if (!isStudent) return;
-
-        const roll = (data.rollNo || currentId).trim().toUpperCase();
-
-        if (currentId !== roll) {
+        if (docSnap.id !== roll) {
           legacyCount++;
         }
 
         const existing = studentsMap.get(roll) || {};
+        const cleanEmail = (data.email || existing.email || (roll.toLowerCase() + "@iiitdwd.ac.in")).toLowerCase().trim();
+        const branch = (data.branch && String(data.branch).toLowerCase() !== "general")
+          ? data.branch
+          : ((existing.branch && String(existing.branch).toLowerCase() !== "general") ? existing.branch : "CSE");
+
         studentsMap.set(roll, {
           ...existing,
           ...data,
-          id: currentId === roll ? currentId : (existing.id || currentId),
-          userDocId: currentId,
+          id: roll,
+          userDocId: roll,
           rollNo: roll,
           name: data.name || existing.name || "Student",
-          email: data.email || existing.email || "",
-          branch: (data.branch && String(data.branch).toLowerCase() !== "general") ? data.branch : ((existing.branch && String(existing.branch).toLowerCase() !== "general") ? existing.branch : "CSE"),
+          email: cleanEmail,
+          branch: branch,
           semester: data.semester || existing.semester || "1",
           phone: data.phone || existing.phone || "",
           status: data.status || existing.status || "active",
-          faceRegistered: data.faceRegistered || existing.faceRegistered || false,
+          faceRegistered: data.faceRegistered ?? existing.faceRegistered ?? false,
+          biometricEnrolled: data.biometricEnrolled ?? existing.biometricEnrolled ?? false,
+          faceDescriptor: data.faceDescriptor || existing.faceDescriptor || null,
+          photoURL: data.photoURL || existing.photoURL || "",
           role: "student"
         });
-      });
+      };
+
+      // 1. Ingest students from authorizedUsers
+      authUsersSnap.docs.forEach(mergeAdminStudent);
+
+      // 2. Ingest students from students collection
+      studentsSnap.docs.forEach(mergeAdminStudent);
+
+      // 3. Ingest students from users collection
+      usersSnap.docs.forEach(mergeAdminStudent);
 
       setLegacyDocsCount(legacyCount);
       const studentList = Array.from(studentsMap.values());
@@ -594,6 +583,53 @@ const ManageStudents = () => {
     }
   };
 
+  const handleRemoveFaceBiometrics = async (student, event) => {
+    if (event) event.stopPropagation();
+    const studentName = student.name || "Student";
+    const studentRoll = student.rollNo || student.id || "";
+
+    const confirm = window.confirm(
+      `⚠️ ADMIN ACTION: Remove Facial Biometrics & Photo?\n\nAre you sure you want to remove the registered facial biometric data and enrolled photo for ${studentName} (${studentRoll})?\n\nThis will permanently clear their 128-D biometric vector and avatar photo across all database collections.`
+    );
+    if (!confirm) return;
+
+    try {
+      setUpdating(student.id);
+      const cleanRoll = String(student.rollNo || student.id || "").trim().toUpperCase();
+
+      await removeStudentFaceAndBiometrics(student);
+
+      const updated = {
+        faceRegistered: false,
+        biometricEnrolled: false,
+        hasFaceRegistered: false,
+        faceDescriptor: null,
+        photoURL: "",
+        image: "",
+        photo: ""
+      };
+
+      setStudents((prev) =>
+        prev.map((s) =>
+          s.id === student.id || (cleanRoll && s.rollNo === cleanRoll)
+            ? { ...s, ...updated }
+            : s
+        )
+      );
+
+      if (selectedStudent && (selectedStudent.id === student.id || selectedStudent.rollNo === cleanRoll)) {
+        setSelectedStudent((prev) => prev ? { ...prev, ...updated } : null);
+      }
+
+      alert(`✅ Facial biometric data and photo for ${studentName} (${cleanRoll}) have been successfully removed.`);
+    } catch (err) {
+      console.error("Error removing face biometrics:", err);
+      alert("Failed to remove face biometrics: " + err.message);
+    } finally {
+      setUpdating(null);
+    }
+  };
+
   const filteredStudents = students.filter((student) => {
     const value = search.toLowerCase().trim();
 
@@ -662,9 +698,9 @@ const ManageStudents = () => {
 
           <button
             className="add-student-btn"
-            style={{ background: "#10b981" }}
+            style={{ background: "linear-gradient(135deg, #10b981, #059669)", color: "#ffffff", border: "none" }}
             type="button"
-            onClick={() => navigate("/admin/students/add")}
+            onClick={() => navigate("/admin/students/add?tab=bulk")}
           >
             <FaFileExcel />
             Bulk Upload
@@ -673,7 +709,7 @@ const ManageStudents = () => {
           <button
             className="add-student-btn"
             type="button"
-            onClick={() => navigate("/admin/students/add")}
+            onClick={() => navigate("/admin/students/add?tab=single")}
           >
             <FaUserPlus />
             Add Student
@@ -726,12 +762,12 @@ const ManageStudents = () => {
                 : "Add a single student or upload students in bulk via Excel/CSV."}
             </p>
 
-            <div style={{ display: "flex", gap: "10px", marginTop: "14px", justifyContent: "center" }}>
+            <div style={{ display: "flex", gap: "10px", marginTop: "14px", justifyContent: "center", flexWrap: "wrap" }}>
               <button
                 className="add-student-btn"
-                style={{ background: "#10b981" }}
+                style={{ background: "linear-gradient(135deg, #10b981, #059669)", color: "#ffffff", border: "none" }}
                 type="button"
-                onClick={() => navigate("/admin/students/add")}
+                onClick={() => navigate("/admin/students/add?tab=bulk")}
               >
                 <FaFileExcel />
                 Bulk Upload
@@ -740,7 +776,7 @@ const ManageStudents = () => {
               <button
                 className="add-student-btn"
                 type="button"
-                onClick={() => navigate("/admin/students/add")}
+                onClick={() => navigate("/admin/students/add?tab=single")}
               >
                 <FaUserPlus />
                 Add Student
@@ -895,6 +931,18 @@ const ManageStudents = () => {
                           : <FaUserCheck />}
                       </button>
 
+                      {student.faceRegistered && (
+                        <button
+                          type="button"
+                          className="remove-face-button"
+                          title="Admin only: Remove registered facial biometrics"
+                          disabled={updating === student.id}
+                          onClick={(e) => handleRemoveFaceBiometrics(student, e)}
+                        >
+                          <FaUserTimes />
+                        </button>
+                      )}
+
                       <button
                         type="button"
                         className="delete-button"
@@ -927,6 +975,17 @@ const ManageStudents = () => {
         <StudentDetailModal
           student={selectedStudent}
           onClose={() => setSelectedStudent(null)}
+          onUpdate={(updatedStudent) => {
+            if (!updatedStudent) return;
+            setSelectedStudent(updatedStudent);
+            setStudents((prev) =>
+              prev.map((s) =>
+                s.id === updatedStudent.id || s.rollNo === updatedStudent.rollNo
+                  ? { ...s, ...updatedStudent }
+                  : s
+              )
+            );
+          }}
         />
       )}
 

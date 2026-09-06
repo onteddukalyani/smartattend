@@ -1,5 +1,5 @@
-import React, { useState, useRef } from "react";
-import { useNavigate } from "react-router-dom";
+import React, { useState, useRef, useEffect } from "react";
+import { useNavigate, useLocation } from "react-router-dom";
 import {
   FaArrowLeft,
   FaSave,
@@ -30,10 +30,25 @@ import "./AddStudent.css";
 
 const AddLecturer = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const fileInputRef = useRef(null);
 
+  // Determine initial tab from query string or URL path
+  const searchParams = new URLSearchParams(location.search);
+  const initialTab = searchParams.get("tab") === "bulk" || location.pathname.includes("/bulk") ? "bulk" : "single";
+
   // Tab State: "single" | "bulk"
-  const [activeTab, setActiveTab] = useState("single");
+  const [activeTab, setActiveTab] = useState(initialTab);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const tabParam = params.get("tab");
+    if (tabParam === "bulk" || location.pathname.includes("/bulk")) {
+      setActiveTab("bulk");
+    } else if (tabParam === "single") {
+      setActiveTab("single");
+    }
+  }, [location.search, location.pathname]);
 
   // --- Single Lecturer Form State ---
   const [form, setForm] = useState({

@@ -182,7 +182,9 @@ function FaceScanner({
         [...studentsSnap.docs, ...usersSnap.docs].forEach((docSnap) => {
           const d = docSnap.data();
           if (d.faceDescriptor && Array.isArray(d.faceDescriptor) && d.faceDescriptor.length === 128) {
-            const key = (d.rollNo || docSnap.id).toUpperCase();
+            let key = (d.rollNo && String(d.rollNo).trim()) ? String(d.rollNo).trim() : docSnap.id;
+            if (key.includes("@")) key = key.split("@")[0];
+            key = key.toUpperCase().trim();
             map.set(key, { ...d, rollNo: key, descriptor: new Float32Array(d.faceDescriptor) });
           }
         });

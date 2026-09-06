@@ -367,9 +367,6 @@ function StudentForm() {
             if (cleanEmail) {
                 promises.push(setDoc(doc(db, "authorizedUsers", cleanEmail), studentUpdate, { merge: true }));
             }
-            if (prefix && prefix !== targetRoll.toLowerCase()) {
-                promises.push(setDoc(doc(db, "students", prefix), studentUpdate, { merge: true }).catch(() => { }));
-            }
 
             await Promise.all(promises);
 
@@ -781,6 +778,7 @@ function StudentForm() {
                                     Position your face centered in the camera and click <strong>"Capture & Register Biometrics"</strong>.
                                 </p>
                                 <LiveFaceEnrollment
+                                    hideHeader={true}
                                     onFaceEnrolled={handleInlineFaceEnrolled}
                                 />
                                 {enrollSaving && (

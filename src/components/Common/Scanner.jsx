@@ -9,7 +9,6 @@ import {
     FaSyncAlt,
     FaExclamationTriangle,
     FaLock,
-    FaKeyboard,
     FaCamera,
     FaUpload,
     FaInfoCircle
@@ -29,8 +28,6 @@ function QrScannerApp() {
     const [cameraError, setCameraError] = useState('');
     const [permissionDenied, setPermissionDenied] = useState(false);
     const [scanningFile, setScanningFile] = useState(false);
-    const [manualSessionInput, setManualSessionInput] = useState('');
-    const [manualError, setManualError] = useState('');
     const [scannerActive, setScannerActive] = useState(true);
 
     // Initial check for desktop vs mobile to choose best default camera
@@ -69,7 +66,7 @@ function QrScannerApp() {
                 navigate(`/student-form?session=${encodeURIComponent(targetSessionId)}`);
             }, 500);
         } else {
-            setManualError("Invalid QR code. Please scan a valid SmartAttend session QR code.");
+            setCameraError("Invalid QR code. Please scan a valid SmartAttend session QR code.");
         }
     };
 
@@ -391,63 +388,6 @@ function QrScannerApp() {
                     <span>Session QR Code Verified! Opening attendance form...</span>
                 </div>
             )}
-
-            {/* Manual Session Code Input Alternative */}
-            <div style={{
-                marginTop: '24px',
-                paddingTop: '20px',
-                borderTop: '1px solid var(--border, #e2e8f0)',
-                textAlign: 'left'
-            }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', fontWeight: 700, fontSize: '0.9rem' }}>
-                    <FaKeyboard style={{ color: '#6366f1' }} />
-                    <span>Manual Entry Alternative</span>
-                </div>
-                <p style={{ margin: '0 0 12px', fontSize: '0.82rem', color: 'var(--text-muted, #64748b)' }}>
-                    Paste the session link or enter the Session ID directly:
-                </p>
-
-                <form onSubmit={handleManualSubmit} style={{ display: 'flex', gap: '8px' }}>
-                    <input
-                        type="text"
-                        placeholder="Paste URL or enter Session ID..."
-                        value={manualSessionInput}
-                        onChange={(e) => setManualSessionInput(e.target.value)}
-                        style={{
-                            flex: 1,
-                            padding: '10px 14px',
-                            borderRadius: '10px',
-                            border: '1.5px solid var(--border, #cbd5e1)',
-                            background: 'var(--surface, #ffffff)',
-                            color: 'var(--text-main, #0f172a)',
-                            fontSize: '0.88rem',
-                            outline: 'none'
-                        }}
-                    />
-                    <button
-                        type="submit"
-                        style={{
-                            padding: '10px 18px',
-                            borderRadius: '10px',
-                            background: 'linear-gradient(135deg, #6366f1, #4f46e5)',
-                            color: '#ffffff',
-                            border: 'none',
-                            fontWeight: 700,
-                            fontSize: '0.88rem',
-                            cursor: 'pointer',
-                            flexShrink: 0
-                        }}
-                    >
-                        Join Session
-                    </button>
-                </form>
-
-                {manualError && (
-                    <div style={{ marginTop: '8px', color: '#ef4444', fontSize: '0.82rem', fontWeight: 600 }}>
-                        ⚠️ {manualError}
-                    </div>
-                )}
-            </div>
         </div>
     );
 }

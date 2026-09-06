@@ -4,7 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { db } from "../../../firebase";
 import { useAuth } from "../../authcontext";
 import { downloadExcel } from "../../../DownloadExcel";
-import { FaSearch, FaSyncAlt, FaUserPlus, FaCheckCircle, FaCamera, FaExclamationTriangle } from "react-icons/fa";
+import { FaSearch, FaSyncAlt, FaUserPlus, FaCheckCircle, FaCamera, FaExclamationTriangle, FaFileExcel } from "react-icons/fa";
 import StudentDetailModal from "../../Common/StudentDetailModal";
 import { useTableSort, SortIcon } from "../../Common/useTableSort";
 import "./StudentsList.css";
@@ -44,34 +44,61 @@ function StudentsList() {
                 return false;
             };
 
+            const getCanonicalRoll = (d, id) => {
+                if (d?.rollNo && String(d.rollNo).trim()) {
+                    const r = String(d.rollNo).trim();
+                    return (r.includes("@") ? r.split("@")[0] : r).toUpperCase();
+                }
+                if (d?.email && String(d.email).includes("@")) {
+                    return String(d.email).split("@")[0].trim().toUpperCase();
+                }
+                if (id && String(id).includes("@")) {
+                    return String(id).split("@")[0].trim().toUpperCase();
+                }
+                return String(id || "").trim().toUpperCase();
+            };
+
             const studentMap = new Map();
 
+            const mergeStudent = (docSnap) => {
+                const d = docSnap.data();
+                if (!isStudentDoc(d, docSnap.id)) return;
+                const roll = getCanonicalRoll(d, docSnap.id);
+                if (!roll) return;
+
+                const existing = studentMap.get(roll) || {};
+                const cleanEmail = (d.email || existing.email || (roll.toLowerCase() + "@iiitdwd.ac.in")).toLowerCase().trim();
+                const branch = (d.branch && String(d.branch).toLowerCase() !== "general")
+                    ? d.branch
+                    : ((existing.branch && String(existing.branch).toLowerCase() !== "general") ? existing.branch : "CSE");
+
+                studentMap.set(roll, {
+                    ...existing,
+                    ...d,
+                    id: roll,
+                    rollNo: roll,
+                    email: cleanEmail,
+                    name: d.name || existing.name || "Student",
+                    branch: branch,
+                    semester: d.semester || existing.semester || "1",
+                    phone: d.phone || existing.phone || "",
+                    status: d.status || existing.status || "active",
+                    faceRegistered: d.faceRegistered ?? existing.faceRegistered ?? false,
+                    biometricEnrolled: d.biometricEnrolled ?? existing.biometricEnrolled ?? false,
+                    faceDescriptor: d.faceDescriptor || existing.faceDescriptor || null,
+                    photoURL: d.photoURL || existing.photoURL || "",
+                    role: "student"
+                });
+            };
+
             // 1. authorizedUsers
-            authUsersSnap.docs.forEach((doc) => {
-                const d = doc.data();
-                if (isStudentDoc(d, doc.id)) {
-                    const key = (d.email || d.rollNo || doc.id).toLowerCase().trim();
-                    studentMap.set(key, { id: doc.id, ...d });
-                }
-            });
+            authUsersSnap.docs.forEach(mergeStudent);
 
             // 2. students collection
-            studentsSnap.docs.forEach((doc) => {
-                const d = doc.data();
-                const key = (d.email || d.rollNo || doc.id).toLowerCase().trim();
-                const existing = studentMap.get(key) || {};
-                studentMap.set(key, { ...existing, ...d, id: doc.id });
-            });
+            studentsSnap.docs.forEach(mergeStudent);
 
             // 3. users
-            usersSnap.docs.forEach((doc) => {
-                const d = doc.data();
-                if (isStudentDoc(d, doc.id)) {
-                    const key = (d.email || d.rollNo || doc.id).toLowerCase().trim();
-                    const existing = studentMap.get(key) || {};
-                    studentMap.set(key, { ...existing, ...d, id: doc.id });
-                }
-            });
+            usersSnap.docs.forEach(mergeStudent);
 
             const rawStudents = Array.from(studentMap.values());
             rawStudents.sort((a, b) => {
@@ -131,7 +158,29 @@ function StudentsList() {
                     </div>
                     <button
                         type="button"
-                        onClick={() => navigate("/lecturer/students/add")}
+                        onClick={() => navigate("/lecturer/students/add?tab=bulk")}
+                        className="bulk-upload-btn"
+                        style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: "8px",
+                            padding: "9px 18px",
+                            borderRadius: "10px",
+                            background: "linear-gradient(135deg, #10b981, #059669)",
+                            color: "#ffffff",
+                            border: "none",
+                            fontWeight: "700",
+                            fontSize: "0.88rem",
+                            cursor: "pointer",
+                            boxShadow: "0 4px 12px rgba(16, 185, 129, 0.25)",
+                            whiteSpace: "nowrap"
+                        }}
+                    >
+                        <FaFileExcel /> Bulk Upload
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => navigate("/lecturer/students/add?tab=single")}
                         className="add-student-btn"
                         style={{
                             display: "inline-flex",
@@ -149,7 +198,7 @@ function StudentsList() {
                             whiteSpace: "nowrap"
                         }}
                     >
-                        <FaUserPlus />  Add Student & Register Face
+                        <FaUserPlus /> Add Student
                     </button>
                     <button
                         onClick={getStudents}
@@ -271,6 +320,13 @@ function StudentsList() {
                     onClose={() => {
                         setSelectedStudent(null);
                         getStudents();
+                    }}
+                    onUpdate={(updated) => {
+                        if (!updated) return;
+                        setSelectedStudent(updated);
+                        setStudents((prev) =>
+                            prev.map((s) => (s.id === updated.id || s.rollNo === updated.rollNo ? { ...s, ...updated } : s))
+                        );
                     }}
                 />
             )}

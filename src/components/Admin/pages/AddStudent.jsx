@@ -1,5 +1,5 @@
-import React, { useState, useRef } from "react";
-import { useNavigate } from "react-router-dom";
+import React, { useState, useRef, useEffect } from "react";
+import { useNavigate, useLocation } from "react-router-dom";
 import {
   FaArrowLeft,
   FaSave,
@@ -34,13 +34,28 @@ import "./AddStudent.css";
 
 const AddStudent = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { profile } = useAuth();
   const isLecturer = profile?.role === "lecturer";
   const studentsPath = isLecturer ? "/lecturer/students" : "/admin/students";
   const fileInputRef = useRef(null);
 
+  // Determine initial tab from query string or URL path
+  const searchParams = new URLSearchParams(location.search);
+  const initialTab = searchParams.get("tab") === "bulk" || location.pathname.includes("/bulk") ? "bulk" : "single";
+
   // Tab State: "single" | "bulk"
-  const [activeTab, setActiveTab] = useState("single");
+  const [activeTab, setActiveTab] = useState(initialTab);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const tabParam = params.get("tab");
+    if (tabParam === "bulk" || location.pathname.includes("/bulk")) {
+      setActiveTab("bulk");
+    } else if (tabParam === "single") {
+      setActiveTab("single");
+    }
+  }, [location.search, location.pathname]);
 
   // --- Single Student Form State ---
   const [form, setForm] = useState({
@@ -158,38 +173,92 @@ const AddStudent = () => {
         createdAt: serverTimestamp()
       };
 
-      // 1. Save in students collection (by Roll No, prefix, and email)
+      // 1. Save in students collection (Only canonical uppercase Roll Number)
       await setDoc(doc(db, "students", cleanRollNo), studentPayload);
-      if (prefix && prefix !== cleanRollNo.toLowerCase()) {
-        await setDoc(doc(db, "students", prefix), studentPayload, { merge: true }).catch(() => { });
+      if (cleanEmail && cleanEmail !== cleanRollNo) {
+        deleteDoc(doc(db, "students", cleanEmail)).catch(() => { });
       }
-      if (cleanEmail && cleanEmail !== cleanRollNo.toLowerCase()) {
-        await setDoc(doc(db, "students", cleanEmail), studentPayload, { merge: true }).catch(() => { });
+      if (prefix && prefix !== cleanRollNo) {
+        deleteDoc(doc(db, "students", prefix)).catch(() => { });
       }
 
-      // 2. Save student with Roll Number and prefix in users collection
+      // 2. Save student with Roll Number in users collection
       await setDoc(doc(db, "users", cleanRollNo), studentPayload);
-      if (prefix && prefix !== cleanRollNo.toLowerCase()) {
-        await setDoc(doc(db, "users", prefix), studentPayload, { merge: true }).catch(() => { });
-      }
 
       // 3. Synchronize to authorizedUsers for instant Google Login access
-      await setDoc(doc(db, "authorizedUsers", cleanEmail), {
-        ...studentPayload,
-        createdAt: Date.now()
-      }, { merge: true }).catch((e) => console.warn("authorizedUsers sync error:", e));
-
-      if (prefix && prefix !== cleanEmail) {
-        await setDoc(doc(db, "authorizedUsers", prefix), {
+      if (cleanEmail) {
+        await setDoc(doc(db, "authorizedUsers", cleanEmail), {
           ...studentPayload,
           createdAt: Date.now()
-        }, { merge: true }).catch(() => { });
+        }, { merge: true }).catch((e) => console.warn("authorizedUsers sync error:", e));
       }
 
       navigate(studentsPath);
     } catch (err) {
       console.error("Error creating student:", err);
       setError("Unable to create student. Please try again.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleSaveStudent = async (e) => {
+    e.preventDefault();
+    if (!validateForm()) return;
+
+    try {
+      setSaving(true);
+      setError("");
+
+      const cleanRollNo = formData.rollNo.toUpperCase().trim();
+      const cleanEmail = formData.email.toLowerCase().trim();
+      const prefix = cleanEmail ? cleanEmail.split("@")[0].toLowerCase().trim() : cleanRollNo.toLowerCase();
+
+      const studentPayload = {
+        name: formData.name.trim(),
+        rollNo: cleanRollNo,
+        email: cleanEmail,
+        department: formData.branch,
+        branch: formData.branch,
+        semester: formData.semester,
+        phone: formData.phone.trim(),
+        role: "student",
+        status: "active",
+        approved: true,
+        faceRegistered: Boolean(enrolledBiometric?.faceDescriptor),
+        biometricEnrolled: Boolean(enrolledBiometric?.faceDescriptor),
+        faceDescriptor: enrolledBiometric?.faceDescriptor || null,
+        photoURL: enrolledBiometric?.photoURL || "",
+        enrolledAt: enrolledBiometric?.enrolledAt || null,
+        updatedAt: serverTimestamp()
+      };
+
+      // Save student in students and users collections
+      await setDoc(doc(db, "students", cleanRollNo), studentPayload);
+      if (cleanEmail && cleanEmail !== cleanRollNo) {
+        deleteDoc(doc(db, "students", cleanEmail)).catch(() => { });
+      }
+      if (prefix && prefix !== cleanRollNo) {
+        deleteDoc(doc(db, "students", prefix)).catch(() => { });
+      }
+      await setDoc(doc(db, "users", cleanRollNo), studentPayload);
+
+      try {
+        if (cleanEmail) {
+          await setDoc(doc(db, "authorizedUsers", cleanEmail), {
+            ...studentPayload,
+            createdAt: Date.now()
+          }, { merge: true });
+        }
+      } catch (authErr) {
+        console.warn("Could not update authorizedUsers:", authErr);
+      }
+
+      alert(`✅ Successfully converted ${cleanEmail} to a registered student (Roll No: ${cleanRollNo})!`);
+      navigate(studentsPath);
+    } catch (err) {
+      console.error("Error converting lecturer to student:", err);
+      setError("Failed to convert account: " + err.message);
     } finally {
       setSaving(false);
     }
@@ -477,27 +546,15 @@ const AddStudent = () => {
             createdAt: serverTimestamp()
           };
 
-          // 1. Write to students collection
+          // 1. Write to students collection (Only canonical Roll Number)
           batch.set(doc(db, "students", student.rollNo), studentPayload);
-          if (prefix && prefix !== student.rollNo.toLowerCase()) {
-            batch.set(doc(db, "students", prefix), studentPayload, { merge: true });
-          }
 
           // 2. Write to users collection
           batch.set(doc(db, "users", student.rollNo), studentPayload);
-          if (prefix && prefix !== student.rollNo.toLowerCase()) {
-            batch.set(doc(db, "users", prefix), studentPayload, { merge: true });
-          }
 
           // 3. Write to authorizedUsers collection
           if (student.email) {
             batch.set(doc(db, "authorizedUsers", student.email), {
-              ...studentPayload,
-              createdAt: Date.now()
-            }, { merge: true });
-          }
-          if (prefix && prefix !== student.email) {
-            batch.set(doc(db, "authorizedUsers", prefix), {
               ...studentPayload,
               createdAt: Date.now()
             }, { merge: true });
@@ -736,6 +793,7 @@ const AddStudent = () => {
               Capture the student's live facial features with camera to enable instant AI biometric attendance recognition.
             </p>
             <LiveFaceEnrollment
+              hideHeader={true}
               onFaceEnrolled={(data) => setEnrolledBiometric(data)}
             />
           </div>

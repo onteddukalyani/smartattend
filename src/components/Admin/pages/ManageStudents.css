@@ -261,6 +261,19 @@
   box-shadow: 0 3px 8px rgba(59, 130, 246, 0.25) !important;
 }
 
+.student-actions button.remove-face-button {
+  background: rgba(239, 68, 68, 0.08);
+  color: #ef4444;
+  border-color: rgba(239, 68, 68, 0.25);
+}
+
+.student-actions button.remove-face-button:hover {
+  background: #ef4444 !important;
+  color: #ffffff !important;
+  border-color: #ef4444 !important;
+  box-shadow: 0 3px 8px rgba(239, 68, 68, 0.3) !important;
+}
+
 .students-empty,
 .students-loading {
   padding: 60px 20px;

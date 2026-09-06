@@ -16,7 +16,9 @@ import {
   FaFileDownload,
   FaCamera,
   FaSave,
-  FaRedo
+  FaRedo,
+  FaTrashAlt,
+  FaShieldAlt
 } from "react-icons/fa";
 import { collection, getDocs, query, where, doc, setDoc } from "firebase/firestore";
 import { db } from "../../firebase";
@@ -24,9 +26,10 @@ import { useAuth } from "../authcontext";
 import { downloadExcel } from "../../DownloadExcel";
 import { useTableSort, SortIcon } from "./useTableSort";
 import { LiveFaceEnrollment } from "./LiveFaceEnrollment";
+import { removeStudentFaceAndBiometrics, removeStudentPhotoOnly } from "../../utils/biometricManager";
 import "./StudentDetailModal.css";
 
-const StudentDetailModal = ({ student, onClose }) => {
+const StudentDetailModal = ({ student, onClose, onUpdate }) => {
   const { user, profile } = useAuth();
   const [currentStudent, setCurrentStudent] = useState(student);
   const [attendanceRecords, setAttendanceRecords] = useState([]);
@@ -37,7 +40,18 @@ const StudentDetailModal = ({ student, onClose }) => {
   const [showFaceEnroll, setShowFaceEnroll] = useState(false);
   const [enrolledBiometric, setEnrolledBiometric] = useState(null);
   const [savingFace, setSavingFace] = useState(false);
+  const [removingFace, setRemovingFace] = useState(false);
+  const [removingPhoto, setRemovingPhoto] = useState(false);
   const [faceSuccessMsg, setFaceSuccessMsg] = useState("");
+
+  const isAdmin =
+    profile?.role === "admin" ||
+    profile?.role === "administrator" ||
+    profile?.role === "superadmin" ||
+    user?.email === "onteddukalyani@gmail.com" ||
+    profile?.email === "onteddukalyani@gmail.com" ||
+    localStorage.getItem("smartattend-user-role") === "admin" ||
+    window.location.pathname.startsWith("/admin");
 
   const { sortedItems: sortedAttendance, sortConfig, requestSort } = useTableSort(attendanceRecords, "submittedAt", "desc");
 
@@ -54,22 +68,10 @@ const StudentDetailModal = ({ student, onClose }) => {
         // Fetch all attendance records for this student's roll number
         const cleanRoll = String(student.rollNo).trim().toUpperCase();
 
-        let recordsQuery;
-        // If user is lecturer, they can query where ownerId == user.uid, or if admin query all
-        const isAdminUser = profile?.role === "admin" || user?.email === "onteddukalyani@gmail.com";
-
-        if (isAdminUser) {
-          recordsQuery = query(
-            collection(db, "attendance_records"),
-            where("rollNo", "==", cleanRoll)
-          );
-        } else {
-          // Lecturer
-          recordsQuery = query(
-            collection(db, "attendance_records"),
-            where("rollNo", "==", cleanRoll)
-          );
-        }
+        const recordsQuery = query(
+          collection(db, "attendance_records"),
+          where("rollNo", "==", cleanRoll)
+        );
 
         const [recordsSnap, sessionsSnap] = await Promise.all([
           getDocs(recordsQuery),
@@ -102,33 +104,40 @@ const StudentDetailModal = ({ student, onClose }) => {
     };
 
     fetchStudentAttendance();
-  }, [student, profile, user]);
+  }, [student]);
+
+  // Sync currentStudent with updated student prop
+  useEffect(() => {
+    if (student) {
+      setCurrentStudent(student);
+    }
+  }, [student]);
 
   if (!student) return null;
 
-  // Calculate stats
+  // Aggregate stats
   const totalAttended = attendanceRecords.length;
-  const uniqueCourses = new Set(
-    attendanceRecords
-      .map((r) => r.session?.courseCode || r.session?.classCode)
-      .filter(Boolean)
-  ).size;
+  const uniqueCourses = new Set(attendanceRecords.map(r => r.session?.courseId || r.courseId).filter(Boolean)).size;
 
-  const handleExportAttendance = () => {
-    const exportData = attendanceRecords.map((rec) => ({
-      "Student Name": currentStudent.name || "N/A",
-      "Roll Number": currentStudent.rollNo || "N/A",
-      "Course Code": rec.session?.courseCode || "N/A",
-      "Class Code": rec.session?.classCode || "N/A",
-      "Room": rec.roomNo || rec.session?.roomNo || "N/A",
-      "Date & Time": rec.submittedAt ? new Date(rec.submittedAt).toLocaleString() : "N/A",
-      "Status": "Present"
+  const handleExportDetails = () => {
+    if (!attendanceRecords.length) {
+      alert("No attendance records to export for this student.");
+      return;
+    }
+
+    const exportData = attendanceRecords.map((r) => ({
+      "Roll Number": currentStudent.rollNo || "",
+      "Student Name": currentStudent.name || "",
+      "Course Code": r.session?.courseCode || r.courseCode || "N/A",
+      "Course Name": r.session?.courseName || r.courseName || "General Session",
+      "Date": r.submittedAt ? new Date(r.submittedAt).toLocaleDateString() : "N/A",
+      "Time": r.submittedAt ? new Date(r.submittedAt).toLocaleTimeString() : "N/A",
+      "Status": r.status || "Present",
+      "Confidence": r.confidence ? `${r.confidence}%` : "100%",
+      "Method": r.method || "Biometric Face + QR"
     }));
 
-    downloadExcel(
-      exportData,
-      `${currentStudent.rollNo}_Attendance_Report_${new Date().toISOString().slice(0, 10)}`
-    );
+    downloadExcel(exportData, `Attendance_${currentStudent.rollNo || "Student"}_Report`);
   };
 
   const handleSaveBiometrics = async () => {
@@ -155,17 +164,16 @@ const StudentDetailModal = ({ student, onClose }) => {
       if (cleanEmail) {
         promises.push(setDoc(doc(db, "authorizedUsers", cleanEmail), updateData, { merge: true }).catch((e) => console.warn("authorizedUsers sync warning:", e)));
       }
-      if (prefix && prefix !== cleanRoll.toLowerCase()) {
-        promises.push(setDoc(doc(db, "students", prefix), updateData, { merge: true }).catch(() => { }));
-        promises.push(setDoc(doc(db, "users", prefix), updateData, { merge: true }).catch(() => { }));
-      }
 
       await Promise.all(promises);
 
-      setCurrentStudent((prev) => ({
-        ...prev,
+      const updatedStudent = {
+        ...currentStudent,
         ...updateData
-      }));
+      };
+
+      setCurrentStudent(updatedStudent);
+      onUpdate?.(updatedStudent);
 
       setFaceSuccessMsg("✅ Face biometric enrolled & synchronized successfully across database!");
       setTimeout(() => {
@@ -180,6 +188,91 @@ const StudentDetailModal = ({ student, onClose }) => {
     }
   };
 
+  const handleRemoveFaceBiometrics = async () => {
+    if (!isAdmin) {
+      alert("Only administrators have permission to remove registered facial biometrics.");
+      return;
+    }
+
+    const studentName = currentStudent.name || "Student";
+    const studentRoll = currentStudent.rollNo || currentStudent.id || "";
+
+    const confirm = window.confirm(
+      `⚠️ ADMIN ONLY: Remove Facial Biometrics & Photo?\n\nAre you sure you want to remove the registered facial biometric data and enrolled photo for ${studentName} (${studentRoll})?\n\nThis will permanently clear their 128-D biometric vector and avatar photo from all database collections.`
+    );
+    if (!confirm) return;
+
+    try {
+      setRemovingFace(true);
+      await removeStudentFaceAndBiometrics(currentStudent);
+
+      const updatedStudent = {
+        ...currentStudent,
+        faceRegistered: false,
+        biometricEnrolled: false,
+        hasFaceRegistered: false,
+        faceDescriptor: null,
+        photoURL: "",
+        image: "",
+        photo: ""
+      };
+
+      setCurrentStudent(updatedStudent);
+      onUpdate?.(updatedStudent);
+
+      setShowFaceEnroll(false);
+      setFaceSuccessMsg("🗑️ Registered facial biometric data and photo have been completely removed by Admin.");
+      setTimeout(() => {
+        setFaceSuccessMsg("");
+      }, 3500);
+    } catch (err) {
+      console.error("Error removing face biometrics:", err);
+      alert("Failed to remove face biometrics: " + err.message);
+    } finally {
+      setRemovingFace(false);
+    }
+  };
+
+  const handleRemovePhotoOnly = async () => {
+    if (!isAdmin) {
+      alert("Only administrators have permission to remove student photos.");
+      return;
+    }
+
+    const studentName = currentStudent.name || "Student";
+    const studentRoll = currentStudent.rollNo || currentStudent.id || "";
+
+    const confirm = window.confirm(
+      `⚠️ ADMIN ACTION: Delete Student Photo?\n\nAre you sure you want to delete the photo for ${studentName} (${studentRoll})?`
+    );
+    if (!confirm) return;
+
+    try {
+      setRemovingPhoto(true);
+      await removeStudentPhotoOnly(currentStudent);
+
+      const updatedStudent = {
+        ...currentStudent,
+        photoURL: "",
+        image: "",
+        photo: ""
+      };
+
+      setCurrentStudent(updatedStudent);
+      onUpdate?.(updatedStudent);
+
+      setFaceSuccessMsg("🗑️ Student photo has been deleted by Admin.");
+      setTimeout(() => {
+        setFaceSuccessMsg("");
+      }, 3000);
+    } catch (err) {
+      console.error("Error removing photo:", err);
+      alert("Failed to remove photo: " + err.message);
+    } finally {
+      setRemovingPhoto(false);
+    }
+  };
+
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="student-modal-container" onClick={(e) => e.stopPropagation()}>
@@ -190,17 +283,31 @@ const StudentDetailModal = ({ student, onClose }) => {
 
         {/* Header Profile Section */}
         <div className="modal-profile-header">
-          <div className="modal-avatar-wrapper">
-            {currentStudent.photoURL || currentStudent.image ? (
-              <img
-                src={currentStudent.photoURL || currentStudent.image}
-                alt={currentStudent.name}
-                className="modal-avatar-img"
-              />
-            ) : (
-              <div className="modal-avatar-placeholder">
-                <FaUser />
-              </div>
+          <div className="modal-avatar-container-outer">
+            <div className="modal-avatar-wrapper">
+              {currentStudent.photoURL || currentStudent.image ? (
+                <img
+                  src={currentStudent.photoURL || currentStudent.image}
+                  alt={currentStudent.name}
+                  className="modal-avatar-img"
+                />
+              ) : (
+                <div className="modal-avatar-placeholder">
+                  <FaUser />
+                </div>
+              )}
+            </div>
+            {isAdmin && (currentStudent.photoURL || currentStudent.image) && (
+              <button
+                type="button"
+                className="modal-avatar-delete-photo-btn"
+                title="Admin only: Delete student profile photo"
+                onClick={handleRemovePhotoOnly}
+                disabled={removingPhoto}
+                aria-label="Delete student photo"
+              >
+                <FaTrashAlt />
+              </button>
             )}
           </div>
 
@@ -315,25 +422,51 @@ const StudentDetailModal = ({ student, onClose }) => {
                   <label>Face Biometric Status</label>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "8px" }}>
                     <span>{currentStudent.faceRegistered ? "Registered & Active ✅" : "Not Registered ⏳"}</span>
-                    <button
-                      type="button"
-                      onClick={() => setShowFaceEnroll((prev) => !prev)}
-                      style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: "6px",
-                        fontSize: "0.8rem",
-                        fontWeight: 700,
-                        padding: "5px 12px",
-                        borderRadius: "8px",
-                        background: showFaceEnroll ? "var(--surface-soft, #f1f5f9)" : "linear-gradient(135deg, #6366f1, #4f46e5)",
-                        color: showFaceEnroll ? "var(--text-main, #334155)" : "#ffffff",
-                        border: "1px solid var(--border, #cbd5e1)",
-                        cursor: "pointer"
-                      }}
-                    >
-                      <FaCamera /> {showFaceEnroll ? "Hide Camera" : (currentStudent.faceRegistered ? "Update Face" : "Enroll Face")}
-                    </button>
+                    <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+                      {isAdmin && currentStudent.faceRegistered && (
+                        <button
+                          type="button"
+                          onClick={handleRemoveFaceBiometrics}
+                          disabled={removingFace}
+                          title="Admin only: Delete student's facial biometric data and enrolled photo"
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: "5px",
+                            fontSize: "0.78rem",
+                            fontWeight: 700,
+                            padding: "5px 10px",
+                            borderRadius: "8px",
+                            background: "rgba(239, 68, 68, 0.12)",
+                            color: "#ef4444",
+                            border: "1px solid rgba(239, 68, 68, 0.3)",
+                            cursor: removingFace ? "not-allowed" : "pointer"
+                          }}
+                        >
+                          <FaTrashAlt /> {removingFace ? "Removing..." : "Remove Face & Photo"}
+                        </button>
+                      )}
+
+                      <button
+                        type="button"
+                        onClick={() => setShowFaceEnroll((prev) => !prev)}
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: "6px",
+                          fontSize: "0.8rem",
+                          fontWeight: 700,
+                          padding: "5px 12px",
+                          borderRadius: "8px",
+                          background: showFaceEnroll ? "var(--surface-soft, #f1f5f9)" : "linear-gradient(135deg, #6366f1, #4f46e5)",
+                          color: showFaceEnroll ? "var(--text-main, #334155)" : "#ffffff",
+                          border: "1px solid var(--border, #cbd5e1)",
+                          cursor: "pointer"
+                        }}
+                      >
+                        <FaCamera /> {showFaceEnroll ? "Hide Camera" : (currentStudent.faceRegistered ? "Re-enroll Face" : "Enroll Face")}
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -342,6 +475,7 @@ const StudentDetailModal = ({ student, onClose }) => {
               {showFaceEnroll && (
                 <div style={{ marginTop: "12px", borderTop: "1px solid var(--border, #e2e8f0)", paddingTop: "12px" }}>
                   <LiveFaceEnrollment
+                    hideHeader={true}
                     onFaceEnrolled={(data) => setEnrolledBiometric(data)}
                   />
                   {enrolledBiometric?.faceDescriptor && (

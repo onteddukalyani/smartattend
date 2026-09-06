@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import {
     collection,
     doc,
@@ -29,7 +29,12 @@ import {
     FaExclamationTriangle,
     FaUserCheck,
     FaSpinner,
-    FaLock
+    FaLock,
+    FaTrashAlt,
+    FaPercentage,
+    FaArrowRight,
+    FaEdit,
+    FaCheck
 } from "react-icons/fa";
 import { MdQrCodeScanner } from "react-icons/md";
 import { db } from "../../../firebase";
@@ -37,14 +42,27 @@ import { useAuth } from "../../authcontext";
 import { downloadExcel } from "../../../DownloadExcel";
 import { useTableSort, SortIcon } from "../../Common/useTableSort";
 import { LiveFaceEnrollment } from "../../Common/LiveFaceEnrollment";
+import { removeStudentPhotoOnly } from "../../../utils/biometricManager";
+import { getCandidateRolls, computeStudentMetrics } from "../studentAttendanceHelper";
 import "./Dashboard.css";
 
 export default function StudentDashboard() {
-    const { user, profile } = useAuth();
+    const { user, profile, updateProfileName } = useAuth();
+    const navigate = useNavigate();
+
+    const [courses, setCourses] = useState([]);
+    const [sessions, setSessions] = useState([]);
     const [records, setRecords] = useState([]);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
     const [search, setSearch] = useState("");
+
+    // Name Editing State
+    const [isEditingStudentName, setIsEditingStudentName] = useState(false);
+    const [editNameInput, setEditNameInput] = useState("");
+    const [savingStudentName, setSavingStudentName] = useState(false);
+    const [nameEditSuccess, setNameEditSuccess] = useState("");
+    const [nameEditError, setNameEditError] = useState("");
 
     // Face Biometric Registration Modal State
     const [showFaceModal, setShowFaceModal] = useState(false);
@@ -55,8 +73,9 @@ export default function StudentDashboard() {
     // Profile Photo Upload State
     const [photoUploading, setPhotoUploading] = useState(false);
     const [photoSuccessMsg, setPhotoSuccessMsg] = useState("");
+    const [photoDeleting, setPhotoDeleting] = useState(false);
 
-    // Identify primary student roll number: default strictly and immutably from Gmail email (e.g. 25bcs108@iiitdwd.ac.in -> 25BCS108)
+    // Identify primary student roll number
     const emailRoll = (user?.email || "").split("@")[0].trim().toUpperCase();
     const activeRollNo = (profile?.rollNo || emailRoll || "").trim().toUpperCase();
 
@@ -77,17 +96,114 @@ export default function StudentDashboard() {
         }).catch(() => { });
     }, [activeRollNo]);
 
+    const studentName = fetchedStudentData?.name || profile?.name || activeRollNo || "Student";
+    const rawBranch = profile?.branch || fetchedStudentData?.branch;
+    const studentBranch = (rawBranch && String(rawBranch).toLowerCase() !== "general") ? rawBranch : "CSE";
+    const studentSemester = profile?.semester || fetchedStudentData?.semester || "1";
+
     const hasFaceRegistered = Boolean(
         fetchedStudentData?.faceRegistered ||
         profile?.faceRegistered ||
         (fetchedStudentData?.faceDescriptor && Array.isArray(fetchedStudentData.faceDescriptor) && fetchedStudentData.faceDescriptor.length === 128)
     );
 
-    // Initial Face Biometric Enrollment (Only accessible if face is NOT yet registered)
+    // Build candidate roll numbers to guarantee matching
+    const candidateRolls = useMemo(() => {
+        return getCandidateRolls(user, profile, fetchedStudentData);
+    }, [user, profile, fetchedStudentData]);
+
+    // 1. Real-time Courses listener
+    useEffect(() => {
+        const unsubscribeCourses = onSnapshot(
+            collection(db, "courses"),
+            (snapshot) => {
+                const list = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
+                setCourses(list);
+            },
+            (err) => console.warn("Error listening to courses:", err)
+        );
+        return () => unsubscribeCourses();
+    }, []);
+
+    // 2. Real-time Sessions listener
+    useEffect(() => {
+        const unsubscribeSessions = onSnapshot(
+            collection(db, "attendance_sessions"),
+            (snapshot) => {
+                const list = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
+                setSessions(list);
+            },
+            (err) => console.warn("Error listening to sessions:", err)
+        );
+        return () => unsubscribeSessions();
+    }, []);
+
+    // 3. Real-time Attendance Records listener
+    useEffect(() => {
+        if (!candidateRolls || candidateRolls.length === 0) {
+            setLoading(false);
+            return;
+        }
+
+        setLoading(true);
+
+        const recordsQ = query(
+            collection(db, "attendance_records"),
+            where("rollNo", "in", candidateRolls)
+        );
+
+        const unsubscribeRecords = onSnapshot(
+            recordsQ,
+            (snapshot) => {
+                const list = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
+                setRecords(list);
+                setLoading(false);
+                setRefreshing(false);
+            },
+            (err) => {
+                console.error("Error listening to student attendance records:", err);
+                setLoading(false);
+                setRefreshing(false);
+            }
+        );
+
+        return () => unsubscribeRecords();
+    }, [candidateRolls]);
+
+    // Manual Refresh Handler
+    const handleManualRefresh = async () => {
+        setRefreshing(true);
+        try {
+            const [coursesSnap, sessionsSnap, recordsSnap] = await Promise.all([
+                getDocs(collection(db, "courses")).catch(() => ({ docs: [] })),
+                getDocs(collection(db, "attendance_sessions")).catch(() => ({ docs: [] })),
+                candidateRolls.length > 0
+                    ? getDocs(query(collection(db, "attendance_records"), where("rollNo", "in", candidateRolls))).catch(() => ({ docs: [] }))
+                    : { docs: [] }
+            ]);
+
+            setCourses(coursesSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
+            setSessions(sessionsSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
+            setRecords(recordsSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
+        } catch (err) {
+            console.error("Manual refresh error:", err);
+        } finally {
+            setRefreshing(false);
+        }
+    };
+
+    // Unified metrics computation
+    const metrics = useMemo(() => {
+        return computeStudentMetrics(courses, sessions, records, {
+            branch: studentBranch,
+            semester: studentSemester
+        });
+    }, [courses, sessions, records, studentBranch, studentSemester]);
+
+    // Initial Face Biometric Enrollment
     const handleEnrollStudentFace = async (enrollData) => {
         if (!enrollData || !enrollData.faceDescriptor || !activeRollNo) return;
 
-        // Security check: If student already has face registered, do not allow re-enrollment from student dashboard
         if (hasFaceRegistered) {
             alert("🔒 Your facial biometrics are already registered and locked. Only a Lecturer or Admin can update your biometric data.");
             setShowFaceModal(false);
@@ -114,9 +230,6 @@ export default function StudentDashboard() {
             if (cleanEmail) {
                 promises.push(setDoc(doc(db, "authorizedUsers", cleanEmail), updatePayload, { merge: true }).catch(() => { }));
             }
-            if (prefix && prefix !== activeRollNo.toLowerCase()) {
-                promises.push(setDoc(doc(db, "students", prefix), updatePayload, { merge: true }).catch(() => { }));
-            }
 
             await Promise.all(promises);
 
@@ -138,7 +251,7 @@ export default function StudentDashboard() {
         }
     };
 
-    // Profile Photo Update (Updates display avatar only, without changing facial biometric descriptors)
+    // Profile Photo Update
     const handleProfilePhotoUpload = (e) => {
         const file = e.target.files?.[0];
         if (!file) return;
@@ -215,163 +328,45 @@ export default function StudentDashboard() {
         reader.readAsDataURL(file);
     };
 
-    const studentName = profile?.name || fetchedStudentData?.name || user?.displayName || "Student";
-    const rawBranch = profile?.branch || fetchedStudentData?.branch;
-    const studentBranch = (rawBranch && String(rawBranch).toLowerCase() !== "general") ? rawBranch : "CSE";
-    const studentSemester = profile?.semester || fetchedStudentData?.semester || "1";
+    const handleDeleteProfilePhoto = async () => {
+        const confirm = window.confirm("Are you sure you want to remove your profile photo?");
+        if (!confirm) return;
 
-    // Build list of candidate roll numbers to guarantee matching
-    const candidateRolls = useMemo(() => {
-        const set = new Set();
-        if (activeRollNo) {
-            set.add(activeRollNo);
-            set.add(activeRollNo.toLowerCase());
-            const digits = activeRollNo.replace(/\D/g, "");
-            if (digits && digits.length >= 2) set.add(digits);
-        }
-        if (profile?.rollNo) {
-            const r = String(profile.rollNo).trim();
-            set.add(r);
-            set.add(r.toUpperCase());
-            set.add(r.toLowerCase());
-            const digits = r.replace(/\D/g, "");
-            if (digits && digits.length >= 2) set.add(digits);
-        }
-        if (user?.email) {
-            const prefix = user.email.split("@")[0].trim();
-            set.add(prefix);
-            set.add(prefix.toUpperCase());
-            set.add(prefix.toLowerCase());
-            const digits = prefix.replace(/\D/g, "");
-            if (digits && digits.length >= 2) set.add(digits);
-        }
-        if (user?.uid) {
-            set.add(user.uid);
-        }
-        return Array.from(set).filter(Boolean).slice(0, 10);
-    }, [activeRollNo, profile?.rollNo, user?.email, user?.uid]);
-
-    // Real-time Firestore attendance listener
-    useEffect(() => {
-        if (!candidateRolls || candidateRolls.length === 0) {
-            setLoading(false);
-            return;
-        }
-
-        setLoading(true);
-
-        // Preload sessions map in background for legacy records missing courseCode
-        const sessionsMap = new Map();
-        getDocs(collection(db, "attendance_sessions"))
-            .then((snap) => {
-                snap.docs.forEach((d) => sessionsMap.set(d.id, d.data()));
-            })
-            .catch((err) => {
-                console.warn("Could not preload sessions map:", err.message);
-            });
-
-        // 1. Listen for records matching candidate roll numbers
-        const recordsQ = query(
-            collection(db, "attendance_records"),
-            where("rollNo", "in", candidateRolls)
-        );
-
-        const unsubscribeRoll = onSnapshot(
-            recordsQ,
-            (snapshot) => {
-                const fetchedRecords = snapshot.docs.map((docSnap) => {
-                    const data = docSnap.data();
-                    const sessionInfo = sessionsMap.get(data.sessionId) || {};
-                    return {
-                        id: docSnap.id,
-                        ...data,
-                        courseCode: data.courseCode || sessionInfo.courseCode || "N/A",
-                        classCode: data.classCode || sessionInfo.classCode || "N/A",
-                        roomNo: data.roomNo || sessionInfo.roomNo || "N/A"
-                    };
-                });
-
-                // Sort descending: most recent attended class first
-                fetchedRecords.sort((a, b) => (b.submittedAt || 0) - (a.submittedAt || 0));
-                setRecords(fetchedRecords);
-                setLoading(false);
-                setRefreshing(false);
-            },
-            (err) => {
-                console.error("Error listening to student attendance records:", err);
-                setLoading(false);
-                setRefreshing(false);
-            }
-        );
-
-        return () => unsubscribeRoll();
-    }, [candidateRolls]);
-
-    const handleManualRefresh = async () => {
-        setRefreshing(true);
         try {
-            const recordsQ = query(
-                collection(db, "attendance_records"),
-                where("rollNo", "in", candidateRolls)
-            );
-            const [recordsSnap, sessionsSnap] = await Promise.all([
-                getDocs(recordsQ),
-                getDocs(collection(db, "attendance_sessions")).catch(() => ({ docs: [] }))
-            ]);
-
-            const sessionsMap = new Map();
-            sessionsSnap.docs.forEach((d) => sessionsMap.set(d.id, d.data()));
-
-            const fetchedRecords = recordsSnap.docs.map((docSnap) => {
-                const data = docSnap.data();
-                const sessionInfo = sessionsMap.get(data.sessionId) || {};
-                return {
-                    id: docSnap.id,
-                    ...data,
-                    courseCode: data.courseCode || sessionInfo.courseCode || "N/A",
-                    classCode: data.classCode || sessionInfo.classCode || "N/A",
-                    roomNo: data.roomNo || sessionInfo.roomNo || "N/A"
-                };
-            });
-
-            fetchedRecords.sort((a, b) => (b.submittedAt || 0) - (a.submittedAt || 0));
-            setRecords(fetchedRecords);
+            setPhotoDeleting(true);
+            await removeStudentPhotoOnly({ rollNo: activeRollNo, email: user?.email });
+            setFetchedStudentData((prev) => ({
+                ...(prev || {}),
+                photoURL: "",
+                image: "",
+                photo: ""
+            }));
+            setPhotoSuccessMsg("🗑️ Profile photo removed!");
+            setTimeout(() => setPhotoSuccessMsg(""), 3000);
         } catch (err) {
-            console.error("Manual refresh error:", err);
+            console.error("Error removing photo:", err);
+            alert("Failed to remove photo: " + err.message);
         } finally {
-            setRefreshing(false);
+            setPhotoDeleting(false);
         }
     };
 
-    const handleSaveRollNumber = () => {
-        const clean = editRollInput.trim().toUpperCase();
-        if (clean) {
-            localStorage.setItem("smartattend_student_roll", clean);
-            setCustomRoll(clean);
-        }
-        setIsEditingRoll(false);
-    };
-
-    // Derived statistics
-    const totalAttended = records.length;
-    const uniqueCourses = new Set(records.map((r) => r.courseCode).filter((c) => c && c !== "N/A")).size;
-    const lastAttended = records.length > 0 && records[0].submittedAt
-        ? new Date(records[0].submittedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })
-        : "No classes yet";
-
-    // Search filter
-    const filteredRecords = records.filter((r) => {
+    // Filtered records for table
+    const filteredRecords = useMemo(() => {
         const term = search.toLowerCase().trim();
-        if (!term) return true;
-        return (
-            (r.courseCode || "").toLowerCase().includes(term) ||
-            (r.classCode || "").toLowerCase().includes(term) ||
-            (r.roomNo || "").toLowerCase().includes(term) ||
-            (r.rollNo || "").toLowerCase().includes(term)
-        );
-    });
+        if (!term) return metrics.enrichedRecords;
+        return metrics.enrichedRecords.filter((r) => {
+            return (
+                (r.courseCode || "").toLowerCase().includes(term) ||
+                (r.classCode || "").toLowerCase().includes(term) ||
+                (r.roomNo || "").toLowerCase().includes(term) ||
+                (r.rollNo || "").toLowerCase().includes(term) ||
+                (r.lecturerName || "").toLowerCase().includes(term)
+            );
+        });
+    }, [metrics.enrichedRecords, search]);
 
-    // Universal interactive sorting
+    // Sorting
     const { sortedItems: sortedRecords, sortConfig, requestSort } = useTableSort(filteredRecords, "submittedAt", "desc");
 
     const handleExport = () => {
@@ -387,59 +382,208 @@ export default function StudentDashboard() {
             <div className="student-hero-banner">
                 <div className="student-hero-main">
                     <div className="student-hero-avatar-wrap" style={{ position: "relative", flexShrink: 0 }}>
-                        <div className="student-hero-avatar" style={{
-                            overflow: "hidden",
-                            background: fetchedStudentData?.photoURL || profile?.photoURL || user?.photoURL ? "#0f172a" : "linear-gradient(135deg, var(--accent, #6366f1), #4338ca)"
-                        }}>
-                            {fetchedStudentData?.photoURL || profile?.photoURL || user?.photoURL ? (
-                                <img
-                                    src={fetchedStudentData?.photoURL || profile?.photoURL || user?.photoURL}
-                                    alt={studentName}
-                                    style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
-                                />
-                            ) : (
-                                studentName.charAt(0).toUpperCase()
-                            )}
-                        </div>
+                        {(() => {
+                            const hasActivePhoto = Boolean(
+                                fetchedStudentData?.photoURL ||
+                                (fetchedStudentData === null && (profile?.photoURL || user?.photoURL))
+                            );
+                            const photoSrc = fetchedStudentData?.photoURL || (fetchedStudentData === null ? (profile?.photoURL || user?.photoURL) : "");
 
-                        {/* Profile Photo Upload Trigger */}
-                        <label
-                            className="student-avatar-upload-btn"
-                            title="Upload / Change Profile Photo"
-                            style={{
-                                position: "absolute",
-                                bottom: "-4px",
-                                right: "-4px",
-                                background: "linear-gradient(135deg, #6366f1, #4f46e5)",
-                                color: "#ffffff",
-                                width: "28px",
-                                height: "28px",
-                                borderRadius: "50%",
-                                display: "flex",
-                                alignItems: "center",
-                                justifyContent: "center",
-                                cursor: photoUploading ? "wait" : "pointer",
-                                boxShadow: "0 2px 10px rgba(0,0,0,0.3)",
-                                fontSize: "12px",
-                                border: "2.5px solid var(--surface, #ffffff)",
-                                transition: "transform 0.15s ease"
-                            }}
-                        >
-                            {photoUploading ? <FaSpinner className="fa-spin" /> : <FaCamera />}
-                            <input
-                                type="file"
-                                accept="image/*"
-                                onChange={handleProfilePhotoUpload}
-                                disabled={photoUploading}
-                                style={{ display: "none" }}
-                            />
-                        </label>
+                            return (
+                                <>
+                                    <div className="student-hero-avatar" style={{
+                                        overflow: "hidden",
+                                        background: hasActivePhoto && photoSrc ? "#0f172a" : "linear-gradient(135deg, var(--accent, #6366f1), #4338ca)"
+                                    }}>
+                                        {hasActivePhoto && photoSrc ? (
+                                            <img
+                                                src={photoSrc}
+                                                alt={studentName}
+                                                style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+                                            />
+                                        ) : (
+                                            studentName.charAt(0).toUpperCase()
+                                        )}
+                                    </div>
+
+                                    {/* Profile Photo Actions */}
+                                    <div style={{ position: "absolute", bottom: "-4px", right: "-6px", display: "flex", gap: "4px", alignItems: "center" }}>
+                                        {hasActivePhoto && (
+                                            <button
+                                                type="button"
+                                                className="student-avatar-delete-btn"
+                                                title="Delete Profile Photo"
+                                                onClick={handleDeleteProfilePhoto}
+                                                disabled={photoDeleting}
+                                                style={{
+                                                    background: "#ef4444",
+                                                    color: "#ffffff",
+                                                    width: "24px",
+                                                    height: "24px",
+                                                    borderRadius: "50%",
+                                                    display: "flex",
+                                                    alignItems: "center",
+                                                    justifyContent: "center",
+                                                    cursor: photoDeleting ? "wait" : "pointer",
+                                                    boxShadow: "0 2px 8px rgba(239, 68, 68, 0.4)",
+                                                    fontSize: "10px",
+                                                    border: "2px solid var(--surface, #ffffff)",
+                                                    transition: "transform 0.15s ease"
+                                                }}
+                                            >
+                                                {photoDeleting ? <FaSpinner className="fa-spin" /> : <FaTrashAlt />}
+                                            </button>
+                                        )}
+
+                                        <label
+                                            className="student-avatar-upload-btn"
+                                            title="Upload / Change Profile Photo"
+                                            style={{
+                                                background: "linear-gradient(135deg, #6366f1, #4f46e5)",
+                                                color: "#ffffff",
+                                                width: "26px",
+                                                height: "26px",
+                                                borderRadius: "50%",
+                                                display: "flex",
+                                                alignItems: "center",
+                                                justifyContent: "center",
+                                                cursor: photoUploading ? "wait" : "pointer",
+                                                boxShadow: "0 2px 10px rgba(0,0,0,0.3)",
+                                                fontSize: "11px",
+                                                border: "2px solid var(--surface, #ffffff)",
+                                                transition: "transform 0.15s ease"
+                                            }}
+                                        >
+                                            {photoUploading ? <FaSpinner className="fa-spin" /> : <FaCamera />}
+                                            <input
+                                                type="file"
+                                                accept="image/*"
+                                                onChange={handleProfilePhotoUpload}
+                                                disabled={photoUploading}
+                                                style={{ display: "none" }}
+                                            />
+                                        </label>
+                                    </div>
+                                </>
+                            );
+                        })()}
                     </div>
 
                     <div className="student-hero-info">
                         <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
-                            <h1 style={{ margin: 0 }}>Welcome, {studentName} 👋</h1>
+                            {isEditingStudentName ? (
+                                <form
+                                    onSubmit={async (e) => {
+                                        e.preventDefault();
+                                        if (!editNameInput.trim()) return;
+                                        try {
+                                            setSavingStudentName(true);
+                                            setNameEditError("");
+                                            await updateProfileName(editNameInput.trim());
+                                            setFetchedStudentData((prev) => ({ ...(prev || {}), name: editNameInput.trim() }));
+                                            setIsEditingStudentName(false);
+                                            setNameEditSuccess("Name updated and saved successfully!");
+                                            setTimeout(() => setNameEditSuccess(""), 3500);
+                                        } catch (err) {
+                                            setNameEditError(err.message || "Failed to save name");
+                                        } finally {
+                                            setSavingStudentName(false);
+                                        }
+                                    }}
+                                    style={{ display: "inline-flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}
+                                >
+                                    <input
+                                        type="text"
+                                        value={editNameInput}
+                                        onChange={(e) => setEditNameInput(e.target.value)}
+                                        placeholder="Enter your full name"
+                                        autoFocus
+                                        disabled={savingStudentName}
+                                        style={{
+                                            padding: "6px 12px",
+                                            borderRadius: "8px",
+                                            border: "2px solid #6366f1",
+                                            fontSize: "1.1rem",
+                                            fontWeight: 700,
+                                            outline: "none",
+                                            background: "var(--surface, #ffffff)",
+                                            color: "var(--text-main, #0f172a)"
+                                        }}
+                                    />
+                                    <button
+                                        type="submit"
+                                        disabled={savingStudentName || !editNameInput.trim()}
+                                        style={{
+                                            padding: "6px 14px",
+                                            borderRadius: "8px",
+                                            background: "linear-gradient(135deg, #6366f1, #4f46e5)",
+                                            color: "#ffffff",
+                                            border: "none",
+                                            fontWeight: 700,
+                                            fontSize: "0.85rem",
+                                            cursor: "pointer",
+                                            display: "inline-flex",
+                                            alignItems: "center",
+                                            gap: "5px"
+                                        }}
+                                    >
+                                        {savingStudentName ? <FaSpinner className="fa-spin" /> : <><FaCheck /> Save</>}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => { setIsEditingStudentName(false); setEditNameInput(studentName); setNameEditError(""); }}
+                                        disabled={savingStudentName}
+                                        style={{
+                                            padding: "6px 12px",
+                                            borderRadius: "8px",
+                                            background: "var(--surface-soft, #f1f5f9)",
+                                            color: "var(--text-muted, #64748b)",
+                                            border: "1px solid var(--border, #cbd5e1)",
+                                            fontWeight: 600,
+                                            fontSize: "0.85rem",
+                                            cursor: "pointer"
+                                        }}
+                                    >
+                                        Cancel
+                                    </button>
+                                </form>
+                            ) : (
+                                <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+                                    <h1 style={{ margin: 0 }}>Welcome, {studentName} 👋</h1>
+                                    <button
+                                        type="button"
+                                        onClick={() => { setIsEditingStudentName(true); setEditNameInput(studentName); }}
+                                        style={{
+                                            display: "inline-flex",
+                                            alignItems: "center",
+                                            gap: "5px",
+                                            padding: "4px 10px",
+                                            borderRadius: "8px",
+                                            background: "rgba(99, 102, 241, 0.1)",
+                                            color: "#6366f1",
+                                            border: "1px solid rgba(99, 102, 241, 0.25)",
+                                            fontSize: "0.78rem",
+                                            fontWeight: 700,
+                                            cursor: "pointer",
+                                            transition: "all 0.2s ease"
+                                        }}
+                                        title="Click to edit your display name"
+                                    >
+                                        <FaEdit size={12} /> Edit Name
+                                    </button>
+                                </div>
+                            )}
                         </div>
+                        {nameEditSuccess && (
+                            <div style={{ fontSize: "0.82rem", color: "#15803d", fontWeight: 700, marginTop: "4px" }}>
+                                ✅ {nameEditSuccess}
+                            </div>
+                        )}
+                        {nameEditError && (
+                            <div style={{ fontSize: "0.82rem", color: "#dc2626", fontWeight: 700, marginTop: "4px" }}>
+                                ⚠️ {nameEditError}
+                            </div>
+                        )}
                         {photoSuccessMsg && (
                             <div style={{ fontSize: "0.82rem", color: "#15803d", fontWeight: 700, marginTop: "3px" }}>
                                 {photoSuccessMsg}
@@ -497,7 +641,7 @@ export default function StudentDashboard() {
                 </div>
             </div>
 
-            {/* Face Registration Pending Banner (Only for students without registered face) */}
+            {/* Face Registration Pending Banner */}
             {!hasFaceRegistered && (
                 <div className="face-pending-alert-banner" style={{
                     display: "flex",
@@ -508,7 +652,7 @@ export default function StudentDashboard() {
                     borderRadius: "14px",
                     background: "linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%)",
                     border: "1.5px solid #fde68a",
-                    marginBottom: "24px",
+                    marginBottom: "8px",
                     flexWrap: "wrap",
                     boxShadow: "0 4px 12px rgba(245, 158, 11, 0.1)"
                 }}>
@@ -546,15 +690,25 @@ export default function StudentDashboard() {
                 </div>
             )}
 
-            {/* 2. Attendance Summary Statistics */}
+            {/* 2. Unified Attendance Summary Statistics */}
             <div className="student-stats-grid">
                 <div className="student-stat-card">
                     <div className="student-stat-icon blue">
                         <FaCalendarCheck />
                     </div>
                     <div className="student-stat-content">
-                        <span>Total Classes Attended</span>
-                        <strong>{loading ? "..." : totalAttended}</strong>
+                        <span>Classes Attended / Conducted</span>
+                        <strong>{loading ? "..." : `${metrics.totalAttended} / ${metrics.totalConducted}`}</strong>
+                    </div>
+                </div>
+
+                <div className="student-stat-card">
+                    <div className={`student-stat-icon ${metrics.overallPercentage >= 75 ? "green" : "purple"}`}>
+                        <FaPercentage />
+                    </div>
+                    <div className="student-stat-content">
+                        <span>Overall Attendance</span>
+                        <strong>{loading ? "..." : `${metrics.overallPercentage}%`}</strong>
                     </div>
                 </div>
 
@@ -563,8 +717,8 @@ export default function StudentDashboard() {
                         <FaBookOpen />
                     </div>
                     <div className="student-stat-content">
-                        <span>Distinct Subjects</span>
-                        <strong>{loading ? "..." : uniqueCourses}</strong>
+                        <span>Enrolled Courses</span>
+                        <strong>{loading ? "..." : metrics.coursesWithStats.length}</strong>
                     </div>
                 </Link>
 
@@ -574,12 +728,72 @@ export default function StudentDashboard() {
                     </div>
                     <div className="student-stat-content">
                         <span>Last Attended Class</span>
-                        <strong style={{ fontSize: "1.1rem" }}>{loading ? "..." : lastAttended}</strong>
+                        <strong style={{ fontSize: "1.05rem" }}>{loading ? "..." : metrics.lastAttended}</strong>
                     </div>
                 </div>
             </div>
 
-            {/* 3. Attended Classes Log */}
+            {/* 3. Course Quick Attendance Overview */}
+            {metrics.coursesWithStats.length > 0 && (
+                <div className="student-course-quick-section">
+                    <div className="student-course-quick-header">
+                        <div>
+                            <h2>My Courses & Attendance Progress</h2>
+                            <p>Overview of all academic courses and current attendance status</p>
+                        </div>
+                        <Link to="/student/courses" className="student-course-quick-link">
+                            View Detailed Syllabus & Logs <FaArrowRight />
+                        </Link>
+                    </div>
+
+                    <div className="student-courses-quick-grid">
+                        {metrics.coursesWithStats.slice(0, 6).map((course) => {
+                            const isSafe = course.percentage !== null && course.percentage >= 75;
+                            const isWarning = course.percentage !== null && course.percentage >= 65 && course.percentage < 75;
+                            const isDanger = course.percentage !== null && course.percentage < 65;
+
+                            return (
+                                <Link
+                                    to="/student/courses"
+                                    key={course.id || course.courseCode}
+                                    className="student-quick-course-card"
+                                >
+                                    <div className="student-quick-course-top">
+                                        <span className="student-quick-course-code">{course.courseCode}</span>
+                                        <span className={`student-quick-course-badge ${isSafe ? "safe" : isDanger ? "danger" : isWarning ? "warning" : "none"}`}>
+                                            {course.percentage !== null ? `${course.percentage}%` : "No classes"}
+                                        </span>
+                                    </div>
+
+                                    <h4 className="student-quick-course-title">{course.courseName}</h4>
+
+                                    <div className="student-quick-course-bar-bg">
+                                        <div
+                                            className={`student-quick-course-bar-fill ${isSafe ? "safe" : isDanger ? "danger" : isWarning ? "warning" : ""}`}
+                                            style={{ width: `${course.percentage !== null ? course.percentage : 0}%` }}
+                                        />
+                                    </div>
+
+                                    <div className="student-quick-course-footer">
+                                        <span>Attended: <strong>{course.attendedCount} / {course.totalConducted}</strong></span>
+                                        <span>
+                                            {course.totalConducted === 0 ? (
+                                                "Pending"
+                                            ) : isSafe ? (
+                                                <span style={{ color: "#059669", fontWeight: 700 }}>+{course.leavesAvailable} Leaves Safe</span>
+                                            ) : (
+                                                <span style={{ color: "#dc2626", fontWeight: 700 }}>Need +{course.classesNeeded} Classes</span>
+                                            )}
+                                        </span>
+                                    </div>
+                                </Link>
+                            );
+                        })}
+                    </div>
+                </div>
+            )}
+
+            {/* 4. Attended Classes Log */}
             <div className="student-records-card">
                 <div className="records-header-row">
                     <div className="records-header-left">
@@ -587,7 +801,7 @@ export default function StudentDashboard() {
                             <FaCalendarCheck />
                         </div>
                         <div>
-                            <h2>Classes You Have Attended ({records.length})</h2>
+                            <h2>Classes You Have Attended ({metrics.enrichedRecords.length})</h2>
                             <p>Real-time attendance register for Roll No: <strong className="header-roll-highlight">{activeRollNo}</strong></p>
                         </div>
                     </div>
@@ -604,12 +818,12 @@ export default function StudentDashboard() {
                             <span>{refreshing ? "Updating..." : "Refresh"}</span>
                         </button>
 
-                        {records.length > 0 && (
+                        {metrics.enrichedRecords.length > 0 && (
                             <div className="records-search">
                                 <FaSearch className="records-search-icon" />
                                 <input
                                     type="text"
-                                    placeholder="Search subject, class or room..."
+                                    placeholder="Search subject, class, room or lecturer..."
                                     value={search}
                                     onChange={(e) => setSearch(e.target.value)}
                                 />
@@ -625,7 +839,7 @@ export default function StudentDashboard() {
                             </div>
                         )}
 
-                        {records.length > 0 && (
+                        {metrics.enrichedRecords.length > 0 && (
                             <button
                                 type="button"
                                 className="download-export-btn"
@@ -655,7 +869,7 @@ export default function StudentDashboard() {
                         <p>
                             {search
                                 ? `No classes matched your search filter "${search}". Try searching by course code or lecturer name.`
-                                : `No attendance entries found under Roll Number "${activeRollNo}". Classes you attend and submit attendance for via QR Code or Face Verification will automatically appear here.`}
+                                : `No attendance entries found under Roll Number "${activeRollNo}". Classes you attend and submit attendance for via QR Code or Face Verification will automatically appear here in real time.`}
                         </p>
 
                         {!search ? (
@@ -752,7 +966,7 @@ export default function StudentDashboard() {
                 )}
             </div>
 
-            {/* 4. Security Dialog: Locked Face Biometrics Information */}
+            {/* 5. Security Dialog: Locked Face Biometrics Information */}
             {showLockedFaceModal && (
                 <div className="modal-backdrop" onClick={() => setShowLockedFaceModal(false)} style={{
                     position: "fixed",
@@ -861,7 +1075,7 @@ export default function StudentDashboard() {
                 </div>
             )}
 
-            {/* 5. Initial Face Biometrics Registration Modal (Only accessible if face is NOT yet registered) */}
+            {/* 6. Initial Face Biometrics Registration Modal */}
             {showFaceModal && !hasFaceRegistered && (
                 <div className="modal-backdrop" onClick={() => setShowFaceModal(false)} style={{
                     position: "fixed",
@@ -880,11 +1094,11 @@ export default function StudentDashboard() {
                     <div className="student-modal-container" onClick={(e) => e.stopPropagation()} style={{
                         background: "var(--surface, #ffffff)",
                         borderRadius: "20px",
-                        maxWidth: "600px",
+                        maxWidth: "740px",
                         width: "100%",
-                        maxHeight: "90vh",
+                        maxHeight: "92vh",
                         overflowY: "auto",
-                        padding: "28px",
+                        padding: "24px 20px",
                         boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.25)",
                         position: "relative"
                     }}>
@@ -924,6 +1138,7 @@ export default function StudentDashboard() {
                         </div>
 
                         <LiveFaceEnrollment
+                            hideHeader={true}
                             onFaceEnrolled={handleEnrollStudentFace}
                         />
 

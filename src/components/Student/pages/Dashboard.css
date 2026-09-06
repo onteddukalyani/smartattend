@@ -702,6 +702,193 @@
     }
 }
 
+/* Course Quick Overview Cards on Dashboard */
+.student-course-quick-section {
+    background: var(--surface, #ffffff);
+    border: 1px solid var(--border, #e2e8f0);
+    border-radius: 18px;
+    padding: 24px;
+    box-shadow: 0 4px 20px var(--shadow, rgba(0, 0, 0, 0.04));
+}
+
+.student-course-quick-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-bottom: 18px;
+}
+
+.student-course-quick-header h2 {
+    margin: 0;
+    font-size: 1.25rem;
+    font-weight: 800;
+    color: var(--text-main, #0f172a);
+}
+
+.student-course-quick-header p {
+    margin: 4px 0 0;
+    font-size: 0.84rem;
+    color: var(--text-muted, #64748b);
+}
+
+.student-course-quick-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.88rem;
+    font-weight: 700;
+    color: var(--accent, #6366f1);
+    text-decoration: none;
+    transition: transform 0.15s ease;
+}
+
+.student-course-quick-link:hover {
+    transform: translateX(3px);
+}
+
+.student-courses-quick-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 16px;
+}
+
+.student-quick-course-card {
+    background: var(--surface-soft, #f8fafc);
+    border: 1px solid var(--border, #e2e8f0);
+    border-radius: 14px;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    transition: all 0.2s ease;
+    text-decoration: none;
+    color: inherit;
+}
+
+.student-quick-course-card:hover {
+    border-color: var(--accent, #6366f1);
+    transform: translateY(-2px);
+    box-shadow: 0 6px 16px rgba(99, 102, 241, 0.12);
+}
+
+.student-quick-course-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+}
+
+.student-quick-course-code {
+    font-size: 0.82rem;
+    font-weight: 800;
+    color: var(--accent, #6366f1);
+    background: rgba(99, 102, 241, 0.1);
+    padding: 3px 8px;
+    border-radius: 6px;
+}
+
+.student-quick-course-badge {
+    font-size: 0.76rem;
+    font-weight: 700;
+    padding: 3px 8px;
+    border-radius: 6px;
+}
+
+.student-quick-course-badge.safe {
+    background: #ecfdf5;
+    color: #059669;
+}
+
+.student-quick-course-badge.warning {
+    background: #fffbeb;
+    color: #d97706;
+}
+
+.student-quick-course-badge.danger {
+    background: #fef2f2;
+    color: #dc2626;
+}
+
+.student-quick-course-badge.none {
+    background: #f1f5f9;
+    color: #64748b;
+}
+
+.student-quick-course-title {
+    font-size: 0.98rem;
+    font-weight: 700;
+    margin: 0;
+    color: var(--text-main, #0f172a);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.student-quick-course-bar-bg {
+    width: 100%;
+    height: 6px;
+    border-radius: 999px;
+    background: #e2e8f0;
+    overflow: hidden;
+}
+
+.student-quick-course-bar-fill {
+    height: 100%;
+    border-radius: 999px;
+    transition: width 0.4s ease;
+}
+
+.student-quick-course-bar-fill.safe {
+    background: #10b981;
+}
+
+.student-quick-course-bar-fill.warning {
+    background: #f59e0b;
+}
+
+.student-quick-course-bar-fill.danger {
+    background: #ef4444;
+}
+
+.student-quick-course-footer {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.8rem;
+    color: var(--text-muted, #64748b);
+}
+
+.student-quick-course-footer strong {
+    color: var(--text-main, #0f172a);
+}
+
+[data-theme="midnight"] .student-course-quick-section {
+    background: #1b2a40;
+    border-color: #34465f;
+}
+
+[data-theme="midnight"] .student-course-quick-header h2 {
+    color: #f8fafc;
+}
+
+[data-theme="midnight"] .student-quick-course-card {
+    background: #152135;
+    border-color: #34465f;
+}
+
+[data-theme="midnight"] .student-quick-course-title {
+    color: #f8fafc;
+}
+
+[data-theme="midnight"] .student-quick-course-bar-bg {
+    background: #27374d;
+}
+
+[data-theme="midnight"] .student-quick-course-footer strong {
+    color: #f8fafc;
+}
+
 @media (max-width: 480px) {
     .student-stats-grid {
         grid-template-columns: 1fr;

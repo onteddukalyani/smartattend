@@ -10,7 +10,7 @@ import { useAuth } from "../authcontext";
 function Navbar({ sidebarHidden, onMenuClick }) {
     const { user, profile } = useAuth();
     const [profileImageFailed, setProfileImageFailed] = useState(false);
-    const profileName = profile?.name || user?.displayName || (user?.isAnonymous ? "Guest" : "Student");
+    const profileName = profile?.name || (user?.isAnonymous ? "Guest" : (profile?.rollNo || "Student"));
     const profileImage = user?.photoURL;
     return (
         <header className="navbar">
