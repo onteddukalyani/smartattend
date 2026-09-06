@@ -4,6 +4,7 @@ import {
     FaUser
 } from "react-icons/fa";
 import React, { useState } from "react";
+import { Link } from "react-router-dom";
 import './Navbar.css'
 import { useAuth } from "../authcontext";
 
@@ -28,25 +29,23 @@ function Navbar({ sidebarHidden, onMenuClick }) {
             </div>
 
             <div className="right-nav">
-
-                <div className="profile">
-
-                    {profileImage && !profileImageFailed ? (
-                        <img
-                            src={profileImage}
-                            alt="Profile"
-                            className="nav-profile-img"
-                            onError={() => setProfileImageFailed(true)}
-                        />
-                    ) : (
-                        <div className="nav-profile-placeholder">
-                            <FaUser />
-                        </div>
-                    )}
-
-                    <span>{profileName}</span>
-                </div>
-
+                <Link to="/student/settings" className="nav-profile-btn-link" title="Click to view Settings & Edit Name" style={{ textDecoration: "none" }}>
+                    <div className="profile">
+                        {profileImage && !profileImageFailed ? (
+                            <img
+                                src={profileImage}
+                                alt="Profile"
+                                className="nav-profile-img"
+                                onError={() => setProfileImageFailed(true)}
+                            />
+                        ) : (
+                            <div className="nav-profile-placeholder">
+                                <FaUser />
+                            </div>
+                        )}
+                        <span>{profileName}</span>
+                    </div>
+                </Link>
             </div>
 
         </header>

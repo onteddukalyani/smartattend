@@ -6,13 +6,14 @@ import { IoAddCircleOutline } from "react-icons/io5";
 import { GoPeople } from "react-icons/go";
 import { LuClipboardList } from "react-icons/lu";
 import { SlCalender } from "react-icons/sl";
+import { FaEdit, FaCheck, FaTimes, FaSpinner, FaChalkboardTeacher, FaUniversity, FaEnvelope } from "react-icons/fa";
 import { Link } from "react-router-dom";
 import { collection, getDocs, query, where } from "firebase/firestore";
 import { db } from "../../../firebase";
 import { useAuth } from "../../authcontext";
 
 function Dashboard() {
-    const { user } = useAuth();
+    const { user, profile } = useAuth();
     const [recentSessions, setRecentSessions] = useState([]);
     const [counts, setCounts] = useState({
         sessions: 0,
@@ -20,6 +21,8 @@ function Dashboard() {
         students: 0,
         attendanceToday: 0
     });
+
+    const lecturerName = profile?.name || user?.displayName || (user?.email ? user.email.split("@")[0] : "Faculty Member");
 
     useEffect(() => {
         const getDashboardCounts = async () => {
@@ -93,6 +96,43 @@ function Dashboard() {
     ];
     return (
         <div className="dashboard-page">
+            {/* 1. Lecturer Profile Banner */}
+            <div className="lecturer-hero-banner">
+                <div className="lecturer-hero-main">
+                    <div className="lecturer-hero-avatar">
+                        {user?.photoURL ? (
+                            <img src={user.photoURL} alt={lecturerName} style={{ width: "100%", height: "100%", borderRadius: "16px", objectFit: "cover" }} />
+                        ) : (
+                            lecturerName.charAt(0).toUpperCase()
+                        )}
+                    </div>
+                    <div className="lecturer-hero-info">
+                        <div className="lecturer-hero-title-row">
+                            <h1 className="lecturer-hero-title">Welcome, {lecturerName} 👋</h1>
+                        </div>
+                        {nameSuccess && (
+                            <div className="lecturer-hero-toast success">
+                                <FaCheck /> {nameSuccess}
+                            </div>
+                        )}
+                        <div className="lecturer-hero-badges">
+                            <span className="lecturer-badge pill-faculty">
+                                <FaChalkboardTeacher /> Faculty Member
+                            </span>
+                            <span className="lecturer-badge">
+                                <FaUniversity /> {profile?.department || "Computer Science Department"}
+                            </span>
+                            <span className="lecturer-badge">
+                                <FaEnvelope /> {user?.email || "Faculty Account"}
+                            </span>
+                            <Link to="/lecturer/settings" className="lecturer-badge lecturer-settings-link" title="Open Full Account Settings">
+                                ⚙️ Settings
+                            </Link>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <div className="dash-cards">
                 {dashcards.map((item, index) => (
                     <div key={index}>
@@ -138,6 +178,6 @@ function Dashboard() {
                 )}
             </div>
         </div>
-    )
+    );
 }
 export default Dashboard;

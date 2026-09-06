@@ -147,22 +147,49 @@
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    padding: 4px 10px;
-    border-radius: 8px;
-    background: rgba(99, 102, 241, 0.1);
-    color: #4f46e5;
-    border: 1px solid rgba(99, 102, 241, 0.25);
-    font-size: 0.8rem;
+    padding: 4px 14px;
+    border-radius: 999px;
+    background: #ecfdf5;
+    color: #047857;
+    border: 1px solid #a7f3d0;
+    font-size: 12.5px;
     font-weight: 700;
+    letter-spacing: 0.02em;
     cursor: pointer;
-    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+    transition: all 0.2s ease;
 }
 
 .st-edit-name-btn:hover {
-    background: #4f46e5;
-    color: #ffffff;
-    border-color: #4f46e5;
+    background: #d1fae5;
+    color: #065f46;
+    border-color: #6ee7b7;
     transform: translateY(-1px);
+    box-shadow: 0 3px 8px rgba(16, 185, 129, 0.2);
+}
+
+.st-btn-mini-edit {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 12px;
+    border-radius: 999px;
+    background: #ecfdf5;
+    color: #047857;
+    border: 1px solid #a7f3d0;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+    transition: all 0.2s ease;
+}
+
+.st-btn-mini-edit:hover {
+    background: #d1fae5;
+    color: #065f46;
+    border-color: #6ee7b7;
+    transform: translateY(-1px);
+    box-shadow: 0 3px 8px rgba(16, 185, 129, 0.15);
 }
 
 .st-name-edit-form {
@@ -978,6 +1005,42 @@
 
 [data-theme="midnight"] .st-sys-val {
     color: #e2e8f0;
+}
+
+[data-theme="midnight"] .st-edit-name-btn {
+    background: rgba(16, 185, 129, 0.22);
+    color: #a7f3d0;
+    border: 1px solid rgba(110, 231, 183, 0.45);
+    box-shadow: 0 0 12px rgba(16, 185, 129, 0.25);
+}
+
+[data-theme="midnight"] .st-edit-name-btn:hover {
+    background: rgba(16, 185, 129, 0.35);
+    color: #ffffff;
+    border-color: #6ee7b7;
+}
+
+[data-theme="midnight"] .st-btn-mini-edit {
+    background: rgba(16, 185, 129, 0.22);
+    color: #a7f3d0;
+    border: 1px solid rgba(110, 231, 183, 0.45);
+}
+
+[data-theme="midnight"] .st-btn-mini-edit:hover {
+    background: rgba(16, 185, 129, 0.35);
+    color: #ffffff;
+}
+
+[data-theme="midnight"] .st-name-modal-box {
+    background: #131b2e !important;
+    border-color: #1e293b !important;
+    color: #f8fafc !important;
+}
+
+[data-theme="midnight"] .st-name-edit-input {
+    background: #1a233a;
+    border-color: #6366f1;
+    color: #f8fafc;
 }
 
 [data-theme="midnight"] .st-logout-btn {

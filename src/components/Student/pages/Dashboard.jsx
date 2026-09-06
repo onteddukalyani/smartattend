@@ -57,12 +57,6 @@ export default function StudentDashboard() {
     const [refreshing, setRefreshing] = useState(false);
     const [search, setSearch] = useState("");
 
-    // Name Editing State
-    const [isEditingStudentName, setIsEditingStudentName] = useState(false);
-    const [editNameInput, setEditNameInput] = useState("");
-    const [savingStudentName, setSavingStudentName] = useState(false);
-    const [nameEditSuccess, setNameEditSuccess] = useState("");
-    const [nameEditError, setNameEditError] = useState("");
 
     // Face Biometric Registration Modal State
     const [showFaceModal, setShowFaceModal] = useState(false);
@@ -470,126 +464,20 @@ export default function StudentDashboard() {
                     </div>
 
                     <div className="student-hero-info">
-                        <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
-                            {isEditingStudentName ? (
-                                <form
-                                    onSubmit={async (e) => {
-                                        e.preventDefault();
-                                        if (!editNameInput.trim()) return;
-                                        try {
-                                            setSavingStudentName(true);
-                                            setNameEditError("");
-                                            await updateProfileName(editNameInput.trim());
-                                            setFetchedStudentData((prev) => ({ ...(prev || {}), name: editNameInput.trim() }));
-                                            setIsEditingStudentName(false);
-                                            setNameEditSuccess("Name updated and saved successfully!");
-                                            setTimeout(() => setNameEditSuccess(""), 3500);
-                                        } catch (err) {
-                                            setNameEditError(err.message || "Failed to save name");
-                                        } finally {
-                                            setSavingStudentName(false);
-                                        }
-                                    }}
-                                    style={{ display: "inline-flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}
-                                >
-                                    <input
-                                        type="text"
-                                        value={editNameInput}
-                                        onChange={(e) => setEditNameInput(e.target.value)}
-                                        placeholder="Enter your full name"
-                                        autoFocus
-                                        disabled={savingStudentName}
-                                        style={{
-                                            padding: "6px 12px",
-                                            borderRadius: "8px",
-                                            border: "2px solid #6366f1",
-                                            fontSize: "1.1rem",
-                                            fontWeight: 700,
-                                            outline: "none",
-                                            background: "var(--surface, #ffffff)",
-                                            color: "var(--text-main, #0f172a)"
-                                        }}
-                                    />
-                                    <button
-                                        type="submit"
-                                        disabled={savingStudentName || !editNameInput.trim()}
-                                        style={{
-                                            padding: "6px 14px",
-                                            borderRadius: "8px",
-                                            background: "linear-gradient(135deg, #6366f1, #4f46e5)",
-                                            color: "#ffffff",
-                                            border: "none",
-                                            fontWeight: 700,
-                                            fontSize: "0.85rem",
-                                            cursor: "pointer",
-                                            display: "inline-flex",
-                                            alignItems: "center",
-                                            gap: "5px"
-                                        }}
-                                    >
-                                        {savingStudentName ? <FaSpinner className="fa-spin" /> : <><FaCheck /> Save</>}
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => { setIsEditingStudentName(false); setEditNameInput(studentName); setNameEditError(""); }}
-                                        disabled={savingStudentName}
-                                        style={{
-                                            padding: "6px 12px",
-                                            borderRadius: "8px",
-                                            background: "var(--surface-soft, #f1f5f9)",
-                                            color: "var(--text-muted, #64748b)",
-                                            border: "1px solid var(--border, #cbd5e1)",
-                                            fontWeight: 600,
-                                            fontSize: "0.85rem",
-                                            cursor: "pointer"
-                                        }}
-                                    >
-                                        Cancel
-                                    </button>
-                                </form>
-                            ) : (
-                                <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
-                                    <h1 style={{ margin: 0 }}>Welcome, {studentName} 👋</h1>
-                                    <button
-                                        type="button"
-                                        onClick={() => { setIsEditingStudentName(true); setEditNameInput(studentName); }}
-                                        style={{
-                                            display: "inline-flex",
-                                            alignItems: "center",
-                                            gap: "5px",
-                                            padding: "4px 10px",
-                                            borderRadius: "8px",
-                                            background: "rgba(99, 102, 241, 0.1)",
-                                            color: "#6366f1",
-                                            border: "1px solid rgba(99, 102, 241, 0.25)",
-                                            fontSize: "0.78rem",
-                                            fontWeight: 700,
-                                            cursor: "pointer",
-                                            transition: "all 0.2s ease"
-                                        }}
-                                        title="Click to edit your display name"
-                                    >
-                                        <FaEdit size={12} /> Edit Name
-                                    </button>
-                                </div>
-                            )}
+                        <div className="student-hero-title-row">
+                            <h1 className="student-hero-welcome-title">Welcome, {studentName} 👋</h1>
                         </div>
-                        {nameEditSuccess && (
-                            <div style={{ fontSize: "0.82rem", color: "#15803d", fontWeight: 700, marginTop: "4px" }}>
-                                ✅ {nameEditSuccess}
-                            </div>
-                        )}
-                        {nameEditError && (
-                            <div style={{ fontSize: "0.82rem", color: "#dc2626", fontWeight: 700, marginTop: "4px" }}>
-                                ⚠️ {nameEditError}
-                            </div>
-                        )}
+
                         {photoSuccessMsg && (
-                            <div style={{ fontSize: "0.82rem", color: "#15803d", fontWeight: 700, marginTop: "3px" }}>
+                            <div className="student-hero-toast success">
                                 {photoSuccessMsg}
                             </div>
                         )}
+
                         <div className="student-hero-badges">
+                            <span className="student-role-pill-badge" title="Student Account">
+                                <FaUserGraduate /> Student
+                            </span>
                             <span
                                 className="student-roll-badge non-editable"
                                 title={`Verified Roll Number: ${activeRollNo}`}
@@ -1162,6 +1050,174 @@ export default function StudentDashboard() {
                                 {faceSuccessMsg}
                             </div>
                         )}
+                    </div>
+                </div>
+            )}
+
+            {/* 7. Dedicated Edit Student Name Modal */}
+            {showEditNameModal && (
+                <div className="modal-backdrop" onClick={() => setShowEditNameModal(false)} style={{
+                    position: "fixed",
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    backgroundColor: "rgba(15, 23, 42, 0.75)",
+                    backdropFilter: "blur(6px)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    zIndex: 9999,
+                    padding: "20px"
+                }}>
+                    <div className="student-modal-container student-name-edit-modal-box" onClick={(e) => e.stopPropagation()} style={{
+                        background: "var(--surface, #ffffff)",
+                        borderRadius: "20px",
+                        maxWidth: "500px",
+                        width: "100%",
+                        padding: "28px 24px",
+                        boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.25)",
+                        position: "relative",
+                        border: "1px solid var(--border, #e2e8f0)"
+                    }}>
+                        <button
+                            type="button"
+                            onClick={() => setShowEditNameModal(false)}
+                            style={{
+                                position: "absolute",
+                                top: "18px",
+                                right: "18px",
+                                background: "var(--surface-soft, #f1f5f9)",
+                                border: "none",
+                                borderRadius: "50%",
+                                width: "36px",
+                                height: "36px",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                fontSize: "1.1rem",
+                                cursor: "pointer",
+                                color: "var(--text-muted, #64748b)"
+                            }}
+                        >
+                            ✕
+                        </button>
+
+                        <div style={{ display: "inline-flex", alignItems: "center", gap: "8px", padding: "6px 14px", borderRadius: "20px", background: "rgba(99, 102, 241, 0.1)", color: "#6366f1", fontWeight: 700, fontSize: "0.85rem", marginBottom: "12px" }}>
+                            <FaEdit /> Student Profile Management
+                        </div>
+
+                        <h2 style={{ margin: "0 0 6px", fontSize: "1.35rem", fontWeight: 800, color: "var(--text-main, #0f172a)" }}>
+                            Edit Display Name
+                        </h2>
+                        <p style={{ margin: "0 0 20px", fontSize: "0.88rem", color: "var(--text-muted, #64748b)", lineHeight: 1.5 }}>
+                            This name will be saved permanently in the database across all attendance records, class rosters, and certificates.
+                        </p>
+
+                        <div style={{
+                            background: "var(--surface-soft, #f8fafc)",
+                            border: "1px solid var(--border, #e2e8f0)",
+                            borderRadius: "12px",
+                            padding: "10px 14px",
+                            marginBottom: "18px",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            fontSize: "0.86rem"
+                        }}>
+                            <span style={{ color: "var(--text-muted, #64748b)", fontWeight: 600 }}>Verified Roll Number:</span>
+                            <span style={{ fontWeight: 800, color: "#6366f1", fontFamily: "monospace", fontSize: "0.95rem" }}>{activeRollNo}</span>
+                        </div>
+
+                        <form onSubmit={async (e) => {
+                            e.preventDefault();
+                            if (!editNameInput.trim()) return;
+                            try {
+                                setSavingStudentName(true);
+                                setNameEditError("");
+                                await updateProfileName(editNameInput.trim());
+                                setFetchedStudentData((prev) => ({ ...(prev || {}), name: editNameInput.trim() }));
+                                setShowEditNameModal(false);
+                                setNameEditSuccess("Name updated and saved successfully!");
+                                setTimeout(() => setNameEditSuccess(""), 3500);
+                            } catch (err) {
+                                setNameEditError(err.message || "Failed to save name");
+                            } finally {
+                                setSavingStudentName(false);
+                            }
+                        }}>
+                            <label style={{ display: "block", fontSize: "0.85rem", fontWeight: 700, color: "var(--text-main, #334155)", marginBottom: "6px" }}>
+                                Full Name
+                            </label>
+                            <input
+                                type="text"
+                                value={editNameInput}
+                                onChange={(e) => setEditNameInput(e.target.value)}
+                                placeholder="Enter your full name"
+                                autoFocus
+                                required
+                                disabled={savingStudentName}
+                                style={{
+                                    width: "100%",
+                                    padding: "12px 14px",
+                                    borderRadius: "12px",
+                                    border: "2px solid #6366f1",
+                                    fontSize: "1.05rem",
+                                    fontWeight: 600,
+                                    outline: "none",
+                                    boxSizing: "border-box",
+                                    background: "var(--surface, #ffffff)",
+                                    color: "var(--text-main, #0f172a)",
+                                    marginBottom: "14px"
+                                }}
+                            />
+
+                            {nameEditError && (
+                                <div style={{ padding: "10px 14px", background: "#fef2f2", border: "1px solid #fecaca", color: "#dc2626", borderRadius: "10px", fontSize: "0.85rem", fontWeight: 600, marginBottom: "14px" }}>
+                                    ⚠️ {nameEditError}
+                                </div>
+                            )}
+
+                            <div style={{ display: "flex", gap: "10px", justifyContent: "flex-end" }}>
+                                <button
+                                    type="button"
+                                    onClick={() => { setShowEditNameModal(false); setNameEditError(""); }}
+                                    disabled={savingStudentName}
+                                    style={{
+                                        padding: "10px 18px",
+                                        borderRadius: "10px",
+                                        background: "var(--surface-soft, #f1f5f9)",
+                                        color: "var(--text-muted, #64748b)",
+                                        border: "1px solid var(--border, #cbd5e1)",
+                                        fontWeight: 700,
+                                        fontSize: "0.9rem",
+                                        cursor: "pointer"
+                                    }}
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    type="submit"
+                                    disabled={savingStudentName || !editNameInput.trim()}
+                                    style={{
+                                        padding: "10px 22px",
+                                        borderRadius: "10px",
+                                        background: "linear-gradient(135deg, #6366f1, #4f46e5)",
+                                        color: "#ffffff",
+                                        border: "none",
+                                        fontWeight: 700,
+                                        fontSize: "0.9rem",
+                                        cursor: "pointer",
+                                        display: "inline-flex",
+                                        alignItems: "center",
+                                        gap: "8px",
+                                        boxShadow: "0 4px 14px rgba(99, 102, 241, 0.3)"
+                                    }}
+                                >
+                                    {savingStudentName ? <FaSpinner className="fa-spin" /> : <><FaCheck /> Save Name</>}
+                                </button>
+                            </div>
+                        </form>
                     </div>
                 </div>
             )}

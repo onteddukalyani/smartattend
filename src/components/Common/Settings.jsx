@@ -40,6 +40,7 @@ function Settings() {
 
     // Name Editing State
     const [isEditingName, setIsEditingName] = useState(false);
+    const [showEditNameModal, setShowEditNameModal] = useState(false);
     const [nameInput, setNameInput] = useState("");
     const [savingName, setSavingName] = useState(false);
     const [nameSuccess, setNameSuccess] = useState("");
@@ -157,39 +158,20 @@ function Settings() {
 
                         <div className="st-hero-info">
                             <div className="st-hero-title-row">
-                                {isEditingName ? (
-                                    <form onSubmit={handleSaveName} className="st-name-edit-form">
-                                        <input
-                                            type="text"
-                                            className="st-name-edit-input"
-                                            value={nameInput}
-                                            onChange={(e) => setNameInput(e.target.value)}
-                                            placeholder="Enter your full name"
-                                            autoFocus
-                                            disabled={savingName}
-                                        />
-                                        <div className="st-name-edit-btn-group">
-                                            <button type="submit" className="st-name-save-btn" disabled={savingName || !nameInput.trim()}>
-                                                {savingName ? <FaSpinner className="fa-spin" /> : <><FaCheck /> Save</>}
-                                            </button>
-                                            <button type="button" className="st-name-cancel-btn" onClick={() => { setIsEditingName(false); setNameInput(displayName); setNameError(""); }} disabled={savingName}>
-                                                <FaTimes /> Cancel
-                                            </button>
-                                        </div>
-                                    </form>
-                                ) : (
-                                    <div className="st-name-display-wrap">
-                                        <h1 className="st-user-name">{displayName}</h1>
-                                        <button
-                                            type="button"
-                                            className="st-edit-name-btn"
-                                            onClick={() => { setIsEditingName(true); setNameInput(displayName); }}
-                                            title="Edit your display name"
-                                        >
-                                            <FaEdit /> <span>Edit Name</span>
-                                        </button>
-                                    </div>
-                                )}
+                                <div className="st-name-display-wrap">
+                                    <h1 className="st-user-name">{displayName}</h1>
+                                    <button
+                                        type="button"
+                                        className="st-edit-name-btn"
+                                        onClick={() => {
+                                            setNameInput(displayName);
+                                            setShowEditNameModal(true);
+                                        }}
+                                        title="Edit your display name"
+                                    >
+                                        <FaEdit /> <span>Edit Name</span>
+                                    </button>
+                                </div>
                                 <span className={`st-role-pill ${roleInfo.badgeClass}`}>
                                     {roleInfo.icon}
                                     <span>{roleInfo.label}</span>
@@ -286,6 +268,33 @@ function Settings() {
                                 <span className={`st-role-pill ${roleInfo.badgeClass}`}>
                                     {roleInfo.fullTitle}
                                 </span>
+                            </div>
+                        </div>
+
+                        {/* Full Name / Display Name */}
+                        <div className="st-detail-row">
+                            <div className="st-detail-left">
+                                <div className="st-detail-icon-wrap">
+                                    <FaUserCircle />
+                                </div>
+                                <div className="st-detail-info">
+                                    <span className="st-detail-title">Full Name</span>
+                                    <span className="st-detail-desc">Registered display name</span>
+                                </div>
+                            </div>
+                            <div className="st-detail-value" style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                                <span className="st-text-bold">{displayName}</span>
+                                <button
+                                    type="button"
+                                    className="st-btn-mini-edit"
+                                    onClick={() => {
+                                        setNameInput(displayName);
+                                        setShowEditNameModal(true);
+                                    }}
+                                    title="Edit Full Name"
+                                >
+                                    <FaEdit /> Edit
+                                </button>
                             </div>
                         </div>
 
@@ -558,6 +567,143 @@ function Settings() {
                     </div>
                 </section>
             </div>
+
+            {/* Dedicated Edit Name Modal */}
+            {showEditNameModal && (
+                <div className="modal-backdrop" onClick={() => setShowEditNameModal(false)} style={{
+                    position: "fixed",
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    backgroundColor: "rgba(15, 23, 42, 0.75)",
+                    backdropFilter: "blur(6px)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    zIndex: 9999,
+                    padding: "20px"
+                }}>
+                    <div className="student-modal-container st-name-modal-box" onClick={(e) => e.stopPropagation()} style={{
+                        background: "var(--surface, #ffffff)",
+                        borderRadius: "20px",
+                        maxWidth: "480px",
+                        width: "100%",
+                        padding: "28px 24px",
+                        boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.25)",
+                        position: "relative",
+                        border: "1px solid var(--border, #e2e8f0)"
+                    }}>
+                        <button
+                            type="button"
+                            onClick={() => setShowEditNameModal(false)}
+                            style={{
+                                position: "absolute",
+                                top: "18px",
+                                right: "18px",
+                                background: "var(--surface-soft, #f1f5f9)",
+                                border: "none",
+                                borderRadius: "50%",
+                                width: "36px",
+                                height: "36px",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                fontSize: "1.1rem",
+                                cursor: "pointer",
+                                color: "var(--text-muted, #64748b)"
+                            }}
+                        >
+                            ✕
+                        </button>
+
+                        <div style={{ display: "inline-flex", alignItems: "center", gap: "8px", padding: "6px 14px", borderRadius: "20px", background: "rgba(99, 102, 241, 0.1)", color: "#6366f1", fontWeight: 700, fontSize: "0.85rem", marginBottom: "12px" }}>
+                            <FaEdit /> Profile Management
+                        </div>
+
+                        <h2 style={{ margin: "0 0 6px", fontSize: "1.35rem", fontWeight: 800, color: "var(--text-main, #0f172a)" }}>
+                            Edit Account Name
+                        </h2>
+                        <p style={{ margin: "0 0 20px", fontSize: "0.88rem", color: "var(--text-muted, #64748b)", lineHeight: 1.5 }}>
+                            Update your official display name. This will be updated across all attendance records, class rosters, and system tables.
+                        </p>
+
+                        <form onSubmit={handleSaveName}>
+                            <label style={{ display: "block", fontSize: "0.85rem", fontWeight: 700, color: "var(--text-main, #334155)", marginBottom: "6px" }}>
+                                Full Name
+                            </label>
+                            <input
+                                type="text"
+                                value={nameInput}
+                                onChange={(e) => setNameInput(e.target.value)}
+                                placeholder="Enter your full name"
+                                autoFocus
+                                required
+                                disabled={savingName}
+                                style={{
+                                    width: "100%",
+                                    padding: "12px 14px",
+                                    borderRadius: "12px",
+                                    border: "2px solid #6366f1",
+                                    fontSize: "1.05rem",
+                                    fontWeight: 600,
+                                    outline: "none",
+                                    boxSizing: "border-box",
+                                    background: "var(--surface, #ffffff)",
+                                    color: "var(--text-main, #0f172a)",
+                                    marginBottom: "14px"
+                                }}
+                            />
+
+                            {nameError && (
+                                <div style={{ padding: "10px 14px", background: "#fef2f2", border: "1px solid #fecaca", color: "#dc2626", borderRadius: "10px", fontSize: "0.85rem", fontWeight: 600, marginBottom: "14px" }}>
+                                    ⚠️ {nameError}
+                                </div>
+                            )}
+
+                            <div style={{ display: "flex", gap: "10px", justifyContent: "flex-end" }}>
+                                <button
+                                    type="button"
+                                    onClick={() => { setShowEditNameModal(false); setNameError(""); }}
+                                    disabled={savingName}
+                                    style={{
+                                        padding: "10px 18px",
+                                        borderRadius: "10px",
+                                        background: "var(--surface-soft, #f1f5f9)",
+                                        color: "var(--text-muted, #64748b)",
+                                        border: "1px solid var(--border, #cbd5e1)",
+                                        fontWeight: 700,
+                                        fontSize: "0.9rem",
+                                        cursor: "pointer"
+                                    }}
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    type="submit"
+                                    disabled={savingName || !nameInput.trim()}
+                                    style={{
+                                        padding: "10px 22px",
+                                        borderRadius: "10px",
+                                        background: "linear-gradient(135deg, #10b981, #059669)",
+                                        color: "#ffffff",
+                                        border: "none",
+                                        fontWeight: 700,
+                                        fontSize: "0.9rem",
+                                        cursor: "pointer",
+                                        display: "inline-flex",
+                                        alignItems: "center",
+                                        gap: "8px",
+                                        boxShadow: "0 4px 14px rgba(16, 185, 129, 0.3)"
+                                    }}
+                                >
+                                    {savingName ? <FaSpinner className="fa-spin" /> : <><FaCheck /> Save Name</>}
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
         </main>
     );
 }

@@ -59,6 +59,60 @@
     flex-shrink: 0;
 }
 
+.student-hero-title-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.student-hero-welcome-title {
+    margin: 0;
+    font-size: 1.6rem;
+    font-weight: 800;
+    color: var(--text-main, #1e293b);
+}
+
+.student-role-pill-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 4px 14px;
+    border-radius: 999px;
+    background: #ecfdf5;
+    color: #047857;
+    border: 1px solid #a7f3d0;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+    user-select: none;
+    line-height: 1.2;
+}
+
+.student-role-pill-badge svg {
+    font-size: 14px;
+    color: #047857;
+    flex-shrink: 0;
+}
+
+.student-hero-toast {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.82rem;
+    font-weight: 700;
+    margin-top: 4px;
+}
+
+.student-hero-toast.success {
+    color: #15803d;
+}
+
+.student-hero-toast.error {
+    color: #dc2626;
+}
+
 .student-hero-info h1 {
     margin: 0;
     font-size: 1.6rem;
@@ -544,8 +598,26 @@
     border-color: #34465f;
 }
 
-[data-theme="midnight"] .student-hero-info h1 {
+[data-theme="midnight"] .student-hero-info h1,
+[data-theme="midnight"] .student-hero-welcome-title {
     color: #f8fafc;
+}
+
+[data-theme="midnight"] .student-role-pill-badge {
+    background: rgba(16, 185, 129, 0.22);
+    color: #a7f3d0;
+    border: 1px solid rgba(110, 231, 183, 0.45);
+    box-shadow: 0 0 12px rgba(16, 185, 129, 0.25);
+}
+
+[data-theme="midnight"] .student-role-pill-badge svg {
+    color: #a7f3d0;
+}
+
+[data-theme="midnight"] .student-name-edit-modal-box {
+    background: #131b2e !important;
+    border-color: #1e293b !important;
+    color: #f8fafc !important;
 }
 
 [data-theme="midnight"] .student-roll-badge {

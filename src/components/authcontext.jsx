@@ -10,6 +10,7 @@ import { onAuthStateChanged } from "firebase/auth";
 import {
   doc,
   getDoc,
+  setDoc,
   collection,
   getDocs,
   query,
