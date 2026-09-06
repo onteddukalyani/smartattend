@@ -301,7 +301,7 @@ export function SessionAttendanceData() {
 
     return (
         <div className="attendance-data-page">
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px", flexWrap: "wrap", gap: "10px" }}>
+            <div className="session-actions-bar">
                 <button className="back-to-sessions-btn" onClick={() => navigate(basePath)}>⬅️ Back to Sessions</button>
                 {records.length > 0 && (
                     <button
@@ -313,23 +313,12 @@ export function SessionAttendanceData() {
                 )}
             </div>
             <h2>Attendance - {session.classCode}</h2>
-            <div style={{
-                background: "#ffffff",
-                border: "1px solid #e2e8f0",
-                borderRadius: "12px",
-                padding: "12px 18px",
-                marginBottom: "20px",
-                display: "flex",
-                flexWrap: "wrap",
-                gap: "16px",
-                fontSize: "0.9rem",
-                color: "#475569"
-            }}>
-                <span><strong>Lecturer:</strong> {session.lecturerName || "Faculty"}</span>
-                {session.batch && <span><strong>Batch:</strong> {session.batch}</span>}
-                <span><strong>Course Code:</strong> {session.courseCode || "N/A"}</span>
-                <span><strong>Room:</strong> {session.roomNo || "N/A"}</span>
-                <span><strong>Total Students Present:</strong> <strong style={{ color: "#10b981" }}>{records.length}</strong></span>
+            <div className="session-summary-box">
+                <span className="session-summary-item"><strong>Lecturer:</strong> {session.lecturerName || "Faculty"}</span>
+                {session.batch && <span className="session-summary-item"><strong>Batch:</strong> {session.batch}</span>}
+                <span className="session-summary-item"><strong>Course Code:</strong> {session.courseCode || "N/A"}</span>
+                <span className="session-summary-item"><strong>Room:</strong> {session.roomNo || "N/A"}</span>
+                <span className="session-summary-item"><strong>Total Students Present:</strong> <strong style={{ color: "#10b981" }}>{records.length}</strong></span>
             </div>
             {records.length === 0 ? <p>No students submitted attendance for this session.</p> : (
                 <div className="attendance-table-scroll">

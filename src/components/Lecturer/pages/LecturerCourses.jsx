@@ -370,55 +370,19 @@ export default function LecturerCourses() {
             {/* Quick Add Course Modal */}
             {isModalOpen && (
                 <div
-                    style={{
-                        position: "fixed",
-                        inset: 0,
-                        background: "rgba(15, 23, 42, 0.6)",
-                        backdropFilter: "blur(8px)",
-                        WebkitBackdropFilter: "blur(8px)",
-                        zIndex: 1050,
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        padding: "20px"
-                    }}
+                    className="lc-modal-backdrop"
                     onClick={() => !saving && setIsModalOpen(false)}
                 >
                     <div
-                        style={{
-                            background: "var(--surface, #ffffff)",
-                            border: "1px solid var(--border, #e2e8f0)",
-                            borderRadius: "20px",
-                            width: "100%",
-                            maxWidth: "580px",
-                            maxHeight: "90vh",
-                            display: "flex",
-                            flexDirection: "column",
-                            boxShadow: "0 20px 50px rgba(0, 0, 0, 0.2)",
-                            overflow: "hidden"
-                        }}
+                        className="lc-modal-dialog"
                         onClick={(e) => e.stopPropagation()}
                     >
-                        <div
-                            style={{
-                                padding: "20px 24px",
-                                borderBottom: "1px solid var(--border, #e2e8f0)",
-                                display: "flex",
-                                justifyContent: "space-between",
-                                alignItems: "center"
-                            }}
-                        >
-                            <h3 style={{ margin: 0, fontSize: "1.25rem", fontWeight: 800, color: "var(--text-main, #0f172a)" }}>
+                        <div className="lc-modal-header">
+                            <h3 className="lc-modal-title">
                                 Register New Subject
                             </h3>
                             <button
-                                style={{
-                                    background: "none",
-                                    border: "none",
-                                    color: "var(--text-muted, #64748b)",
-                                    fontSize: "20px",
-                                    cursor: "pointer"
-                                }}
+                                className="lc-modal-close"
                                 onClick={() => setIsModalOpen(false)}
                                 disabled={saving}
                                 aria-label="Close modal"
@@ -427,26 +391,26 @@ export default function LecturerCourses() {
                             </button>
                         </div>
 
-                        <form onSubmit={handleSaveCourse} style={{ padding: "20px 24px", overflowY: "auto", display: "flex", flexDirection: "column", gap: "16px" }}>
-                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px" }}>
-                                <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-                                    <label style={{ fontSize: "0.85rem", fontWeight: 700, color: "var(--text-main, #0f172a)" }}>Course Code *</label>
+                        <form onSubmit={handleSaveCourse} className="lc-modal-form">
+                            <div className="lc-form-grid">
+                                <div className="lc-form-group">
+                                    <label className="lc-form-label">Course Code *</label>
                                     <input
                                         type="text"
                                         required
                                         placeholder="e.g. CS301"
                                         value={formData.courseCode}
                                         onChange={(e) => setFormData({ ...formData, courseCode: e.target.value })}
-                                        style={{ padding: "10px 14px", background: "var(--surface-soft, #f8fafc)", border: "1px solid var(--border, #e2e8f0)", borderRadius: "10px", fontSize: "0.9rem", color: "var(--text-main, #0f172a)", outline: "none" }}
+                                        className="lc-form-input"
                                     />
                                 </div>
 
-                                <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-                                    <label style={{ fontSize: "0.85rem", fontWeight: 700, color: "var(--text-main, #0f172a)" }}>Department</label>
+                                <div className="lc-form-group">
+                                    <label className="lc-form-label">Department</label>
                                     <select
                                         value={formData.department}
                                         onChange={(e) => setFormData({ ...formData, department: e.target.value })}
-                                        style={{ padding: "10px 14px", background: "var(--surface-soft, #f8fafc)", border: "1px solid var(--border, #e2e8f0)", borderRadius: "10px", fontSize: "0.9rem", color: "var(--text-main, #0f172a)", outline: "none" }}
+                                        className="lc-form-select"
                                     >
                                         <option value="CSE">CSE</option>
                                         <option value="DSAI">DSAI</option>
@@ -456,36 +420,36 @@ export default function LecturerCourses() {
                                 </div>
                             </div>
 
-                            <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-                                <label style={{ fontSize: "0.85rem", fontWeight: 700, color: "var(--text-main, #0f172a)" }}>Course Title *</label>
+                            <div className="lc-form-group">
+                                <label className="lc-form-label">Course Title *</label>
                                 <input
                                     type="text"
                                     required
                                     placeholder="e.g. Operating Systems"
                                     value={formData.courseName}
                                     onChange={(e) => setFormData({ ...formData, courseName: e.target.value })}
-                                    style={{ padding: "10px 14px", background: "var(--surface-soft, #f8fafc)", border: "1px solid var(--border, #e2e8f0)", borderRadius: "10px", fontSize: "0.9rem", color: "var(--text-main, #0f172a)", outline: "none" }}
+                                    className="lc-form-input"
                                 />
                             </div>
 
-                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px" }}>
-                                <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-                                    <label style={{ fontSize: "0.85rem", fontWeight: 700, color: "var(--text-main, #0f172a)" }}>Default Classroom</label>
+                            <div className="lc-form-grid">
+                                <div className="lc-form-group">
+                                    <label className="lc-form-label">Default Classroom</label>
                                     <input
                                         type="text"
                                         placeholder="e.g. C003"
                                         value={formData.defaultRoom}
                                         onChange={(e) => setFormData({ ...formData, defaultRoom: e.target.value })}
-                                        style={{ padding: "10px 14px", background: "var(--surface-soft, #f8fafc)", border: "1px solid var(--border, #e2e8f0)", borderRadius: "10px", fontSize: "0.9rem", color: "var(--text-main, #0f172a)", outline: "none" }}
+                                        className="lc-form-input"
                                     />
                                 </div>
 
-                                <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-                                    <label style={{ fontSize: "0.85rem", fontWeight: 700, color: "var(--text-main, #0f172a)" }}>Semester</label>
+                                <div className="lc-form-group">
+                                    <label className="lc-form-label">Semester</label>
                                     <select
                                         value={formData.semester}
                                         onChange={(e) => setFormData({ ...formData, semester: e.target.value })}
-                                        style={{ padding: "10px 14px", background: "var(--surface-soft, #f8fafc)", border: "1px solid var(--border, #e2e8f0)", borderRadius: "10px", fontSize: "0.9rem", color: "var(--text-main, #0f172a)", outline: "none" }}
+                                        className="lc-form-select"
                                     >
                                         {[1, 2, 3, 4, 5, 6, 7, 8].map((s) => (
                                             <option key={s} value={String(s)}>Semester {s}</option>
@@ -494,30 +458,30 @@ export default function LecturerCourses() {
                                 </div>
                             </div>
 
-                            <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-                                <label style={{ fontSize: "0.85rem", fontWeight: 700, color: "var(--text-main, #0f172a)" }}>Notes / Syllabus Description</label>
+                            <div className="lc-form-group">
+                                <label className="lc-form-label">Notes / Syllabus Description</label>
                                 <textarea
                                     rows="2"
                                     placeholder="Optional notes or prerequisites..."
                                     value={formData.description}
                                     onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                                    style={{ padding: "10px 14px", background: "var(--surface-soft, #f8fafc)", border: "1px solid var(--border, #e2e8f0)", borderRadius: "10px", fontSize: "0.9rem", color: "var(--text-main, #0f172a)", outline: "none", fontFamily: "inherit" }}
+                                    className="lc-form-textarea"
                                 />
                             </div>
 
-                            <div style={{ padding: "16px 0 0", borderTop: "1px solid var(--border, #e2e8f0)", display: "flex", justifyContent: "flex-end", gap: "12px" }}>
+                            <div className="lc-modal-actions">
                                 <button
                                     type="button"
                                     onClick={() => setIsModalOpen(false)}
                                     disabled={saving}
-                                    style={{ padding: "10px 18px", borderRadius: "10px", border: "1px solid var(--border, #e2e8f0)", background: "var(--surface, #ffffff)", color: "var(--text-muted, #64748b)", fontWeight: 600, cursor: "pointer" }}
+                                    className="lc-btn-cancel"
                                 >
                                     Cancel
                                 </button>
                                 <button
                                     type="submit"
                                     disabled={saving}
-                                    style={{ padding: "10px 22px", borderRadius: "10px", border: "none", background: "linear-gradient(135deg, #10b981, #059669)", color: "#ffffff", fontWeight: 700, cursor: "pointer", boxShadow: "0 4px 14px rgba(16, 185, 129, 0.35)" }}
+                                    className="lc-btn-save"
                                 >
                                     {saving ? "Saving..." : "Create Subject"}
                                 </button>

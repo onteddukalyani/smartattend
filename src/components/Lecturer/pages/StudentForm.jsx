@@ -428,40 +428,6 @@ function StudentForm() {
                 submittedAt: Date.now()
             });
 
-            // Ensure student profile is registered in students collection and users collection so admin sees them immediately
-            let detectedBranch = (formData.branch && String(formData.branch).toLowerCase() !== "general") ? formData.branch : "";
-            if (!detectedBranch) {
-                if (/bcs/i.test(cleanRollNo)) detectedBranch = "CSE";
-                else if (/bds/i.test(cleanRollNo)) detectedBranch = "DSAI";
-                else if (/bec/i.test(cleanRollNo)) detectedBranch = "ECE";
-                else if (/aic/i.test(cleanRollNo)) detectedBranch = "AIC";
-                else detectedBranch = "CSE";
-            }
-
-            const studentPayload = {
-                name: cleanFullName,
-                rollNo: cleanRollNo,
-                email: studentEmail || `${cleanRollNo.toLowerCase()}@iiitdwd.ac.in`,
-                branch: detectedBranch,
-                semester: "1",
-                role: "student",
-                status: "active",
-                faceRegistered: false,
-                createdAt: Date.now()
-            };
-
-            await setDoc(doc(db, "students", cleanRollNo), studentPayload, { merge: true }).catch(() => {});
-            await setDoc(doc(db, "users", cleanRollNo), studentPayload, { merge: true }).catch(() => {});
-
-            if (studentEmail) {
-                const prefix = studentEmail.split("@")[0].toLowerCase().trim();
-                if (prefix) {
-                    await setDoc(doc(db, "students", prefix), studentPayload, { merge: true }).catch(() => {});
-                    await setDoc(doc(db, "users", prefix), studentPayload, { merge: true }).catch(() => {});
-                }
-                await setDoc(doc(db, "authorizedUsers", studentEmail), studentPayload, { merge: true }).catch(() => {});
-            }
-
             // Persist the student's active roll number for immediate dashboard recognition
             localStorage.setItem("smartattend_student_roll", cleanRollNo);
 

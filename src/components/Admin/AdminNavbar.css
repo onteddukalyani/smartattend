@@ -161,7 +161,12 @@
 @media (max-width: 650px) {
 
   .admin-navbar {
-    padding: 0 12px;
+    height: 64px;
+    padding: 0 14px;
+  }
+
+  .admin-navbar-right {
+    gap: 12px;
   }
 
   .admin-user-info {
@@ -171,7 +176,7 @@
 
   .admin-user-info strong {
     font-size: 0.8rem;
-    max-width: 110px;
+    max-width: 100px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;

@@ -366,3 +366,11 @@
   }
 
 }
+
+@media (max-width: 400px) {
+  .admin-sidebar,
+  .admin-sidebar.sidebar-open,
+  .admin-sidebar.sidebar-closed {
+    width: 260px !important;
+  }
+}

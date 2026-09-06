@@ -10,7 +10,6 @@ import { onAuthStateChanged } from "firebase/auth";
 import {
   doc,
   getDoc,
-  setDoc,
   collection,
   getDocs,
   query,
@@ -33,11 +32,7 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
 
   // =========================================================
-  // AUTO-PERSIST NEW STUDENTS TO FIRESTORE (USERS & AUTHORIZEDUSERS)
-  // =========================================================
-
-  // =========================================================
-  // LOOKUP REGISTERED USER IN FIRESTORE
+  // LOOKUP REGISTERED USER IN FIRESTORE (READ-ONLY VERIFICATION)
   // =========================================================
 
   const lookupUserInSystem = async (email) => {
@@ -202,7 +197,7 @@ export const AuthProvider = ({ children }) => {
   };
 
   // =========================================================
-  // RESTORE LOGIN AFTER REFRESH
+  // RESTORE LOGIN AFTER REFRESH (READ-ONLY: ZERO DATABASE WRITES)
   // =========================================================
 
   useEffect(() => {
@@ -218,7 +213,7 @@ export const AuthProvider = ({ children }) => {
 
           const registeredUser = await lookupUserInSystem(currentUser.email);
 
-          // If user is NOT registered in the system, deny access and sign out
+          // If user is NOT registered in the system, deny access and sign out immediately
           if (!registeredUser) {
             console.warn("Unregistered user attempted access:", currentUser.email);
             await firebaseLogoutUser();
@@ -258,40 +253,9 @@ export const AuthProvider = ({ children }) => {
             status: registeredUser.status || "active"
           };
 
+          // Grant access without modifying or writing to the database
           setUser(currentUser);
           setProfile(enrichedProfile);
-
-          // Sync auth UID and clean branch into Firestore
-          if (currentUser.uid) {
-            const loginSync = {
-              uid: currentUser.uid,
-              lastLoginAt: Date.now(),
-              branch: branch,
-              role: databaseRole
-            };
-
-            setDoc(doc(db, "authorizedUsers", cleanEmail), loginSync, { merge: true }).catch(() => { });
-
-            if (databaseRole === "student") {
-              const studentId = cleanRollNo || prefix;
-              setDoc(doc(db, "students", studentId), loginSync, { merge: true }).catch(() => { });
-              setDoc(doc(db, "users", studentId), loginSync, { merge: true }).catch(() => { });
-              if (prefix && prefix !== studentId) {
-                setDoc(doc(db, "students", prefix), loginSync, { merge: true }).catch(() => { });
-                setDoc(doc(db, "users", prefix), loginSync, { merge: true }).catch(() => { });
-              }
-            } else if (databaseRole === "lecturer") {
-              setDoc(doc(db, "lecturers", prefix), loginSync, { merge: true }).catch(() => { });
-              setDoc(doc(db, "lecturers", cleanEmail), loginSync, { merge: true }).catch(() => { });
-              setDoc(doc(db, "users", prefix), loginSync, { merge: true }).catch(() => { });
-              setDoc(doc(db, "users", cleanEmail), loginSync, { merge: true }).catch(() => { });
-            } else if (databaseRole === "admin") {
-              setDoc(doc(db, "admins", prefix), loginSync, { merge: true }).catch(() => { });
-              setDoc(doc(db, "admins", cleanEmail), loginSync, { merge: true }).catch(() => { });
-              setDoc(doc(db, "users", prefix), loginSync, { merge: true }).catch(() => { });
-              setDoc(doc(db, "users", cleanEmail), loginSync, { merge: true }).catch(() => { });
-            }
-          }
 
         } catch (error) {
           console.error("Error restoring authentication:", error);
@@ -307,7 +271,7 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   // =========================================================
-  // GOOGLE LOGIN (STRICT: ONLY PRE-REGISTERED USERS ALLOWED)
+  // GOOGLE LOGIN (STRICT READ-ONLY: ONLY PRE-REGISTERED USERS ALLOWED, ZERO WRITES)
   // =========================================================
 
   const loginWithGoogle = async (selectedRole) => {
@@ -333,12 +297,12 @@ export const AuthProvider = ({ children }) => {
     const cleanEmail = currentUser.email.toLowerCase().trim();
 
     // -------------------------------------------------------
-    // STRICT VERIFICATION: MUST EXIST IN SYSTEM (AUTHORIZEDUSERS OR USERS OR STUDENTS)
+    // STRICT VERIFICATION: MUST EXIST IN DATABASE
     // -------------------------------------------------------
     const registeredUser = await lookupUserInSystem(cleanEmail);
 
     if (!registeredUser) {
-      // User is completely unregistered - kick out immediately
+      // User is completely unregistered - kick out immediately, do NOT save to database
       await firebaseLogoutUser();
       throw new Error(
         `Access Denied: This Google account (${currentUser.email}) is not registered in the system. Only pre-registered students and staff can log in. Please contact the administrator to get your account registered.`
@@ -369,7 +333,7 @@ export const AuthProvider = ({ children }) => {
       );
     }
 
-    // Set role & session
+    // Set role & session in local storage
     localStorage.setItem("smartattend-user-role", selected);
 
     const prefix = cleanEmail.split("@")[0].toLowerCase().trim();
@@ -392,38 +356,9 @@ export const AuthProvider = ({ children }) => {
       status: "active"
     };
 
+    // Grant access in React state - Zero database writes!
     setUser(currentUser);
     setProfile(enrichedProfile);
-
-    // Sync auth UID and clean branch into Firestore
-    const loginSync = {
-      uid: currentUser.uid,
-      lastLoginAt: Date.now(),
-      branch: branch,
-      role: databaseRole
-    };
-
-    setDoc(doc(db, "authorizedUsers", cleanEmail), loginSync, { merge: true }).catch(() => { });
-
-    if (databaseRole === "student") {
-      const studentId = cleanRollNo || prefix;
-      setDoc(doc(db, "students", studentId), loginSync, { merge: true }).catch(() => { });
-      setDoc(doc(db, "users", studentId), loginSync, { merge: true }).catch(() => { });
-      if (prefix && prefix !== studentId) {
-        setDoc(doc(db, "students", prefix), loginSync, { merge: true }).catch(() => { });
-        setDoc(doc(db, "users", prefix), loginSync, { merge: true }).catch(() => { });
-      }
-    } else if (databaseRole === "lecturer") {
-      setDoc(doc(db, "lecturers", prefix), loginSync, { merge: true }).catch(() => { });
-      setDoc(doc(db, "lecturers", cleanEmail), loginSync, { merge: true }).catch(() => { });
-      setDoc(doc(db, "users", prefix), loginSync, { merge: true }).catch(() => { });
-      setDoc(doc(db, "users", cleanEmail), loginSync, { merge: true }).catch(() => { });
-    } else if (databaseRole === "admin") {
-      setDoc(doc(db, "admins", prefix), loginSync, { merge: true }).catch(() => { });
-      setDoc(doc(db, "admins", cleanEmail), loginSync, { merge: true }).catch(() => { });
-      setDoc(doc(db, "users", prefix), loginSync, { merge: true }).catch(() => { });
-      setDoc(doc(db, "users", cleanEmail), loginSync, { merge: true }).catch(() => { });
-    }
 
     return enrichedProfile;
   };

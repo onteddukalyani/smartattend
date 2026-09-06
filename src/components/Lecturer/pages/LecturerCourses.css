@@ -397,6 +397,169 @@
     font-size: 32px;
 }
 
+/* =========================================================
+   ADD COURSE MODAL
+   ========================================================= */
+
+.lc-modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.65);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    z-index: 1050;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    box-sizing: border-box;
+    animation: lcModalFadeIn 0.2s ease-out;
+}
+
+@keyframes lcModalFadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+.lc-modal-dialog {
+    background: var(--surface, #ffffff);
+    border: 1px solid var(--border, #e2e8f0);
+    border-radius: 20px;
+    width: 100%;
+    max-width: 580px;
+    max-height: 90vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.2);
+    overflow: hidden;
+    box-sizing: border-box;
+}
+
+.lc-modal-header {
+    padding: 20px 24px;
+    border-bottom: 1px solid var(--border, #e2e8f0);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.lc-modal-title {
+    margin: 0;
+    font-size: 1.25rem;
+    font-weight: 800;
+    color: var(--text-main, #0f172a);
+}
+
+.lc-modal-close {
+    background: none;
+    border: none;
+    color: var(--text-muted, #64748b);
+    font-size: 20px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 6px;
+    border-radius: 8px;
+    transition: color 0.15s ease, background-color 0.15s ease;
+}
+
+.lc-modal-close:hover {
+    color: var(--text-main, #0f172a);
+    background: var(--surface-soft, #f1f5f9);
+}
+
+.lc-modal-form {
+    padding: 20px 24px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    box-sizing: border-box;
+}
+
+.lc-form-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+}
+
+.lc-form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.lc-form-label {
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: var(--text-main, #0f172a);
+}
+
+.lc-form-input,
+.lc-form-select,
+.lc-form-textarea {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 10px 14px;
+    background: var(--surface-soft, #f8fafc);
+    border: 1px solid var(--border, #e2e8f0);
+    border-radius: 10px;
+    font-size: 0.9rem;
+    color: var(--text-main, #0f172a);
+    outline: none;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.lc-form-input:focus,
+.lc-form-select:focus,
+.lc-form-textarea:focus {
+    border-color: #10b981;
+    box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.15);
+}
+
+.lc-modal-actions {
+    padding: 16px 0 0;
+    border-top: 1px solid var(--border, #e2e8f0);
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+}
+
+.lc-btn-cancel {
+    padding: 10px 18px;
+    border-radius: 10px;
+    border: 1px solid var(--border, #e2e8f0);
+    background: var(--surface, #ffffff);
+    color: var(--text-muted, #64748b);
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.lc-btn-cancel:hover {
+    background: var(--surface-soft, #f8fafc);
+    color: var(--text-main, #0f172a);
+}
+
+.lc-btn-save {
+    padding: 10px 22px;
+    border-radius: 10px;
+    border: none;
+    background: linear-gradient(135deg, #10b981, #059669);
+    color: #ffffff;
+    font-weight: 700;
+    cursor: pointer;
+    box-shadow: 0 4px 14px rgba(16, 185, 129, 0.35);
+    transition: all 0.15s ease;
+}
+
+.lc-btn-save:hover {
+    background: linear-gradient(135deg, #059669, #047857);
+    transform: translateY(-1px);
+    box-shadow: 0 6px 18px rgba(16, 185, 129, 0.45);
+}
+
 @media (max-width: 800px) {
     .lecturer-courses-page {
         padding: 16px 14px calc(88px + env(safe-area-inset-bottom, 0px)) !important;
@@ -444,6 +607,39 @@
     .lecturer-courses-grid {
         grid-template-columns: 1fr;
         gap: 14px;
+    }
+
+    .lc-form-grid {
+        grid-template-columns: 1fr;
+        gap: 12px;
+    }
+
+    .lc-modal-backdrop {
+        padding: 12px;
+    }
+
+    .lc-modal-dialog {
+        max-height: 92vh;
+        border-radius: 16px;
+    }
+
+    .lc-modal-header {
+        padding: 16px 18px;
+    }
+
+    .lc-modal-form {
+        padding: 16px 18px;
+    }
+
+    .lc-modal-actions {
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .lc-btn-cancel,
+    .lc-btn-save {
+        width: 100%;
+        justify-content: center;
     }
 }
 

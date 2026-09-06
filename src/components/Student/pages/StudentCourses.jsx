@@ -630,11 +630,15 @@ export default function StudentCourses() {
                 <div className="sc-modal-backdrop" onClick={() => setSelectedCourseModal(null)}>
                     <div className="sc-modal-card" onClick={(e) => e.stopPropagation()}>
                         <div className="sc-modal-header">
-                            <div>
+                            <div className="sc-modal-header-left">
                                 <div className="sc-card-tags">
                                     <span className="sc-code-badge">{selectedCourseModal.courseCode}</span>
-                                    <span className="sc-tag-dept">{selectedCourseModal.department}</span>
-                                    <span className="sc-tag-sem">Semester {selectedCourseModal.semester}</span>
+                                    {selectedCourseModal.department && (
+                                        <span className="sc-tag-dept">{selectedCourseModal.department}</span>
+                                    )}
+                                    {selectedCourseModal.semester && (
+                                        <span className="sc-tag-sem">Semester {selectedCourseModal.semester}</span>
+                                    )}
                                 </div>
                                 <h2 className="sc-modal-title">{selectedCourseModal.courseName}</h2>
                             </div>
@@ -651,19 +655,34 @@ export default function StudentCourses() {
                             {/* Quick Details Bar */}
                             <div className="sc-modal-detail-strip">
                                 <div className="sc-modal-strip-item">
-                                    <span className="sc-strip-label">Instructor</span>
-                                    <span className="sc-strip-val">{selectedCourseModal.lecturerName || "Assigned Faculty"}</span>
-                                    {selectedCourseModal.lecturerEmail && (
-                                        <span className="sc-strip-sub">{selectedCourseModal.lecturerEmail}</span>
-                                    )}
+                                    <div className="sc-strip-icon-box">
+                                        <FaChalkboardTeacher />
+                                    </div>
+                                    <div className="sc-strip-content">
+                                        <span className="sc-strip-label">Faculty Instructor</span>
+                                        <span className="sc-strip-val">{selectedCourseModal.lecturerName || "Assigned Faculty"}</span>
+                                        {selectedCourseModal.lecturerEmail && (
+                                            <span className="sc-strip-sub">{selectedCourseModal.lecturerEmail}</span>
+                                        )}
+                                    </div>
                                 </div>
                                 <div className="sc-modal-strip-item">
-                                    <span className="sc-strip-label">Default Room</span>
-                                    <span className="sc-strip-val">{selectedCourseModal.defaultRoom || "Main Hall"}</span>
+                                    <div className="sc-strip-icon-box">
+                                        <FaDoorOpen />
+                                    </div>
+                                    <div className="sc-strip-content">
+                                        <span className="sc-strip-label">Default Lecture Hall</span>
+                                        <span className="sc-strip-val">{selectedCourseModal.defaultRoom || "Main Hall"}</span>
+                                    </div>
                                 </div>
                                 <div className="sc-modal-strip-item">
-                                    <span className="sc-strip-label">Credits</span>
-                                    <span className="sc-strip-val">{selectedCourseModal.credits || 3} Credits</span>
+                                    <div className="sc-strip-icon-box">
+                                        <FaLayerGroup />
+                                    </div>
+                                    <div className="sc-strip-content">
+                                        <span className="sc-strip-label">Course Credits</span>
+                                        <span className="sc-strip-val">{selectedCourseModal.credits || 3} Credits</span>
+                                    </div>
                                 </div>
                             </div>
 
@@ -683,7 +702,7 @@ export default function StudentCourses() {
                                         <div className="sc-big-pct">
                                             {selectedCourseModal.percentage !== null ? `${selectedCourseModal.percentage}%` : "—"}
                                         </div>
-                                        <span className="sc-pct-subtitle">
+                                        <span className={`sc-pct-subtitle ${selectedCourseModal.percentage >= 75 ? "sub-safe" : selectedCourseModal.totalConducted === 0 ? "sub-muted" : "sub-danger"}`}>
                                             {selectedCourseModal.percentage !== null && selectedCourseModal.percentage >= 75
                                                 ? "Eligible for Exams"
                                                 : selectedCourseModal.totalConducted === 0
@@ -694,26 +713,26 @@ export default function StudentCourses() {
 
                                     <div className="sc-modal-analytics-right">
                                         <div className="sc-stat-pill">
-                                            <span>Attended Classes</span>
-                                            <strong>{selectedCourseModal.attendedCount} / {selectedCourseModal.totalConducted}</strong>
+                                            <span className="sc-pill-label">Attended Classes</span>
+                                            <strong className="sc-pill-val">{selectedCourseModal.attendedCount} / {selectedCourseModal.totalConducted}</strong>
                                         </div>
                                         <div className="sc-stat-pill">
-                                            <span>Missed Classes</span>
-                                            <strong>
+                                            <span className="sc-pill-label">Missed Classes</span>
+                                            <strong className="sc-pill-val">
                                                 {selectedCourseModal.totalConducted >= selectedCourseModal.attendedCount
                                                     ? selectedCourseModal.totalConducted - selectedCourseModal.attendedCount
                                                     : 0}
                                             </strong>
                                         </div>
-                                        <div className="sc-stat-pill">
-                                            <span>Status</span>
-                                            <strong>
+                                        <div className="sc-stat-pill stat-pill-full">
+                                            <span className="sc-pill-label">Eligibility Status</span>
+                                            <strong className="sc-pill-val">
                                                 {selectedCourseModal.percentage >= 75 ? (
-                                                    <span className="text-safe">Safe (+{selectedCourseModal.leavesAvailable} Leaves)</span>
+                                                    <span className="text-safe">Safe (+{selectedCourseModal.leavesAvailable} Leaves Allowed)</span>
                                                 ) : selectedCourseModal.totalConducted === 0 ? (
-                                                    <span className="text-muted">No Sessions</span>
+                                                    <span className="text-muted">No Sessions Recorded Yet</span>
                                                 ) : (
-                                                    <span className="text-danger">Needs +{selectedCourseModal.classesNeeded} Classes</span>
+                                                    <span className="text-danger">Needs +{selectedCourseModal.classesNeeded} Consecutive Classes</span>
                                                 )}
                                             </strong>
                                         </div>
@@ -765,12 +784,14 @@ export default function StudentCourses() {
 
                         <div className="sc-modal-footer">
                             <button
+                                type="button"
                                 className="sc-btn sc-btn-outline"
                                 onClick={() => setSelectedCourseModal(null)}
                             >
                                 Close
                             </button>
                             <button
+                                type="button"
                                 className="sc-btn sc-btn-primary"
                                 onClick={() => {
                                     setSelectedCourseModal(null);

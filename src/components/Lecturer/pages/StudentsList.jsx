@@ -118,7 +118,7 @@ function StudentsList() {
 
             <div className="students-list-header">
                 <h2>Registered Students</h2>
-                <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+                <div className="students-list-controls">
                     <div className="students-search-wrapper">
                         <FaSearch className="search-icon" />
                         <input
@@ -132,19 +132,7 @@ function StudentsList() {
                     <button
                         onClick={getStudents}
                         disabled={loading}
-                        style={{
-                            display: "inline-flex",
-                            alignItems: "center",
-                            gap: "0.5rem",
-                            padding: "0.6rem 1rem",
-                            borderRadius: "8px",
-                            background: "#4f46e5",
-                            color: "#ffffff",
-                            border: "none",
-                            fontWeight: "600",
-                            cursor: loading ? "not-allowed" : "pointer",
-                            fontSize: "0.9rem"
-                        }}
+                        className="students-refresh-btn"
                         title="Refresh student list"
                     >
                         <FaSyncAlt className={loading ? "fa-spin" : ""} /> Refresh
@@ -156,7 +144,7 @@ function StudentsList() {
                 <p className="no-students-message">No matching students found.</p>
             ) : (
                 <div className="attendance-table-scroll">
-                    <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "12px" }}>
+                    <div className="students-actions-bar">
                         <button
                             className="download-excel-btn"
                             onClick={() => downloadExcel("student-table", `Students-List-${new Date().toISOString().slice(0, 10)}`)}

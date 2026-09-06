@@ -5,8 +5,7 @@ import {
     setDoc,
     deleteDoc,
     onSnapshot,
-    getDocs,
-    serverTimestamp
+    getDocs
 } from "firebase/firestore";
 import {
     FaBookOpen,
@@ -21,7 +20,18 @@ import {
     FaCheckCircle,
     FaGraduationCap,
     FaCalendarCheck,
-    FaSyncAlt
+    FaSyncAlt,
+    FaUsers,
+    FaClock,
+    FaUserCheck,
+    FaInfoCircle,
+    FaArrowRight,
+    FaChevronDown,
+    FaChevronUp,
+    FaIdCard,
+    FaEnvelope,
+    FaCalendarAlt,
+    FaQrcode
 } from "react-icons/fa";
 import { db } from "../../../firebase";
 import "./ManageCourses.css";
@@ -30,15 +40,22 @@ export default function ManageCourses() {
     const [courses, setCourses] = useState([]);
     const [lecturers, setLecturers] = useState([]);
     const [sessions, setSessions] = useState([]);
+    const [records, setRecords] = useState([]);
     const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState("");
     const [selectedDept, setSelectedDept] = useState("all");
     const [selectedSem, setSelectedSem] = useState("all");
 
-    // Modal state
+    // Add / Edit Form Modal state
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingCourse, setEditingCourse] = useState(null);
     const [saving, setSaving] = useState(false);
+
+    // Course Full Details & Recent Sessions Modal state
+    const [selectedCourseDetails, setSelectedCourseDetails] = useState(null);
+    const [detailTab, setDetailTab] = useState("sessions"); // "sessions" | "students" | "info"
+    const [expandedSessionId, setExpandedSessionId] = useState(null);
+    const [studentSearchTerm, setStudentSearchTerm] = useState("");
 
     // Form fields
     const [formData, setFormData] = useState({
@@ -50,11 +67,11 @@ export default function ManageCourses() {
         defaultRoom: "L-105",
         lecturerEmail: "",
         lecturerName: "",
-        batch: "2024",
+        batch: "2025",
         description: ""
     });
 
-    // 1. Listen for courses
+    // 1. Listen for courses in real time
     useEffect(() => {
         setLoading(true);
         const unsubscribe = onSnapshot(
@@ -77,7 +94,7 @@ export default function ManageCourses() {
         return () => unsubscribe();
     }, []);
 
-    // 2. Fetch lecturers from lecturers, authorizedUsers & users (strictly faculty/lecturers only)
+    // 2. Fetch lecturers from lecturers, authorizedUsers & users
     useEffect(() => {
         const fetchLecturers = async () => {
             try {
@@ -164,7 +181,7 @@ export default function ManageCourses() {
         fetchLecturers();
     }, []);
 
-    // 3. Fetch sessions to count sessions per course
+    // 3. Real-time Sessions listener
     useEffect(() => {
         const unsubscribe = onSnapshot(
             collection(db, "attendance_sessions"),
@@ -181,7 +198,24 @@ export default function ManageCourses() {
         return () => unsubscribe();
     }, []);
 
-    // Session count map
+    // 4. Real-time Attendance Records listener
+    useEffect(() => {
+        const unsubscribe = onSnapshot(
+            collection(db, "attendance_records"),
+            (snapshot) => {
+                const list = snapshot.docs.map((d) => ({
+                    id: d.id,
+                    ...d.data()
+                }));
+                setRecords(list);
+            },
+            (err) => console.warn("Attendance records read error:", err)
+        );
+
+        return () => unsubscribe();
+    }, []);
+
+    // Session count per course map
     const sessionsPerCourse = useMemo(() => {
         const map = {};
         sessions.forEach((s) => {
@@ -213,7 +247,8 @@ export default function ManageCourses() {
     }, [courses, search, selectedDept, selectedSem]);
 
     // Open Modal for Create or Edit
-    const handleOpenModal = (course = null) => {
+    const handleOpenModal = (course = null, e = null) => {
+        if (e) e.stopPropagation();
         if (course) {
             setEditingCourse(course);
             setFormData({
@@ -291,6 +326,12 @@ export default function ManageCourses() {
             }
 
             await setDoc(docRef, payload, { merge: true });
+
+            // If this course is currently open in details modal, update it
+            if (selectedCourseDetails && selectedCourseDetails.id === courseDocId) {
+                setSelectedCourseDetails((prev) => ({ ...prev, ...payload }));
+            }
+
             setIsModalOpen(false);
         } catch (err) {
             console.error("Error saving course:", err);
@@ -300,10 +341,14 @@ export default function ManageCourses() {
         }
     };
 
-    const handleDeleteCourse = async (course) => {
+    const handleDeleteCourse = async (course, e = null) => {
+        if (e) e.stopPropagation();
         if (window.confirm(`Are you sure you want to delete course ${course.courseCode} (${course.courseName})?`)) {
             try {
                 await deleteDoc(doc(db, "courses", course.id));
+                if (selectedCourseDetails && selectedCourseDetails.id === course.id) {
+                    setSelectedCourseDetails(null);
+                }
             } catch (err) {
                 console.error("Error deleting course:", err);
                 alert("Failed to delete course: " + err.message);
@@ -311,7 +356,92 @@ export default function ManageCourses() {
         }
     };
 
-    // KPIs
+    // Deep Analysis for Selected Course in Details Modal
+    const courseDetailsData = useMemo(() => {
+        if (!selectedCourseDetails) return null;
+
+        const code = (selectedCourseDetails.courseCode || "").trim().toUpperCase();
+
+        // 1. Relevant Sessions
+        const courseSessions = sessions.filter((s) => {
+            const cCode = (s.courseCode || s.classCode || "").trim().toUpperCase();
+            return cCode === code;
+        }).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+
+        const sessionIdsSet = new Set(courseSessions.map((s) => s.id));
+
+        // 2. Relevant Records
+        const courseRecords = records.filter((r) => {
+            const cCode = (r.courseCode || r.classCode || "").trim().toUpperCase();
+            return cCode === code || (r.sessionId && sessionIdsSet.has(r.sessionId));
+        });
+
+        // 3. Map attendees by Session ID
+        const attendeesBySession = new Map();
+        courseRecords.forEach((r) => {
+            if (r.sessionId) {
+                if (!attendeesBySession.has(r.sessionId)) {
+                    attendeesBySession.set(r.sessionId, []);
+                }
+                attendeesBySession.get(r.sessionId).push(r);
+            }
+        });
+
+        // 4. Map attendees by Student Roll Number
+        const studentRegisterMap = new Map();
+        courseRecords.forEach((r) => {
+            const roll = (r.rollNo || r.studentRoll || "").trim().toUpperCase();
+            if (roll) {
+                if (!studentRegisterMap.has(roll)) {
+                    studentRegisterMap.set(roll, {
+                        rollNo: roll,
+                        name: r.studentName || r.name || roll,
+                        attendedCount: 0,
+                        lastAttended: r.submittedAt || null,
+                        sessionsList: []
+                    });
+                }
+                const entry = studentRegisterMap.get(roll);
+                entry.attendedCount += 1;
+                entry.sessionsList.push(r);
+                if (r.submittedAt && (!entry.lastAttended || r.submittedAt > entry.lastAttended)) {
+                    entry.lastAttended = r.submittedAt;
+                }
+            }
+        });
+
+        const studentsList = Array.from(studentRegisterMap.values()).sort((a, b) =>
+            b.attendedCount - a.attendedCount || a.rollNo.localeCompare(b.rollNo)
+        );
+
+        const totalConductedCount = courseSessions.length;
+        const totalAttendancesCount = courseRecords.length;
+        const avgAttendeesPerSession = totalConductedCount > 0 ? (totalAttendancesCount / totalConductedCount).toFixed(1) : 0;
+        const uniqueStudentsCount = studentRegisterMap.size;
+
+        return {
+            courseSessions,
+            courseRecords,
+            attendeesBySession,
+            studentsList,
+            totalConductedCount,
+            totalAttendancesCount,
+            avgAttendeesPerSession,
+            uniqueStudentsCount
+        };
+    }, [selectedCourseDetails, sessions, records]);
+
+    // Filter students inside modal
+    const filteredModalStudents = useMemo(() => {
+        if (!courseDetailsData) return [];
+        const term = studentSearchTerm.toLowerCase().trim();
+        if (!term) return courseDetailsData.studentsList;
+        return courseDetailsData.studentsList.filter(
+            (s) => s.rollNo.toLowerCase().includes(term) || s.name.toLowerCase().includes(term)
+        );
+    }, [courseDetailsData, studentSearchTerm]);
+
+    // KPIs for top page
     const totalCourses = courses.length;
     const uniqueDepartments = new Set(courses.map((c) => c.department).filter(Boolean)).size;
     const assignedLecturersCount = new Set(courses.map((c) => c.lecturerEmail).filter(Boolean)).size;
@@ -326,13 +456,14 @@ export default function ManageCourses() {
                         <FaBookOpen />
                     </div>
                     <div>
-                        <h1>Institutional Courses & Curriculum</h1>
-                        <p>Create, manage, and assign institutional subjects to faculty members.</p>
+                        <h1>Institutional Courses &amp; Curriculum</h1>
+                        <p>Create, manage, and click any course to inspect real-time sessions and student attendance.</p>
                     </div>
                 </div>
 
                 <div className="manage-courses-actions">
                     <button
+                        type="button"
                         className="add-course-btn"
                         onClick={() => handleOpenModal()}
                     >
@@ -396,6 +527,16 @@ export default function ManageCourses() {
                         onChange={(e) => setSearch(e.target.value)}
                         className="courses-search-input"
                     />
+                    {search && (
+                        <button
+                            type="button"
+                            className="courses-search-clear"
+                            onClick={() => setSearch("")}
+                            title="Clear search"
+                        >
+                            <FaTimes />
+                        </button>
+                    )}
                 </div>
 
                 <div className="courses-filter-group">
@@ -407,7 +548,7 @@ export default function ManageCourses() {
                     >
                         <option value="all">All Departments</option>
                         <option value="CSE">Computer Science (CSE)</option>
-                        <option value="DSAI">Data Science & AI (DSAI)</option>
+                        <option value="DSAI">Data Science &amp; AI (DSAI)</option>
                         <option value="ECE">Electronics (ECE)</option>
                         <option value="AIC">AI and Computing</option>
                     </select>
@@ -452,6 +593,7 @@ export default function ManageCourses() {
                             : "No courses have been added yet. Click 'Add New Course' to create your first subject."}
                     </p>
                     <button
+                        type="button"
                         className="add-course-btn"
                         onClick={() => handleOpenModal()}
                     >
@@ -465,7 +607,19 @@ export default function ManageCourses() {
                         const count = sessionsPerCourse[(course.courseCode || "").toUpperCase()] || 0;
 
                         return (
-                            <div className="admin-course-card" key={course.id}>
+                            <div
+                                className="admin-course-card interactive"
+                                key={course.id}
+                                onClick={() => {
+                                    setSelectedCourseDetails(course);
+                                    setDetailTab("sessions");
+                                    setExpandedSessionId(null);
+                                    setStudentSearchTerm("");
+                                }}
+                                role="button"
+                                tabIndex={0}
+                                title="Click to view full course details & recent sessions"
+                            >
                                 <div className="admin-course-top">
                                     <span className="admin-course-code">{course.courseCode}</span>
                                     <span className="admin-course-dept-badge">
@@ -506,11 +660,11 @@ export default function ManageCourses() {
                                         <FaCalendarCheck /> {count} Session{count !== 1 ? "s" : ""}
                                     </span>
 
-                                    <div className="admin-course-btn-group">
+                                    <div className="admin-course-btn-group" onClick={(e) => e.stopPropagation()}>
                                         <button
                                             type="button"
                                             className="course-action-icon-btn"
-                                            onClick={() => handleOpenModal(course)}
+                                            onClick={(e) => handleOpenModal(course, e)}
                                             title="Edit Course"
                                             aria-label="Edit Course"
                                         >
@@ -519,7 +673,7 @@ export default function ManageCourses() {
                                         <button
                                             type="button"
                                             className="course-action-icon-btn delete"
-                                            onClick={() => handleDeleteCourse(course)}
+                                            onClick={(e) => handleDeleteCourse(course, e)}
                                             title="Delete Course"
                                             aria-label="Delete Course"
                                         >
@@ -527,13 +681,452 @@ export default function ManageCourses() {
                                         </button>
                                     </div>
                                 </div>
+
+                                <div className="admin-course-card-hint">
+                                    <span>View Details &amp; Attendance Sessions <FaArrowRight /></span>
+                                </div>
                             </div>
                         );
                     })}
                 </div>
             )}
 
-            {/* Add / Edit Course Modal */}
+            {/* =========================================================
+                COURSE FULL DETAILS & RECENT SESSIONS MODAL
+               ========================================================= */}
+            {selectedCourseDetails && courseDetailsData && (
+                <div
+                    className="course-details-modal-backdrop"
+                    onClick={() => setSelectedCourseDetails(null)}
+                >
+                    <div
+                        className="course-details-modal-card"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        {/* Modal Hero Header */}
+                        <div className="cd-modal-header">
+                            <div className="cd-modal-header-left">
+                                <div className="cd-modal-tags">
+                                    <span className="cd-code-badge">{selectedCourseDetails.courseCode}</span>
+                                    <span className="cd-dept-badge">{selectedCourseDetails.department}</span>
+                                    <span className="cd-sem-badge">Semester {selectedCourseDetails.semester}</span>
+                                    {selectedCourseDetails.batch && (
+                                        <span className="cd-batch-badge">Batch {selectedCourseDetails.batch}</span>
+                                    )}
+                                </div>
+                                <h2 className="cd-modal-title">{selectedCourseDetails.courseName}</h2>
+                                <div className="cd-modal-meta-row">
+                                    <span>
+                                        <FaChalkboardTeacher /> {selectedCourseDetails.lecturerName || "Assigned Faculty"}
+                                    </span>
+                                    <span>
+                                        <FaDoorOpen /> Room {selectedCourseDetails.defaultRoom || "Main Hall"}
+                                    </span>
+                                    <span>
+                                        <FaLayerGroup /> {selectedCourseDetails.credits || 3} Credits
+                                    </span>
+                                </div>
+                            </div>
+
+                            <button
+                                type="button"
+                                className="cd-modal-close"
+                                onClick={() => setSelectedCourseDetails(null)}
+                                aria-label="Close modal"
+                            >
+                                <FaTimes />
+                            </button>
+                        </div>
+
+                        {/* 4 Metric Cards Strip */}
+                        <div className="cd-modal-stats-strip">
+                            <div className="cd-stat-card card-indigo">
+                                <div className="cd-stat-icon">
+                                    <FaCalendarCheck />
+                                </div>
+                                <div className="cd-stat-info">
+                                    <span className="cd-stat-label">Conducted Sessions</span>
+                                    <strong className="cd-stat-number">{courseDetailsData.totalConductedCount}</strong>
+                                    <span className="cd-stat-sub">Class sessions</span>
+                                </div>
+                            </div>
+
+                            <div className="cd-stat-card card-emerald">
+                                <div className="cd-stat-icon">
+                                    <FaUserCheck />
+                                </div>
+                                <div className="cd-stat-info">
+                                    <span className="cd-stat-label">Total Attendances</span>
+                                    <strong className="cd-stat-number text-emerald">{courseDetailsData.totalAttendancesCount}</strong>
+                                    <span className="cd-stat-sub">Logged records</span>
+                                </div>
+                            </div>
+
+                            <div className="cd-stat-card card-sky">
+                                <div className="cd-stat-icon">
+                                    <FaUsers />
+                                </div>
+                                <div className="cd-stat-info">
+                                    <span className="cd-stat-label">Avg Attendance / Class</span>
+                                    <strong className="cd-stat-number text-sky">{courseDetailsData.avgAttendeesPerSession}</strong>
+                                    <span className="cd-stat-sub">Students per session</span>
+                                </div>
+                            </div>
+
+                            <div className="cd-stat-card card-purple">
+                                <div className="cd-stat-icon">
+                                    <FaGraduationCap />
+                                </div>
+                                <div className="cd-stat-info">
+                                    <span className="cd-stat-label">Unique Attendees</span>
+                                    <strong className="cd-stat-number text-purple">{courseDetailsData.uniqueStudentsCount}</strong>
+                                    <span className="cd-stat-sub">Active students</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Modal Navigation Tabs */}
+                        <div className="cd-modal-tabs-bar">
+                            <button
+                                type="button"
+                                className={`cd-tab-btn ${detailTab === "sessions" ? "active" : ""}`}
+                                onClick={() => setDetailTab("sessions")}
+                            >
+                                <FaCalendarCheck />
+                                <span>Recent Sessions ({courseDetailsData.totalConductedCount})</span>
+                            </button>
+
+                            <button
+                                type="button"
+                                className={`cd-tab-btn ${detailTab === "students" ? "active" : ""}`}
+                                onClick={() => setDetailTab("students")}
+                            >
+                                <FaUsers />
+                                <span>Student Register ({courseDetailsData.uniqueStudentsCount})</span>
+                            </button>
+
+                            <button
+                                type="button"
+                                className={`cd-tab-btn ${detailTab === "info" ? "active" : ""}`}
+                                onClick={() => setDetailTab("info")}
+                            >
+                                <FaInfoCircle />
+                                <span>Course &amp; Syllabus Details</span>
+                            </button>
+                        </div>
+
+                        {/* Modal Body Content */}
+                        <div className="cd-modal-body">
+                            {/* TAB 1: RECENT SESSIONS & ATTENDANCE LOGS */}
+                            {detailTab === "sessions" && (
+                                <div className="cd-tab-content">
+                                    {courseDetailsData.courseSessions.length === 0 ? (
+                                        <div className="cd-empty-state">
+                                            <div className="cd-empty-icon">
+                                                <FaCalendarAlt />
+                                            </div>
+                                            <h4>No Sessions Conducted Yet</h4>
+                                            <p>
+                                                Faculty members have not generated QR attendance sessions for this subject yet.
+                                            </p>
+                                        </div>
+                                    ) : (
+                                        <div className="cd-sessions-list">
+                                            {courseDetailsData.courseSessions.map((session, idx) => {
+                                                const attendees = courseDetailsData.attendeesBySession.get(session.id) || [];
+                                                const attendeeCount = attendees.length;
+                                                const isExpanded = expandedSessionId === session.id;
+
+                                                const timeFormatted = session.createdAt
+                                                    ? new Date(session.createdAt).toLocaleString(undefined, {
+                                                        dateStyle: "medium",
+                                                        timeStyle: "short"
+                                                    })
+                                                    : "Date recorded";
+
+                                                const isLive = session.status === "active";
+
+                                                return (
+                                                    <div
+                                                        key={session.id || idx}
+                                                        className={`cd-session-card ${isExpanded ? "expanded" : ""}`}
+                                                    >
+                                                        <div
+                                                            className="cd-session-header-row"
+                                                            onClick={() => setExpandedSessionId(isExpanded ? null : session.id)}
+                                                        >
+                                                            <div className="cd-session-main-info">
+                                                                <div className="cd-session-icon-box">
+                                                                    <FaQrcode />
+                                                                </div>
+                                                                <div>
+                                                                    <div className="cd-session-title-line">
+                                                                        <strong>
+                                                                            {session.topic || session.classCode || selectedCourseDetails.courseCode}
+                                                                        </strong>
+                                                                        {isLive ? (
+                                                                            <span className="cd-status-live">
+                                                                                <span className="live-dot"></span> Active Session
+                                                                            </span>
+                                                                        ) : (
+                                                                            <span className="cd-status-ended">Completed</span>
+                                                                        )}
+                                                                    </div>
+                                                                    <div className="cd-session-sub-line">
+                                                                        <span>
+                                                                            <FaClock /> {timeFormatted}
+                                                                        </span>
+                                                                        <span>
+                                                                            <FaDoorOpen /> Room {session.roomNo || selectedCourseDetails.defaultRoom || "N/A"}
+                                                                        </span>
+                                                                        {session.facultyName && (
+                                                                            <span>
+                                                                                <FaChalkboardTeacher /> {session.facultyName}
+                                                                            </span>
+                                                                        )}
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+
+                                                            <div className="cd-session-actions-right">
+                                                                <div className="cd-attendees-pill">
+                                                                    <FaUserCheck />
+                                                                    <span>{attendeeCount} Present</span>
+                                                                </div>
+                                                                <button
+                                                                    type="button"
+                                                                    className="cd-expand-btn"
+                                                                    aria-label="Toggle student attendees list"
+                                                                >
+                                                                    {isExpanded ? <FaChevronUp /> : <FaChevronDown />}
+                                                                </button>
+                                                            </div>
+                                                        </div>
+
+                                                        {/* Expanded Student Attendees List */}
+                                                        {isExpanded && (
+                                                            <div className="cd-session-attendees-drawer">
+                                                                <div className="cd-drawer-header">
+                                                                    <h5>Students Attended in this Session ({attendeeCount})</h5>
+                                                                </div>
+                                                                {attendeeCount === 0 ? (
+                                                                    <div className="cd-drawer-empty">
+                                                                        <FaInfoCircle /> No student attendance recorded in this specific session.
+                                                                    </div>
+                                                                ) : (
+                                                                    <div className="cd-drawer-students-grid">
+                                                                        {attendees.map((rec, rIdx) => (
+                                                                            <div key={rec.id || rIdx} className="cd-drawer-student-chip">
+                                                                                <div className="cd-chip-avatar">
+                                                                                    {(rec.studentName || rec.rollNo || "S").charAt(0).toUpperCase()}
+                                                                                </div>
+                                                                                <div className="cd-chip-text">
+                                                                                    <strong className="cd-chip-roll">{rec.rollNo || "N/A"}</strong>
+                                                                                    <span className="cd-chip-name">{rec.studentName || "Student"}</span>
+                                                                                </div>
+                                                                                <span className="cd-chip-verified">
+                                                                                    <FaCheckCircle />
+                                                                                </span>
+                                                                            </div>
+                                                                        ))}
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                            {/* TAB 2: STUDENT ATTENDANCE REGISTER */}
+                            {detailTab === "students" && (
+                                <div className="cd-tab-content">
+                                    <div className="cd-students-toolbar">
+                                        <div className="cd-student-search-box">
+                                            <FaSearch />
+                                            <input
+                                                type="text"
+                                                placeholder="Search student by name or roll number..."
+                                                value={studentSearchTerm}
+                                                onChange={(e) => setStudentSearchTerm(e.target.value)}
+                                            />
+                                            {studentSearchTerm && (
+                                                <button
+                                                    type="button"
+                                                    className="cd-clear-btn"
+                                                    onClick={() => setStudentSearchTerm("")}
+                                                >
+                                                    <FaTimes />
+                                                </button>
+                                            )}
+                                        </div>
+                                        <span className="cd-students-count-badge">
+                                            {filteredModalStudents.length} Students Logged
+                                        </span>
+                                    </div>
+
+                                    {filteredModalStudents.length === 0 ? (
+                                        <div className="cd-empty-state">
+                                            <div className="cd-empty-icon">
+                                                <FaUsers />
+                                            </div>
+                                            <h4>No Student Attendance Found</h4>
+                                            <p>
+                                                {studentSearchTerm
+                                                    ? `No students match "${studentSearchTerm}".`
+                                                    : "No student records logged for this course yet."}
+                                            </p>
+                                        </div>
+                                    ) : (
+                                        <div className="cd-students-table-wrap">
+                                            <table className="cd-students-table">
+                                                <thead>
+                                                    <tr>
+                                                        <th>Student Roll No</th>
+                                                        <th>Student Name</th>
+                                                        <th>Sessions Attended</th>
+                                                        <th>Attendance %</th>
+                                                        <th>Last Attendance</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {filteredModalStudents.map((st) => {
+                                                        const totalSes = courseDetailsData.totalConductedCount || 1;
+                                                        const pct = totalSes > 0 ? Math.round((st.attendedCount / totalSes) * 100) : 100;
+                                                        const isSafe = pct >= 75;
+
+                                                        const lastStr = st.lastAttended
+                                                            ? new Date(st.lastAttended).toLocaleDateString(undefined, {
+                                                                month: "short",
+                                                                day: "numeric",
+                                                                year: "numeric"
+                                                            })
+                                                            : "N/A";
+
+                                                        return (
+                                                            <tr key={st.rollNo}>
+                                                                <td>
+                                                                    <div className="cd-student-roll-cell">
+                                                                        <FaIdCard className="cd-roll-icon" />
+                                                                        <strong>{st.rollNo}</strong>
+                                                                    </div>
+                                                                </td>
+                                                                <td>
+                                                                    <span className="cd-student-name">{st.name}</span>
+                                                                </td>
+                                                                <td>
+                                                                    <span className="cd-attended-badge">
+                                                                        <strong>{st.attendedCount}</strong> / {courseDetailsData.totalConductedCount}
+                                                                    </span>
+                                                                </td>
+                                                                <td>
+                                                                    <span className={`cd-pct-pill ${isSafe ? "safe" : "danger"}`}>
+                                                                        {pct}% {isSafe ? "Safe" : "Shortage"}
+                                                                    </span>
+                                                                </td>
+                                                                <td>
+                                                                    <span className="cd-last-date">{lastStr}</span>
+                                                                </td>
+                                                            </tr>
+                                                        );
+                                                    })}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                            {/* TAB 3: COURSE SYLLABUS & INFO */}
+                            {detailTab === "info" && (
+                                <div className="cd-tab-content">
+                                    <div className="cd-info-grid">
+                                        <div className="cd-info-card">
+                                            <h4><FaBookOpen /> Course Description &amp; Syllabus</h4>
+                                            <p className="cd-info-desc">
+                                                {selectedCourseDetails.description || "No description or syllabus overview provided for this course."}
+                                            </p>
+                                        </div>
+
+                                        <div className="cd-info-card">
+                                            <h4><FaChalkboardTeacher /> Faculty Assignment</h4>
+                                            <div className="cd-faculty-details">
+                                                <div className="cd-faculty-avatar">
+                                                    {(selectedCourseDetails.lecturerName || "L").charAt(0).toUpperCase()}
+                                                </div>
+                                                <div className="cd-faculty-text">
+                                                    <strong>{selectedCourseDetails.lecturerName || "Unassigned Faculty"}</strong>
+                                                    {selectedCourseDetails.lecturerEmail && (
+                                                        <span><FaEnvelope /> {selectedCourseDetails.lecturerEmail}</span>
+                                                    )}
+                                                    <span>Department: {selectedCourseDetails.department}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div className="cd-info-card">
+                                            <h4><FaLayerGroup /> Academic Specifications</h4>
+                                            <div className="cd-specs-list">
+                                                <div className="cd-spec-row">
+                                                    <span>Course Code</span>
+                                                    <strong>{selectedCourseDetails.courseCode}</strong>
+                                                </div>
+                                                <div className="cd-spec-row">
+                                                    <span>Department</span>
+                                                    <strong>{selectedCourseDetails.department}</strong>
+                                                </div>
+                                                <div className="cd-spec-row">
+                                                    <span>Academic Semester</span>
+                                                    <strong>Semester {selectedCourseDetails.semester}</strong>
+                                                </div>
+                                                <div className="cd-spec-row">
+                                                    <span>Credit Units</span>
+                                                    <strong>{selectedCourseDetails.credits || 3} Credits</strong>
+                                                </div>
+                                                <div className="cd-spec-row">
+                                                    <span>Default Lecture Hall</span>
+                                                    <strong>{selectedCourseDetails.defaultRoom || "L-105"}</strong>
+                                                </div>
+                                                <div className="cd-spec-row">
+                                                    <span>Academic Batch</span>
+                                                    <strong>{selectedCourseDetails.batch || "2025"}</strong>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Modal Footer */}
+                        <div className="cd-modal-footer">
+                            <button
+                                type="button"
+                                className="cd-btn cd-btn-secondary"
+                                onClick={() => setSelectedCourseDetails(null)}
+                            >
+                                Close
+                            </button>
+                            <button
+                                type="button"
+                                className="cd-btn cd-btn-primary"
+                                onClick={() => {
+                                    const c = selectedCourseDetails;
+                                    setSelectedCourseDetails(null);
+                                    handleOpenModal(c);
+                                }}
+                            >
+                                <FaEdit /> Edit Course Details
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Add / Edit Course Form Modal */}
             {isModalOpen && (
                 <div
                     className="admin-modal-overlay"
@@ -546,6 +1139,7 @@ export default function ManageCourses() {
                         <div className="admin-modal-header">
                             <h3>{editingCourse ? "Edit Course Details" : "Add New Course"}</h3>
                             <button
+                                type="button"
                                 className="admin-modal-close"
                                 onClick={() => setIsModalOpen(false)}
                                 disabled={saving}
@@ -555,152 +1149,148 @@ export default function ManageCourses() {
                             </button>
                         </div>
 
-                        <form onSubmit={handleSaveCourse} className="admin-modal-form">
-                            <div className="form-row-grid">
+                        <form onSubmit={handleSaveCourse} className="admin-course-form">
+                            <div className="form-row-2">
                                 <div className="form-group">
-                                    <label htmlFor="modal-course-code">Course Code *</label>
+                                    <label>Course Code *</label>
                                     <input
-                                        id="modal-course-code"
                                         type="text"
-                                        required
-                                        placeholder="e.g. CS301, ECE204"
+                                        placeholder="e.g. 25CS101"
                                         value={formData.courseCode}
-                                        onChange={(e) =>
-                                            setFormData({ ...formData, courseCode: e.target.value })
-                                        }
-                                        disabled={!!editingCourse}
+                                        onChange={(e) => setFormData({ ...formData, courseCode: e.target.value.toUpperCase() })}
+                                        required
+                                        disabled={Boolean(editingCourse) || saving}
                                     />
+                                    {editingCourse && (
+                                        <span className="field-hint">Course code cannot be changed once created.</span>
+                                    )}
                                 </div>
 
                                 <div className="form-group">
-                                    <label htmlFor="modal-course-dept">Department / Branch</label>
+                                    <label>Course Name / Title *</label>
+                                    <input
+                                        type="text"
+                                        placeholder="e.g. Data Structures & Algorithms"
+                                        value={formData.courseName}
+                                        onChange={(e) => setFormData({ ...formData, courseName: e.target.value })}
+                                        required
+                                        disabled={saving}
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="form-row-3">
+                                <div className="form-group">
+                                    <label>Department</label>
                                     <select
-                                        id="modal-course-dept"
                                         value={formData.department}
-                                        onChange={(e) =>
-                                            setFormData({ ...formData, department: e.target.value })
-                                        }
+                                        onChange={(e) => setFormData({ ...formData, department: e.target.value })}
+                                        disabled={saving}
                                     >
                                         <option value="CSE">CSE</option>
                                         <option value="DSAI">DSAI</option>
                                         <option value="ECE">ECE</option>
                                         <option value="AIC">AIC</option>
+                                        <option value="General">General</option>
                                     </select>
                                 </div>
-                            </div>
 
-                            <div className="form-group">
-                                <label htmlFor="modal-course-name">Course Title / Name *</label>
-                                <input
-                                    id="modal-course-name"
-                                    type="text"
-                                    required
-                                    placeholder="e.g. Operating Systems, Computer Networks"
-                                    value={formData.courseName}
-                                    onChange={(e) =>
-                                        setFormData({ ...formData, courseName: e.target.value })
-                                    }
-                                />
-                            </div>
-
-                            <div className="form-row-grid">
                                 <div className="form-group">
-                                    <label htmlFor="modal-course-sem">Semester</label>
+                                    <label>Semester</label>
                                     <select
-                                        id="modal-course-sem"
                                         value={formData.semester}
-                                        onChange={(e) =>
-                                            setFormData({ ...formData, semester: e.target.value })
-                                        }
+                                        onChange={(e) => setFormData({ ...formData, semester: e.target.value })}
+                                        disabled={saving}
                                     >
                                         {[1, 2, 3, 4, 5, 6, 7, 8].map((s) => (
                                             <option key={s} value={String(s)}>
-                                                Semester {s}
+                                                Sem {s}
                                             </option>
                                         ))}
                                     </select>
                                 </div>
 
                                 <div className="form-group">
-                                    <label htmlFor="modal-course-credits">Credits</label>
+                                    <label>Credits</label>
                                     <input
-                                        id="modal-course-credits"
                                         type="number"
                                         min="1"
-                                        max="10"
+                                        max="6"
                                         value={formData.credits}
-                                        onChange={(e) =>
-                                            setFormData({ ...formData, credits: e.target.value })
-                                        }
+                                        onChange={(e) => setFormData({ ...formData, credits: e.target.value })}
+                                        disabled={saving}
                                     />
                                 </div>
                             </div>
 
-                            <div className="form-group">
-                                <label htmlFor="modal-course-lecturer">Assigned Instructor / Lecturer</label>
-                                <select
-                                    id="modal-course-lecturer"
-                                    value={formData.lecturerEmail}
-                                    onChange={(e) => handleLecturerSelect(e.target.value)}
-                                >
-                                    <option value="">
-                                        {lecturers.length === 0
-                                            ? "-- No Lecturers Found in Database --"
-                                            : `-- Select Instructor (${lecturers.length} Faculty Members) --`}
-                                    </option>
-                                    {lecturers.map((l, i) => (
-                                        <option key={l.email || i} value={l.email}>
-                                            {l.name} ({l.email}){l.department ? ` - ${l.department}` : ""}
-                                        </option>
-                                    ))}
-                                </select>
-                            </div>
-
-                            <div className="form-row-grid">
+                            <div className="form-row-2">
                                 <div className="form-group">
-                                    <label htmlFor="modal-course-room">Default Classroom / Lab</label>
+                                    <label>Assigned Faculty (Lecturer)</label>
+                                    <select
+                                        value={formData.lecturerEmail}
+                                        onChange={(e) => handleLecturerSelect(e.target.value)}
+                                        disabled={saving}
+                                    >
+                                        <option value="">-- Select Instructor --</option>
+                                        {lecturers.map((lec) => (
+                                            <option key={lec.email} value={lec.email}>
+                                                {lec.name} ({lec.email}) - {lec.department}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                <div className="form-group">
+                                    <label>Default Room / Lecture Hall</label>
                                     <input
-                                        id="modal-course-room"
                                         type="text"
-                                        placeholder="e.g. L-105, L-106"
+                                        placeholder="e.g. L-105"
                                         value={formData.defaultRoom}
-                                        onChange={(e) =>
-                                            setFormData({ ...formData, defaultRoom: e.target.value })
-                                        }
+                                        onChange={(e) => setFormData({ ...formData, defaultRoom: e.target.value })}
+                                        disabled={saving}
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="form-row-2">
+                                <div className="form-group">
+                                    <label>Academic Batch</label>
+                                    <input
+                                        type="text"
+                                        placeholder="e.g. 2025"
+                                        value={formData.batch}
+                                        onChange={(e) => setFormData({ ...formData, batch: e.target.value })}
+                                        disabled={saving}
                                     />
                                 </div>
 
                                 <div className="form-group">
-                                    <label htmlFor="modal-course-batch">Target Batch Year</label>
+                                    <label>Instructor Display Name</label>
                                     <input
-                                        id="modal-course-batch"
                                         type="text"
-                                        placeholder="e.g. 2024, 2025"
-                                        value={formData.batch}
-                                        onChange={(e) =>
-                                            setFormData({ ...formData, batch: e.target.value })
-                                        }
+                                        placeholder="Auto-filled or custom faculty name"
+                                        value={formData.lecturerName}
+                                        onChange={(e) => setFormData({ ...formData, lecturerName: e.target.value })}
+                                        disabled={saving}
                                     />
                                 </div>
                             </div>
 
                             <div className="form-group">
-                                <label htmlFor="modal-course-desc">Course Description / Notes</label>
+                                <label>Course Description / Syllabus Overview</label>
                                 <textarea
-                                    id="modal-course-desc"
                                     rows="3"
-                                    placeholder="Brief summary of syllabus or prerequisites..."
+                                    placeholder="Brief outline of syllabus modules, lab requirements, prerequisites..."
                                     value={formData.description}
-                                    onChange={(e) =>
-                                        setFormData({ ...formData, description: e.target.value })
-                                    }
+                                    onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                                    disabled={saving}
                                 />
                             </div>
 
                             <div className="admin-modal-footer">
                                 <button
                                     type="button"
-                                    className="modal-cancel-btn"
+                                    className="admin-btn-cancel"
                                     onClick={() => setIsModalOpen(false)}
                                     disabled={saving}
                                 >
@@ -708,14 +1298,10 @@ export default function ManageCourses() {
                                 </button>
                                 <button
                                     type="submit"
-                                    className="modal-submit-btn"
+                                    className="admin-btn-save"
                                     disabled={saving}
                                 >
-                                    {saving
-                                        ? "Saving..."
-                                        : editingCourse
-                                            ? "Update Course"
-                                            : "Create Course"}
+                                    {saving ? "Saving Course..." : editingCourse ? "Update Course" : "Create Course"}
                                 </button>
                             </div>
                         </form>

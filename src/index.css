@@ -14,6 +14,7 @@ html {
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
   scroll-behavior: smooth;
+  height: 100%;
 }
 
 body {
@@ -69,6 +70,42 @@ code {
   box-shadow: 0 5px 20px var(--shadow, rgba(23, 43, 77, 0.12));
 }
 
+/* Modern Scrollbars */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(100, 116, 139, 0.28);
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 116, 139, 0.45);
+}
+
+[data-theme="midnight"] ::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.22);
+}
+
+[data-theme="midnight"] ::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.38);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(100, 116, 139, 0.28) transparent;
+}
+
+[data-theme="midnight"] * {
+  scrollbar-color: rgba(148, 163, 184, 0.22) transparent;
+}
+
 /* Light / Default Theme Tokens */
 :root {
   --page-bg: #f5f7fb;
@@ -99,19 +136,57 @@ code {
   --border: #34465f;
 }
 
-/* Responsive Table Wrapper Utility */
+/* Universal Responsive Table Wrapper Utility */
 .table-responsive-wrapper,
 .table-wrapper,
+.attendance-table-scroll,
+.students-table-container,
+.lecturers-table-container,
+.admins-table-wrapper,
+.stats-table-wrapper,
+.parsed-table-wrap,
 .overflow-x-auto {
   width: 100%;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
+  max-width: 100%;
 }
 
-/* Mobile Touch Optimization */
+/* Universal Mobile Safe Area Padding for Bottom Navigation */
+@media (max-width: 800px) {
+  .student-dashboard,
+  .student-statistics-page,
+  .student-courses-page,
+  .dashboard-page,
+  .active-sessions-page,
+  .qrpage,
+  .student-form,
+  .attendance-data-page,
+  .admin-dashboard,
+  .admin-overview,
+  .manage-students,
+  .manage-lecturers,
+  .manage-admins-page,
+  .manage-courses-page,
+  .attendance-overview,
+  .admin-attendance-page,
+  .institution-settings-page,
+  .admin-profile-page,
+  .st-settings-page,
+  .add-student-page,
+  .add-admin,
+  .add-lecturer-page {
+    padding-bottom: calc(88px + env(safe-area-inset-bottom, 0px)) !important;
+  }
+}
+
+/* Mobile Touch Optimization & Tap Target Compliance */
 @media (max-width: 768px) {
   button,
-  a {
+  a,
+  input[type="button"],
+  input[type="submit"] {
     touch-action: manipulation;
   }
 }
+
