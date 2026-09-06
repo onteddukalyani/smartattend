@@ -6,9 +6,9 @@ import { IoAddCircleOutline } from "react-icons/io5";
 import { GoPeople } from "react-icons/go";
 import { LuClipboardList } from "react-icons/lu";
 import { SlCalender } from "react-icons/sl";
-import { FaEdit, FaCheck, FaTimes, FaSpinner, FaChalkboardTeacher, FaUniversity, FaEnvelope } from "react-icons/fa";
+import { FaChalkboardTeacher, FaUniversity, FaEnvelope } from "react-icons/fa";
 import { Link } from "react-router-dom";
-import { collection, getDocs, query, where } from "firebase/firestore";
+import { collection, getDocs } from "firebase/firestore";
 import { db } from "../../../firebase";
 import { useAuth } from "../../authcontext";
 
@@ -110,11 +110,6 @@ function Dashboard() {
                         <div className="lecturer-hero-title-row">
                             <h1 className="lecturer-hero-title">Welcome, {lecturerName} 👋</h1>
                         </div>
-                        {nameSuccess && (
-                            <div className="lecturer-hero-toast success">
-                                <FaCheck /> {nameSuccess}
-                            </div>
-                        )}
                         <div className="lecturer-hero-badges">
                             <span className="lecturer-badge pill-faculty">
                                 <FaChalkboardTeacher /> Faculty Member
