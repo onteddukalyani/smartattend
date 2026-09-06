@@ -27,11 +27,12 @@ export async function createAttendanceSession(classCode, courseCode, roomNo, bat
     const randomSuffix = Math.floor(1000 + Math.random() * 9000);
 
     const sessionId = `${cleanCourse}${cleanClass}_${dateStr}_${timeStr}${lectPrefix}_${randomSuffix}`;
+    const finalBatch = (batch && String(batch).trim() !== "" && batch !== "—") ? String(batch).trim() : "2025";
 
     const sessionRef = doc(db, "attendance_sessions", sessionId);
     await setDoc(sessionRef, {
         classCode: classCode,
-        batch: batch || "",
+        batch: finalBatch,
         courseCode: courseCode,
         roomNo: roomNo,
         createdAt: now,

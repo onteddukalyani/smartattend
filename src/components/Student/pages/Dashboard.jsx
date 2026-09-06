@@ -5,6 +5,7 @@ import {
     doc,
     getDoc,
     getDocs,
+    setDoc,
     onSnapshot,
     query,
     where
@@ -23,13 +24,19 @@ import {
     FaSyncAlt,
     FaTimes,
     FaInfoCircle,
-    FaQrcode
+    FaQrcode,
+    FaCamera,
+    FaExclamationTriangle,
+    FaUserCheck,
+    FaSpinner,
+    FaLock
 } from "react-icons/fa";
 import { MdQrCodeScanner } from "react-icons/md";
 import { db } from "../../../firebase";
 import { useAuth } from "../../authcontext";
 import { downloadExcel } from "../../../DownloadExcel";
 import { useTableSort, SortIcon } from "../../Common/useTableSort";
+import { LiveFaceEnrollment } from "../../Common/LiveFaceEnrollment";
 import "./Dashboard.css";
 
 export default function StudentDashboard() {
@@ -38,6 +45,16 @@ export default function StudentDashboard() {
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
     const [search, setSearch] = useState("");
+
+    // Face Biometric Registration Modal State
+    const [showFaceModal, setShowFaceModal] = useState(false);
+    const [showLockedFaceModal, setShowLockedFaceModal] = useState(false);
+    const [faceSaving, setFaceSaving] = useState(false);
+    const [faceSuccessMsg, setFaceSuccessMsg] = useState("");
+
+    // Profile Photo Upload State
+    const [photoUploading, setPhotoUploading] = useState(false);
+    const [photoSuccessMsg, setPhotoSuccessMsg] = useState("");
 
     // Identify primary student roll number: default strictly and immutably from Gmail email (e.g. 25bcs108@iiitdwd.ac.in -> 25BCS108)
     const emailRoll = (user?.email || "").split("@")[0].trim().toUpperCase();
@@ -59,6 +76,144 @@ export default function StudentDashboard() {
             }
         }).catch(() => { });
     }, [activeRollNo]);
+
+    const hasFaceRegistered = Boolean(
+        fetchedStudentData?.faceRegistered ||
+        profile?.faceRegistered ||
+        (fetchedStudentData?.faceDescriptor && Array.isArray(fetchedStudentData.faceDescriptor) && fetchedStudentData.faceDescriptor.length === 128)
+    );
+
+    // Initial Face Biometric Enrollment (Only accessible if face is NOT yet registered)
+    const handleEnrollStudentFace = async (enrollData) => {
+        if (!enrollData || !enrollData.faceDescriptor || !activeRollNo) return;
+
+        // Security check: If student already has face registered, do not allow re-enrollment from student dashboard
+        if (hasFaceRegistered) {
+            alert("🔒 Your facial biometrics are already registered and locked. Only a Lecturer or Admin can update your biometric data.");
+            setShowFaceModal(false);
+            return;
+        }
+
+        try {
+            setFaceSaving(true);
+            const cleanEmail = (user?.email || "").toLowerCase().trim();
+            const prefix = cleanEmail ? cleanEmail.split("@")[0] : activeRollNo.toLowerCase();
+
+            const updatePayload = {
+                faceDescriptor: enrollData.faceDescriptor,
+                photoURL: enrollData.photoURL || fetchedStudentData?.photoURL || "",
+                faceRegistered: true,
+                biometricEnrolled: true,
+                enrolledAt: Date.now()
+            };
+
+            const promises = [
+                setDoc(doc(db, "students", activeRollNo), updatePayload, { merge: true }),
+                setDoc(doc(db, "users", activeRollNo), updatePayload, { merge: true })
+            ];
+            if (cleanEmail) {
+                promises.push(setDoc(doc(db, "authorizedUsers", cleanEmail), updatePayload, { merge: true }).catch(() => { }));
+            }
+            if (prefix && prefix !== activeRollNo.toLowerCase()) {
+                promises.push(setDoc(doc(db, "students", prefix), updatePayload, { merge: true }).catch(() => { }));
+            }
+
+            await Promise.all(promises);
+
+            setFetchedStudentData((prev) => ({
+                ...(prev || {}),
+                ...updatePayload
+            }));
+
+            setFaceSuccessMsg("✅ Face biometrics enrolled successfully! You can now mark attendance.");
+            setTimeout(() => {
+                setShowFaceModal(false);
+                setFaceSuccessMsg("");
+            }, 2500);
+        } catch (err) {
+            console.error("Error saving student face:", err);
+            alert("Failed to save face biometrics: " + err.message);
+        } finally {
+            setFaceSaving(false);
+        }
+    };
+
+    // Profile Photo Update (Updates display avatar only, without changing facial biometric descriptors)
+    const handleProfilePhotoUpload = (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        if (!file.type.startsWith("image/")) {
+            alert("Please upload a valid image file (PNG, JPG, JPEG, WEBP).");
+            return;
+        }
+
+        const reader = new FileReader();
+        reader.onload = async (event) => {
+            try {
+                setPhotoUploading(true);
+                const img = new Image();
+                img.src = event.target.result;
+                img.onload = async () => {
+                    const canvas = document.createElement("canvas");
+                    const MAX_DIM = 400;
+                    let width = img.width;
+                    let height = img.height;
+                    if (width > height) {
+                        if (width > MAX_DIM) {
+                            height = Math.round((height * MAX_DIM) / width);
+                            width = MAX_DIM;
+                        }
+                    } else {
+                        if (height > MAX_DIM) {
+                            width = Math.round((width * MAX_DIM) / height);
+                            height = MAX_DIM;
+                        }
+                    }
+                    canvas.width = width;
+                    canvas.height = height;
+                    const ctx = canvas.getContext("2d");
+                    ctx.drawImage(img, 0, 0, width, height);
+                    const compressedDataUrl = canvas.toDataURL("image/jpeg", 0.85);
+
+                    const cleanEmail = (user?.email || "").toLowerCase().trim();
+                    const prefix = cleanEmail ? cleanEmail.split("@")[0] : activeRollNo.toLowerCase();
+
+                    const photoPayload = {
+                        photoURL: compressedDataUrl,
+                        updatedAt: Date.now()
+                    };
+
+                    const promises = [
+                        setDoc(doc(db, "students", activeRollNo), photoPayload, { merge: true }),
+                        setDoc(doc(db, "users", activeRollNo), photoPayload, { merge: true })
+                    ];
+                    if (cleanEmail) {
+                        promises.push(setDoc(doc(db, "authorizedUsers", cleanEmail), photoPayload, { merge: true }).catch(() => { }));
+                    }
+                    if (prefix && prefix !== activeRollNo.toLowerCase()) {
+                        promises.push(setDoc(doc(db, "students", prefix), photoPayload, { merge: true }).catch(() => { }));
+                    }
+
+                    await Promise.all(promises);
+
+                    setFetchedStudentData((prev) => ({
+                        ...(prev || {}),
+                        photoURL: compressedDataUrl
+                    }));
+
+                    setPhotoSuccessMsg("✅ Profile photo updated successfully!");
+                    setTimeout(() => setPhotoSuccessMsg(""), 3000);
+                };
+            } catch (err) {
+                console.error("Error updating profile photo:", err);
+                alert("Failed to update profile photo: " + err.message);
+            } finally {
+                setPhotoUploading(false);
+            }
+        };
+        reader.readAsDataURL(file);
+    };
 
     const studentName = profile?.name || fetchedStudentData?.name || user?.displayName || "Student";
     const rawBranch = profile?.branch || fetchedStudentData?.branch;
@@ -231,11 +386,65 @@ export default function StudentDashboard() {
             {/* 1. Student Hero Profile Banner */}
             <div className="student-hero-banner">
                 <div className="student-hero-main">
-                    <div className="student-hero-avatar">
-                        {studentName.charAt(0).toUpperCase()}
+                    <div className="student-hero-avatar-wrap" style={{ position: "relative", flexShrink: 0 }}>
+                        <div className="student-hero-avatar" style={{
+                            overflow: "hidden",
+                            background: fetchedStudentData?.photoURL || profile?.photoURL || user?.photoURL ? "#0f172a" : "linear-gradient(135deg, var(--accent, #6366f1), #4338ca)"
+                        }}>
+                            {fetchedStudentData?.photoURL || profile?.photoURL || user?.photoURL ? (
+                                <img
+                                    src={fetchedStudentData?.photoURL || profile?.photoURL || user?.photoURL}
+                                    alt={studentName}
+                                    style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+                                />
+                            ) : (
+                                studentName.charAt(0).toUpperCase()
+                            )}
+                        </div>
+
+                        {/* Profile Photo Upload Trigger */}
+                        <label
+                            className="student-avatar-upload-btn"
+                            title="Upload / Change Profile Photo"
+                            style={{
+                                position: "absolute",
+                                bottom: "-4px",
+                                right: "-4px",
+                                background: "linear-gradient(135deg, #6366f1, #4f46e5)",
+                                color: "#ffffff",
+                                width: "28px",
+                                height: "28px",
+                                borderRadius: "50%",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                cursor: photoUploading ? "wait" : "pointer",
+                                boxShadow: "0 2px 10px rgba(0,0,0,0.3)",
+                                fontSize: "12px",
+                                border: "2.5px solid var(--surface, #ffffff)",
+                                transition: "transform 0.15s ease"
+                            }}
+                        >
+                            {photoUploading ? <FaSpinner className="fa-spin" /> : <FaCamera />}
+                            <input
+                                type="file"
+                                accept="image/*"
+                                onChange={handleProfilePhotoUpload}
+                                disabled={photoUploading}
+                                style={{ display: "none" }}
+                            />
+                        </label>
                     </div>
+
                     <div className="student-hero-info">
-                        <h1>Welcome, {studentName} 👋</h1>
+                        <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+                            <h1 style={{ margin: 0 }}>Welcome, {studentName} 👋</h1>
+                        </div>
+                        {photoSuccessMsg && (
+                            <div style={{ fontSize: "0.82rem", color: "#15803d", fontWeight: 700, marginTop: "3px" }}>
+                                {photoSuccessMsg}
+                            </div>
+                        )}
                         <div className="student-hero-badges">
                             <span
                                 className="student-roll-badge non-editable"
@@ -249,6 +458,33 @@ export default function StudentDashboard() {
                             <span className="student-sub-badge">
                                 {user?.email || "Student Account"}
                             </span>
+                            <span
+                                className="student-sub-badge"
+                                onClick={() => {
+                                    if (hasFaceRegistered) {
+                                        setShowLockedFaceModal(true);
+                                    } else {
+                                        setShowFaceModal(true);
+                                    }
+                                }}
+                                style={{
+                                    cursor: "pointer",
+                                    background: hasFaceRegistered ? "#dcfce7" : "#fef3c7",
+                                    color: hasFaceRegistered ? "#15803d" : "#b45309",
+                                    border: hasFaceRegistered ? "1px solid #bbf7d0" : "1px solid #fde68a",
+                                    fontWeight: 700,
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    gap: "5px"
+                                }}
+                                title={hasFaceRegistered ? "Facial biometrics registered and secured in database (Protected)" : "Click to register your face biometrics"}
+                            >
+                                {hasFaceRegistered ? (
+                                    <><FaLock size={11} /> Face Registered (Protected)</>
+                                ) : (
+                                    <><FaCamera size={11} /> Face Pending (Click to Enroll)</>
+                                )}
+                            </span>
                         </div>
                     </div>
                 </div>
@@ -260,6 +496,55 @@ export default function StudentDashboard() {
                     </Link>
                 </div>
             </div>
+
+            {/* Face Registration Pending Banner (Only for students without registered face) */}
+            {!hasFaceRegistered && (
+                <div className="face-pending-alert-banner" style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: "16px",
+                    padding: "16px 20px",
+                    borderRadius: "14px",
+                    background: "linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%)",
+                    border: "1.5px solid #fde68a",
+                    marginBottom: "24px",
+                    flexWrap: "wrap",
+                    boxShadow: "0 4px 12px rgba(245, 158, 11, 0.1)"
+                }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                        <FaExclamationTriangle style={{ color: "#d97706", fontSize: "1.4rem" }} />
+                        <div>
+                            <h4 style={{ margin: 0, fontSize: "0.98rem", fontWeight: 800, color: "#92400e" }}>
+                                Facial Biometrics Enrollment Required
+                            </h4>
+                            <p style={{ margin: "2px 0 0", fontSize: "0.85rem", color: "#b45309" }}>
+                                You haven't registered your face yet. Register your biometric data once to mark attendance in class sessions.
+                            </p>
+                        </div>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={() => setShowFaceModal(true)}
+                        style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: "8px",
+                            padding: "9px 18px",
+                            borderRadius: "10px",
+                            background: "linear-gradient(135deg, #6366f1, #4f46e5)",
+                            color: "#ffffff",
+                            border: "none",
+                            fontWeight: 700,
+                            fontSize: "0.88rem",
+                            cursor: "pointer",
+                            boxShadow: "0 4px 12px rgba(99, 102, 241, 0.25)"
+                        }}
+                    >
+                        <FaCamera /> 📸 Register Face Now
+                    </button>
+                </div>
+            )}
 
             {/* 2. Attendance Summary Statistics */}
             <div className="student-stats-grid">
@@ -466,6 +751,205 @@ export default function StudentDashboard() {
                     </div>
                 )}
             </div>
+
+            {/* 4. Security Dialog: Locked Face Biometrics Information */}
+            {showLockedFaceModal && (
+                <div className="modal-backdrop" onClick={() => setShowLockedFaceModal(false)} style={{
+                    position: "fixed",
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    backgroundColor: "rgba(15, 23, 42, 0.75)",
+                    backdropFilter: "blur(6px)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    zIndex: 9999,
+                    padding: "20px"
+                }}>
+                    <div className="student-modal-container" onClick={(e) => e.stopPropagation()} style={{
+                        background: "var(--surface, #ffffff)",
+                        borderRadius: "20px",
+                        maxWidth: "520px",
+                        width: "100%",
+                        padding: "28px",
+                        boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.25)",
+                        position: "relative",
+                        textAlign: "center"
+                    }}>
+                        <button
+                            type="button"
+                            onClick={() => setShowLockedFaceModal(false)}
+                            style={{
+                                position: "absolute",
+                                top: "18px",
+                                right: "18px",
+                                background: "var(--surface-soft, #f1f5f9)",
+                                border: "none",
+                                borderRadius: "50%",
+                                width: "36px",
+                                height: "36px",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                fontSize: "1.1rem",
+                                cursor: "pointer",
+                                color: "var(--text-muted, #64748b)"
+                            }}
+                        >
+                            ✕
+                        </button>
+
+                        <div style={{
+                            width: "60px",
+                            height: "60px",
+                            borderRadius: "50%",
+                            background: "#dcfce7",
+                            color: "#16a34a",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            fontSize: "26px",
+                            margin: "0 auto 16px"
+                        }}>
+                            <FaLock />
+                        </div>
+
+                        <h2 style={{ margin: "0 0 8px", fontSize: "1.3rem", fontWeight: 800, color: "var(--text-main, #0f172a)" }}>
+                            Facial Biometrics Registered &amp; Protected
+                        </h2>
+
+                        <div style={{
+                            background: "var(--surface-soft, #f8fafc)",
+                            border: "1px solid var(--border, #e2e8f0)",
+                            borderRadius: "14px",
+                            padding: "16px 18px",
+                            margin: "16px 0",
+                            textAlign: "left",
+                            fontSize: "0.88rem",
+                            lineHeight: 1.6,
+                            color: "var(--text-main, #334155)"
+                        }}>
+                            <p style={{ margin: "0 0 10px" }}>
+                                ✅ Your 128-dimensional facial biometric vectors are officially registered under Roll Number <strong style={{ color: "#6366f1" }}>{activeRollNo}</strong> for attendance authentication.
+                            </p>
+                            <p style={{ margin: 0, color: "var(--text-muted, #64748b)" }}>
+                                🔒 <strong>Institutional Security Policy:</strong> To protect attendance integrity, students cannot alter or re-record registered facial biometric vectors. If your biometrics need updating, please contact your Course Lecturer or System Administrator.
+                            </p>
+                        </div>
+
+                        <button
+                            type="button"
+                            onClick={() => setShowLockedFaceModal(false)}
+                            style={{
+                                padding: "10px 24px",
+                                borderRadius: "10px",
+                                background: "linear-gradient(135deg, #6366f1, #4f46e5)",
+                                color: "#ffffff",
+                                border: "none",
+                                fontWeight: 700,
+                                fontSize: "0.9rem",
+                                cursor: "pointer",
+                                width: "100%",
+                                boxShadow: "0 4px 12px rgba(99, 102, 241, 0.25)"
+                            }}
+                        >
+                            Understood
+                        </button>
+                    </div>
+                </div>
+            )}
+
+            {/* 5. Initial Face Biometrics Registration Modal (Only accessible if face is NOT yet registered) */}
+            {showFaceModal && !hasFaceRegistered && (
+                <div className="modal-backdrop" onClick={() => setShowFaceModal(false)} style={{
+                    position: "fixed",
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    backgroundColor: "rgba(15, 23, 42, 0.75)",
+                    backdropFilter: "blur(6px)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    zIndex: 9999,
+                    padding: "20px"
+                }}>
+                    <div className="student-modal-container" onClick={(e) => e.stopPropagation()} style={{
+                        background: "var(--surface, #ffffff)",
+                        borderRadius: "20px",
+                        maxWidth: "600px",
+                        width: "100%",
+                        maxHeight: "90vh",
+                        overflowY: "auto",
+                        padding: "28px",
+                        boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.25)",
+                        position: "relative"
+                    }}>
+                        <button
+                            type="button"
+                            onClick={() => setShowFaceModal(false)}
+                            style={{
+                                position: "absolute",
+                                top: "18px",
+                                right: "18px",
+                                background: "var(--surface-soft, #f1f5f9)",
+                                border: "none",
+                                borderRadius: "50%",
+                                width: "36px",
+                                height: "36px",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                fontSize: "1.1rem",
+                                cursor: "pointer",
+                                color: "var(--text-muted, #64748b)"
+                            }}
+                        >
+                            ✕
+                        </button>
+
+                        <div style={{ marginBottom: "20px" }}>
+                            <div style={{ display: "inline-flex", alignItems: "center", gap: "8px", padding: "6px 14px", borderRadius: "20px", background: "rgba(99, 102, 241, 0.1)", color: "#6366f1", fontWeight: 700, fontSize: "0.85rem", marginBottom: "8px" }}>
+                                <FaCamera /> Biometric AI Recognition
+                            </div>
+                            <h2 style={{ margin: "0 0 6px", fontSize: "1.35rem", fontWeight: 800, color: "var(--text-main, #0f172a)" }}>
+                                Register Facial Biometrics
+                            </h2>
+                            <p style={{ margin: 0, fontSize: "0.88rem", color: "var(--text-muted, #64748b)" }}>
+                                Roll Number: <strong style={{ color: "#6366f1" }}>{activeRollNo}</strong> • Student: <strong>{studentName}</strong>
+                            </p>
+                        </div>
+
+                        <LiveFaceEnrollment
+                            onFaceEnrolled={handleEnrollStudentFace}
+                        />
+
+                        {faceSaving && (
+                            <div style={{ marginTop: "16px", textAlign: "center", color: "#6366f1", fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}>
+                                <FaSpinner className="fa-spin" /> Saving biometric facial descriptors to database...
+                            </div>
+                        )}
+
+                        {faceSuccessMsg && (
+                            <div style={{
+                                marginTop: "16px",
+                                padding: "12px 16px",
+                                background: "#dcfce7",
+                                color: "#15803d",
+                                borderRadius: "10px",
+                                fontWeight: 700,
+                                textAlign: "center",
+                                fontSize: "0.95rem"
+                            }}>
+                                {faceSuccessMsg}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

@@ -21,6 +21,7 @@ import ClassesData, { SessionAttendanceData } from "./components/Lecturer/pages/
 import ActiveSessions from "./components/Lecturer/pages/ActiveSessions";
 import StudentsList from "./components/Lecturer/pages/StudentsList";
 import LecturerCourses from "./components/Lecturer/pages/LecturerCourses";
+import AddStudent from "./components/Admin/pages/AddStudent";
 
 // Student imports
 import StudentDashboard from "./components/Student/StudentDashboard";
@@ -174,6 +175,9 @@ function App() {
           <Route path="active-sessions" element={<ActiveSessions />} />
           <Route path="attendance-sessions/:sessionId" element={<SessionAttendanceData />} />
           <Route path="students" element={<StudentsList />} />
+          <Route path="students/add" element={<AddStudent />} />
+          <Route path="students/bulk" element={<AddStudent />} />
+          <Route path="add-student" element={<AddStudent />} />
           <Route path="courses" element={<LecturerCourses />} />
           <Route path="scanqr" element={<QrScannerApp />} />
         </Route>

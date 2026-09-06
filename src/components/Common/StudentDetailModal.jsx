@@ -13,20 +13,31 @@ import {
   FaClipboardList,
   FaHistory,
   FaChalkboard,
-  FaFileDownload
+  FaFileDownload,
+  FaCamera,
+  FaSave,
+  FaRedo
 } from "react-icons/fa";
-import { collection, getDocs, query, where } from "firebase/firestore";
+import { collection, getDocs, query, where, doc, setDoc } from "firebase/firestore";
 import { db } from "../../firebase";
 import { useAuth } from "../authcontext";
 import { downloadExcel } from "../../DownloadExcel";
 import { useTableSort, SortIcon } from "./useTableSort";
+import { LiveFaceEnrollment } from "./LiveFaceEnrollment";
 import "./StudentDetailModal.css";
 
 const StudentDetailModal = ({ student, onClose }) => {
   const { user, profile } = useAuth();
+  const [currentStudent, setCurrentStudent] = useState(student);
   const [attendanceRecords, setAttendanceRecords] = useState([]);
   const [loading, setLoading] = useState(true);
   const [sessionsMap, setSessionsMap] = useState(new Map());
+
+  // Biometric Enrollment State
+  const [showFaceEnroll, setShowFaceEnroll] = useState(false);
+  const [enrolledBiometric, setEnrolledBiometric] = useState(null);
+  const [savingFace, setSavingFace] = useState(false);
+  const [faceSuccessMsg, setFaceSuccessMsg] = useState("");
 
   const { sortedItems: sortedAttendance, sortConfig, requestSort } = useTableSort(attendanceRecords, "submittedAt", "desc");
 
@@ -105,8 +116,8 @@ const StudentDetailModal = ({ student, onClose }) => {
 
   const handleExportAttendance = () => {
     const exportData = attendanceRecords.map((rec) => ({
-      "Student Name": student.name || "N/A",
-      "Roll Number": student.rollNo || "N/A",
+      "Student Name": currentStudent.name || "N/A",
+      "Roll Number": currentStudent.rollNo || "N/A",
       "Course Code": rec.session?.courseCode || "N/A",
       "Class Code": rec.session?.classCode || "N/A",
       "Room": rec.roomNo || rec.session?.roomNo || "N/A",
@@ -116,8 +127,57 @@ const StudentDetailModal = ({ student, onClose }) => {
 
     downloadExcel(
       exportData,
-      `${student.rollNo}_Attendance_Report_${new Date().toISOString().slice(0, 10)}`
+      `${currentStudent.rollNo}_Attendance_Report_${new Date().toISOString().slice(0, 10)}`
     );
+  };
+
+  const handleSaveBiometrics = async () => {
+    if (!enrolledBiometric || !enrolledBiometric.faceDescriptor) return;
+    try {
+      setSavingFace(true);
+      const cleanRoll = String(currentStudent.rollNo || "").trim().toUpperCase();
+      const cleanEmail = String(currentStudent.email || "").trim().toLowerCase();
+      const prefix = cleanEmail ? cleanEmail.split("@")[0] : "";
+
+      const updateData = {
+        faceDescriptor: enrolledBiometric.faceDescriptor,
+        photoURL: enrolledBiometric.photoURL || currentStudent.photoURL || "",
+        faceRegistered: true,
+        biometricEnrolled: true,
+        enrolledAt: Date.now()
+      };
+
+      const promises = [];
+      if (cleanRoll) {
+        promises.push(setDoc(doc(db, "students", cleanRoll), updateData, { merge: true }));
+        promises.push(setDoc(doc(db, "users", cleanRoll), updateData, { merge: true }));
+      }
+      if (cleanEmail) {
+        promises.push(setDoc(doc(db, "authorizedUsers", cleanEmail), updateData, { merge: true }).catch((e) => console.warn("authorizedUsers sync warning:", e)));
+      }
+      if (prefix && prefix !== cleanRoll.toLowerCase()) {
+        promises.push(setDoc(doc(db, "students", prefix), updateData, { merge: true }).catch(() => { }));
+        promises.push(setDoc(doc(db, "users", prefix), updateData, { merge: true }).catch(() => { }));
+      }
+
+      await Promise.all(promises);
+
+      setCurrentStudent((prev) => ({
+        ...prev,
+        ...updateData
+      }));
+
+      setFaceSuccessMsg("✅ Face biometric enrolled & synchronized successfully across database!");
+      setTimeout(() => {
+        setShowFaceEnroll(false);
+        setFaceSuccessMsg("");
+      }, 2500);
+    } catch (err) {
+      console.error("Error saving face biometric:", err);
+      alert("Failed to save biometric: " + err.message);
+    } finally {
+      setSavingFace(false);
+    }
   };
 
   return (
@@ -131,10 +191,10 @@ const StudentDetailModal = ({ student, onClose }) => {
         {/* Header Profile Section */}
         <div className="modal-profile-header">
           <div className="modal-avatar-wrapper">
-            {student.photoURL || student.image ? (
+            {currentStudent.photoURL || currentStudent.image ? (
               <img
-                src={student.photoURL || student.image}
-                alt={student.name}
+                src={currentStudent.photoURL || currentStudent.image}
+                alt={currentStudent.name}
                 className="modal-avatar-img"
               />
             ) : (
@@ -145,16 +205,16 @@ const StudentDetailModal = ({ student, onClose }) => {
           </div>
 
           <div className="modal-header-meta">
-            <h2>{student.name || "Unnamed Student"}</h2>
+            <h2>{currentStudent.name || "Unnamed Student"}</h2>
             <div className="modal-badges-row">
               <span className="badge-roll">
-                <FaIdCard /> {student.rollNo || "No Roll No"}
+                <FaIdCard /> {currentStudent.rollNo || "No Roll No"}
               </span>
-              <span className={`badge-status ${student.status === "active" ? "active" : "disabled"}`}>
-                {student.status === "active" ? "Active Student" : "Disabled"}
+              <span className={`badge-status ${currentStudent.status === "active" ? "active" : "disabled"}`}>
+                {currentStudent.status === "active" ? "Active Student" : "Disabled"}
               </span>
               <span className="badge-branch">
-                {(student.branch && String(student.branch).toLowerCase() !== "general") ? student.branch : "CSE"} {student.semester ? `• Sem ${student.semester}` : ""}
+                {(currentStudent.branch && String(currentStudent.branch).toLowerCase() !== "general") ? currentStudent.branch : "CSE"} {currentStudent.semester ? `• Sem ${currentStudent.semester}` : ""}
               </span>
             </div>
           </div>
@@ -209,7 +269,7 @@ const StudentDetailModal = ({ student, onClose }) => {
                 <FaEnvelope className="info-icon" />
                 <div>
                   <label>Email Address</label>
-                  <span>{student.email || "Not provided"}</span>
+                  <span>{currentStudent.email || "Not provided"}</span>
                 </div>
               </div>
 
@@ -217,7 +277,7 @@ const StudentDetailModal = ({ student, onClose }) => {
                 <FaPhone className="info-icon" />
                 <div>
                   <label>Phone Number</label>
-                  <span>{student.phone || "Not provided"}</span>
+                  <span>{currentStudent.phone || "Not provided"}</span>
                 </div>
               </div>
 
@@ -225,7 +285,7 @@ const StudentDetailModal = ({ student, onClose }) => {
                 <FaGraduationCap className="info-icon" />
                 <div>
                   <label>Branch & Semester</label>
-                  <span>{(student.branch && String(student.branch).toLowerCase() !== "general") ? student.branch : "CSE"} - Semester {student.semester || "1"}</span>
+                  <span>{(currentStudent.branch && String(currentStudent.branch).toLowerCase() !== "general") ? currentStudent.branch : "CSE"} - Semester {currentStudent.semester || "1"}</span>
                 </div>
               </div>
 
@@ -233,7 +293,7 @@ const StudentDetailModal = ({ student, onClose }) => {
                 <FaVenusMars className="info-icon" />
                 <div>
                   <label>Gender</label>
-                  <span>{student.gender ? student.gender.toUpperCase() : "Not specified"}</span>
+                  <span>{currentStudent.gender ? currentStudent.gender.toUpperCase() : "Not specified"}</span>
                 </div>
               </div>
 
@@ -241,21 +301,81 @@ const StudentDetailModal = ({ student, onClose }) => {
                 <FaCalendarAlt className="info-icon" />
                 <div>
                   <label>Date of Birth</label>
-                  <span>{student.dob || "Not specified"}</span>
+                  <span>{currentStudent.dob || "Not specified"}</span>
                 </div>
               </div>
 
               <div className="info-row">
-                {student.faceRegistered ? (
+                {currentStudent.faceRegistered ? (
                   <FaCheckCircle className="info-icon success" />
                 ) : (
                   <FaTimesCircle className="info-icon warning" />
                 )}
                 <div>
                   <label>Face Biometric Status</label>
-                  <span>{student.faceRegistered ? "Registered ✅" : "Not Registered ⏳"}</span>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "8px" }}>
+                    <span>{currentStudent.faceRegistered ? "Registered & Active ✅" : "Not Registered ⏳"}</span>
+                    <button
+                      type="button"
+                      onClick={() => setShowFaceEnroll((prev) => !prev)}
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "6px",
+                        fontSize: "0.8rem",
+                        fontWeight: 700,
+                        padding: "5px 12px",
+                        borderRadius: "8px",
+                        background: showFaceEnroll ? "var(--surface-soft, #f1f5f9)" : "linear-gradient(135deg, #6366f1, #4f46e5)",
+                        color: showFaceEnroll ? "var(--text-main, #334155)" : "#ffffff",
+                        border: "1px solid var(--border, #cbd5e1)",
+                        cursor: "pointer"
+                      }}
+                    >
+                      <FaCamera /> {showFaceEnroll ? "Hide Camera" : (currentStudent.faceRegistered ? "Update Face" : "Enroll Face")}
+                    </button>
+                  </div>
                 </div>
               </div>
+
+              {/* Live Face Enrollment in Modal */}
+              {showFaceEnroll && (
+                <div style={{ marginTop: "12px", borderTop: "1px solid var(--border, #e2e8f0)", paddingTop: "12px" }}>
+                  <LiveFaceEnrollment
+                    onFaceEnrolled={(data) => setEnrolledBiometric(data)}
+                  />
+                  {enrolledBiometric?.faceDescriptor && (
+                    <div style={{ marginTop: "12px", textAlign: "center" }}>
+                      <button
+                        type="button"
+                        onClick={handleSaveBiometrics}
+                        disabled={savingFace}
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: "8px",
+                          padding: "10px 20px",
+                          borderRadius: "10px",
+                          background: "#10b981",
+                          color: "#ffffff",
+                          border: "none",
+                          fontWeight: 700,
+                          fontSize: "0.9rem",
+                          cursor: savingFace ? "not-allowed" : "pointer",
+                          boxShadow: "0 4px 12px rgba(16, 185, 129, 0.3)"
+                        }}
+                      >
+                        <FaSave /> {savingFace ? "Saving Biometrics..." : "💾 Save & Sync Face Biometrics"}
+                      </button>
+                    </div>
+                  )}
+                  {faceSuccessMsg && (
+                    <div style={{ marginTop: "10px", padding: "8px 12px", background: "#dcfce7", color: "#15803d", borderRadius: "8px", fontSize: "0.85rem", fontWeight: 700, textAlign: "center" }}>
+                      {faceSuccessMsg}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 

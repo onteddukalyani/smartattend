@@ -182,7 +182,7 @@ export default function LecturerCourses() {
     };
 
     const handleLaunchQR = (course) => {
-        navigate(`/lecturer/lecturerpage?courseCode=${encodeURIComponent(course.courseCode)}&roomNo=${encodeURIComponent(course.defaultRoom || "")}&classCode=${encodeURIComponent(course.department || "")}`);
+        navigate(`/lecturer/lecturerpage?courseCode=${encodeURIComponent(course.courseCode)}&roomNo=${encodeURIComponent(course.defaultRoom || "")}&classCode=${encodeURIComponent(course.department || "")}&batch=${encodeURIComponent(course.batch || "2025")}`);
     };
 
     // KPIs

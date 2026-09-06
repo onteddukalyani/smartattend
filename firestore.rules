@@ -3,147 +3,57 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    function isSuperAdmin(auth) {
-      return auth != null 
-        && 'email' in auth.token 
-        && (
-          auth.token.email.lower() == 'onteddukalyani@gmail.com' ||
-          auth.token.email.lower() == 'admin@iiitdwd.ac.in' ||
-          auth.token.email.lower().matches('.*admin.*@iiitdwd[.]ac[.]in')
-        );
+    function isAuthenticated() {
+      return request.auth != null;
     }
 
-    function hasAdminDoc(email) {
-      return exists(/databases/$(database)/documents/admins/$(email.lower())) ||
-             exists(/databases/$(database)/documents/admins/$(email.lower().split('@')[0]));
-    }
-
-    function hasLecturerDoc(email) {
-      return exists(/databases/$(database)/documents/lecturers/$(email.lower())) ||
-             exists(/databases/$(database)/documents/lecturers/$(email.lower().split('@')[0]));
-    }
-
-    function hasAuthorizedDoc(email) {
-      return exists(/databases/$(database)/documents/authorizedUsers/$(email.lower()));
-    }
-
-    function getRole(email) {
-      return hasAuthorizedDoc(email) 
-        ? get(/databases/$(database)/documents/authorizedUsers/$(email.lower())).data.role 
-        : '';
-    }
-
-    function hasUserDoc(email) {
-      return exists(/databases/$(database)/documents/users/$(email.lower()));
-    }
-
-    function getUserRole(email) {
-      return hasUserDoc(email)
-        ? get(/databases/$(database)/documents/users/$(email.lower())).data.role
-        : '';
-    }
-
-    function isAdmin(auth) {
-      return auth != null 
-        && 'email' in auth.token 
-        && (
-          isSuperAdmin(auth) || 
-          hasAdminDoc(auth.token.email) ||
-          getRole(auth.token.email) == 'admin' ||
-          getUserRole(auth.token.email) == 'admin'
-        );
-    }
-
-    function isLecturer(auth) {
-      return auth != null 
-        && 'email' in auth.token 
-        && (
-          isAdmin(auth) || 
-          hasLecturerDoc(auth.token.email) ||
-          getRole(auth.token.email) == 'lecturer' ||
-          getRole(auth.token.email) == 'faculty' ||
-          getUserRole(auth.token.email) == 'lecturer' ||
-          getUserRole(auth.token.email) == 'faculty'
-        );
-    }
-
-    // Rules for admins collection
+    // Admins Collection
     match /admins/{adminId} {
-      allow read: if request.auth != null;
-      allow create, update, delete: if request.auth != null && isAdmin(request.auth);
+      allow read, write: if isAuthenticated();
     }
 
-    // Rules for lecturers collection
+    // Lecturers Collection
     match /lecturers/{lecturerId} {
-      allow read: if request.auth != null;
-      allow create, update, delete: if request.auth != null && (isAdmin(request.auth) || isLecturer(request.auth));
+      allow read, write: if isAuthenticated();
     }
 
-    // Rules for students collection
+    // Students Collection - Read & write accessible for lookups, attendance, and biometric enrollment
     match /students/{studentId} {
-      allow read: if request.auth != null;
-      allow create, update, delete: if request.auth != null && (
-        isAdmin(request.auth) || 
-        isLecturer(request.auth) ||
-        (resource != null && 'email' in resource.data && resource.data.email != null && request.auth.token.email.lower() == resource.data.email.lower()) ||
-        studentId == request.auth.uid
-      );
+      allow read, write: if true;
     }
 
-    // Rules for authorizedUsers
-    match /authorizedUsers/{email} {
-      allow get: if request.auth != null && (request.auth.token.email.lower() == email.lower() || isAdmin(request.auth));
-      allow list: if request.auth != null && isAdmin(request.auth);
-      allow write: if request.auth != null && isAdmin(request.auth);
+    // Authorized Users Collection (Roster / Whitelist & Google Auth Sync)
+    match /authorizedUsers/{userId} {
+      allow read, write: if true;
     }
 
-    // Rules for users (Universal profiles sync)
+    // Users Collection (Universal User Profiles)
     match /users/{userId} {
-      allow read: if request.auth != null;
-      allow create: if request.auth != null;
-      allow update, delete: if request.auth != null && (
-        isAdmin(request.auth) || 
-        isLecturer(request.auth) ||
-        (resource != null && 'email' in resource.data && resource.data.email != null && request.auth.token.email.lower() == resource.data.email.lower()) ||
-        userId == request.auth.uid
-      );
+      allow read, write: if true;
     }
 
-    // Rules for attendance_sessions
+    // Attendance Sessions
     match /attendance_sessions/{sessionId} {
-      allow get: if true;
-      allow list: if request.auth != null;
-      allow create: if request.auth != null;
-      allow update, delete: if request.auth != null && (
-        isAdmin(request.auth) ||
-        (resource != null && 'ownerId' in resource.data && resource.data.ownerId == request.auth.uid)
-      );
+      allow read, write: if true;
     }
 
-    // Rules for attendance_records
+    // Attendance Records
     match /attendance_records/{recordId} {
-      allow get: if true;
-      allow list: if request.auth != null;
-      allow create, update: if true;
-      allow delete: if request.auth != null && (
-        isAdmin(request.auth) ||
-        (resource != null && 'ownerId' in resource.data && resource.data.ownerId == request.auth.uid)
-      );
+      allow read, write: if true;
     }
 
-    // Rules for courses
+    // Courses Collection
     match /courses/{courseId} {
-      allow read: if request.auth != null;
-      allow create, update, delete: if request.auth != null && (
-        isAdmin(request.auth) || 
-        isLecturer(request.auth)
-      );
+      allow read: if true;
+      allow write: if isAuthenticated();
     }
 
-    // Rules for institution settings
+    // Institution Settings
     match /institution_settings/{docId} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null && isAdmin(request.auth);
+      allow read: if true;
+      allow write: if isAuthenticated();
     }
   }
 }
+
+

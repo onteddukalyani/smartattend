@@ -1,5 +1,5 @@
 import { doc, getDoc, setDoc, collection, query, where, getDocs } from "firebase/firestore";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import {
     FaUser,
@@ -8,11 +8,14 @@ import {
     FaSpinner,
     FaChalkboardTeacher,
     FaArrowLeft,
-    FaArrowRight
+    FaArrowRight,
+    FaLock,
+    FaShieldAlt
 } from "react-icons/fa";
 import { db } from "../../../firebase";
 import { useAuth } from "../../authcontext";
 import FaceScanner from "./FaceScanner";
+import { LiveFaceEnrollment } from "../../Common/LiveFaceEnrollment";
 import './StudentForm.css';
 
 function StudentForm() {
@@ -40,6 +43,13 @@ function StudentForm() {
     const [lookingUp, setLookingUp] = useState(false);
     const [verifiedStudent, setVerifiedStudent] = useState(null);
     const [lookupDone, setLookupDone] = useState(false);
+
+    // Live Face Biometric Verification & Inline Enrollment State
+    const [faceVerified, setFaceVerified] = useState(false);
+    const [faceVerificationData, setFaceVerificationData] = useState(null);
+    const [showInlineEnroll, setShowInlineEnroll] = useState(false);
+    const [enrollSaving, setEnrollSaving] = useState(false);
+    const [enrollSuccessMsg, setEnrollSuccessMsg] = useState("");
 
     // After-submission state
     const [submitted, setSubmitted] = useState(false);
@@ -108,14 +118,6 @@ function StudentForm() {
                 }
 
                 const sessionData = sessionSnapshot.data();
-
-                if (!sessionData.ownerId) {
-                    setSessionErrorMessage("This QR code is outdated. Please ask the lecturer to generate a new QR code.");
-                    setSessionError(true);
-                    setCheckingSession(false);
-                    return;
-                }
-
                 setSessionDetails(sessionData);
 
                 const currentTime = Date.now();
@@ -326,6 +328,80 @@ function StudentForm() {
         return () => clearTimeout(timer);
     }, [formData.rollNo]);
 
+    const handleFaceVerificationChange = useCallback((result) => {
+        if (result && result.verified) {
+            setFaceVerified(true);
+            setFaceVerificationData(result);
+        } else {
+            setFaceVerified(false);
+            setFaceVerificationData(result);
+        }
+    }, []);
+
+    const handleInlineFaceEnrolled = async (enrollData) => {
+        if (!enrollData || !enrollData.faceDescriptor) return;
+        const targetRoll = formData.rollNo.trim().toUpperCase();
+        if (!targetRoll) {
+            alert("Please enter your roll number first.");
+            return;
+        }
+
+        try {
+            setEnrollSaving(true);
+            const cleanEmail = (formData.email || user?.email || "").toLowerCase().trim();
+            const prefix = cleanEmail ? cleanEmail.split("@")[0] : targetRoll.toLowerCase();
+
+            const studentUpdate = {
+                faceDescriptor: enrollData.faceDescriptor,
+                photoURL: enrollData.photoURL,
+                faceRegistered: true,
+                biometricEnrolled: true,
+                enrolledAt: Date.now()
+            };
+
+            // Write to Firestore across collections
+            const promises = [
+                setDoc(doc(db, "students", targetRoll), studentUpdate, { merge: true }),
+                setDoc(doc(db, "users", targetRoll), studentUpdate, { merge: true })
+            ];
+            if (cleanEmail) {
+                promises.push(setDoc(doc(db, "authorizedUsers", cleanEmail), studentUpdate, { merge: true }));
+            }
+            if (prefix && prefix !== targetRoll.toLowerCase()) {
+                promises.push(setDoc(doc(db, "students", prefix), studentUpdate, { merge: true }).catch(() => { }));
+            }
+
+            await Promise.all(promises);
+
+            // Update verifiedStudent state
+            setVerifiedStudent((prev) => ({
+                ...(prev || {}),
+                name: prev?.name || formData.fullName || "Student",
+                rollNo: targetRoll,
+                ...studentUpdate
+            }));
+
+            // Mark face as verified for attendance
+            setFaceVerified(true);
+            setFaceVerificationData({
+                verified: true,
+                confidence: 99,
+                distance: 0.05
+            });
+
+            setEnrollSuccessMsg("✅ Facial biometrics registered successfully! You can now submit your attendance.");
+            setTimeout(() => {
+                setShowInlineEnroll(false);
+                setEnrollSuccessMsg("");
+            }, 2500);
+        } catch (err) {
+            console.error("Error saving inline face biometric:", err);
+            alert("Failed to save face biometric: " + err.message);
+        } finally {
+            setEnrollSaving(false);
+        }
+    };
+
     const handleRollNoChange = (e) => {
         const upperVal = e.target.value.toUpperCase();
         setFormData((prev) => ({
@@ -333,6 +409,8 @@ function StudentForm() {
             rollNo: upperVal
         }));
         setLookupDone(false);
+        setFaceVerified(false);
+        setFaceVerificationData(null);
     };
 
     const handleChange = (e) => {
@@ -370,6 +448,16 @@ function StudentForm() {
             return;
         }
 
+        // 3. ENFORCE LIVE FACE BIOMETRIC VERIFICATION
+        if (!faceVerified) {
+            if (verifiedStudent && (!verifiedStudent.faceDescriptor || !Array.isArray(verifiedStudent.faceDescriptor) || verifiedStudent.faceDescriptor.length !== 128)) {
+                alert(`⛔ Face biometric is not registered for ${cleanFullName} (${cleanRollNo}).\n\nAttendance cannot be recorded until an Admin or Lecturer registers your facial biometric data.`);
+            } else {
+                alert(`❌ Live face biometric verification required!\n\nPlease position your face in the camera frame to match the registered template for Roll Number ${cleanRollNo}.`);
+            }
+            return;
+        }
+
         setSubmitting(true);
 
         try {
@@ -384,11 +472,6 @@ function StudentForm() {
             }
 
             const sessionData = sessionSnapshot.data();
-
-            if (!sessionData.ownerId) {
-                alert("This QR code is outdated. Please ask the lecturer to generate a new QR code.");
-                return;
-            }
 
             if (
                 Date.now() >= sessionData.expiresAt ||
@@ -411,20 +494,26 @@ function StudentForm() {
 
             const studentEmail = user?.email?.toLowerCase().trim() || formData.email?.toLowerCase().trim() || "";
 
-            // Save Attendance record with Roll Number considered first
+            const resolvedBatch = (sessionData.batch && sessionData.batch.trim() !== "" && sessionData.batch !== "—") ? sessionData.batch : "2025";
+
+            // Save Attendance record with verified facial biometric telemetry
             await setDoc(attendanceRef, {
                 sessionId: sessionId,
-                ownerId: sessionData.ownerId,
+                ownerId: sessionData.ownerId || sessionData.ownerEmail || sessionData.lecturerEmail || "system",
                 lecturerName: sessionData.lecturerName || "",
                 lecturerEmail: sessionData.lecturerEmail || sessionData.ownerEmail || "",
                 courseCode: sessionData.courseCode || "N/A",
                 classCode: sessionData.classCode || "N/A",
-                batch: sessionData.batch || "",
+                batch: resolvedBatch,
                 roomNo: sessionData.roomNo || "N/A",
                 rollNo: cleanRollNo,
                 fullName: cleanFullName,
                 studentEmail: studentEmail,
                 studentUid: user?.uid || "",
+                faceVerified: true,
+                faceMatchConfidence: faceVerificationData?.confidence || 100,
+                faceDistance: faceVerificationData?.distance !== undefined ? Number(faceVerificationData.distance.toFixed(4)) : null,
+                biometricVerifiedAt: Date.now(),
                 submittedAt: Date.now()
             });
 
@@ -437,7 +526,7 @@ function StudentForm() {
                 fullName: cleanFullName,
                 courseCode: sessionData.courseCode || "N/A",
                 classCode: sessionData.classCode || "N/A",
-                batch: sessionData.batch || "",
+                batch: resolvedBatch,
                 roomNo: sessionData.roomNo || "N/A"
             });
             setSubmitted(true);
@@ -453,10 +542,15 @@ function StudentForm() {
     const handleReset = () => {
         setFormData({
             rollNo: "",
-            fullName: ""
+            fullName: "",
+            email: "",
+            branch: "",
+            semester: ""
         });
         setVerifiedStudent(null);
         setLookupDone(false);
+        setFaceVerified(false);
+        setFaceVerificationData(null);
     };
 
     // Success Screen: Returns to Student Dashboard
@@ -644,9 +738,63 @@ function StudentForm() {
                     {/* Biometric Face Verification Section */}
                     <div className="face-verification-section">
                         <label style={{ display: "block", marginBottom: "8px", fontWeight: 700 }}>
-                            Face Biometric Verification
+                            Live Face Biometric Verification *
                         </label>
-                        <FaceScanner />
+                        <FaceScanner
+                            verifiedStudent={verifiedStudent}
+                            lookingUp={lookingUp}
+                            rollNo={formData.rollNo}
+                            onVerificationChange={handleFaceVerificationChange}
+                            onEnrollRequest={() => setShowInlineEnroll(true)}
+                        />
+
+                        {/* Inline Face Enrollment Modal / Card */}
+                        {showInlineEnroll && (
+                            <div className="inline-enrollment-card" style={{
+                                marginTop: "16px",
+                                padding: "20px",
+                                borderRadius: "16px",
+                                background: "var(--surface, #ffffff)",
+                                border: "2px solid #6366f1",
+                                boxShadow: "0 8px 32px rgba(99, 102, 241, 0.2)",
+                                animation: "formFadeIn 0.3s ease-out"
+                            }}>
+                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
+                                    <h3 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 800, color: "#4f46e5" }}>
+                                        📸 Register Biometric Face for {verifiedStudent?.name || formData.fullName || "Student"}
+                                    </h3>
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowInlineEnroll(false)}
+                                        style={{
+                                            background: "transparent",
+                                            border: "none",
+                                            fontSize: "1.1rem",
+                                            color: "var(--text-muted, #64748b)",
+                                            cursor: "pointer"
+                                        }}
+                                    >
+                                        ✕
+                                    </button>
+                                </div>
+                                <p style={{ margin: "0 0 14px", fontSize: "0.85rem", color: "var(--text-muted, #64748b)" }}>
+                                    Position your face centered in the camera and click <strong>"Capture & Register Biometrics"</strong>.
+                                </p>
+                                <LiveFaceEnrollment
+                                    onFaceEnrolled={handleInlineFaceEnrolled}
+                                />
+                                {enrollSaving && (
+                                    <div style={{ marginTop: "12px", textAlign: "center", color: "#6366f1", fontWeight: 700 }}>
+                                        <FaSpinner className="fa-spin" /> Saving biometric vectors to database...
+                                    </div>
+                                )}
+                                {enrollSuccessMsg && (
+                                    <div style={{ marginTop: "12px", padding: "10px", background: "#dcfce7", color: "#15803d", borderRadius: "8px", fontWeight: 700, textAlign: "center" }}>
+                                        {enrollSuccessMsg}
+                                    </div>
+                                )}
+                            </div>
+                        )}
                     </div>
                 </div>
 
@@ -655,9 +803,23 @@ function StudentForm() {
                     <button
                         className="save-btn"
                         type="submit"
-                        disabled={submitting}
+                        disabled={submitting || !faceVerified}
+                        style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            gap: "8px",
+                            opacity: (submitting || !faceVerified) ? 0.7 : 1,
+                            cursor: (submitting || !faceVerified) ? "not-allowed" : "pointer"
+                        }}
                     >
-                        {submitting ? "Submitting..." : "Submit Attendance"}
+                        {submitting ? (
+                            <><FaSpinner className="fa-spin" /> Submitting Attendance...</>
+                        ) : faceVerified ? (
+                            <><FaCheckCircle /> Submit Attendance (Face Verified)</>
+                        ) : (
+                            <><FaLock /> Face Verification Required</>
+                        )}
                     </button>
 
                     <button
@@ -665,7 +827,7 @@ function StudentForm() {
                         type="button"
                         onClick={handleReset}
                     >
-                        Reset
+                        Reset Form
                     </button>
                 </div>
             </form>

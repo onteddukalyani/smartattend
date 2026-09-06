@@ -27,11 +27,16 @@ import {
 } from "firebase/firestore";
 import * as XLSX from "xlsx";
 import { db } from "../../../firebase";
+import { useAuth } from "../../authcontext";
 import { useTableSort, SortIcon } from "../../Common/useTableSort";
+import { LiveFaceEnrollment } from "../../Common/LiveFaceEnrollment";
 import "./AddStudent.css";
 
 const AddStudent = () => {
   const navigate = useNavigate();
+  const { profile } = useAuth();
+  const isLecturer = profile?.role === "lecturer";
+  const studentsPath = isLecturer ? "/lecturer/students" : "/admin/students";
   const fileInputRef = useRef(null);
 
   // Tab State: "single" | "bulk"
@@ -48,6 +53,7 @@ const AddStudent = () => {
     gender: "",
     dob: ""
   });
+  const [enrolledBiometric, setEnrolledBiometric] = useState(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [lecturerConflict, setLecturerConflict] = useState(null);
@@ -144,7 +150,11 @@ const AddStudent = () => {
         role: "student",
         status: "active",
         approved: true,
-        faceRegistered: false,
+        faceRegistered: Boolean(enrolledBiometric?.faceDescriptor),
+        biometricEnrolled: Boolean(enrolledBiometric?.faceDescriptor),
+        faceDescriptor: enrolledBiometric?.faceDescriptor || null,
+        photoURL: enrolledBiometric?.photoURL || "",
+        enrolledAt: enrolledBiometric?.enrolledAt || null,
         createdAt: serverTimestamp()
       };
 
@@ -176,7 +186,7 @@ const AddStudent = () => {
         }, { merge: true }).catch(() => { });
       }
 
-      navigate("/admin/students");
+      navigate(studentsPath);
     } catch (err) {
       console.error("Error creating student:", err);
       setError("Unable to create student. Please try again.");
@@ -210,7 +220,11 @@ const AddStudent = () => {
         role: "student",
         status: "active",
         approved: true,
-        faceRegistered: false,
+        faceRegistered: Boolean(enrolledBiometric?.faceDescriptor),
+        biometricEnrolled: Boolean(enrolledBiometric?.faceDescriptor),
+        faceDescriptor: enrolledBiometric?.faceDescriptor || null,
+        photoURL: enrolledBiometric?.photoURL || "",
+        enrolledAt: enrolledBiometric?.enrolledAt || null,
         updatedAt: serverTimestamp()
       };
 
@@ -237,7 +251,7 @@ const AddStudent = () => {
       }
 
       alert(`✅ Successfully converted ${cleanEmail} to a registered student (Roll No: ${cleanRollNo})!`);
-      navigate("/admin/students");
+      navigate(studentsPath);
     } catch (err) {
       console.error("Error converting lecturer to student:", err);
       setError("Failed to convert account: " + err.message);
@@ -523,7 +537,7 @@ const AddStudent = () => {
         <button
           type="button"
           className="back-button"
-          onClick={() => navigate("/admin/students")}
+          onClick={() => navigate(studentsPath)}
         >
           <FaArrowLeft />
           Back to Students
@@ -581,22 +595,24 @@ const AddStudent = () => {
                   >
                     {saving ? "Converting..." : "🔄 Convert This Account to Student"}
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => navigate("/admin/lecturers")}
-                    style={{
-                      background: "transparent",
-                      color: "inherit",
-                      border: "1px solid currentColor",
-                      padding: "8px 16px",
-                      borderRadius: "6px",
-                      fontWeight: 600,
-                      cursor: "pointer",
-                      fontSize: "0.85rem"
-                    }}
-                  >
-                    Go to Manage Lecturers ↗
-                  </button>
+                  {!isLecturer && (
+                    <button
+                      type="button"
+                      onClick={() => navigate("/admin/lecturers")}
+                      style={{
+                        background: "transparent",
+                        color: "inherit",
+                        border: "1px solid currentColor",
+                        padding: "8px 16px",
+                        borderRadius: "6px",
+                        fontWeight: 600,
+                        cursor: "pointer",
+                        fontSize: "0.85rem"
+                      }}
+                    >
+                      Go to Manage Lecturers ↗
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -713,11 +729,22 @@ const AddStudent = () => {
             </div>
           </div>
 
+          {/* Biometric Face Registration Section */}
+          <div className="form-section">
+            <h2>Biometric Face Registration (Optional / Recommended)</h2>
+            <p style={{ margin: "4px 0 14px", fontSize: "13px", color: "var(--text-muted, #64748b)" }}>
+              Capture the student's live facial features with camera to enable instant AI biometric attendance recognition.
+            </p>
+            <LiveFaceEnrollment
+              onFaceEnrolled={(data) => setEnrolledBiometric(data)}
+            />
+          </div>
+
           <div className="form-actions">
             <button
               type="button"
               className="cancel-button"
-              onClick={() => navigate("/admin/students")}
+              onClick={() => navigate(studentsPath)}
             >
               Cancel
             </button>
@@ -790,7 +817,7 @@ const AddStudent = () => {
                 <button
                   type="button"
                   className="view-students-btn"
-                  onClick={() => navigate("/admin/students")}
+                  onClick={() => navigate(studentsPath)}
                 >
                   View All Students
                 </button>

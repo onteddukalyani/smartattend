@@ -472,29 +472,7 @@ function Settings() {
                         </div>
                     </div>
 
-                    {/* System Status Indicators */}
-                    <div className="st-system-panel">
-                        <div className="st-sys-row">
-                            <span className="st-sys-label">
-                                <FaDatabase className="st-sys-icon" /> Cloud Database
-                            </span>
-                            <span className="st-sys-val online">
-                                <span className="st-live-dot" /> Firestore Connected
-                            </span>
-                        </div>
-                        <div className="st-sys-row">
-                            <span className="st-sys-label">
-                                <FaMobileAlt className="st-sys-icon" /> Storage
-                            </span>
-                            <span className="st-sys-val">Local Persistence Active</span>
-                        </div>
-                        <div className="st-sys-row">
-                            <span className="st-sys-label">
-                                <FaShieldAlt className="st-sys-icon" /> Build Version
-                            </span>
-                            <span className="st-sys-val st-code-sm">v2.4.0 (Release)</span>
-                        </div>
-                    </div>
+
 
                     {/* Logout Action */}
                     <div className="st-settings-actions">

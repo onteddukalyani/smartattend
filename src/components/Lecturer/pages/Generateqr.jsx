@@ -15,7 +15,7 @@ function GenerateQR() {
     const [roomNo, setRoomNo] = useState(searchParams.get("roomNo") || "");
     const [courseCode, setCourseCode] = useState(searchParams.get("courseCode") || "");
     const [classCode, setClassCode] = useState(searchParams.get("classCode") || "");
-    const [batch, setBatch] = useState(searchParams.get("batch") || "");
+    const [batch, setBatch] = useState(searchParams.get("batch") || "2025");
     const [availableCourses, setAvailableCourses] = useState([]);
     const [isGenerating, setIsGenerating] = useState(false);
     const [errorMessage, setErrorMessage] = useState("");
@@ -29,6 +29,16 @@ function GenerateQR() {
                     ...d.data()
                 }));
                 setAvailableCourses(list);
+
+                // If courseCode was passed in search params, auto-fill matching details if missing
+                if (courseCode) {
+                    const matched = list.find((c) => (c.courseCode || "").toUpperCase() === courseCode.toUpperCase());
+                    if (matched) {
+                        if (matched.defaultRoom && !roomNo) setRoomNo(matched.defaultRoom);
+                        if (matched.department && !classCode) setClassCode(matched.department);
+                        if (matched.batch && (!batch || batch === "2025")) setBatch(matched.batch);
+                    }
+                }
             })
             .catch((err) => console.warn("Could not load courses for QR page:", err));
     }, []);
@@ -40,7 +50,18 @@ function GenerateQR() {
         if (matched) {
             if (matched.defaultRoom && !roomNo) setRoomNo(matched.defaultRoom);
             if (matched.department && !classCode) setClassCode(matched.department);
-            if (matched.batch && !batch) setBatch(matched.batch);
+            if (matched.batch) setBatch(matched.batch);
+        }
+    };
+
+    const handleCourseCodeChange = (e) => {
+        const val = e.target.value;
+        setCourseCode(val);
+        const matched = availableCourses.find((c) => (c.courseCode || "").toUpperCase() === val.trim().toUpperCase());
+        if (matched) {
+            if (matched.defaultRoom && !roomNo) setRoomNo(matched.defaultRoom);
+            if (matched.department && !classCode) setClassCode(matched.department);
+            if (matched.batch) setBatch(matched.batch);
         }
     };
 
@@ -62,7 +83,8 @@ function GenerateQR() {
                 email: user?.email || "",
                 department: (rawDept && String(rawDept).toLowerCase() !== "general") ? rawDept : "CSE"
             };
-            const id = await createAttendanceSession(classCode, courseCode.trim(), roomNo.trim(), batch, lecturerInfo);
+            const finalBatch = (batch && batch.trim() !== "") ? batch.trim() : "2025";
+            const id = await createAttendanceSession(classCode, courseCode.trim(), roomNo.trim(), finalBatch, lecturerInfo);
             setSessionId(id);
         } catch (error) {
             console.error("Error creating session:", error);
@@ -71,6 +93,7 @@ function GenerateQR() {
             setIsGenerating(false);
         }
     };
+
     const attendanceUrl = sessionId
         ? `${window.location.origin}/student-form?session=${sessionId}`
         : "";
@@ -114,7 +137,7 @@ function GenerateQR() {
                         id="course-code"
                         type="text"
                         value={courseCode}
-                        onChange={(e) => setCourseCode(e.target.value)}
+                        onChange={handleCourseCodeChange}
                         placeholder="e.g. CS171, CS301"
                         required
                     />

@@ -44,12 +44,13 @@ function ClassesData() {
     useEffect(() => {
         const getSessions = async () => {
             try {
-                // Fetch all sessions, lecturers, and users to resolve lecturer names
-                const [sessionsSnapshot, lecturersSnapshot, usersSnapshot, authUsersSnapshot] = await Promise.all([
+                // Fetch all sessions, lecturers, users, and courses to resolve lecturer names and course batches
+                const [sessionsSnapshot, lecturersSnapshot, usersSnapshot, authUsersSnapshot, coursesSnapshot] = await Promise.all([
                     getDocs(collection(db, "attendance_sessions")),
                     getDocs(collection(db, "lecturers")).catch(() => ({ docs: [] })),
                     getDocs(collection(db, "users")).catch(() => ({ docs: [] })),
-                    getDocs(collection(db, "authorizedUsers")).catch(() => ({ docs: [] }))
+                    getDocs(collection(db, "authorizedUsers")).catch(() => ({ docs: [] })),
+                    getDocs(collection(db, "courses")).catch(() => ({ docs: [] }))
                 ]);
 
                 const userMap = new Map();
@@ -75,14 +76,42 @@ function ClassesData() {
                     }
                 });
 
+                const courseMap = new Map();
+                coursesSnapshot.docs.forEach((d) => {
+                    const c = d.data();
+                    if (c.courseCode) {
+                        courseMap.set(c.courseCode.toUpperCase().trim(), c);
+                    }
+                    courseMap.set(d.id.toUpperCase().trim(), c);
+                });
+
                 const userUid = user?.uid;
                 const userEmail = (user?.email || "").toLowerCase().trim();
+                const userPrefix = userEmail ? userEmail.split("@")[0] : "";
+                const userName = (profile?.name || user?.displayName || "").toLowerCase().trim();
                 const isAdmin = 
                     profile?.role === "admin" || 
                     profile?.role === "administrator" || 
                     profile?.role === "superadmin" || 
                     localStorage.getItem("smartattend-user-role") === "admin" || 
                     window.location.pathname.startsWith("/admin");
+
+                const isMySession = (data) => {
+                    if (isAdmin) return true;
+                    const ownerEmail = String(data.ownerEmail || data.lecturerEmail || "").toLowerCase().trim();
+                    const ownerId = String(data.ownerId || "").toLowerCase().trim();
+                    const sessLectName = String(data.lecturerName || "").toLowerCase().trim();
+
+                    if (userUid && (ownerId === userUid.toLowerCase() || ownerEmail === userUid.toLowerCase())) return true;
+                    if (userEmail && (ownerEmail === userEmail || ownerId === userEmail)) return true;
+                    if (userPrefix && (ownerId === userPrefix || ownerEmail.startsWith(userPrefix) || ownerEmail.includes(userPrefix))) return true;
+                    if (userName && sessLectName && (sessLectName.includes(userName) || userName.includes(sessLectName))) return true;
+
+                    // If unassigned or legacy session, show to lecturer
+                    if (!ownerEmail && !ownerId) return true;
+
+                    return false;
+                };
 
                 const allSessions = sessionsSnapshot.docs
                     .map((sessionDoc) => {
@@ -91,20 +120,24 @@ function ClassesData() {
                         const ownerId = data.ownerId;
                         const resolvedLecturer = data.lecturerName || userMap.get(ownerId) || userMap.get(ownerEmail) || (ownerEmail ? ownerEmail.split("@")[0] : "Faculty");
 
+                        const courseKey = (data.courseCode || data.classCode || "").toUpperCase().trim();
+                        const matchedCourse = courseMap.get(courseKey) || {};
+                        const rawBatch = (data.batch || "").toString().trim();
+                        const resolvedBatch = (rawBatch && rawBatch !== "—") ? rawBatch : (matchedCourse.batch || "2025");
+
+                        // Auto-heal missing batch in Firestore doc if missing
+                        if (!rawBatch || rawBatch === "—") {
+                            setDoc(doc(db, "attendance_sessions", sessionDoc.id), { batch: resolvedBatch }, { merge: true }).catch(() => {});
+                        }
+
                         return {
                             id: sessionDoc.id,
                             ...data,
+                            batch: resolvedBatch,
                             lecturerName: resolvedLecturer
                         };
                     })
-                    .filter((sess) => {
-                        if (isAdmin) return true;
-                        const ownerEmail = (sess.ownerEmail || sess.lecturerEmail || "").toLowerCase().trim();
-                        const ownerId = sess.ownerId;
-                        if (userUid && ownerId === userUid) return true;
-                        if (userEmail && (ownerEmail === userEmail || ownerId === userEmail)) return true;
-                        return false;
-                    });
+                    .filter((sess) => isMySession(sess));
 
                 setSessions(allSessions);
             } catch (error) {
@@ -257,7 +290,22 @@ export function SessionAttendanceData() {
                     }
                 }
 
-                setSession({ id: sessionSnapshot.id, ...sessData, lecturerName: lecturerDisplay });
+                let resolvedBatch = (sessData.batch || "").toString().trim();
+                if (!resolvedBatch || resolvedBatch === "—") {
+                    const courseKey = (sessData.courseCode || sessData.classCode || "").toUpperCase().trim();
+                    if (courseKey) {
+                        const courseSnap = await getDoc(doc(db, "courses", courseKey)).catch(() => ({ exists: () => false }));
+                        if (courseSnap.exists() && courseSnap.data().batch) {
+                            resolvedBatch = courseSnap.data().batch;
+                        } else {
+                            resolvedBatch = "2025";
+                        }
+                    } else {
+                        resolvedBatch = "2025";
+                    }
+                }
+
+                setSession({ id: sessionSnapshot.id, ...sessData, batch: resolvedBatch, lecturerName: lecturerDisplay });
 
                 const recordsQuery = query(
                     collection(db, "attendance_records"),
@@ -315,7 +363,7 @@ export function SessionAttendanceData() {
             <h2>Attendance - {session.classCode}</h2>
             <div className="session-summary-box">
                 <span className="session-summary-item"><strong>Lecturer:</strong> {session.lecturerName || "Faculty"}</span>
-                {session.batch && <span className="session-summary-item"><strong>Batch:</strong> {session.batch}</span>}
+                <span className="session-summary-item"><strong>Batch:</strong> {session.batch || "2025"}</span>
                 <span className="session-summary-item"><strong>Course Code:</strong> {session.courseCode || "N/A"}</span>
                 <span className="session-summary-item"><strong>Room:</strong> {session.roomNo || "N/A"}</span>
                 <span className="session-summary-item"><strong>Total Students Present:</strong> <strong style={{ color: "#10b981" }}>{records.length}</strong></span>

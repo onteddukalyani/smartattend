@@ -4,7 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { db } from "../../../firebase";
 import { useAuth } from "../../authcontext";
 import { downloadExcel } from "../../../DownloadExcel";
-import { FaSearch, FaSyncAlt } from "react-icons/fa";
+import { FaSearch, FaSyncAlt, FaUserPlus, FaCheckCircle, FaCamera, FaExclamationTriangle } from "react-icons/fa";
 import StudentDetailModal from "../../Common/StudentDetailModal";
 import { useTableSort, SortIcon } from "../../Common/useTableSort";
 import "./StudentsList.css";
@@ -130,6 +130,28 @@ function StudentsList() {
                         />
                     </div>
                     <button
+                        type="button"
+                        onClick={() => navigate("/lecturer/students/add")}
+                        className="add-student-btn"
+                        style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: "8px",
+                            padding: "9px 18px",
+                            borderRadius: "10px",
+                            background: "linear-gradient(135deg, #6366f1, #4f46e5)",
+                            color: "#ffffff",
+                            border: "none",
+                            fontWeight: "700",
+                            fontSize: "0.88rem",
+                            cursor: "pointer",
+                            boxShadow: "0 4px 12px rgba(99, 102, 241, 0.25)",
+                            whiteSpace: "nowrap"
+                        }}
+                    >
+                        <FaUserPlus />  Add Student & Register Face
+                    </button>
+                    <button
                         onClick={getStudents}
                         disabled={loading}
                         className="students-refresh-btn"
@@ -170,31 +192,73 @@ function StudentsList() {
                                 <th className="sortable-th" onClick={() => requestSort("semester")} title="Click to sort by Semester">
                                     Semester <SortIcon sortConfig={sortConfig} columnKey="semester" />
                                 </th>
+                                <th className="sortable-th" onClick={() => requestSort("faceRegistered")} title="Click to sort by Face Biometrics">
+                                    Face Biometrics <SortIcon sortConfig={sortConfig} columnKey="faceRegistered" />
+                                </th>
                                 <th className="sortable-th" onClick={() => requestSort("status")} title="Click to sort by Status">
                                     Status <SortIcon sortConfig={sortConfig} columnKey="status" />
                                 </th>
                             </tr>
                         </thead>
                         <tbody>
-                            {sortedStudents.map((student) => (
-                                <tr
-                                    key={student.id}
-                                    onClick={() => setSelectedStudent(student)}
-                                    style={{ cursor: "pointer" }}
-                                    title="Click to view student profile & attendance history"
-                                >
-                                    <td><strong>{student.rollNo || "N/A"}</strong></td>
-                                    <td>{student.name || "N/A"}</td>
-                                    <td>{student.email || "N/A"}</td>
-                                    <td>{(student.branch && String(student.branch).toLowerCase() !== "general") ? student.branch : "CSE"}</td>
-                                    <td>{student.semester || "N/A"}</td>
-                                    <td>
-                                        <span className={`status-badge ${student.status === "active" ? "active" : "disabled"}`}>
-                                            {student.status || "N/A"}
-                                        </span>
-                                    </td>
-                                </tr>
-                            ))}
+                            {sortedStudents.map((student) => {
+                                const hasFace = Boolean(
+                                    student.faceRegistered ||
+                                    (student.faceDescriptor && Array.isArray(student.faceDescriptor) && student.faceDescriptor.length === 128)
+                                );
+                                return (
+                                    <tr
+                                        key={student.id}
+                                        onClick={() => setSelectedStudent(student)}
+                                        style={{ cursor: "pointer" }}
+                                        title="Click to view student profile, attendance history or register facial data"
+                                    >
+                                        <td><strong>{student.rollNo || "N/A"}</strong></td>
+                                        <td>{student.name || "N/A"}</td>
+                                        <td>{student.email || "N/A"}</td>
+                                        <td>{(student.branch && String(student.branch).toLowerCase() !== "general") ? student.branch : "CSE"}</td>
+                                        <td>{student.semester || "N/A"}</td>
+                                        <td>
+                                            {hasFace ? (
+                                                <span style={{
+                                                    display: "inline-flex",
+                                                    alignItems: "center",
+                                                    gap: "5px",
+                                                    padding: "4px 10px",
+                                                    borderRadius: "20px",
+                                                    fontSize: "0.78rem",
+                                                    fontWeight: 700,
+                                                    background: "#dcfce7",
+                                                    color: "#15803d",
+                                                    border: "1px solid #bbf7d0"
+                                                }}>
+                                                    <FaCheckCircle /> Enrolled
+                                                </span>
+                                            ) : (
+                                                <span style={{
+                                                    display: "inline-flex",
+                                                    alignItems: "center",
+                                                    gap: "5px",
+                                                    padding: "4px 10px",
+                                                    borderRadius: "20px",
+                                                    fontSize: "0.78rem",
+                                                    fontWeight: 700,
+                                                    background: "#fef3c7",
+                                                    color: "#b45309",
+                                                    border: "1px solid #fde68a"
+                                                }}>
+                                                    <FaCamera /> Pending (Click to Enroll)
+                                                </span>
+                                            )}
+                                        </td>
+                                        <td>
+                                            <span className={`status-badge ${student.status === "active" ? "active" : "disabled"}`}>
+                                                {student.status || "N/A"}
+                                            </span>
+                                        </td>
+                                    </tr>
+                                );
+                            })}
                         </tbody>
                     </table>
                 </div>
@@ -204,7 +268,10 @@ function StudentsList() {
             {selectedStudent && (
                 <StudentDetailModal
                     student={selectedStudent}
-                    onClose={() => setSelectedStudent(null)}
+                    onClose={() => {
+                        setSelectedStudent(null);
+                        getStudents();
+                    }}
                 />
             )}
         </div>

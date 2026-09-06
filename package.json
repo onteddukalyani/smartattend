@@ -14,6 +14,7 @@
     "@vladmandic/face-api": "^1.7.15",
     "@yudiel/react-qr-scanner": "^2.6.0",
     "firebase": "^12.18.0",
+    "jsqr": "^1.4.0",
     "qrcode": "^1.5.4",
     "qrcode.react": "^4.2.0",
     "react": "^19.2.8",
