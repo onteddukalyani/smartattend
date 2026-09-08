@@ -253,7 +253,12 @@ const AdminOverview = () => {
           </div>
         </div>
 
-        <div className="admin-stat-card">
+        <div
+          className="admin-stat-card"
+          onClick={() => navigate("/admin/admins")}
+          style={{ cursor: "pointer" }}
+          title="Click to manage administrators"
+        >
           <div className="stat-icon">
             <FaUserShield />
           </div>
@@ -303,7 +308,13 @@ const AdminOverview = () => {
           ) : (
             <div className="recent-records-list">
               {recentRecords.map((rec) => (
-                <div key={rec.id} className="recent-record-item">
+                <div
+                  key={rec.id}
+                  className="recent-record-item"
+                  onClick={() => navigate("/admin/attendance")}
+                  style={{ cursor: "pointer" }}
+                  title="Click to view attendance records"
+                >
                   <div className="record-avatar">
                     <FaUserGraduate />
                   </div>
@@ -334,9 +345,9 @@ const AdminOverview = () => {
             </div>
             <button
               className="panel-view-all"
-              onClick={() => navigate("/admin/lecturers")}
+              onClick={() => navigate("/admin/classes")}
             >
-              Lecturers <FaArrowRight />
+              View Classes <FaArrowRight />
             </button>
           </div>
 
@@ -347,7 +358,13 @@ const AdminOverview = () => {
           ) : (
             <div className="recent-records-list">
               {recentSessions.map((sess) => (
-                <div key={sess.id} className="recent-record-item">
+                <div
+                  key={sess.id}
+                  className="recent-record-item"
+                  onClick={() => navigate(`/admin/classes/${sess.id}`)}
+                  style={{ cursor: "pointer" }}
+                  title="Click to view detailed session attendance"
+                >
                   <div className="record-avatar session-avatar">
                     <FaChalkboard />
                   </div>

@@ -141,16 +141,6 @@ function QrScannerApp() {
         reader.readAsDataURL(file);
     };
 
-    const handleManualSubmit = (e) => {
-        e.preventDefault();
-        setManualError('');
-        if (!manualSessionInput.trim()) {
-            setManualError("Please enter a valid session ID or URL.");
-            return;
-        }
-        processSessionString(manualSessionInput.trim());
-    };
-
     const toggleFacingMode = () => {
         setFacingMode((prev) => (prev === 'environment' ? 'user' : 'environment'));
         setRetryKey((k) => k + 1);
@@ -305,6 +295,10 @@ function QrScannerApp() {
                         onError={handleError}
                         constraints={{
                             facingMode: facingMode
+                        }}
+                        sound={false}
+                        components={{
+                            audio: false
                         }}
                     />
                 )}

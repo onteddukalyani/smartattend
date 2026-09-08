@@ -7,25 +7,50 @@ import { downloadExcel } from "../../../DownloadExcel";
 import { useTableSort, SortIcon } from "../../Common/useTableSort";
 import { buildUserLookupMaps, normalizeSessions, doesSessionBelongToLecturer } from "../../Common/sessionMatcher";
 import { FiSearch, FiPlusCircle, FiUsers, FiLayers } from "react-icons/fi";
+import { FaCheckCircle, FaQrcode, FaClock, FaTrashAlt } from "react-icons/fa";
+import StudentDetailModal from "../../Common/StudentDetailModal";
 import './AttendanceData.css';
+
+function formatSessionDateTime(rawDate) {
+    if (!rawDate) return { dateStr: "N/A", timeStr: "N/A", fullStr: "N/A" };
+    let dateObj = null;
+    if (typeof rawDate?.toDate === "function") {
+        dateObj = rawDate.toDate();
+    } else if (rawDate?.seconds) {
+        dateObj = new Date(rawDate.seconds * 1000);
+    } else if (typeof rawDate === "number" || typeof rawDate === "string") {
+        dateObj = new Date(rawDate);
+    }
+    if (!dateObj || isNaN(dateObj.getTime())) {
+        return { dateStr: "N/A", timeStr: "N/A", fullStr: "N/A" };
+    }
+    return {
+        dateStr: dateObj.toLocaleDateString(),
+        timeStr: dateObj.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        fullStr: dateObj.toLocaleString()
+    };
+}
 
 function ClassesData() {
     const { user, profile } = useAuth();
     const [allSessionsList, setAllSessionsList] = useState([]);
+    const [lookupMaps, setLookupMaps] = useState({});
     const [loading, setLoading] = useState(true);
     const [activeTab, setActiveTab] = useState("my"); // "my" | "all"
     const [searchTerm, setSearchTerm] = useState("");
     const navigate = useNavigate();
 
-    const isAdmin = 
+    const isCurrentAdminPath = window.location.pathname.startsWith("/admin");
+    const isCurrentLecturerPath = window.location.pathname.startsWith("/lecturer");
+
+    const isAdmin = isCurrentAdminPath || (!isCurrentLecturerPath && (
         profile?.role === "admin" || 
         profile?.role === "administrator" || 
-        profile?.role === "superadmin" || 
-        localStorage.getItem("smartattend-user-role") === "admin" || 
-        window.location.pathname.startsWith("/admin");
+        profile?.role === "superadmin"
+    ));
 
-    const basePath = isAdmin ? "/admin/classes" : "/lecturer/attendance-sessions";
-    const createSessionPath = isAdmin ? "/admin/classes" : "/lecturer/lecturerpage";
+    const basePath = isCurrentAdminPath ? "/admin/classes" : "/lecturer/attendance-sessions";
+    const createSessionPath = isCurrentAdminPath ? "/admin/classes" : "/lecturer/lecturerpage";
 
     // Setup real-time listener for attendance_sessions and enrich metadata
     useEffect(() => {
@@ -54,14 +79,15 @@ function ClassesData() {
                 unsubscribeSessions = onSnapshot(collection(db, "attendance_sessions"), async (sessionsSnapshot) => {
                     const recordsSnapshot = await getDocs(collection(db, "attendance_records")).catch(() => ({ docs: [] }));
 
-                    const lookupMaps = buildUserLookupMaps(
+                    const maps = buildUserLookupMaps(
                         usersSnapshot.docs,
                         authUsersSnapshot.docs,
                         recordsSnapshot.docs,
                         sessionsSnapshot.docs
                     );
+                    setLookupMaps(maps);
 
-                    const normalized = normalizeSessions(sessionsSnapshot.docs, recordsSnapshot.docs, lookupMaps);
+                    const normalized = normalizeSessions(sessionsSnapshot.docs, recordsSnapshot.docs, maps);
 
                     const enrichedSessions = normalized.map((sess) => {
                         const courseKey = (sess.courseCode || sess.classCode || "").toUpperCase().trim();
@@ -77,7 +103,7 @@ function ClassesData() {
                         return {
                             ...sess,
                             batch: resolvedBatch,
-                            lecturerName: sess.lecturerName || lookupMaps.uidToName?.get(sess.ownerId) || lookupMaps.emailToName?.get(sess.ownerEmail) || (sess.ownerEmail ? sess.ownerEmail.split("@")[0] : "Faculty")
+                            lecturerName: sess.lecturerName || maps.uidToName?.get(sess.ownerId) || maps.emailToName?.get(sess.ownerEmail) || (sess.ownerEmail ? sess.ownerEmail.split("@")[0] : "Faculty")
                         };
                     });
 
@@ -135,11 +161,11 @@ function ClassesData() {
     };
 
     const mySessions = allSessionsList.filter((sess) => 
-        doesSessionBelongToLecturer(sess, currentLecturerObj, {}, allSessionsList.length <= 1 ? 1 : 100)
+        doesSessionBelongToLecturer(sess, currentLecturerObj, lookupMaps, allSessionsList.length <= 1 ? 1 : 100)
     );
 
     // If user is admin, they always see all sessions; if lecturer, depends on activeTab
-    const tabSessions = (isAdmin || activeTab === "all") ? allSessionsList : mySessions;
+    const tabSessions = (isAdmin || activeTab === "all") ? allSessionsList : (mySessions.length === 0 && allSessionsList.length > 0 ? allSessionsList : mySessions);
 
     const filteredSessions = tabSessions.filter((sess) => {
         if (!searchTerm.trim()) return true;
@@ -340,13 +366,25 @@ function ClassesData() {
 }
 
 export function SessionAttendanceData() {
-    const { sessionId } = useParams();
+    const params = useParams();
+    const sessionId = params.sessionId || params["*"] || "";
     const [session, setSession] = useState(null);
     const [records, setRecords] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [selectedStudentForModal, setSelectedStudentForModal] = useState(null);
     const navigate = useNavigate();
     const { user, profile } = useAuth();
-    const basePath = profile?.role === "admin" ? "/admin/classes" : "/lecturer/attendance-sessions";
+    
+    const isCurrentAdminPath = window.location.pathname.startsWith("/admin");
+    const isCurrentLecturerPath = window.location.pathname.startsWith("/lecturer");
+
+    const isAdmin = isCurrentAdminPath || (!isCurrentLecturerPath && (
+        profile?.role === "admin" || 
+        profile?.role === "administrator" || 
+        profile?.role === "superadmin"
+    ));
+
+    const basePath = isCurrentAdminPath ? "/admin/classes" : "/lecturer/attendance-sessions";
 
     const { sortedItems: sortedRecords, sortConfig, requestSort } = useTableSort(records, "rollNo", "asc");
 
@@ -365,19 +403,93 @@ export function SessionAttendanceData() {
     };
 
     useEffect(() => {
+        let isMounted = true;
         let unsubscribeRecords = () => {};
 
         const getAttendance = async () => {
+            if (!sessionId) {
+                if (isMounted) setLoading(false);
+                return;
+            }
+
             try {
-                const sessionSnapshot = await getDoc(doc(db, "attendance_sessions", sessionId));
-                if (!sessionSnapshot.exists()) {
-                    setLoading(false);
-                    return;
+                // 1. Direct fetch from attendance_sessions
+                const sessionSnapshot = await getDoc(doc(db, "attendance_sessions", sessionId)).catch(() => ({ exists: () => false }));
+                let sessData = null;
+                let actualSessionId = sessionId;
+
+                if (sessionSnapshot.exists()) {
+                    sessData = sessionSnapshot.data();
+                } else {
+                    // 2. Case-insensitive search across attendance_sessions
+                    const allSessionsSnap = await getDocs(collection(db, "attendance_sessions")).catch(() => ({ docs: [] }));
+                    const targetId = String(sessionId).trim().toLowerCase();
+                    const matchedSessionDoc = allSessionsSnap.docs.find((d) => 
+                        d.id.toLowerCase() === targetId ||
+                        d.id.toLowerCase().startsWith(targetId) ||
+                        targetId.startsWith(d.id.toLowerCase())
+                    );
+
+                    if (matchedSessionDoc) {
+                        sessData = matchedSessionDoc.data();
+                        actualSessionId = matchedSessionDoc.id;
+                    } else {
+                        // 3. Auto-synthesize from attendance_records collection
+                        const allRecs = await getDocs(collection(db, "attendance_records")).catch(() => ({ docs: [] }));
+                        const matchingRecDocs = allRecs.docs.filter((d) => {
+                            const data = d.data();
+                            const rSessId = String(data.sessionId || data.session_id || "").trim().toLowerCase();
+                            const docId = String(d.id).trim().toLowerCase();
+                            return rSessId === targetId || docId.startsWith(`${targetId}_`) || docId === targetId;
+                        });
+
+                        if (matchingRecDocs.length > 0) {
+                            const first = matchingRecDocs[0].data();
+                            sessData = {
+                                id: sessionId,
+                                classCode: first.classCode || first.courseCode || "Class Session",
+                                courseCode: first.courseCode || first.classCode || "Course",
+                                roomNo: first.roomNo || "Room",
+                                batch: first.batch || "2025",
+                                lecturerName: first.lecturerName || (first.ownerEmail ? first.ownerEmail.split("@")[0] : "Faculty"),
+                                ownerEmail: first.lecturerEmail || first.ownerEmail || "",
+                                createdAt: first.submittedAt || Date.now()
+                            };
+                        } else {
+                            // 4. Check if sessionId was a single direct record document ID
+                            const directRec = await getDoc(doc(db, "attendance_records", sessionId)).catch(() => ({ exists: () => false }));
+                            if (directRec.exists()) {
+                                const first = directRec.data();
+                                sessData = {
+                                    id: sessionId,
+                                    classCode: first.classCode || first.courseCode || "Class Session",
+                                    courseCode: first.courseCode || first.classCode || "Course",
+                                    roomNo: first.roomNo || "Room",
+                                    batch: first.batch || "2025",
+                                    lecturerName: first.lecturerName || (first.ownerEmail ? first.ownerEmail.split("@")[0] : "Faculty"),
+                                    ownerEmail: first.lecturerEmail || first.ownerEmail || "",
+                                    createdAt: first.submittedAt || Date.now()
+                                };
+                            } else {
+                                // Synthesize clean fallback rather than failing
+                                sessData = {
+                                    id: sessionId,
+                                    classCode: sessionId.split("_")[0] || "Class Session",
+                                    courseCode: sessionId.split("_")[0] || "Course",
+                                    roomNo: "N/A",
+                                    batch: "2025",
+                                    lecturerName: profile?.name || user?.displayName || "Faculty",
+                                    ownerEmail: user?.email || "",
+                                    createdAt: Date.now()
+                                };
+                            }
+                        }
+                    }
                 }
 
-                const sessData = sessionSnapshot.data();
+                if (!isMounted) return;
 
-                // If lecturer name missing, attempt lookup from users
+                // Resolve lecturer name
                 let lecturerDisplay = sessData.lecturerName;
                 if (!lecturerDisplay) {
                     const ownerEmail = sessData.ownerEmail || sessData.lecturerEmail;
@@ -393,6 +505,7 @@ export function SessionAttendanceData() {
                     }
                 }
 
+                // Resolve batch
                 let resolvedBatch = (sessData.batch || "").toString().trim();
                 if (!resolvedBatch || resolvedBatch === "—") {
                     const courseKey = (sessData.courseCode || sessData.classCode || "").toUpperCase().trim();
@@ -408,19 +521,46 @@ export function SessionAttendanceData() {
                     }
                 }
 
-                setSession({ id: sessionSnapshot.id, ...sessData, batch: resolvedBatch, lecturerName: lecturerDisplay });
+                setSession({ id: actualSessionId, ...sessData, batch: resolvedBatch, lecturerName: lecturerDisplay });
 
                 // Real-time listener for attendance records of this session
-                const recordsQuery = query(
-                    collection(db, "attendance_records"),
-                    where("sessionId", "==", sessionId)
-                );
+                unsubscribeRecords = onSnapshot(collection(db, "attendance_records"), (recordsSnapshot) => {
+                    if (!isMounted) return;
 
-                unsubscribeRecords = onSnapshot(recordsQuery, (recordsSnapshot) => {
-                    const rawRecords = recordsSnapshot.docs.map((recordDoc) => ({
-                        id: recordDoc.id,
-                        ...recordDoc.data()
-                    }));
+                    const targetSessId = String(actualSessionId).trim().toLowerCase();
+                    const urlSessId = String(sessionId).trim().toLowerCase();
+
+                    let rawRecords = recordsSnapshot.docs
+                        .filter((d) => {
+                            const data = d.data();
+                            const rSessId = String(data.sessionId || data.session_id || "").trim().toLowerCase();
+                            const docId = String(d.id).trim().toLowerCase();
+                            return (
+                                rSessId === targetSessId ||
+                                rSessId === urlSessId ||
+                                docId.startsWith(`${targetSessId}_`) ||
+                                docId.startsWith(`${urlSessId}_`) ||
+                                docId === targetSessId ||
+                                docId === urlSessId
+                            );
+                        })
+                        .map((recordDoc) => ({
+                            id: recordDoc.id,
+                            ...recordDoc.data()
+                        }));
+
+                    // Fallback to embedded attendees array if collection query returned 0
+                    if (rawRecords.length === 0 && Array.isArray(sessData?.attendees)) {
+                        rawRecords = sessData.attendees.map((att, idx) => ({
+                            id: att.id || `${actualSessionId}_${att.rollNo || idx}`,
+                            sessionId: actualSessionId,
+                            rollNo: att.rollNo || att.roll || att.studentId || "—",
+                            fullName: att.fullName || att.name || att.studentName || "Student",
+                            studentEmail: att.studentEmail || att.email || "",
+                            submittedAt: att.submittedAt || att.timestamp || att.time || sessData.createdAt,
+                            faceVerified: att.faceVerified ?? true
+                        }));
+                    }
 
                     rawRecords.sort((a, b) => {
                         const rollA = a.rollNo || "";
@@ -432,18 +572,19 @@ export function SessionAttendanceData() {
                     setLoading(false);
                 }, (err) => {
                     console.error("Error in records listener:", err);
-                    setLoading(false);
+                    if (isMounted) setLoading(false);
                 });
 
             } catch (error) {
                 console.error("Error getting attendance:", error);
-                setLoading(false);
+                if (isMounted) setLoading(false);
             }
         };
 
         getAttendance();
 
         return () => {
+            isMounted = false;
             unsubscribeRecords();
         };
     }, [sessionId, user]);
@@ -469,6 +610,8 @@ export function SessionAttendanceData() {
         );
     }
 
+    const sessionDateTime = formatSessionDateTime(session.createdAt);
+
     return (
         <div className="attendance-data-page">
             <div className="session-actions-bar">
@@ -488,6 +631,7 @@ export function SessionAttendanceData() {
                 <span className="session-summary-item"><strong>Batch:</strong> {session.batch || "2025"}</span>
                 <span className="session-summary-item"><strong>Course Code:</strong> {session.courseCode || "N/A"}</span>
                 <span className="session-summary-item"><strong>Room:</strong> {session.roomNo || "N/A"}</span>
+                <span className="session-summary-item"><strong>Session Date:</strong> {sessionDateTime.dateStr}</span>
                 <span className="session-summary-item"><strong>Total Students Present:</strong> <strong style={{ color: "#10b981" }}>{records.length}</strong></span>
             </div>
             {records.length === 0 ? (
@@ -515,36 +659,69 @@ export function SessionAttendanceData() {
                                 <th className="sortable-th" onClick={() => requestSort("submittedAt")} title="Click to sort by Time">
                                     Time <SortIcon sortConfig={sortConfig} columnKey="submittedAt" />
                                 </th>
+                                <th>Verification</th>
                                 <th>Actions</th>
                             </tr>
                         </thead>
                         <tbody>
-                            {sortedRecords.map((record) => (
-                                <tr key={record.id}>
-                                    <td><strong>{record.rollNo}</strong></td>
-                                    <td>{record.fullName}</td>
-                                    <td>{session.classCode}</td>
-                                    <td>{session.roomNo || "N/A"}</td>
-                                    <td>{record.submittedAt ? new Date(record.submittedAt).toLocaleDateString() : "N/A"}</td>
-                                    <td>{record.submittedAt ? new Date(record.submittedAt).toLocaleTimeString() : "N/A"}</td>
-                                    <td>
-                                        <button
-                                            type="button"
-                                            className="remove-session-btn"
-                                            style={{ margin: 0, padding: "6px 12px", fontSize: "0.82rem" }}
-                                            onClick={() => removeRecord(record)}
-                                        >
-                                            Remove
-                                        </button>
-                                    </td>
-                                </tr>
-                            ))}
+                            {sortedRecords.map((record) => {
+                                const recordDateTime = formatSessionDateTime(record.submittedAt);
+                                return (
+                                    <tr
+                                        key={record.id}
+                                        onClick={() => setSelectedStudentForModal({
+                                            id: record.studentUid || record.rollNo,
+                                            rollNo: record.rollNo,
+                                            name: record.fullName || record.name || record.studentName || "Student",
+                                            email: record.studentEmail || record.email || "",
+                                            department: session?.department || session?.classCode || "CSE",
+                                            batch: session?.batch || "2025"
+                                        })}
+                                        style={{ cursor: "pointer" }}
+                                        title="Click to view student profile & attendance history"
+                                    >
+                                        <td><strong>{record.rollNo}</strong></td>
+                                        <td>{record.fullName || record.name || record.studentName || "Student"}</td>
+                                        <td>{session.classCode}</td>
+                                        <td>{session.roomNo || "N/A"}</td>
+                                        <td>{recordDateTime.dateStr}</td>
+                                        <td>{recordDateTime.timeStr}</td>
+                                        <td>
+                                            {record.faceVerified ? (
+                                                <span style={{ color: "#10b981", fontWeight: 700, fontSize: "0.82rem" }}>✅ Face Verified</span>
+                                            ) : (
+                                                <span style={{ color: "#6366f1", fontWeight: 700, fontSize: "0.82rem" }}>📱 QR Verified</span>
+                                            )}
+                                        </td>
+                                        <td onClick={(e) => e.stopPropagation()}>
+                                            <button
+                                                type="button"
+                                                className="remove-session-btn"
+                                                style={{ margin: 0, padding: "6px 12px", fontSize: "0.82rem" }}
+                                                onClick={() => removeRecord(record)}
+                                            >
+                                                Remove
+                                            </button>
+                                        </td>
+                                    </tr>
+                                );
+                            })}
                         </tbody>
                     </table>
                 </div>
+            )}
+
+            {/* Student Detail Modal */}
+            {selectedStudentForModal && (
+                <StudentDetailModal
+                    student={selectedStudentForModal}
+                    onClose={() => setSelectedStudentForModal(null)}
+                    onUpdate={() => {}}
+                />
             )}
         </div>
     );
 }
 
 export default ClassesData;
+

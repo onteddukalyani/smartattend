@@ -98,9 +98,12 @@ export function LiveFaceEnrollment({ onFaceEnrolled, initialPhoto = null, hideHe
         }
     }, []);
 
-    // Load AI models on initial mount
+    // Load AI models and auto-start camera on mount
     useEffect(() => {
         loadAiModels();
+        if (!initialPhoto) {
+            startCameraStream();
+        }
 
         return () => {
             if (streamRef.current) {
@@ -108,7 +111,7 @@ export function LiveFaceEnrollment({ onFaceEnrolled, initialPhoto = null, hideHe
                 streamRef.current = null;
             }
         };
-    }, [loadAiModels]);
+    }, [loadAiModels, initialPhoto]);
 
     // 3. User Gesture Driven Camera Stream Initializer
     const startCameraStream = async () => {
@@ -407,49 +410,15 @@ export function LiveFaceEnrollment({ onFaceEnrolled, initialPhoto = null, hideHe
                 onChange={handleNativePhotoCapture}
             />
 
-            {/* Header (rendered only when hideHeader is false) */}
-            {!hideHeader ? (
-                <div className="lfe-header">
-                    <div className="lfe-badge-pill">
-                        <FaMicrochip />
-                        <span>AI BIOMETRIC RECOGNITION</span>
-                    </div>
-                    <h3 className="lfe-title">
-                        <FaUserCheck style={{ color: "#6366f1" }} />
-                        Register Facial Biometrics
-                    </h3>
-                    <p className={`lfe-subtitle status-${statusType}`}>
-                        {faceQualityStatus}
-                    </p>
-                </div>
-            ) : (
-                /* Dynamic Status Banner when inside a modal/parent header */
-                <div className={`lfe-modal-status-banner status-${statusType}`}>
-                    <span className="lfe-status-indicator-dot" />
-                    <span>{faceQualityStatus}</span>
-                </div>
-            )}
-
-            {/* Spacious, High-Visibility Viewport Container */}
+            {/* Viewport Container for Camera Video */}
             <div className={`lfe-viewport-container ${enrolledPhoto ? "enrolled" : ""} ${capturing ? "capturing" : ""}`}>
-                {/* Cybernetic Corner Brackets */}
+                {/* Clean Corner Brackets */}
                 <span className="lfe-corner-bracket lfe-corner-tl" />
                 <span className="lfe-corner-bracket lfe-corner-tr" />
                 <span className="lfe-corner-bracket lfe-corner-bl" />
                 <span className="lfe-corner-bracket lfe-corner-br" />
 
-                {/* HUD Top Live Bar */}
-                <div className="lfe-hud-top">
-                    <div className="lfe-hud-live-tag">
-                        <span className="lfe-live-dot" />
-                        <span>{enrolledPhoto ? "ENROLLED" : cameraActive ? "LIVE CAMERA" : "STANDBY"}</span>
-                    </div>
-                    <div className="lfe-hud-info-tag">
-                        128-D VECTOR
-                    </div>
-                </div>
-
-                {/* Large Face Oval Target Guide */}
+                {/* Face Oval Target Guide */}
                 {!enrolledPhoto && cameraActive && <div className="lfe-face-guide" />}
 
                 {/* Laser Scanning Bar */}
@@ -469,16 +438,12 @@ export function LiveFaceEnrollment({ onFaceEnrolled, initialPhoto = null, hideHe
                             style={{ display: cameraActive ? "block" : "none" }}
                         />
 
-                        {/* Inactive Standby Hero Box with single clear action pair */}
+                        {/* Inactive Standby Hero Box */}
                         {!cameraActive && (
                             <div className="lfe-camera-placeholder">
                                 <div className="lfe-placeholder-icon-wrap">
                                     <FaCamera className="lfe-camera-placeholder-icon" />
                                 </div>
-                                <h5>Live Face Biometric Camera</h5>
-                                <p>
-                                    Start your webcam to preview your face in real-time, or upload a photo.
-                                </p>
 
                                 <div className="lfe-placeholder-btn-group">
                                     <button
@@ -490,7 +455,7 @@ export function LiveFaceEnrollment({ onFaceEnrolled, initialPhoto = null, hideHe
                                         {cameraLoading ? (
                                             <><FaSpinner className="fa-spin" /> Starting Camera...</>
                                         ) : (
-                                            <><FaVideo /> 🎥 Start Live Camera</>
+                                            <><FaVideo /> Start Camera</>
                                         )}
                                     </button>
 
@@ -499,7 +464,7 @@ export function LiveFaceEnrollment({ onFaceEnrolled, initialPhoto = null, hideHe
                                         className="lfe-secondary-upload-btn"
                                         onClick={() => fileInputRef.current?.click()}
                                     >
-                                        <FaUpload /> 📁 Upload Photo
+                                        <FaUpload /> Upload Photo
                                     </button>
                                 </div>
 
@@ -510,9 +475,9 @@ export function LiveFaceEnrollment({ onFaceEnrolled, initialPhoto = null, hideHe
                                             <FaLock /> Camera Blocked in Browser
                                         </div>
                                         <div>
-                                            1. Click the <strong>Lock / Camera icon 🔒</strong> in your address bar (top-left).<br />
+                                            1. Click the <strong>Lock / Camera icon 🔒</strong> in your address bar.<br />
                                             2. Change <strong>Camera</strong> permission to <strong>Allow</strong>.<br />
-                                            3. Refresh the page or click retry.
+                                            3. Refresh or click retry.
                                         </div>
                                     </div>
                                 )}
@@ -526,13 +491,6 @@ export function LiveFaceEnrollment({ onFaceEnrolled, initialPhoto = null, hideHe
                             </div>
                         )}
                     </>
-                )}
-
-                {/* Enrolled Overlay Badge */}
-                {enrolledPhoto && (
-                    <div className="lfe-enrolled-overlay">
-                        <FaShieldAlt /> 128-D Biometric Face Template Locked &amp; Ready
-                    </div>
                 )}
             </div>
 

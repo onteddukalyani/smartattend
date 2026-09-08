@@ -125,19 +125,18 @@ export function normalizeSessions(sessionsDocs = [], recordsDocs = [], lookupMap
   return Array.from(sessionMap.values());
 }
 
-export function doesSessionBelongToLecturer(sess, lecturer, lookupMaps = {}, totalLecturersCount = 1) {
+export function doesSessionBelongToLecturer(sess, lecturer, lookupMaps = {}) {
   if (!sess || !lecturer) return false;
 
   const { uidToEmail = new Map(), emailToUid = new Map() } = lookupMaps;
 
   const lecEmail = (lecturer.email || "").toLowerCase().trim();
-  const lecPrefix = lecEmail ? lecEmail.split("@")[0].toLowerCase() : "";
+  const lecPrefix = lecEmail ? lecEmail.split("@")[0].toLowerCase().trim() : "";
   const lecUid = String(lecturer.uid || (lecEmail ? emailToUid.get(lecEmail) : "") || "").toLowerCase().trim();
   const lecUserDocId = String(lecturer.userDocId || "").toLowerCase().trim();
   const lecEmailDocId = String(lecturer.emailDocId || "").toLowerCase().trim();
   const lecId = String(lecturer.id || "").toLowerCase().trim();
   const lecName = (lecturer.name || "").toLowerCase().trim();
-  const lecTokens = lecName.split(/[^a-zA-Z0-9]+/).filter((t) => t.length >= 3);
 
   const ownerId = String(sess.ownerId || "").toLowerCase().trim();
   const ownerEmail = String(sess.ownerEmail || sess.lecturerEmail || sess.email || sess.createdBy || "").toLowerCase().trim();
@@ -155,23 +154,16 @@ export function doesSessionBelongToLecturer(sess, lecturer, lookupMaps = {}, tot
   if (lecEmailDocId && (ownerEmail === lecEmailDocId || ownerId === lecEmailDocId)) return true;
   if (lecId && lecId.includes("@") && (ownerEmail === lecId || ownerId === lecId)) return true;
 
-  // 3. Email Prefix Match (e.g. "k22bcs108", "onteddukalyani")
+  // 3. Exact Email Prefix Match (e.g. "k22bcs108", "onteddukalyani") - strictly exact match
   if (lecPrefix && lecPrefix.length >= 3) {
     if (ownerId === lecPrefix || ownerEmail === lecPrefix) return true;
-    if (ownerEmail.startsWith(lecPrefix) || ownerEmail.includes(lecPrefix)) return true;
-    if (ownerId.includes(lecPrefix)) return true;
-    if (sessLecturerName.includes(lecPrefix)) return true;
+    if (ownerEmail === `${lecPrefix}@iiitdwd.ac.in` || ownerEmail === `${lecPrefix}@gmail.com`) return true;
   }
 
-  // 4. Name Match
-  if (lecName && sessLecturerName) {
-    if (sessLecturerName === lecName || sessLecturerName.includes(lecName) || lecName.includes(sessLecturerName)) return true;
-    if (lecTokens.some((tok) => sessLecturerName.includes(tok))) return true;
-  }
-
-  // 5. If only 1 faculty exists in the entire system, all sessions belong to them
-  if (totalLecturersCount === 1) {
-    return true;
+  // 4. Exact Full Name Match (ONLY if non-generic and at least 4 characters)
+  const genericNames = new Set(["lecturer", "faculty", "admin", "faculty member", "user", "teacher", "unknown", "n/a", "student", "staff"]);
+  if (lecName && sessLecturerName && !genericNames.has(lecName) && !genericNames.has(sessLecturerName) && lecName.length >= 4) {
+    if (sessLecturerName === lecName) return true;
   }
 
   return false;

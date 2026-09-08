@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   FaSync,
   FaUserCheck,
@@ -17,6 +18,7 @@ import { useTableSort, SortIcon } from "../../Common/useTableSort";
 import "./AttendanceOverview.css";
 
 const AttendanceOverview = () => {
+  const navigate = useNavigate();
   const [search, setSearch] = useState("");
   const [students, setStudents] = useState([]);
   const [recentSessions, setRecentSessions] = useState([]);
@@ -310,7 +312,13 @@ const AttendanceOverview = () => {
             {recentSessions.map((sess) => {
               const isLive = sess.active && (sess.expiresAt || 0) > Date.now();
               return (
-                <div key={sess.id} className="recent-session">
+                <div
+                  key={sess.id}
+                  className="recent-session"
+                  onClick={() => navigate(`/admin/classes/${sess.id}`)}
+                  style={{ cursor: "pointer" }}
+                  title="Click to view detailed session attendance"
+                >
                   <div className={`session-icon ${isLive ? "active-icon" : "completed-icon"}`}>
                     <FaChalkboard />
                   </div>

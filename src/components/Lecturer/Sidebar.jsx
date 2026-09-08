@@ -1,4 +1,5 @@
 import {
+    FaHome,
     FaCog,
     FaSignOutAlt,
     FaGraduationCap,
@@ -8,7 +9,6 @@ import {
 import { IoQrCodeOutline } from "react-icons/io5";
 import { SiGoogleclassroom } from "react-icons/si";
 import "./Sidebar.css";
-import { RiDashboardFill } from "react-icons/ri";
 import { FaTimes } from "react-icons/fa";
 import { Link, useLocation } from "react-router-dom";
 import { useAuth } from "../authcontext";
@@ -18,7 +18,7 @@ function Sidebar({ hidden, onClose }) {
     const location = useLocation();
 
     const menu = [
-        { icon: <RiDashboardFill />, text: "Dashboard", path: "/lecturer" },
+        { icon: <FaHome />, text: "Dashboard", path: "/lecturer" },
         { icon: <IoQrCodeOutline />, text: "New Session", path: '/lecturer/lecturerpage' },
         { icon: <FaUserGraduate />, text: "Students", path: "/lecturer/students" },
         { icon: <FaBookOpen />, text: "Courses", path: "/lecturer/courses" },

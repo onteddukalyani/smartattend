@@ -47,6 +47,10 @@ const AdminDashboard = () => {
             <Route path="courses" element={<ManageCourses />} />
             <Route path="classes" element={<ClassesData />} />
             <Route path="classes/:sessionId" element={<SessionAttendanceData />} />
+            <Route path="classes/*" element={<SessionAttendanceData />} />
+            <Route path="attendance-sessions" element={<ClassesData />} />
+            <Route path="attendance-sessions/:sessionId" element={<SessionAttendanceData />} />
+            <Route path="attendance-sessions/*" element={<SessionAttendanceData />} />
             <Route path="institution" element={<InstitutionSettings />} />
             <Route path="settings" element={<Settings />} />
             <Route path="profile" element={<AdminProfile />} />

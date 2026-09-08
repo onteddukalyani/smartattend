@@ -1,5 +1,6 @@
 import "./Dashboard.css";
 import { useEffect, useState } from "react";
+import { FaUser } from "react-icons/fa";
 import { SiGoogleclassroom } from "react-icons/si";
 import { IoQrCodeOutline } from "react-icons/io5";
 import { IoAddCircleOutline } from "react-icons/io5";
@@ -22,7 +23,10 @@ function Dashboard() {
         attendanceToday: 0
     });
 
+    const [imageFailed, setImageFailed] = useState(false);
+
     const lecturerName = profile?.name || user?.displayName || (user?.email ? user.email.split("@")[0] : "Faculty Member");
+    const avatarSrc = profile?.photoURL || profile?.image || profile?.photo || user?.photoURL || user?.photoUrl;
 
     useEffect(() => {
         const getDashboardCounts = async () => {
@@ -40,9 +44,9 @@ function Dashboard() {
                 const isMySession = (data) => {
                     const ownerId = String(data.ownerId || "").toLowerCase().trim();
                     const ownerEmail = String(data.ownerEmail || data.lecturerEmail || "").toLowerCase().trim();
-                    if (userUid && ownerId === userUid.toLowerCase()) return true;
+                    if (userUid && (ownerId === userUid.toLowerCase() || ownerEmail === userUid.toLowerCase())) return true;
                     if (userEmail && (ownerEmail === userEmail || ownerId === userEmail)) return true;
-                    if (userPrefix && (ownerId === userPrefix || ownerEmail.includes(userPrefix))) return true;
+                    if (userPrefix && userPrefix.length >= 3 && (ownerId === userPrefix || ownerEmail === `${userPrefix}@iiitdwd.ac.in` || ownerEmail === `${userPrefix}@gmail.com`)) return true;
                     return false;
                 };
 
@@ -100,10 +104,17 @@ function Dashboard() {
             <div className="lecturer-hero-banner">
                 <div className="lecturer-hero-main">
                     <div className="lecturer-hero-avatar">
-                        {user?.photoURL ? (
-                            <img src={user.photoURL} alt={lecturerName} style={{ width: "100%", height: "100%", borderRadius: "16px", objectFit: "cover" }} />
+                        {avatarSrc && !imageFailed ? (
+                            <img
+                                src={avatarSrc}
+                                alt={lecturerName || "Lecturer"}
+                                onError={() => setImageFailed(true)}
+                                style={{ width: "100%", height: "100%", borderRadius: "16px", objectFit: "cover" }}
+                            />
                         ) : (
-                            lecturerName.charAt(0).toUpperCase()
+                            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", width: "100%", height: "100%", fontSize: "2rem" }}>
+                                <FaUser />
+                            </div>
                         )}
                     </div>
                     <div className="lecturer-hero-info">
@@ -120,9 +131,6 @@ function Dashboard() {
                             <span className="lecturer-badge">
                                 <FaEnvelope /> {user?.email || "Faculty Account"}
                             </span>
-                            <Link to="/lecturer/settings" className="lecturer-badge lecturer-settings-link" title="Open Full Account Settings">
-                                ⚙️ Settings
-                            </Link>
                         </div>
                     </div>
                 </div>

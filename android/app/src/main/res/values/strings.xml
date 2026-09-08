@@ -1,0 +1,8 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">SmartAttend</string>
+    <string name="title_activity_main">SmartAttend</string>
+    <string name="package_name">com.smartattend.app</string>
+    <string name="custom_url_scheme">com.smartattend.app</string>
+    <string name="default_web_client_id">313754116452-v5akn067agbugb9a065eajs10rusl584.apps.googleusercontent.com</string>
+</resources>

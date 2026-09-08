@@ -1,0 +1,11 @@
+{
+  "appId": "com.smartattend.app",
+  "appName": "SmartAttend",
+  "webDir": "dist",
+  "plugins": {
+    "FirebaseAuthentication": {
+      "skipNativeAuth": false,
+      "providers": ["google.com"]
+    }
+  }
+}

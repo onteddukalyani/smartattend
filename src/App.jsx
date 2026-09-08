@@ -172,8 +172,12 @@ function App() {
           <Route path="attendance-data" element={<AttendanceData />} />
           <Route path="facedetection" element={<FaceScanner />} />
           <Route path="attendance-sessions" element={<ClassesData />} />
-          <Route path="active-sessions" element={<ActiveSessions />} />
           <Route path="attendance-sessions/:sessionId" element={<SessionAttendanceData />} />
+          <Route path="attendance-sessions/*" element={<SessionAttendanceData />} />
+          <Route path="classes" element={<ClassesData />} />
+          <Route path="classes/:sessionId" element={<SessionAttendanceData />} />
+          <Route path="classes/*" element={<SessionAttendanceData />} />
+          <Route path="active-sessions" element={<ActiveSessions />} />
           <Route path="students" element={<StudentsList />} />
           <Route path="students/add" element={<AddStudent />} />
           <Route path="students/bulk" element={<AddStudent />} />

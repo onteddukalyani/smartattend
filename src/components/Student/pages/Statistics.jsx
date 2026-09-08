@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useMemo } from "react";
+import { Link } from "react-router-dom";
 import {
     collection,
     doc,
@@ -23,7 +24,13 @@ import {
     FaClock,
     FaFilter,
     FaAward,
-    FaCalendarAlt
+    FaCalendarAlt,
+    FaCamera,
+    FaUserCheck,
+    FaGraduationCap,
+    FaQrcode,
+    FaShieldAlt,
+    FaArrowRight
 } from "react-icons/fa";
 import { db } from "../../../firebase";
 import { useAuth } from "../../authcontext";
@@ -66,6 +73,20 @@ export default function Statistics() {
     const rawBranch = profile?.branch || fetchedStudentData?.branch;
     const studentBranch = (rawBranch && String(rawBranch).toLowerCase() !== "general") ? rawBranch : "CSE";
     const studentSemester = profile?.semester || fetchedStudentData?.semester || "1";
+
+    // Face biometric registration status detection
+    const hasFaceRegistered = Boolean(
+        profile?.faceRegistered === true ||
+        fetchedStudentData?.faceRegistered === true ||
+        profile?.isFaceEnrolled === true ||
+        fetchedStudentData?.isFaceEnrolled === true ||
+        profile?.hasFaceRegistered === true ||
+        fetchedStudentData?.hasFaceRegistered === true ||
+        (Array.isArray(profile?.faceDescriptor) && profile.faceDescriptor.length > 0) ||
+        (Array.isArray(fetchedStudentData?.faceDescriptor) && fetchedStudentData.faceDescriptor.length > 0) ||
+        (fetchedStudentData?.photoURL && String(fetchedStudentData.photoURL).length > 0) ||
+        (profile?.photoURL && String(profile.photoURL).length > 0)
+    );
 
     // Build candidate roll numbers for matching
     const candidateRolls = useMemo(() => {
@@ -196,13 +217,13 @@ export default function Statistics() {
             {/* 1. Header Banner */}
             <div className="stats-header-banner">
                 <div className="stats-header-info">
-                    <div className="stats-avatar">
-                        {studentName.charAt(0).toUpperCase()}
+                    <div className="stats-brand-icon-wrap">
+                        <FaGraduationCap className="stats-brand-icon" />
                     </div>
-                    <div>
-                        <h1>Attendance Statistics & Analytics</h1>
+                    <div className="stats-title-wrap">
+                        <h1>My Attendance &amp; Analytics</h1>
                         <p className="stats-subtitle">
-                            Detailed overview of attendance records, subject performance, and compliance metrics for Roll No: <strong>{activeRollNo}</strong>.
+                            Real-time attendance metrics, subject eligibility, and verified session logs for Roll No: <strong>{activeRollNo}</strong>.
                         </p>
                         <div className="stats-pill-group">
                             <span className="stats-pill roll-pill">
@@ -214,6 +235,15 @@ export default function Statistics() {
                             <span className="stats-pill">
                                 <FaBookOpen /> {studentBranch} • Sem {studentSemester}
                             </span>
+                            {hasFaceRegistered ? (
+                                <span className="stats-pill status-face-active" title="Facial biometric descriptor is active">
+                                    <FaUserCheck /> Face Biometric Active
+                                </span>
+                            ) : (
+                                <Link to="/student" className="stats-pill status-face-pending" title="Click to enroll face on Dashboard">
+                                    <FaCamera /> Face Biometric Pending
+                                </Link>
+                            )}
                         </div>
                     </div>
                 </div>
@@ -294,7 +324,7 @@ export default function Statistics() {
                     </div>
                     <div className="stats-kpi-value-row">
                         <span className="stats-kpi-number text-green">{metrics.totalAttended}</span>
-                        <span className="stats-kpi-unit">/ {metrics.totalConducted} classes</span>
+                        <span className="stats-kpi-unit">/ {metrics.totalConducted} conducted</span>
                     </div>
                     <p className="stats-kpi-footer-text">
                         Total verified sessions attended with QR &amp; Face verification.
@@ -344,6 +374,38 @@ export default function Statistics() {
                         )}
                     </div>
                 </div>
+
+                {/* Face Biometric Status Card */}
+                <div className="stats-kpi-card stats-kpi-face">
+                    <div className="stats-kpi-header">
+                        <span className="stats-kpi-label">Face Biometric Status</span>
+                        <FaShieldAlt className={`stats-kpi-icon ${hasFaceRegistered ? "text-green" : "text-amber"}`} />
+                    </div>
+                    <div className="stats-target-content">
+                        {hasFaceRegistered ? (
+                            <div>
+                                <span className="stats-target-highlight text-green" style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                                    <FaUserCheck /> Enrolled &amp; Active
+                                </span>
+                                <p className="stats-target-desc">
+                                    Your facial vector descriptor is registered and verified for fast attendance verification.
+                                </p>
+                            </div>
+                        ) : (
+                            <div>
+                                <span className="stats-target-highlight text-amber" style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                                    <FaCamera /> Action Required
+                                </span>
+                                <p className="stats-target-desc">
+                                    Register your face biometric to enable instant verification during live class sessions.
+                                </p>
+                                <Link to="/student" className="stats-face-action-link">
+                                    Register Face Now <FaArrowRight />
+                                </Link>
+                            </div>
+                        )}
+                    </div>
+                </div>
             </div>
 
             {/* 3. Subject-Wise Attendance Breakdown */}
@@ -353,6 +415,9 @@ export default function Statistics() {
                         <h2>Subject-Wise Attendance Breakdown</h2>
                         <p>Course-level attendance percentages and eligibility</p>
                     </div>
+                    <span className="stats-count-badge">
+                        {metrics.coursesWithStats.length} {metrics.coursesWithStats.length === 1 ? "Course" : "Courses"}
+                    </span>
                 </div>
 
                 {metrics.coursesWithStats.length === 0 ? (
@@ -369,7 +434,15 @@ export default function Statistics() {
                             const isDanger = pct !== null && pct < 65;
 
                             return (
-                                <div key={idx} className="stats-subject-item">
+                                <div
+                                    key={idx}
+                                    className={`stats-subject-item ${selectedCourseFilter === item.courseCode ? "active" : ""}`}
+                                    onClick={() => {
+                                        setSelectedCourseFilter((prev) => (prev === item.courseCode ? "all" : item.courseCode));
+                                    }}
+                                    style={{ cursor: "pointer" }}
+                                    title={`Click to filter table logs for ${item.courseCode}`}
+                                >
                                     <div className="stats-subject-top">
                                         <div className="stats-subject-title">
                                             <FaBookOpen className="stats-subject-icon" />
@@ -494,6 +567,9 @@ export default function Statistics() {
                                     <th onClick={() => requestSort("roomNo")}>
                                         Room No <SortIcon config={sortConfig} columnKey="roomNo" />
                                     </th>
+                                    <th onClick={() => requestSort("verificationMethod")}>
+                                        Verification Mode <SortIcon config={sortConfig} columnKey="verificationMethod" />
+                                    </th>
                                     <th onClick={() => requestSort("status")}>
                                         Status <SortIcon config={sortConfig} columnKey="status" />
                                     </th>
@@ -516,6 +592,13 @@ export default function Statistics() {
                                         })
                                         : "";
 
+                                    const isBiometricVerified = Boolean(
+                                        r.verificationMethod === "face" ||
+                                        r.verificationMethod === "face_biometric" ||
+                                        r.faceVerified === true ||
+                                        r.biometricVerified === true
+                                    );
+
                                     return (
                                         <tr key={r.id || index}>
                                             <td className="text-muted">{index + 1}</td>
@@ -532,8 +615,21 @@ export default function Statistics() {
                                                     {r.courseCode || "N/A"}
                                                 </span>
                                             </td>
-                                            <td>{r.classCode || "N/A"}</td>
+                                            <td>
+                                                <span className="stats-class-code">{r.classCode || "N/A"}</span>
+                                            </td>
                                             <td>Room {r.roomNo || "N/A"}</td>
+                                            <td>
+                                                {isBiometricVerified ? (
+                                                    <span className="stats-verify-badge verify-face">
+                                                        <FaUserCheck /> Face Biometric
+                                                    </span>
+                                                ) : (
+                                                    <span className="stats-verify-badge verify-qr">
+                                                        <FaQrcode /> QR Scanned
+                                                    </span>
+                                                )}
+                                            </td>
                                             <td>
                                                 <span className="stats-table-status-badge">
                                                     <FaCheckCircle /> Present

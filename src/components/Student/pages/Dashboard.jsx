@@ -69,6 +69,13 @@ export default function StudentDashboard() {
     const [photoSuccessMsg, setPhotoSuccessMsg] = useState("");
     const [photoDeleting, setPhotoDeleting] = useState(false);
 
+    // Edit Name Modal State
+    const [showEditNameModal, setShowEditNameModal] = useState(false);
+    const [editNameInput, setEditNameInput] = useState("");
+    const [savingStudentName, setSavingStudentName] = useState(false);
+    const [nameEditError, setNameEditError] = useState("");
+    const [nameEditSuccess, setNameEditSuccess] = useState("");
+
     // Identify primary student roll number
     const emailRoll = (user?.email || "").split("@")[0].trim().toUpperCase();
     const activeRollNo = (profile?.rollNo || emailRoll || "").trim().toUpperCase();
@@ -96,9 +103,16 @@ export default function StudentDashboard() {
     const studentSemester = profile?.semester || fetchedStudentData?.semester || "1";
 
     const hasFaceRegistered = Boolean(
-        fetchedStudentData?.faceRegistered ||
-        profile?.faceRegistered ||
-        (fetchedStudentData?.faceDescriptor && Array.isArray(fetchedStudentData.faceDescriptor) && fetchedStudentData.faceDescriptor.length === 128)
+        fetchedStudentData?.faceRegistered === true ||
+        profile?.faceRegistered === true ||
+        fetchedStudentData?.isFaceEnrolled === true ||
+        profile?.isFaceEnrolled === true ||
+        fetchedStudentData?.hasFaceRegistered === true ||
+        profile?.hasFaceRegistered === true ||
+        (Array.isArray(fetchedStudentData?.faceDescriptor) && fetchedStudentData.faceDescriptor.length > 0) ||
+        (Array.isArray(profile?.faceDescriptor) && profile.faceDescriptor.length > 0) ||
+        (fetchedStudentData?.photoURL && String(fetchedStudentData.photoURL).length > 0) ||
+        (profile?.photoURL && String(profile.photoURL).length > 0)
     );
 
     // Build candidate roll numbers to guarantee matching
@@ -580,7 +594,7 @@ export default function StudentDashboard() {
 
             {/* 2. Unified Attendance Summary Statistics */}
             <div className="student-stats-grid">
-                <div className="student-stat-card">
+                <Link to="/student/statistics" className="student-stat-card" style={{ textDecoration: "none" }} title="Click to view detailed attendance logs">
                     <div className="student-stat-icon blue">
                         <FaCalendarCheck />
                     </div>
@@ -588,9 +602,9 @@ export default function StudentDashboard() {
                         <span>Classes Attended / Conducted</span>
                         <strong>{loading ? "..." : `${metrics.totalAttended} / ${metrics.totalConducted}`}</strong>
                     </div>
-                </div>
+                </Link>
 
-                <div className="student-stat-card">
+                <Link to="/student/statistics" className="student-stat-card" style={{ textDecoration: "none" }} title="Click to view full attendance analytics">
                     <div className={`student-stat-icon ${metrics.overallPercentage >= 75 ? "green" : "purple"}`}>
                         <FaPercentage />
                     </div>
@@ -598,9 +612,9 @@ export default function StudentDashboard() {
                         <span>Overall Attendance</span>
                         <strong>{loading ? "..." : `${metrics.overallPercentage}%`}</strong>
                     </div>
-                </div>
+                </Link>
 
-                <Link to="/student/courses" className="student-stat-card green" style={{ textDecoration: "none" }}>
+                <Link to="/student/courses" className="student-stat-card green" style={{ textDecoration: "none" }} title="Click to view enrolled courses & syllabus">
                     <div className="student-stat-icon green">
                         <FaBookOpen />
                     </div>
@@ -610,7 +624,7 @@ export default function StudentDashboard() {
                     </div>
                 </Link>
 
-                <div className="student-stat-card purple">
+                <Link to="/student/statistics" className="student-stat-card purple" style={{ textDecoration: "none" }} title="Click to view recent class history">
                     <div className="student-stat-icon purple">
                         <FaClock />
                     </div>
@@ -618,7 +632,7 @@ export default function StudentDashboard() {
                         <span>Last Attended Class</span>
                         <strong style={{ fontSize: "1.05rem" }}>{loading ? "..." : metrics.lastAttended}</strong>
                     </div>
-                </div>
+                </Link>
             </div>
 
             {/* 3. Course Quick Attendance Overview */}
@@ -981,13 +995,13 @@ export default function StudentDashboard() {
                 }}>
                     <div className="student-modal-container" onClick={(e) => e.stopPropagation()} style={{
                         background: "var(--surface, #ffffff)",
-                        borderRadius: "20px",
-                        maxWidth: "740px",
-                        width: "100%",
+                        borderRadius: "24px",
+                        maxWidth: "960px",
+                        width: "96%",
                         maxHeight: "92vh",
                         overflowY: "auto",
-                        padding: "24px 20px",
-                        boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.25)",
+                        padding: "28px 24px",
+                        boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.35)",
                         position: "relative"
                     }}>
                         <button

@@ -256,6 +256,7 @@ export const AuthProvider = ({ children }) => {
             semester: registeredUser.semester || "1",
             uid: currentUser.uid,
             role: databaseRole,
+            photoURL: registeredUser.photoURL || registeredUser.photo || registeredUser.image || currentUser.photoURL || currentUser.photoUrl || "",
             approved: true,
             status: registeredUser.status || "active"
           };
@@ -365,6 +366,7 @@ export const AuthProvider = ({ children }) => {
       semester: registeredUser.semester || "1",
       uid: currentUser.uid,
       role: databaseRole,
+      photoURL: registeredUser.photoURL || registeredUser.photo || registeredUser.image || currentUser.photoURL || currentUser.photoUrl || "",
       approved: true,
       status: "active"
     };

@@ -256,7 +256,12 @@ export default function StudentCourses() {
 
             {/* KPI Summary Cards */}
             <div className="sc-kpi-grid">
-                <div className="sc-kpi-card sc-kpi-total">
+                <div
+                    className="sc-kpi-card sc-kpi-total"
+                    onClick={() => setStatusFilter("all")}
+                    style={{ cursor: "pointer" }}
+                    title="Click to show all courses"
+                >
                     <div className="sc-kpi-icon"><FaBookOpen /></div>
                     <div className="sc-kpi-content">
                         <span className="sc-kpi-label">Total Courses</span>
@@ -265,7 +270,12 @@ export default function StudentCourses() {
                     </div>
                 </div>
 
-                <div className="sc-kpi-card sc-kpi-average">
+                <div
+                    className="sc-kpi-card sc-kpi-average"
+                    onClick={() => navigate("/student/statistics")}
+                    style={{ cursor: "pointer" }}
+                    title="Click to view detailed attendance analytics"
+                >
                     <div className="sc-kpi-icon"><FaPercentage /></div>
                     <div className="sc-kpi-content">
                         <span className="sc-kpi-label">Overall Attendance</span>
@@ -276,7 +286,12 @@ export default function StudentCourses() {
                     </div>
                 </div>
 
-                <div className="sc-kpi-card sc-kpi-safe">
+                <div
+                    className="sc-kpi-card sc-kpi-safe"
+                    onClick={() => setStatusFilter("safe")}
+                    style={{ cursor: "pointer" }}
+                    title="Click to filter safe courses (≥75%)"
+                >
                     <div className="sc-kpi-icon"><FaCheckCircle /></div>
                     <div className="sc-kpi-content">
                         <span className="sc-kpi-label">Safe Subjects</span>
@@ -285,7 +300,12 @@ export default function StudentCourses() {
                     </div>
                 </div>
 
-                <div className="sc-kpi-card sc-kpi-alert">
+                <div
+                    className="sc-kpi-card sc-kpi-alert"
+                    onClick={() => setStatusFilter("shortage")}
+                    style={{ cursor: "pointer" }}
+                    title="Click to filter shortage courses (<75%)"
+                >
                     <div className="sc-kpi-icon"><FaExclamationTriangle /></div>
                     <div className="sc-kpi-content">
                         <span className="sc-kpi-label">Low Attendance</span>

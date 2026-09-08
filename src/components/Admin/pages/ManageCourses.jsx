@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useMemo } from "react";
+import { useNavigate } from "react-router-dom";
 import {
     collection,
     doc,
@@ -37,6 +38,7 @@ import { db } from "../../../firebase";
 import "./ManageCourses.css";
 
 export default function ManageCourses() {
+    const navigate = useNavigate();
     const [courses, setCourses] = useState([]);
     const [lecturers, setLecturers] = useState([]);
     const [sessions, setSessions] = useState([]);
@@ -893,6 +895,29 @@ export default function ManageCourses() {
                                                                     <FaUserCheck />
                                                                     <span>{attendeeCount} Present</span>
                                                                 </div>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        navigate(`/admin/classes/${session.id}`);
+                                                                    }}
+                                                                    title="Open full class session attendance record"
+                                                                    style={{
+                                                                        display: "inline-flex",
+                                                                        alignItems: "center",
+                                                                        gap: "5px",
+                                                                        fontSize: "0.78rem",
+                                                                        fontWeight: 700,
+                                                                        padding: "5px 10px",
+                                                                        borderRadius: "8px",
+                                                                        background: "rgba(99, 102, 241, 0.1)",
+                                                                        color: "#4f46e5",
+                                                                        border: "1px solid rgba(99, 102, 241, 0.2)",
+                                                                        cursor: "pointer"
+                                                                    }}
+                                                                >
+                                                                    <FaArrowRight /> Class
+                                                                </button>
                                                                 <button
                                                                     type="button"
                                                                     className="cd-expand-btn"

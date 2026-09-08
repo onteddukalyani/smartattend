@@ -33,6 +33,9 @@ function ActiveSessions() {
                 const snapshot = await getDocs(collection(db, "attendance_sessions"));
                 const now = Date.now();
 
+                const genericNames = new Set(["lecturer", "faculty", "admin", "faculty member", "user", "teacher", "unknown", "n/a", "student", "staff"]);
+                const isNamedProperly = userName && !genericNames.has(userName) && userName.length >= 4;
+
                 const isMySession = (data) => {
                     if (isAdmin) return true;
                     const ownerId = String(data.ownerId || "").toLowerCase().trim();
@@ -41,9 +44,8 @@ function ActiveSessions() {
 
                     if (userUid && (ownerId === userUid.toLowerCase() || ownerEmail === userUid.toLowerCase())) return true;
                     if (userEmail && (ownerEmail === userEmail || ownerId === userEmail)) return true;
-                    if (userPrefix && (ownerId === userPrefix || ownerEmail.startsWith(userPrefix) || ownerEmail.includes(userPrefix))) return true;
-                    if (userName && sessLectName && (sessLectName.includes(userName) || userName.includes(sessLectName))) return true;
-                    if (!ownerEmail && !ownerId) return true;
+                    if (userPrefix && userPrefix.length >= 3 && (ownerId === userPrefix || ownerEmail === `${userPrefix}@iiitdwd.ac.in` || ownerEmail === `${userPrefix}@gmail.com`)) return true;
+                    if (isNamedProperly && sessLectName && sessLectName === userName) return true;
                     return false;
                 };
 

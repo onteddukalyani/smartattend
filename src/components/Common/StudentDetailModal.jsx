@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   FaTimes,
   FaUser,
@@ -20,7 +21,7 @@ import {
   FaTrashAlt,
   FaShieldAlt
 } from "react-icons/fa";
-import { collection, getDocs, query, where, doc, setDoc } from "firebase/firestore";
+import { collection, getDocs, query, where, doc, setDoc, deleteDoc } from "firebase/firestore";
 import { db } from "../../firebase";
 import { useAuth } from "../authcontext";
 import { downloadExcel } from "../../DownloadExcel";
@@ -31,6 +32,7 @@ import "./StudentDetailModal.css";
 
 const StudentDetailModal = ({ student, onClose, onUpdate }) => {
   const { user, profile } = useAuth();
+  const navigate = useNavigate();
   const [currentStudent, setCurrentStudent] = useState(student);
   const [attendanceRecords, setAttendanceRecords] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -42,16 +44,26 @@ const StudentDetailModal = ({ student, onClose, onUpdate }) => {
   const [savingFace, setSavingFace] = useState(false);
   const [removingFace, setRemovingFace] = useState(false);
   const [removingPhoto, setRemovingPhoto] = useState(false);
+  const [deletingStudent, setDeletingStudent] = useState(false);
   const [faceSuccessMsg, setFaceSuccessMsg] = useState("");
 
-  const isAdmin =
+  const isCurrentAdminPath = window.location.pathname.startsWith("/admin");
+  const isCurrentLecturerPath = window.location.pathname.startsWith("/lecturer");
+
+  const isAdmin = isCurrentAdminPath || (!isCurrentLecturerPath && (
     profile?.role === "admin" ||
     profile?.role === "administrator" ||
-    profile?.role === "superadmin" ||
-    user?.email === "onteddukalyani@gmail.com" ||
-    profile?.email === "onteddukalyani@gmail.com" ||
-    localStorage.getItem("smartattend-user-role") === "admin" ||
-    window.location.pathname.startsWith("/admin");
+    profile?.role === "superadmin"
+  ));
+
+  const isLecturer = isCurrentLecturerPath || (!isCurrentAdminPath && (
+    profile?.role === "lecturer" ||
+    profile?.role === "faculty" ||
+    profile?.role === "professor"
+  ));
+
+  const isStaff = isAdmin || isLecturer;
+  const basePath = isCurrentAdminPath ? "/admin/classes" : "/lecturer/attendance-sessions";
 
   const { sortedItems: sortedAttendance, sortConfig, requestSort } = useTableSort(attendanceRecords, "submittedAt", "desc");
 
@@ -119,7 +131,7 @@ const StudentDetailModal = ({ student, onClose, onUpdate }) => {
   const totalAttended = attendanceRecords.length;
   const uniqueCourses = new Set(attendanceRecords.map(r => r.session?.courseId || r.courseId).filter(Boolean)).size;
 
-  const handleExportDetails = () => {
+  const handleExportAttendance = () => {
     if (!attendanceRecords.length) {
       alert("No attendance records to export for this student.");
       return;
@@ -139,6 +151,8 @@ const StudentDetailModal = ({ student, onClose, onUpdate }) => {
 
     downloadExcel(exportData, `Attendance_${currentStudent.rollNo || "Student"}_Report`);
   };
+
+  const handleExportDetails = handleExportAttendance;
 
   const handleSaveBiometrics = async () => {
     if (!enrolledBiometric || !enrolledBiometric.faceDescriptor) return;
@@ -189,8 +203,8 @@ const StudentDetailModal = ({ student, onClose, onUpdate }) => {
   };
 
   const handleRemoveFaceBiometrics = async () => {
-    if (!isAdmin) {
-      alert("Only administrators have permission to remove registered facial biometrics.");
+    if (!isStaff) {
+      alert("Only administrators and faculty lecturers have permission to remove registered facial biometrics.");
       return;
     }
 
@@ -198,7 +212,7 @@ const StudentDetailModal = ({ student, onClose, onUpdate }) => {
     const studentRoll = currentStudent.rollNo || currentStudent.id || "";
 
     const confirm = window.confirm(
-      `⚠️ ADMIN ONLY: Remove Facial Biometrics & Photo?\n\nAre you sure you want to remove the registered facial biometric data and enrolled photo for ${studentName} (${studentRoll})?\n\nThis will permanently clear their 128-D biometric vector and avatar photo from all database collections.`
+      `⚠️ Clear Facial Biometrics & Photo?\n\nAre you sure you want to remove the registered facial biometric data and enrolled photo for ${studentName} (${studentRoll})?\n\nThis will permanently clear their 128-D biometric vector and avatar photo across all database collections.`
     );
     if (!confirm) return;
 
@@ -221,7 +235,7 @@ const StudentDetailModal = ({ student, onClose, onUpdate }) => {
       onUpdate?.(updatedStudent);
 
       setShowFaceEnroll(false);
-      setFaceSuccessMsg("🗑️ Registered facial biometric data and photo have been completely removed by Admin.");
+      setFaceSuccessMsg("🗑️ Registered facial biometric data and photo have been completely removed.");
       setTimeout(() => {
         setFaceSuccessMsg("");
       }, 3500);
@@ -234,8 +248,8 @@ const StudentDetailModal = ({ student, onClose, onUpdate }) => {
   };
 
   const handleRemovePhotoOnly = async () => {
-    if (!isAdmin) {
-      alert("Only administrators have permission to remove student photos.");
+    if (!isStaff) {
+      alert("Only administrators and faculty lecturers have permission to remove student photos.");
       return;
     }
 
@@ -243,7 +257,7 @@ const StudentDetailModal = ({ student, onClose, onUpdate }) => {
     const studentRoll = currentStudent.rollNo || currentStudent.id || "";
 
     const confirm = window.confirm(
-      `⚠️ ADMIN ACTION: Delete Student Photo?\n\nAre you sure you want to delete the photo for ${studentName} (${studentRoll})?`
+      `⚠️ Delete Student Photo?\n\nAre you sure you want to delete the photo for ${studentName} (${studentRoll})?`
     );
     if (!confirm) return;
 
@@ -261,7 +275,7 @@ const StudentDetailModal = ({ student, onClose, onUpdate }) => {
       setCurrentStudent(updatedStudent);
       onUpdate?.(updatedStudent);
 
-      setFaceSuccessMsg("🗑️ Student photo has been deleted by Admin.");
+      setFaceSuccessMsg("🗑️ Student photo has been deleted.");
       setTimeout(() => {
         setFaceSuccessMsg("");
       }, 3000);
@@ -270,6 +284,59 @@ const StudentDetailModal = ({ student, onClose, onUpdate }) => {
       alert("Failed to remove photo: " + err.message);
     } finally {
       setRemovingPhoto(false);
+    }
+  };
+
+  const handleDeleteStudent = async () => {
+    if (!isStaff) {
+      alert("Only faculty lecturers and administrators have permission to delete student records.");
+      return;
+    }
+
+    const studentName = currentStudent.name || "Student";
+    const studentRoll = currentStudent.rollNo || currentStudent.id || "";
+
+    const confirm = window.confirm(
+      `⚠️ Delete Student Record?\n\nAre you sure you want to permanently delete ${studentName} (${studentRoll})?\n\nThis will completely purge their record across all database collections (users, students, and authorized users). This action cannot be undone.`
+    );
+    if (!confirm) return;
+
+    try {
+      setDeletingStudent(true);
+      const cleanRoll = String(currentStudent.rollNo || currentStudent.id || "").trim().toUpperCase();
+      const cleanEmail = currentStudent.email ? String(currentStudent.email).toLowerCase().trim() : null;
+      const prefix = cleanEmail ? cleanEmail.split("@")[0].toLowerCase().trim() : null;
+
+      const promises = [
+        deleteDoc(doc(db, "users", cleanRoll)).catch(() => {}),
+        deleteDoc(doc(db, "students", cleanRoll)).catch(() => {})
+      ];
+
+      if (currentStudent.id && currentStudent.id !== cleanRoll) {
+        promises.push(deleteDoc(doc(db, "users", currentStudent.id)).catch(() => {}));
+        promises.push(deleteDoc(doc(db, "students", currentStudent.id)).catch(() => {}));
+      }
+
+      if (cleanEmail) {
+        promises.push(deleteDoc(doc(db, "authorizedUsers", cleanEmail)).catch(() => {}));
+        promises.push(deleteDoc(doc(db, "students", cleanEmail)).catch(() => {}));
+      }
+
+      if (prefix && prefix !== cleanEmail && prefix !== cleanRoll.toLowerCase()) {
+        promises.push(deleteDoc(doc(db, "authorizedUsers", prefix)).catch(() => {}));
+        promises.push(deleteDoc(doc(db, "students", prefix)).catch(() => {}));
+      }
+
+      await Promise.all(promises);
+
+      alert(`✅ Student ${studentName} (${cleanRoll}) was successfully deleted.`);
+      if (onUpdate) onUpdate(null);
+      if (onClose) onClose();
+    } catch (err) {
+      console.error("Error deleting student:", err);
+      alert("Failed to delete student record: " + err.message);
+    } finally {
+      setDeletingStudent(false);
     }
   };
 
@@ -297,11 +364,11 @@ const StudentDetailModal = ({ student, onClose, onUpdate }) => {
                 </div>
               )}
             </div>
-            {isAdmin && (currentStudent.photoURL || currentStudent.image) && (
+            {isStaff && (currentStudent.photoURL || currentStudent.image) && (
               <button
                 type="button"
                 className="modal-avatar-delete-photo-btn"
-                title="Admin only: Delete student profile photo"
+                title="Staff action: Delete student profile photo"
                 onClick={handleRemovePhotoOnly}
                 disabled={removingPhoto}
                 aria-label="Delete student photo"
@@ -423,12 +490,12 @@ const StudentDetailModal = ({ student, onClose, onUpdate }) => {
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "8px" }}>
                     <span>{currentStudent.faceRegistered ? "Registered & Active ✅" : "Not Registered ⏳"}</span>
                     <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
-                      {isAdmin && currentStudent.faceRegistered && (
+                      {isStaff && currentStudent.faceRegistered && (
                         <button
                           type="button"
                           onClick={handleRemoveFaceBiometrics}
                           disabled={removingFace}
-                          title="Admin only: Delete student's facial biometric data and enrolled photo"
+                          title="Staff Action: Clear student's facial biometric data and enrolled photo"
                           style={{
                             display: "inline-flex",
                             alignItems: "center",
@@ -510,6 +577,34 @@ const StudentDetailModal = ({ student, onClose, onUpdate }) => {
                   )}
                 </div>
               )}
+
+              {/* Delete Student Action for Staff */}
+              {isStaff && (
+                <div style={{ marginTop: "20px", borderTop: "1px solid var(--border, #e2e8f0)", paddingTop: "14px", display: "flex", justifyContent: "flex-end" }}>
+                  <button
+                    type="button"
+                    onClick={handleDeleteStudent}
+                    disabled={deletingStudent}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "8px",
+                      padding: "9px 18px",
+                      borderRadius: "10px",
+                      background: "rgba(239, 68, 68, 0.12)",
+                      color: "#ef4444",
+                      border: "1.5px solid rgba(239, 68, 68, 0.35)",
+                      fontWeight: 700,
+                      fontSize: "0.85rem",
+                      cursor: deletingStudent ? "not-allowed" : "pointer",
+                      transition: "all 0.2s ease"
+                    }}
+                    title="Permanently remove this student record from all database collections"
+                  >
+                    <FaTrashAlt /> {deletingStudent ? "Deleting Student..." : "Delete Student Record"}
+                  </button>
+                </div>
+              )}
             </div>
           </div>
 
@@ -569,27 +664,41 @@ const StudentDetailModal = ({ student, onClose, onUpdate }) => {
                     </tr>
                   </thead>
                   <tbody>
-                    {sortedAttendance.map((rec) => (
-                      <tr key={rec.id}>
-                        <td>
-                          <strong>{rec.session?.courseCode || rec.session?.classCode || "Class Session"}</strong>
-                          {rec.session?.classCode && rec.session?.courseCode && (
-                            <small className="sub-text"> ({rec.session.classCode})</small>
-                          )}
-                        </td>
-                        <td>{rec.roomNo || rec.session?.roomNo || "N/A"}</td>
-                        <td>
-                          {rec.submittedAt ? (
-                            <span>{new Date(rec.submittedAt).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" })}</span>
-                          ) : (
-                            "N/A"
-                          )}
-                        </td>
-                        <td>
-                          <span className="present-badge">Present ✅</span>
-                        </td>
-                      </tr>
-                    ))}
+                    {sortedAttendance.map((rec) => {
+                      const targetSessionId = rec.sessionId || rec.session?.id || (rec.id && rec.id.includes("_") ? rec.id.split("_")[0] : rec.id);
+
+                      return (
+                        <tr
+                          key={rec.id}
+                          onClick={() => {
+                            if (targetSessionId) {
+                              navigate(`${basePath}/${targetSessionId}`);
+                              if (onClose) onClose();
+                            }
+                          }}
+                          style={{ cursor: targetSessionId ? "pointer" : "default" }}
+                          title={targetSessionId ? "Click to view full class session attendance" : ""}
+                        >
+                          <td>
+                            <strong>{rec.session?.courseCode || rec.session?.classCode || "Class Session"}</strong>
+                            {rec.session?.classCode && rec.session?.courseCode && (
+                              <small className="sub-text"> ({rec.session.classCode})</small>
+                            )}
+                          </td>
+                          <td>{rec.roomNo || rec.session?.roomNo || "N/A"}</td>
+                          <td>
+                            {rec.submittedAt ? (
+                              <span>{new Date(rec.submittedAt).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" })}</span>
+                            ) : (
+                              "N/A"
+                            )}
+                          </td>
+                          <td>
+                            <span className="present-badge">Present ✅</span>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
