@@ -241,8 +241,13 @@
 }
 
 @keyframes spin {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
+    from {
+        transform: rotate(0deg);
+    }
+
+    to {
+        transform: rotate(360deg);
+    }
 }
 
 .qr-error {
@@ -296,9 +301,12 @@
 }
 
 @keyframes pulseGlow {
-    0%, 100% {
+
+    0%,
+    100% {
         box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.25), 0 0 12px rgba(16, 185, 129, 0.5);
     }
+
     50% {
         box-shadow: 0 0 0 8px rgba(16, 185, 129, 0.1), 0 0 18px rgba(16, 185, 129, 0.7);
     }

@@ -222,3 +222,107 @@ export async function removeStudentPhotoOnly(studentOrRoll) {
     throw err;
   }
 }
+
+/**
+ * Calculates Euclidean distance between two 128-dimensional facial vectors.
+ * A distance <= 0.50 indicates the exact same human face.
+ * 
+ * @param {Array<number>|Float32Array} v1 
+ * @param {Array<number>|Float32Array} v2 
+ * @returns {number}
+ */
+export function calculateFaceDistance(v1, v2) {
+  if (!v1 || !v2 || v1.length !== 128 || v2.length !== 128) return 1.0;
+  let sum = 0;
+  for (let i = 0; i < 128; i++) {
+    const diff = v1[i] - v2[i];
+    sum += diff * diff;
+  }
+  return Math.sqrt(sum);
+}
+
+/**
+ * Checks whether a new 128-D facial vector matches any existing student's face in the database.
+ * Prevents multiple students from sharing the same facial biometric template.
+ * 
+ * @param {Array<number>|Float32Array} newDescriptor - 128-element facial descriptor
+ * @param {string} targetRollNo - Roll Number of the student currently being enrolled
+ * @param {string} targetEmail - Email of the student currently being enrolled
+ * @param {number} threshold - Match threshold (default: 0.50)
+ * @returns {Promise<{ isDuplicate: boolean, conflictStudent?: { name: string, rollNo: string, email: string, distance: number, confidence: number } }>}
+ */
+export async function checkDuplicateFaceBiometrics(
+  newDescriptor,
+  targetRollNo = "",
+  targetEmail = "",
+  threshold = 0.50
+) {
+  if (!newDescriptor || (Array.isArray(newDescriptor) && newDescriptor.length !== 128) || (newDescriptor.length !== 128)) {
+    return { isDuplicate: false };
+  }
+
+  const cleanTargetRoll = String(targetRollNo || "").trim().toUpperCase();
+  const cleanTargetEmail = String(targetEmail || "").trim().toLowerCase();
+  const targetPrefix = cleanTargetEmail ? cleanTargetEmail.split("@")[0].toUpperCase() : "";
+
+  try {
+    const [studentsSnap, usersSnap, authSnap] = await Promise.all([
+      getDocs(collection(db, "students")),
+      getDocs(collection(db, "users")),
+      getDocs(collection(db, "authorizedUsers")).catch(() => ({ docs: [] }))
+    ]);
+
+    // Map unique registered profiles by rollNo or primary docId
+    const registeredProfiles = new Map();
+
+    [...studentsSnap.docs, ...usersSnap.docs, ...authSnap.docs].forEach((docSnap) => {
+      const data = docSnap.data();
+      if (data && Array.isArray(data.faceDescriptor) && data.faceDescriptor.length === 128) {
+        let roll = String(data.rollNo || docSnap.id || "").trim().toUpperCase();
+        if (roll.includes("@")) roll = roll.split("@")[0].toUpperCase();
+        const email = String(data.email || "").trim().toLowerCase();
+        const name = data.name || data.fullName || "Registered Student";
+
+        // Skip if this doc belongs to the target student being enrolled/updated
+        const isSameStudent =
+          (cleanTargetRoll && roll === cleanTargetRoll) ||
+          (cleanTargetEmail && email === cleanTargetEmail) ||
+          (targetPrefix && roll === targetPrefix) ||
+          (cleanTargetRoll && docSnap.id.toUpperCase() === cleanTargetRoll) ||
+          (cleanTargetEmail && docSnap.id.toLowerCase() === cleanTargetEmail);
+
+        if (!isSameStudent && !registeredProfiles.has(roll)) {
+          registeredProfiles.set(roll, {
+            rollNo: roll,
+            name: name,
+            email: email,
+            faceDescriptor: data.faceDescriptor
+          });
+        }
+      }
+    });
+
+    // Compare newDescriptor against all other registered profiles
+    for (const profile of registeredProfiles.values()) {
+      const dist = calculateFaceDistance(newDescriptor, profile.faceDescriptor);
+      if (dist <= threshold) {
+        const confidence = Math.max(0, Math.min(100, Math.round((1 - (dist / 0.60)) * 100)));
+        return {
+          isDuplicate: true,
+          conflictStudent: {
+            name: profile.name,
+            rollNo: profile.rollNo,
+            email: profile.email,
+            distance: dist,
+            confidence: confidence
+          }
+        };
+      }
+    }
+
+    return { isDuplicate: false };
+  } catch (err) {
+    console.error("Error during checkDuplicateFaceBiometrics:", err);
+    return { isDuplicate: false };
+  }
+}

@@ -42,7 +42,7 @@ import { useAuth } from "../../authcontext";
 import { downloadExcel } from "../../../DownloadExcel";
 import { useTableSort, SortIcon } from "../../Common/useTableSort";
 import { LiveFaceEnrollment } from "../../Common/LiveFaceEnrollment";
-import { removeStudentPhotoOnly } from "../../../utils/biometricManager";
+import { removeStudentPhotoOnly, checkDuplicateFaceBiometrics } from "../../../utils/biometricManager";
 import { getCandidateRolls, computeStudentMetrics } from "../studentAttendanceHelper";
 import "./Dashboard.css";
 
@@ -82,20 +82,55 @@ export default function StudentDashboard() {
 
     const [fetchedStudentData, setFetchedStudentData] = useState(null);
 
-    // Resolve student profile name directly if not loaded
+    // Resolve student profile name & biometrics directly in real-time across all collections
     useEffect(() => {
         if (!activeRollNo) return;
-        Promise.all([
-            getDoc(doc(db, "students", activeRollNo)).catch(() => ({ exists: () => false })),
-            getDoc(doc(db, "users", activeRollNo)).catch(() => ({ exists: () => false }))
-        ]).then(([studentSnap, userSnap]) => {
-            if (studentSnap.exists()) {
-                setFetchedStudentData(studentSnap.data());
-            } else if (userSnap.exists()) {
-                setFetchedStudentData(userSnap.data());
+
+        const cleanEmail = (user?.email || "").toLowerCase().trim();
+        const prefix = cleanEmail ? cleanEmail.split("@")[0].toLowerCase().trim() : activeRollNo.toLowerCase().trim();
+
+        const unsubs = [];
+
+        const handleDocUpdate = (snap) => {
+            if (snap.exists()) {
+                const d = snap.data();
+                setFetchedStudentData((prev) => {
+                    const hasFace = Boolean(
+                        (Array.isArray(d.faceDescriptor) && d.faceDescriptor.length === 128) ||
+                        (Array.isArray(prev?.faceDescriptor) && prev.faceDescriptor.length === 128) ||
+                        d.faceRegistered === true ||
+                        prev?.faceRegistered === true ||
+                        d.biometricEnrolled === true ||
+                        prev?.biometricEnrolled === true
+                    );
+                    return {
+                        ...(prev || {}),
+                        ...d,
+                        faceRegistered: hasFace,
+                        biometricEnrolled: hasFace,
+                        faceDescriptor: (Array.isArray(d.faceDescriptor) && d.faceDescriptor.length === 128)
+                            ? d.faceDescriptor
+                            : ((Array.isArray(prev?.faceDescriptor) && prev.faceDescriptor.length === 128) ? prev.faceDescriptor : (d.faceDescriptor || prev?.faceDescriptor || null))
+                    };
+                });
             }
-        }).catch(() => { });
-    }, [activeRollNo]);
+        };
+
+        // 1. Listen to students collection
+        unsubs.push(onSnapshot(doc(db, "students", activeRollNo), handleDocUpdate, (err) => console.warn("student doc snapshot error:", err)));
+
+        // 2. Listen to users collection
+        unsubs.push(onSnapshot(doc(db, "users", activeRollNo), handleDocUpdate, (err) => console.warn("user doc snapshot error:", err)));
+
+        // 3. Listen to authorizedUsers collection
+        if (cleanEmail) {
+            unsubs.push(onSnapshot(doc(db, "authorizedUsers", cleanEmail), handleDocUpdate, (err) => console.warn("authUser doc snapshot error:", err)));
+        }
+
+        return () => {
+            unsubs.forEach((u) => u && u());
+        };
+    }, [activeRollNo, user?.email]);
 
     const studentName = fetchedStudentData?.name || profile?.name || activeRollNo || "Student";
     const rawBranch = profile?.branch || fetchedStudentData?.branch;
@@ -103,16 +138,12 @@ export default function StudentDashboard() {
     const studentSemester = profile?.semester || fetchedStudentData?.semester || "1";
 
     const hasFaceRegistered = Boolean(
+        (Array.isArray(fetchedStudentData?.faceDescriptor) && fetchedStudentData.faceDescriptor.length === 128) ||
+        (Array.isArray(profile?.faceDescriptor) && profile.faceDescriptor.length === 128) ||
         fetchedStudentData?.faceRegistered === true ||
+        fetchedStudentData?.biometricEnrolled === true ||
         profile?.faceRegistered === true ||
-        fetchedStudentData?.isFaceEnrolled === true ||
-        profile?.isFaceEnrolled === true ||
-        fetchedStudentData?.hasFaceRegistered === true ||
-        profile?.hasFaceRegistered === true ||
-        (Array.isArray(fetchedStudentData?.faceDescriptor) && fetchedStudentData.faceDescriptor.length > 0) ||
-        (Array.isArray(profile?.faceDescriptor) && profile.faceDescriptor.length > 0) ||
-        (fetchedStudentData?.photoURL && String(fetchedStudentData.photoURL).length > 0) ||
-        (profile?.photoURL && String(profile.photoURL).length > 0)
+        profile?.biometricEnrolled === true
     );
 
     // Build candidate roll numbers to guarantee matching
@@ -208,12 +239,12 @@ export default function StudentDashboard() {
         });
     }, [courses, sessions, records, studentBranch, studentSemester]);
 
-    // Initial Face Biometric Enrollment
+    // Initial Face Biometric Enrollment Handler (Student Side - One-time registration only)
     const handleEnrollStudentFace = async (enrollData) => {
         if (!enrollData || !enrollData.faceDescriptor || !activeRollNo) return;
 
         if (hasFaceRegistered) {
-            alert("🔒 Your facial biometrics are already registered and locked. Only a Lecturer or Admin can update your biometric data.");
+            alert("🔒 Your facial biometrics are already registered and locked. Only a Lecturer or Administrator can update or reset your biometric data.");
             setShowFaceModal(false);
             return;
         }
@@ -221,13 +252,26 @@ export default function StudentDashboard() {
         try {
             setFaceSaving(true);
             const cleanEmail = (user?.email || "").toLowerCase().trim();
-            const prefix = cleanEmail ? cleanEmail.split("@")[0] : activeRollNo.toLowerCase();
+            const prefix = cleanEmail ? cleanEmail.split("@")[0].toLowerCase().trim() : activeRollNo.toLowerCase().trim();
+
+            const rawVector = enrollData.faceDescriptor;
+            const cleanVector = Array.isArray(rawVector) ? rawVector : Array.from(rawVector);
+
+            // Check duplicate face biometrics against registry
+            const duplicateCheck = await checkDuplicateFaceBiometrics(cleanVector, activeRollNo, cleanEmail);
+            if (duplicateCheck.isDuplicate && duplicateCheck.conflictStudent) {
+                const cs = duplicateCheck.conflictStudent;
+                alert(`⛔ Duplicate Face Detected!\n\nThis face matches registered student "${cs.name}" (${cs.rollNo} • ${cs.confidence}% Match).\n\nSystem policy strictly prohibits multiple students from using the same facial biometrics.`);
+                setFaceSaving(false);
+                return;
+            }
 
             const updatePayload = {
-                faceDescriptor: enrollData.faceDescriptor,
-                photoURL: enrollData.photoURL || fetchedStudentData?.photoURL || "",
+                faceDescriptor: cleanVector,
+                photoURL: enrollData.photoURL || fetchedStudentData?.photoURL || profile?.photoURL || "",
                 faceRegistered: true,
                 biometricEnrolled: true,
+                hasFaceRegistered: true,
                 enrolledAt: Date.now()
             };
 
@@ -237,6 +281,15 @@ export default function StudentDashboard() {
             ];
             if (cleanEmail) {
                 promises.push(setDoc(doc(db, "authorizedUsers", cleanEmail), updatePayload, { merge: true }).catch(() => { }));
+                promises.push(setDoc(doc(db, "students", cleanEmail), updatePayload, { merge: true }).catch(() => { }));
+                promises.push(setDoc(doc(db, "users", cleanEmail), updatePayload, { merge: true }).catch(() => { }));
+            }
+            if (prefix && prefix !== activeRollNo.toLowerCase()) {
+                promises.push(setDoc(doc(db, "students", prefix), updatePayload, { merge: true }).catch(() => { }));
+                promises.push(setDoc(doc(db, "users", prefix), updatePayload, { merge: true }).catch(() => { }));
+            }
+            if (user?.uid) {
+                promises.push(setDoc(doc(db, "users", user.uid), updatePayload, { merge: true }).catch(() => { }));
             }
 
             await Promise.all(promises);
@@ -246,11 +299,11 @@ export default function StudentDashboard() {
                 ...updatePayload
             }));
 
-            setFaceSuccessMsg("✅ Face biometrics enrolled successfully! You can now mark attendance.");
+            setFaceSuccessMsg("✅ Face biometrics registered successfully! You can now mark attendance.");
             setTimeout(() => {
                 setShowFaceModal(false);
                 setFaceSuccessMsg("");
-            }, 2500);
+            }, 2000);
         } catch (err) {
             console.error("Error saving student face:", err);
             alert("Failed to save face biometrics: " + err.message);
@@ -959,15 +1012,16 @@ export default function StudentDashboard() {
                             type="button"
                             onClick={() => setShowLockedFaceModal(false)}
                             style={{
-                                padding: "10px 24px",
-                                borderRadius: "10px",
+                                padding: "11px 24px",
+                                borderRadius: "12px",
                                 background: "linear-gradient(135deg, #6366f1, #4f46e5)",
                                 color: "#ffffff",
                                 border: "none",
                                 fontWeight: 700,
-                                fontSize: "0.9rem",
+                                fontSize: "0.92rem",
                                 cursor: "pointer",
                                 width: "100%",
+                                marginTop: "16px",
                                 boxShadow: "0 4px 12px rgba(99, 102, 241, 0.25)"
                             }}
                         >
@@ -1041,6 +1095,9 @@ export default function StudentDashboard() {
 
                         <LiveFaceEnrollment
                             hideHeader={true}
+                            targetRollNo={activeRollNo}
+                            targetEmail={user?.email}
+                            targetName={studentName}
                             onFaceEnrolled={handleEnrollStudentFace}
                         />
 

@@ -1,5 +1,5 @@
-import { useEffect, useState, useMemo } from "react";
-import { collection, getDocs, doc, deleteDoc } from "firebase/firestore";
+import { useEffect, useState, useMemo, useCallback } from "react";
+import { collection, getDocs, doc, deleteDoc, onSnapshot } from "firebase/firestore";
 import { useNavigate } from "react-router-dom";
 import { db } from "../../../firebase";
 import { useAuth } from "../../authcontext";
@@ -32,6 +32,8 @@ import StudentDetailModal from "../../Common/StudentDetailModal";
 import { useTableSort, SortIcon } from "../../Common/useTableSort";
 import "./StudentsList.css";
 
+import { mergeAllStudentRecords, normalizeDescriptor } from "../../../utils/studentDataHelper";
+
 function StudentsList() {
     const { user } = useAuth();
     const [students, setStudents] = useState([]);
@@ -45,135 +47,66 @@ function StudentsList() {
     const [selectedStudent, setSelectedStudent] = useState(null);
     const navigate = useNavigate();
 
-    const getStudents = async () => {
+    const getStudents = useCallback(async () => {
         try {
             setLoading(true);
-            const [usersSnap, studentsSnap, authUsersSnap] = await Promise.all([
-                getDocs(collection(db, "users")).catch((err) => {
-                    console.warn("Could not read users:", err);
-                    return { docs: [] };
-                }),
-                getDocs(collection(db, "students")).catch((err) => {
-                    console.warn("Could not read students:", err);
-                    return { docs: [] };
-                }),
-                getDocs(collection(db, "authorizedUsers")).catch((err) => {
-                    console.warn("Could not read authorizedUsers:", err);
-                    return { docs: [] };
-                })
+            const [authSnap, studentsSnap, usersSnap] = await Promise.all([
+                getDocs(collection(db, "authorizedUsers")).catch(() => ({ docs: [] })),
+                getDocs(collection(db, "students")).catch(() => ({ docs: [] })),
+                getDocs(collection(db, "users")).catch(() => ({ docs: [] }))
             ]);
 
-            const isStudentDoc = (d, id) => {
-                const r = String(d.role || "").toLowerCase().trim();
-                if (r === "student") return true;
-                if (r === "lecturer" || r === "faculty" || r === "admin") return false;
-                if (d.rollNo || d.semester || d.branch) return true;
-                if (/^\d{2}[a-zA-Z]{3}\d{2,4}$/i.test(id)) return true;
-                return false;
-            };
-
-            const getCanonicalRoll = (d, id) => {
-                if (d?.rollNo && String(d.rollNo).trim()) {
-                    const r = String(d.rollNo).trim();
-                    return (r.includes("@") ? r.split("@")[0] : r).toUpperCase();
-                }
-                if (d?.email && String(d.email).includes("@")) {
-                    return String(d.email).split("@")[0].trim().toUpperCase();
-                }
-                if (id && String(id).includes("@")) {
-                    return String(id).split("@")[0].trim().toUpperCase();
-                }
-                return String(id || "").trim().toUpperCase();
-            };
-
-            const studentMap = new Map();
-
-            const mergeStudent = (docSnap) => {
-                const d = docSnap.data();
-                if (!isStudentDoc(d, docSnap.id)) return;
-                const roll = getCanonicalRoll(d, docSnap.id);
-                if (!roll) return;
-
-                const existing = studentMap.get(roll) || {};
-                const cleanEmail = (d.email || existing.email || (roll.toLowerCase() + "@iiitdwd.ac.in")).toLowerCase().trim();
-                const branch = (d.branch && String(d.branch).toLowerCase() !== "general")
-                    ? d.branch
-                    : ((existing.branch && String(existing.branch).toLowerCase() !== "general") ? existing.branch : "CSE");
-
-                studentMap.set(roll, {
-                    ...existing,
-                    ...d,
-                    id: roll,
-                    rollNo: roll,
-                    email: cleanEmail,
-                    name: d.name || existing.name || "Student",
-                    branch: branch.toUpperCase(),
-                    semester: d.semester || existing.semester || "1",
-                    phone: d.phone || existing.phone || "",
-                    status: d.status || existing.status || "active",
-                    faceRegistered: Boolean(
-                        d.faceRegistered ||
-                        existing.faceRegistered ||
-                        d.biometricEnrolled ||
-                        existing.biometricEnrolled ||
-                        d.isFaceEnrolled ||
-                        existing.isFaceEnrolled ||
-                        d.hasFaceRegistered ||
-                        existing.hasFaceRegistered ||
-                        (Array.isArray(d.faceDescriptor) && d.faceDescriptor.length > 0) ||
-                        (Array.isArray(existing.faceDescriptor) && existing.faceDescriptor.length > 0) ||
-                        (d.photoURL && String(d.photoURL).length > 0) ||
-                        (existing.photoURL && String(existing.photoURL).length > 0)
-                    ),
-                    biometricEnrolled: Boolean(
-                        d.biometricEnrolled ||
-                        existing.biometricEnrolled ||
-                        d.faceRegistered ||
-                        existing.faceRegistered ||
-                        (Array.isArray(d.faceDescriptor) && d.faceDescriptor.length > 0) ||
-                        (Array.isArray(existing.faceDescriptor) && existing.faceDescriptor.length > 0)
-                    ),
-                    faceDescriptor: d.faceDescriptor || existing.faceDescriptor || null,
-                    photoURL: d.photoURL || existing.photoURL || "",
-                    role: "student"
-                });
-            };
-
-            // 1. authorizedUsers
-            authUsersSnap.docs.forEach(mergeStudent);
-
-            // 2. students collection
-            studentsSnap.docs.forEach(mergeStudent);
-
-            // 3. users
-            usersSnap.docs.forEach(mergeStudent);
-
-            const rawStudents = Array.from(studentMap.values());
-            rawStudents.sort((a, b) => {
-                const rollA = a.rollNo || "";
-                const rollB = b.rollNo || "";
-                return rollA.localeCompare(rollB, undefined, { numeric: true, sensitivity: 'base' });
-            });
-            setStudents(rawStudents);
-        } catch (error) {
-            console.error("Error getting students:", error);
+            const merged = mergeAllStudentRecords(authSnap.docs, studentsSnap.docs, usersSnap.docs);
+            setStudents(merged);
+        } catch (err) {
+            console.error("Error fetching students:", err);
         } finally {
             setLoading(false);
         }
-    };
+    }, []);
 
     useEffect(() => {
-        getStudents();
-    }, [user]);
+        let authDocs = [];
+        let studentsDocs = [];
+        let usersDocs = [];
+
+        const recomputeStudents = () => {
+            const merged = mergeAllStudentRecords(authDocs, studentsDocs, usersDocs);
+            setStudents(merged);
+            setLoading(false);
+        };
+
+        const unsubAuth = onSnapshot(collection(db, "authorizedUsers"), (snap) => {
+            authDocs = snap.docs;
+            recomputeStudents();
+        }, (err) => console.warn("authorizedUsers snapshot error:", err));
+
+        const unsubStudents = onSnapshot(collection(db, "students"), (snap) => {
+            studentsDocs = snap.docs;
+            recomputeStudents();
+        }, (err) => console.warn("students snapshot error:", err));
+
+        const unsubUsers = onSnapshot(collection(db, "users"), (snap) => {
+            usersDocs = snap.docs;
+            recomputeStudents();
+        }, (err) => console.warn("users snapshot error:", err));
+
+        return () => {
+            unsubAuth();
+            unsubStudents();
+            unsubUsers();
+        };
+    }, []);
 
     // Check if a student has biometric face enrolled
     const checkHasFace = (student) => {
         return Boolean(
-            student.faceRegistered ||
-            student.biometricEnrolled ||
-            (student.faceDescriptor && Array.isArray(student.faceDescriptor) && student.faceDescriptor.length === 128)
+            (student?.faceDescriptor && (Array.isArray(student.faceDescriptor) || student.faceDescriptor instanceof Float32Array || typeof student.faceDescriptor === "object")) ||
+            student?.faceRegistered === true ||
+            student?.biometricEnrolled === true
         );
     };
+
 
     // Remove Student (Lecturer & Admin permission)
     const handleRemoveStudent = async (student, e) => {

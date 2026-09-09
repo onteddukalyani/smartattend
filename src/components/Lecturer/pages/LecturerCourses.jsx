@@ -135,22 +135,22 @@ export default function LecturerCourses() {
     const lecturerUid = (user?.uid || profile?.uid || "").toLowerCase().trim();
     const rawLecturerName = (profile?.name || user?.displayName || "").trim();
 
-    // 1. Real-time Courses listener
+
+    // 1. Real-time Courses Listener
     useEffect(() => {
-        setLoading(true);
+        const q = collection(db, "courses");
         const unsubscribe = onSnapshot(
-            collection(db, "courses"),
+            q,
             (snapshot) => {
                 const list = snapshot.docs.map((d) => ({
                     id: d.id,
                     ...d.data()
                 }));
-                list.sort((a, b) => (a.courseCode || "").localeCompare(b.courseCode || ""));
                 setCourses(list);
                 setLoading(false);
             },
             (err) => {
-                console.error("Error loading courses for lecturer:", err);
+                console.warn("Courses read error:", err);
                 setLoading(false);
             }
         );
@@ -158,21 +158,16 @@ export default function LecturerCourses() {
         return () => unsubscribe();
     }, []);
 
-    // 2. Real-time Sessions listener
+    // 2. Real-time Sessions Listener
     useEffect(() => {
+        const q = collection(db, "attendance_sessions");
         const unsubscribe = onSnapshot(
-            collection(db, "attendance_sessions"),
+            q,
             (snapshot) => {
                 const list = snapshot.docs.map((d) => ({
                     id: d.id,
                     ...d.data()
                 }));
-                // Sort newest sessions first
-                list.sort((a, b) => {
-                    const timeA = a.createdAt?.toMillis?.() || a.createdAt?.seconds * 1000 || a.createdAt || a.timestamp || 0;
-                    const timeB = b.createdAt?.toMillis?.() || b.createdAt?.seconds * 1000 || b.createdAt || b.timestamp || 0;
-                    return Number(timeB) - Number(timeA);
-                });
                 setSessions(list);
             },
             (err) => console.warn("Sessions read error:", err)
@@ -181,10 +176,11 @@ export default function LecturerCourses() {
         return () => unsubscribe();
     }, []);
 
-    // 3. Real-time Attendance Records listener
+    // 3. Real-time Attendance Records Listener
     useEffect(() => {
+        const q = collection(db, "attendance_records");
         const unsubscribe = onSnapshot(
-            collection(db, "attendance_records"),
+            q,
             (snapshot) => {
                 const list = snapshot.docs.map((d) => ({
                     id: d.id,
@@ -198,51 +194,50 @@ export default function LecturerCourses() {
         return () => unsubscribe();
     }, []);
 
-    // 4. Load Students Catalog
+    // 4. Real-time Students Catalog Listener
     useEffect(() => {
-        const loadStudents = async () => {
-            try {
-                const [usersSnap, studentsSnap, authSnap] = await Promise.all([
-                    getDocs(collection(db, "users")).catch(() => ({ docs: [] })),
-                    getDocs(collection(db, "students")).catch(() => ({ docs: [] })),
-                    getDocs(collection(db, "authorizedUsers")).catch(() => ({ docs: [] }))
-                ]);
+        let authDocs = [];
+        let studentsDocs = [];
+        let usersDocs = [];
 
-                const map = new Map();
-                const parseDoc = (d, src) => {
-                    const data = d.data();
-                    const id = d.id;
-                    const role = String(data.role || "").toLowerCase().trim();
-                    if (role === "lecturer" || role === "faculty" || role === "admin") return;
-
-                    const roll = (data.rollNo || (data.email && data.email.includes("@") ? data.email.split("@")[0] : id)).toUpperCase().trim();
-                    if (!roll) return;
-
-                    const existing = map.get(roll) || {};
-                    map.set(roll, {
-                        id,
-                        rollNo: roll,
-                        name: data.name || data.displayName || existing.name || roll,
-                        email: data.email || existing.email || "",
-                        department: data.department || data.branch || existing.department || "CSE",
-                        branch: data.branch || data.department || existing.branch || "CSE",
-                        semester: data.semester || existing.semester || "1",
-                        batch: data.batch || existing.batch || "2025",
-                        hasFace: Boolean(data.faceDescriptor || data.faceEnrolled || data.faceData || existing.hasFace)
-                    });
-                };
-
-                usersSnap.docs.forEach((d) => parseDoc(d, "users"));
-                studentsSnap.docs.forEach((d) => parseDoc(d, "students"));
-                authSnap.docs.forEach((d) => parseDoc(d, "auth"));
-
-                setStudents(Array.from(map.values()));
-            } catch (err) {
-                console.warn("Could not load students catalog:", err);
-            }
+        const recomputeStudents = () => {
+            const canonicalList = mergeAllStudentRecords(authDocs, studentsDocs, usersDocs);
+            const mapped = canonicalList.map((s) => ({
+                id: s.id || s.rollNo,
+                rollNo: s.rollNo,
+                name: s.name || s.rollNo,
+                email: s.email || "",
+                department: s.branch || "CSE",
+                branch: s.branch || "CSE",
+                semester: s.semester || "1",
+                batch: s.batch || "2025",
+                hasFace: Boolean(s.faceRegistered || s.biometricEnrolled),
+                faceDescriptor: s.faceDescriptor,
+                photoURL: s.photoURL || ""
+            }));
+            setStudents(mapped);
         };
 
-        loadStudents();
+        const unsubAuth = onSnapshot(collection(db, "authorizedUsers"), (snap) => {
+            authDocs = snap.docs;
+            recomputeStudents();
+        }, (err) => console.warn("authorizedUsers snapshot error:", err));
+
+        const unsubStudents = onSnapshot(collection(db, "students"), (snap) => {
+            studentsDocs = snap.docs;
+            recomputeStudents();
+        }, (err) => console.warn("students snapshot error:", err));
+
+        const unsubUsers = onSnapshot(collection(db, "users"), (snap) => {
+            usersDocs = snap.docs;
+            recomputeStudents();
+        }, (err) => console.warn("users snapshot error:", err));
+
+        return () => {
+            unsubAuth();
+            unsubStudents();
+            unsubUsers();
+        };
     }, []);
 
     // Session statistics per course with robust multi-field matching

@@ -11,11 +11,12 @@ import {
   FaChalkboard,
   FaEye
 } from "react-icons/fa";
-import { collection, getDocs, query, where } from "firebase/firestore";
+import { collection, getDocs, query, where, onSnapshot } from "firebase/firestore";
 import { db } from "../../../firebase";
 import StudentDetailModal from "../../Common/StudentDetailModal";
 import { useTableSort, SortIcon } from "../../Common/useTableSort";
 import "./AttendanceOverview.css";
+import { mergeAllStudentRecords } from "../../../utils/studentDataHelper";
 
 const AttendanceOverview = () => {
   const navigate = useNavigate();
@@ -32,113 +33,27 @@ const AttendanceOverview = () => {
     averageAttendanceRate: 0
   });
 
-  useEffect(() => {
-    loadAttendanceData();
-  }, []);
-
-  const loadAttendanceData = async () => {
+  const computeOverview = (authDocs, studentsDocs, usersDocs, sessionsDocs, recordsDocs) => {
     try {
-      setLoading(true);
+      const totalSessionsCount = sessionsDocs.length;
+      const totalRecordsCount = recordsDocs.length;
 
-      const [usersSnap, studentsSnap, authUsersSnap, sessionsSnap, recordsSnap] = await Promise.all([
-        getDocs(collection(db, "users")).catch((err) => {
-          console.warn("Could not read users collection:", err);
-          return { docs: [], size: 0 };
-        }),
-        getDocs(collection(db, "students")).catch((err) => {
-          console.warn("Could not read students collection:", err);
-          return { docs: [], size: 0 };
-        }),
-        getDocs(collection(db, "authorizedUsers")).catch((err) => {
-          console.warn("Could not read authorizedUsers collection:", err);
-          return { docs: [], size: 0 };
-        }),
-        getDocs(collection(db, "attendance_sessions")).catch((err) => {
-          console.warn("Could not read sessions:", err);
-          return { docs: [], size: 0 };
-        }),
-        getDocs(collection(db, "attendance_records")).catch((err) => {
-          console.warn("Could not read attendance records:", err);
-          return { docs: [], size: 0 };
-        })
-      ]);
-
-      const totalSessionsCount = sessionsSnap.size;
-      const totalRecordsCount = recordsSnap.size;
-
-      // Count attendance per student roll number
+      // Map attended count per canonical Roll Number
       const attendanceCountMap = new Map();
-      recordsSnap.docs.forEach((docSnap) => {
-        const roll = docSnap.data().rollNo;
+      recordsDocs.forEach((docSnap) => {
+        const d = typeof docSnap.data === "function" ? docSnap.data() : docSnap;
+        const roll = d.rollNo;
         if (roll) {
           const clean = roll.toUpperCase().trim();
           attendanceCountMap.set(clean, (attendanceCountMap.get(clean) || 0) + 1);
         }
       });
 
-      const isStudentDoc = (d, id) => {
-        const r = String(d?.role || "").toLowerCase().trim();
-        if (r === "student") return true;
-        if (r === "lecturer" || r === "faculty" || r === "admin") return false;
-        if (d?.rollNo || d?.semester || d?.branch) return true;
-        if (/^\d{2}[a-zA-Z]{3}\d{2,4}$/i.test(id)) return true;
-        return false;
-      };
+      // Merge students across all collections via unified engine
+      const canonicalStudents = mergeAllStudentRecords(authDocs, studentsDocs, usersDocs);
 
-      const getCanonicalRoll = (d, id) => {
-        if (d?.rollNo && String(d.rollNo).trim()) {
-          const r = String(d.rollNo).trim();
-          return (r.includes("@") ? r.split("@")[0] : r).toUpperCase();
-        }
-        if (d?.email && String(d.email).includes("@")) {
-          return String(d.email).split("@")[0].trim().toUpperCase();
-        }
-        if (id && String(id).includes("@")) {
-          return String(id).split("@")[0].trim().toUpperCase();
-        }
-        return String(id || "").trim().toUpperCase();
-      };
-
-      // Merge students from all collections strictly by canonical Roll Number
-      const studentMap = new Map();
-
-      const mergeOverviewStudent = (docSnap) => {
-        const d = docSnap.data();
-        if (!isStudentDoc(d, docSnap.id)) return;
-        const roll = getCanonicalRoll(d, docSnap.id);
-        if (!roll) return;
-
-        const existing = studentMap.get(roll) || {};
-        const cleanEmail = (d.email || existing.email || (roll.toLowerCase() + "@iiitdwd.ac.in")).toLowerCase().trim();
-        const branch = (d.branch && String(d.branch).toLowerCase() !== "general")
-          ? d.branch
-          : ((existing.branch && String(existing.branch).toLowerCase() !== "general") ? existing.branch : "CSE");
-
-        studentMap.set(roll, {
-          ...existing,
-          ...d,
-          id: roll,
-          rollNo: roll,
-          name: d.name || existing.name || "Student",
-          email: cleanEmail,
-          branch: branch,
-          semester: d.semester || existing.semester || "1",
-          faceRegistered: d.faceRegistered ?? existing.faceRegistered ?? false,
-          role: "student"
-        });
-      };
-
-      // 1. Process authorizedUsers
-      authUsersSnap.docs.forEach(mergeOverviewStudent);
-
-      // 2. Process students collection
-      studentsSnap.docs.forEach(mergeOverviewStudent);
-
-      // 3. Process users collection
-      usersSnap.docs.forEach(mergeOverviewStudent);
-
-      // Map real students from database
-      const studentList = Array.from(studentMap.values()).map((data) => {
+      // Map real students with attended count & attendance rate
+      const studentList = canonicalStudents.map((data) => {
         const cleanRoll = (data.rollNo || "").toUpperCase().trim();
         const attended = attendanceCountMap.get(cleanRoll) || 0;
         const rate = totalSessionsCount > 0
@@ -155,9 +70,9 @@ const AttendanceOverview = () => {
       studentList.sort((a, b) => (b.attendedCount || 0) - (a.attendedCount || 0));
 
       // Sessions list from database
-      const sessionsList = sessionsSnap.docs.map((docSnap) => ({
+      const sessionsList = sessionsDocs.map((docSnap) => ({
         id: docSnap.id,
-        ...docSnap.data()
+        ...(typeof docSnap.data === "function" ? docSnap.data() : docSnap)
       }));
       sessionsList.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
 
@@ -182,13 +97,76 @@ const AttendanceOverview = () => {
         activeSessions: activeCount,
         averageAttendanceRate: avgRate
       });
-
     } catch (error) {
-      console.error("Error loading attendance overview from database:", error);
+      console.error("Error computing attendance overview:", error);
     } finally {
       setLoading(false);
     }
   };
+
+  const loadAttendanceData = async () => {
+    try {
+      setLoading(true);
+      const [authSnap, studentsSnap, usersSnap, sessionsSnap, recordsSnap] = await Promise.all([
+        getDocs(collection(db, "authorizedUsers")).catch(() => ({ docs: [] })),
+        getDocs(collection(db, "students")).catch(() => ({ docs: [] })),
+        getDocs(collection(db, "users")).catch(() => ({ docs: [] })),
+        getDocs(collection(db, "attendance_sessions")).catch(() => ({ docs: [] })),
+        getDocs(collection(db, "attendance_records")).catch(() => ({ docs: [] }))
+      ]);
+      computeOverview(authSnap.docs, studentsSnap.docs, usersSnap.docs, sessionsSnap.docs, recordsSnap.docs);
+    } catch (err) {
+      console.error("Error refreshing attendance data:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    let authDocs = [];
+    let studentsDocs = [];
+    let usersDocs = [];
+    let sessionsDocs = [];
+    let recordsDocs = [];
+
+    const recomputeOverview = () => {
+      computeOverview(authDocs, studentsDocs, usersDocs, sessionsDocs, recordsDocs);
+    };
+
+    const unsubAuth = onSnapshot(collection(db, "authorizedUsers"), (snap) => {
+      authDocs = snap.docs;
+      recomputeOverview();
+    }, (err) => console.warn("authorizedUsers snapshot error:", err));
+
+    const unsubStudents = onSnapshot(collection(db, "students"), (snap) => {
+      studentsDocs = snap.docs;
+      recomputeOverview();
+    }, (err) => console.warn("students snapshot error:", err));
+
+    const unsubUsers = onSnapshot(collection(db, "users"), (snap) => {
+      usersDocs = snap.docs;
+      recomputeOverview();
+    }, (err) => console.warn("users snapshot error:", err));
+
+    const unsubSessions = onSnapshot(collection(db, "attendance_sessions"), (snap) => {
+      sessionsDocs = snap.docs;
+      recomputeOverview();
+    }, (err) => console.warn("attendance_sessions snapshot error:", err));
+
+    const unsubRecords = onSnapshot(collection(db, "attendance_records"), (snap) => {
+      recordsDocs = snap.docs;
+      recomputeOverview();
+    }, (err) => console.warn("attendance_records snapshot error:", err));
+
+    return () => {
+      unsubAuth();
+      unsubStudents();
+      unsubUsers();
+      unsubSessions();
+      unsubRecords();
+    };
+  }, []);
+
 
   const filteredStudents = students.filter((student) => {
     const term = search.toLowerCase().trim();

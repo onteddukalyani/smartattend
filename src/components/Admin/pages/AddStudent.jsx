@@ -30,6 +30,7 @@ import { db } from "../../../firebase";
 import { useAuth } from "../../authcontext";
 import { useTableSort, SortIcon } from "../../Common/useTableSort";
 import { LiveFaceEnrollment } from "../../Common/LiveFaceEnrollment";
+import { checkDuplicateFaceBiometrics } from "../../../utils/biometricManager";
 import "./AddStudent.css";
 
 const AddStudent = () => {
@@ -154,6 +155,16 @@ const AddStudent = () => {
         }
       }
 
+      if (enrolledBiometric?.faceDescriptor) {
+        const duplicateCheck = await checkDuplicateFaceBiometrics(enrolledBiometric.faceDescriptor, cleanRollNo, cleanEmail);
+        if (duplicateCheck.isDuplicate && duplicateCheck.conflictStudent) {
+          const cs = duplicateCheck.conflictStudent;
+          setError(`⛔ Duplicate Face Detected! This face is already registered to "${cs.name}" (Roll No: ${cs.rollNo} • ${cs.confidence}% Match). Multiple students cannot share the same facial biometric data.`);
+          setSaving(false);
+          return;
+        }
+      }
+
       const prefix = cleanEmail.split("@")[0].toLowerCase().trim();
       const studentPayload = {
         ...form,
@@ -197,68 +208,6 @@ const AddStudent = () => {
     } catch (err) {
       console.error("Error creating student:", err);
       setError("Unable to create student. Please try again.");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleSaveStudent = async (e) => {
-    e.preventDefault();
-    if (!validateForm()) return;
-
-    try {
-      setSaving(true);
-      setError("");
-
-      const cleanRollNo = formData.rollNo.toUpperCase().trim();
-      const cleanEmail = formData.email.toLowerCase().trim();
-      const prefix = cleanEmail ? cleanEmail.split("@")[0].toLowerCase().trim() : cleanRollNo.toLowerCase();
-
-      const studentPayload = {
-        name: formData.name.trim(),
-        rollNo: cleanRollNo,
-        email: cleanEmail,
-        department: formData.branch,
-        branch: formData.branch,
-        semester: formData.semester,
-        phone: formData.phone.trim(),
-        role: "student",
-        status: "active",
-        approved: true,
-        faceRegistered: Boolean(enrolledBiometric?.faceDescriptor),
-        biometricEnrolled: Boolean(enrolledBiometric?.faceDescriptor),
-        faceDescriptor: enrolledBiometric?.faceDescriptor || null,
-        photoURL: enrolledBiometric?.photoURL || "",
-        enrolledAt: enrolledBiometric?.enrolledAt || null,
-        updatedAt: serverTimestamp()
-      };
-
-      // Save student in students and users collections
-      await setDoc(doc(db, "students", cleanRollNo), studentPayload);
-      if (cleanEmail && cleanEmail !== cleanRollNo) {
-        deleteDoc(doc(db, "students", cleanEmail)).catch(() => { });
-      }
-      if (prefix && prefix !== cleanRollNo) {
-        deleteDoc(doc(db, "students", prefix)).catch(() => { });
-      }
-      await setDoc(doc(db, "users", cleanRollNo), studentPayload);
-
-      try {
-        if (cleanEmail) {
-          await setDoc(doc(db, "authorizedUsers", cleanEmail), {
-            ...studentPayload,
-            createdAt: Date.now()
-          }, { merge: true });
-        }
-      } catch (authErr) {
-        console.warn("Could not update authorizedUsers:", authErr);
-      }
-
-      alert(`✅ Successfully converted ${cleanEmail} to a registered student (Roll No: ${cleanRollNo})!`);
-      navigate(studentsPath);
-    } catch (err) {
-      console.error("Error converting lecturer to student:", err);
-      setError("Failed to convert account: " + err.message);
     } finally {
       setSaving(false);
     }
@@ -794,6 +743,9 @@ const AddStudent = () => {
             </p>
             <LiveFaceEnrollment
               hideHeader={true}
+              targetRollNo={form.rollNo}
+              targetEmail={form.email}
+              targetName={form.name}
               onFaceEnrolled={(data) => setEnrolledBiometric(data)}
             />
           </div>

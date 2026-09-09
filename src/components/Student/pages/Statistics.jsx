@@ -54,20 +54,54 @@ export default function Statistics() {
     const emailRoll = (user?.email || "").split("@")[0].trim().toUpperCase();
     const activeRollNo = (profile?.rollNo || emailRoll || "").trim().toUpperCase();
 
-    // Fetch student profile details from Firestore
+    // Fetch student profile details from Firestore across all collections in real-time
     useEffect(() => {
         if (!activeRollNo) return;
-        Promise.all([
-            getDoc(doc(db, "students", activeRollNo)).catch(() => ({ exists: () => false })),
-            getDoc(doc(db, "users", activeRollNo)).catch(() => ({ exists: () => false }))
-        ]).then(([studentSnap, userSnap]) => {
-            if (studentSnap.exists()) {
-                setFetchedStudentData(studentSnap.data());
-            } else if (userSnap.exists()) {
-                setFetchedStudentData(userSnap.data());
+        const cleanEmail = (user?.email || "").toLowerCase().trim();
+        const prefix = cleanEmail ? cleanEmail.split("@")[0].toLowerCase().trim() : activeRollNo.toLowerCase().trim();
+
+        const unsubs = [];
+
+        const handleDocUpdate = (snap) => {
+            if (snap.exists()) {
+                const d = snap.data();
+                setFetchedStudentData((prev) => {
+                    const hasFace = Boolean(
+                        (Array.isArray(d.faceDescriptor) && d.faceDescriptor.length === 128) ||
+                        (Array.isArray(prev?.faceDescriptor) && prev.faceDescriptor.length === 128) ||
+                        d.faceRegistered === true ||
+                        prev?.faceRegistered === true ||
+                        d.biometricEnrolled === true ||
+                        prev?.biometricEnrolled === true
+                    );
+                    return {
+                        ...(prev || {}),
+                        ...d,
+                        faceRegistered: hasFace,
+                        biometricEnrolled: hasFace,
+                        faceDescriptor: (Array.isArray(d.faceDescriptor) && d.faceDescriptor.length === 128)
+                            ? d.faceDescriptor
+                            : ((Array.isArray(prev?.faceDescriptor) && prev.faceDescriptor.length === 128) ? prev.faceDescriptor : (d.faceDescriptor || prev?.faceDescriptor || null))
+                    };
+                });
             }
-        }).catch(() => { });
-    }, [activeRollNo]);
+        };
+
+        // 1. Listen to students collection
+        unsubs.push(onSnapshot(doc(db, "students", activeRollNo), handleDocUpdate, (err) => console.warn("student doc snapshot error:", err)));
+
+        // 2. Listen to users collection
+        unsubs.push(onSnapshot(doc(db, "users", activeRollNo), handleDocUpdate, (err) => console.warn("user doc snapshot error:", err)));
+
+        // 3. Listen to authorizedUsers collection
+        if (cleanEmail) {
+            unsubs.push(onSnapshot(doc(db, "authorizedUsers", cleanEmail), handleDocUpdate, (err) => console.warn("authUser doc snapshot error:", err)));
+        }
+
+        return () => {
+            unsubs.forEach((u) => u && u());
+        };
+    }, [activeRollNo, user?.email]);
 
     const studentName = fetchedStudentData?.name || profile?.name || activeRollNo || "Student";
     const rawBranch = profile?.branch || fetchedStudentData?.branch;
@@ -76,16 +110,12 @@ export default function Statistics() {
 
     // Face biometric registration status detection
     const hasFaceRegistered = Boolean(
-        profile?.faceRegistered === true ||
+        (Array.isArray(fetchedStudentData?.faceDescriptor) && fetchedStudentData.faceDescriptor.length === 128) ||
+        (Array.isArray(profile?.faceDescriptor) && profile.faceDescriptor.length === 128) ||
         fetchedStudentData?.faceRegistered === true ||
-        profile?.isFaceEnrolled === true ||
-        fetchedStudentData?.isFaceEnrolled === true ||
-        profile?.hasFaceRegistered === true ||
-        fetchedStudentData?.hasFaceRegistered === true ||
-        (Array.isArray(profile?.faceDescriptor) && profile.faceDescriptor.length > 0) ||
-        (Array.isArray(fetchedStudentData?.faceDescriptor) && fetchedStudentData.faceDescriptor.length > 0) ||
-        (fetchedStudentData?.photoURL && String(fetchedStudentData.photoURL).length > 0) ||
-        (profile?.photoURL && String(profile.photoURL).length > 0)
+        fetchedStudentData?.biometricEnrolled === true ||
+        profile?.faceRegistered === true ||
+        profile?.biometricEnrolled === true
     );
 
     // Build candidate roll numbers for matching

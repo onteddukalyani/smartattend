@@ -43,142 +43,143 @@ export const AuthProvider = ({ children }) => {
     const rollFromEmail = prefix.toUpperCase();
 
     try {
+      // Candidate result
+      let matchedResult = null;
+
       // 1. Check admins collection by prefix
       const adminPrefixSnap = await getDoc(doc(db, "admins", prefix)).catch(() => ({ exists: () => false }));
       if (adminPrefixSnap.exists()) {
         const d = adminPrefixSnap.data();
-        return { id: adminPrefixSnap.id, ...d, email: d.email || cleanEmail, role: "admin" };
+        matchedResult = { id: adminPrefixSnap.id, ...d, email: d.email || cleanEmail, role: "admin" };
+      } else {
+        // 2. Check admins collection by email doc ID
+        const adminEmailSnap = await getDoc(doc(db, "admins", cleanEmail)).catch(() => ({ exists: () => false }));
+        if (adminEmailSnap.exists()) {
+          const d = adminEmailSnap.data();
+          matchedResult = { id: adminEmailSnap.id, ...d, email: cleanEmail, role: "admin" };
+        }
       }
 
-      // 2. Check admins collection by email doc ID
-      const adminEmailSnap = await getDoc(doc(db, "admins", cleanEmail)).catch(() => ({ exists: () => false }));
-      if (adminEmailSnap.exists()) {
-        const d = adminEmailSnap.data();
-        return { id: adminEmailSnap.id, ...d, email: cleanEmail, role: "admin" };
+      if (!matchedResult) {
+        // 3. Query admins collection by email field
+        const adminQuery = query(collection(db, "admins"), where("email", "==", cleanEmail));
+        const adminQuerySnap = await getDocs(adminQuery).catch(() => ({ empty: true }));
+        if (!adminQuerySnap.empty) {
+          const d = adminQuerySnap.docs[0].data();
+          matchedResult = { id: adminQuerySnap.docs[0].id, ...d, email: cleanEmail, role: "admin" };
+        }
       }
 
-      // 3. Query admins collection by email field
-      const adminQuery = query(collection(db, "admins"), where("email", "==", cleanEmail));
-      const adminQuerySnap = await getDocs(adminQuery).catch(() => ({ empty: true }));
-      if (!adminQuerySnap.empty) {
-        const d = adminQuerySnap.docs[0].data();
-        return { id: adminQuerySnap.docs[0].id, ...d, email: cleanEmail, role: "admin" };
-      }
+      if (matchedResult) return matchedResult;
 
       // 4. Check lecturers collection by prefix
       const lectPrefixSnap = await getDoc(doc(db, "lecturers", prefix)).catch(() => ({ exists: () => false }));
       if (lectPrefixSnap.exists()) {
         const d = lectPrefixSnap.data();
-        return { id: lectPrefixSnap.id, ...d, email: d.email || cleanEmail, role: "lecturer" };
+        matchedResult = { id: lectPrefixSnap.id, ...d, email: d.email || cleanEmail, role: "lecturer" };
+      } else {
+        // 5. Check lecturers collection by email doc ID
+        const lectEmailSnap = await getDoc(doc(db, "lecturers", cleanEmail)).catch(() => ({ exists: () => false }));
+        if (lectEmailSnap.exists()) {
+          const d = lectEmailSnap.data();
+          matchedResult = { id: lectEmailSnap.id, ...d, email: cleanEmail, role: "lecturer" };
+        }
       }
 
-      // 5. Check lecturers collection by email doc ID
-      const lectEmailSnap = await getDoc(doc(db, "lecturers", cleanEmail)).catch(() => ({ exists: () => false }));
-      if (lectEmailSnap.exists()) {
-        const d = lectEmailSnap.data();
-        return { id: lectEmailSnap.id, ...d, email: cleanEmail, role: "lecturer" };
+      if (!matchedResult) {
+        // 6. Query lecturers collection by email field
+        const lectQuery = query(collection(db, "lecturers"), where("email", "==", cleanEmail));
+        const lectQuerySnap = await getDocs(lectQuery).catch(() => ({ empty: true }));
+        if (!lectQuerySnap.empty) {
+          const d = lectQuerySnap.docs[0].data();
+          matchedResult = { id: lectQuerySnap.docs[0].id, ...d, email: cleanEmail, role: "lecturer" };
+        }
       }
 
-      // 6. Query lecturers collection by email field
-      const lectQuery = query(collection(db, "lecturers"), where("email", "==", cleanEmail));
-      const lectQuerySnap = await getDocs(lectQuery).catch(() => ({ empty: true }));
-      if (!lectQuerySnap.empty) {
-        const d = lectQuerySnap.docs[0].data();
-        return { id: lectQuerySnap.docs[0].id, ...d, email: cleanEmail, role: "lecturer" };
+      if (matchedResult) return matchedResult;
+
+      // 7. Check student records across students, users, and authorizedUsers simultaneously
+      const [studentRollSnap, studentPrefixSnap, studentEmailDocSnap, userRollSnap, userPrefixSnap, authPrefixSnap, authEmailSnap] = await Promise.all([
+        getDoc(doc(db, "students", rollFromEmail)).catch(() => ({ exists: () => false })),
+        prefix !== rollFromEmail.toLowerCase() ? getDoc(doc(db, "students", prefix)).catch(() => ({ exists: () => false })) : Promise.resolve({ exists: () => false }),
+        getDoc(doc(db, "students", cleanEmail)).catch(() => ({ exists: () => false })),
+        getDoc(doc(db, "users", rollFromEmail)).catch(() => ({ exists: () => false })),
+        prefix !== rollFromEmail.toLowerCase() ? getDoc(doc(db, "users", prefix)).catch(() => ({ exists: () => false })) : Promise.resolve({ exists: () => false }),
+        getDoc(doc(db, "authorizedUsers", prefix)).catch(() => ({ exists: () => false })),
+        getDoc(doc(db, "authorizedUsers", cleanEmail)).catch(() => ({ exists: () => false }))
+      ]);
+
+      const candidateDocs = [
+        authEmailSnap.exists() ? authEmailSnap.data() : null,
+        authPrefixSnap.exists() ? authPrefixSnap.data() : null,
+        userPrefixSnap.exists() ? userPrefixSnap.data() : null,
+        userRollSnap.exists() ? userRollSnap.data() : null,
+        studentEmailDocSnap.exists() ? studentEmailDocSnap.data() : null,
+        studentPrefixSnap.exists() ? studentPrefixSnap.data() : null,
+        studentRollSnap.exists() ? studentRollSnap.data() : null
+      ].filter(Boolean);
+
+      if (candidateDocs.length > 0) {
+        let merged = {};
+        for (const c of candidateDocs) {
+          merged = {
+            ...merged,
+            ...c,
+            faceDescriptor: c.faceDescriptor || merged.faceDescriptor,
+            photoURL: c.photoURL || c.photo || c.image || merged.photoURL || "",
+            name: c.name || c.fullName || merged.name,
+            branch: c.branch || merged.branch,
+            semester: c.semester || merged.semester,
+            rollNo: c.rollNo || merged.rollNo || rollFromEmail,
+            role: c.role || merged.role || "student"
+          };
+        }
+        return {
+          id: rollFromEmail || cleanEmail,
+          ...merged,
+          email: merged.email || cleanEmail,
+          rollNo: merged.rollNo || rollFromEmail,
+          role: String(merged.role || "student").trim().toLowerCase()
+        };
       }
 
-      // 7. Check students collection by direct Roll Number ID (e.g. "23BCS001")
-      const studentRollSnap = await getDoc(doc(db, "students", rollFromEmail)).catch(() => ({ exists: () => false }));
-      if (studentRollSnap.exists()) {
-        const d = studentRollSnap.data();
-        return { id: studentRollSnap.id, ...d, rollNo: d.rollNo || rollFromEmail, email: d.email || cleanEmail, role: "student" };
-      }
+      // 8. Query by email / rollNo fields as fallback
+      const [qStudentEmail, qStudentRoll, qUserEmail, qAuthEmail] = await Promise.all([
+        getDocs(query(collection(db, "students"), where("email", "==", cleanEmail))).catch(() => ({ empty: true })),
+        getDocs(query(collection(db, "students"), where("rollNo", "==", rollFromEmail))).catch(() => ({ empty: true })),
+        getDocs(query(collection(db, "users"), where("email", "==", cleanEmail))).catch(() => ({ empty: true })),
+        getDocs(query(collection(db, "authorizedUsers"), where("email", "==", cleanEmail))).catch(() => ({ empty: true }))
+      ]);
 
-      // 8. Check students collection by prefix before @
-      const studentPrefixSnap = await getDoc(doc(db, "students", prefix)).catch(() => ({ exists: () => false }));
-      if (studentPrefixSnap.exists()) {
-        const d = studentPrefixSnap.data();
-        return { id: studentPrefixSnap.id, ...d, rollNo: d.rollNo || rollFromEmail, email: d.email || cleanEmail, role: "student" };
-      }
+      const fieldDocs = [
+        !qAuthEmail.empty ? qAuthEmail.docs[0].data() : null,
+        !qUserEmail.empty ? qUserEmail.docs[0].data() : null,
+        !qStudentEmail.empty ? qStudentEmail.docs[0].data() : null,
+        !qStudentRoll.empty ? qStudentRoll.docs[0].data() : null
+      ].filter(Boolean);
 
-      // 9. Check students collection by email doc ID
-      const studentEmailDocSnap = await getDoc(doc(db, "students", cleanEmail)).catch(() => ({ exists: () => false }));
-      if (studentEmailDocSnap.exists()) {
-        const d = studentEmailDocSnap.data();
-        return { id: studentEmailDocSnap.id, ...d, rollNo: d.rollNo || rollFromEmail, email: d.email || cleanEmail, role: "student" };
-      }
-
-      // 10. Query students collection by email field
-      const studentEmailQ = query(collection(db, "students"), where("email", "==", cleanEmail));
-      const studentEmailQuerySnap = await getDocs(studentEmailQ).catch(() => ({ empty: true }));
-      if (!studentEmailQuerySnap.empty) {
-        const d = studentEmailQuerySnap.docs[0].data();
-        return { id: studentEmailQuerySnap.docs[0].id, ...d, rollNo: d.rollNo || rollFromEmail, email: d.email || cleanEmail, role: "student" };
-      }
-
-      // 11. Query students collection by rollNo field
-      const studentRollFieldQ = query(collection(db, "students"), where("rollNo", "==", rollFromEmail));
-      const studentRollFieldSnap = await getDocs(studentRollFieldQ).catch(() => ({ empty: true }));
-      if (!studentRollFieldSnap.empty) {
-        const d = studentRollFieldSnap.docs[0].data();
-        return { id: studentRollFieldSnap.docs[0].id, ...d, rollNo: d.rollNo || rollFromEmail, email: d.email || cleanEmail, role: "student" };
-      }
-
-      // 12. Check authorizedUsers direct doc ID (prefix before @)
-      const authPrefixSnap = await getDoc(doc(db, "authorizedUsers", prefix)).catch(() => ({ exists: () => false }));
-      if (authPrefixSnap.exists()) {
-        const d = authPrefixSnap.data();
-        return { id: authPrefixSnap.id, ...d, email: d.email || cleanEmail, role: String(d.role || "admin").trim().toLowerCase() };
-      }
-
-      // 13. Check authorizedUsers direct doc ID (full email)
-      const authRef = doc(db, "authorizedUsers", cleanEmail);
-      const authSnap = await getDoc(authRef).catch(() => ({ exists: () => false }));
-      if (authSnap.exists()) {
-        const d = authSnap.data();
-        return { id: authSnap.id, ...d, email: cleanEmail, role: String(d.role || "").trim().toLowerCase() };
-      }
-
-      // 14. Check users collection by prefix before @
-      const userPrefixRef = doc(db, "users", prefix);
-      const userPrefixSnap = await getDoc(userPrefixRef).catch(() => ({ exists: () => false }));
-      if (userPrefixSnap.exists()) {
-        const d = userPrefixSnap.data();
-        return { id: userPrefixSnap.id, ...d, rollNo: d.rollNo || (d.role === "student" ? rollFromEmail : undefined), email: d.email || cleanEmail, role: String(d.role || (d.rollNo ? "student" : "admin")).trim().toLowerCase() };
-      }
-
-      // 15. Check users collection by direct Roll Number ID
-      const userRollRef = doc(db, "users", rollFromEmail);
-      const userRollSnap = await getDoc(userRollRef).catch(() => ({ exists: () => false }));
-      if (userRollSnap.exists()) {
-        const d = userRollSnap.data();
-        return { id: userRollSnap.id, ...d, rollNo: d.rollNo || rollFromEmail, email: d.email || cleanEmail, role: String(d.role || (d.rollNo ? "student" : "")).trim().toLowerCase() };
-      }
-
-      // 16. Check users collection by full email doc ID
-      const userEmailRef = doc(db, "users", cleanEmail);
-      const userEmailSnap = await getDoc(userEmailRef).catch(() => ({ exists: () => false }));
-      if (userEmailSnap.exists()) {
-        const d = userEmailSnap.data();
-        return { id: userEmailSnap.id, ...d, email: cleanEmail, role: String(d.role || "").trim().toLowerCase() };
-      }
-
-      // 17. Query users collection by email field
-      const emailQ = query(collection(db, "users"), where("email", "==", cleanEmail));
-      const emailSnap = await getDocs(emailQ).catch(() => ({ empty: true }));
-      if (!emailSnap.empty) {
-        const docSnap = emailSnap.docs[0];
-        const d = docSnap.data();
-        return { id: docSnap.id, ...d, email: cleanEmail, role: String(d.role || (d.rollNo ? "student" : "")).trim().toLowerCase() };
-      }
-
-      // 18. Query authorizedUsers collection by email field
-      const authEmailQ = query(collection(db, "authorizedUsers"), where("email", "==", cleanEmail));
-      const authEmailSnap = await getDocs(authEmailQ).catch(() => ({ empty: true }));
-      if (!authEmailSnap.empty) {
-        const docSnap = authEmailSnap.docs[0];
-        const d = docSnap.data();
-        return { id: docSnap.id, ...d, email: cleanEmail, role: String(d.role || "").trim().toLowerCase() };
+      if (fieldDocs.length > 0) {
+        let merged = {};
+        for (const c of fieldDocs) {
+          merged = {
+            ...merged,
+            ...c,
+            faceDescriptor: c.faceDescriptor || merged.faceDescriptor,
+            photoURL: c.photoURL || c.photo || c.image || merged.photoURL || "",
+            name: c.name || c.fullName || merged.name,
+            branch: c.branch || merged.branch,
+            semester: c.semester || merged.semester,
+            rollNo: c.rollNo || merged.rollNo || rollFromEmail,
+            role: c.role || merged.role || "student"
+          };
+        }
+        return {
+          id: rollFromEmail || cleanEmail,
+          ...merged,
+          email: merged.email || cleanEmail,
+          rollNo: merged.rollNo || rollFromEmail,
+          role: String(merged.role || "student").trim().toLowerCase()
+        };
       }
 
       // Not found anywhere in admins, lecturers, students, authorizedUsers, or users -> NOT REGISTERED
@@ -240,24 +241,40 @@ export const AuthProvider = ({ children }) => {
             ? registeredUser.branch
             : ((registeredUser.department && String(registeredUser.department).toLowerCase() !== "general") ? registeredUser.department : "CSE");
 
-          const studentRegisteredName = (registeredUser.name && registeredUser.name.trim())
+          // STRICT: Extract name strictly from database record only
+          const databaseName = (registeredUser.name && registeredUser.name.trim())
             ? registeredUser.name.trim()
             : (registeredUser.fullName && registeredUser.fullName.trim() ? registeredUser.fullName.trim() : "");
 
-          const resolvedName = studentRegisteredName || (databaseRole === "student" ? (cleanRollNo || "Student") : (registeredUser.name || currentUser.displayName || prefix));
+          const resolvedName = databaseName || (databaseRole === "student" ? (cleanRollNo || "Student") : prefix);
+
+          // STRICT: Extract photo strictly from database record only (never from Google account)
+          const databasePhoto = registeredUser.photoURL || registeredUser.photo || registeredUser.image || registeredUser.avatar || registeredUser.profilePic || "";
 
           const enrichedProfile = {
             id: registeredUser.id || cleanRollNo || cleanEmail,
             ...registeredUser,
             rollNo: cleanRollNo,
-            email: cleanEmail,
+            email: registeredUser.email || cleanEmail,
             name: resolvedName,
+            fullName: resolvedName,
             branch: branch,
             semester: registeredUser.semester || "1",
             uid: currentUser.uid,
             role: databaseRole,
-            photoURL: registeredUser.photoURL || registeredUser.photo || registeredUser.image || currentUser.photoURL || currentUser.photoUrl || "",
-            approved: true,
+            photoURL: databasePhoto,
+            photo: databasePhoto,
+            image: databasePhoto,
+            faceDescriptor: registeredUser.faceDescriptor || null,
+            faceRegistered: Boolean(
+              (Array.isArray(registeredUser.faceDescriptor) && registeredUser.faceDescriptor.length === 128) ||
+              ((registeredUser.faceRegistered || registeredUser.biometricEnrolled) && Array.isArray(registeredUser.faceDescriptor) && registeredUser.faceDescriptor.length > 0)
+            ),
+            biometricEnrolled: Boolean(
+              (Array.isArray(registeredUser.faceDescriptor) && registeredUser.faceDescriptor.length === 128) ||
+              ((registeredUser.faceRegistered || registeredUser.biometricEnrolled) && Array.isArray(registeredUser.faceDescriptor) && registeredUser.faceDescriptor.length > 0)
+            ),
+            approved: registeredUser.approved !== false,
             status: registeredUser.status || "active"
           };
 
@@ -350,25 +367,41 @@ export const AuthProvider = ({ children }) => {
       ? registeredUser.branch
       : ((registeredUser.department && String(registeredUser.department).toLowerCase() !== "general") ? registeredUser.department : "CSE");
 
-    const studentRegisteredName = (registeredUser.name && registeredUser.name.trim())
+    // STRICT: Extract name strictly from database record only
+    const databaseName = (registeredUser.name && registeredUser.name.trim())
       ? registeredUser.name.trim()
       : (registeredUser.fullName && registeredUser.fullName.trim() ? registeredUser.fullName.trim() : "");
 
-    const resolvedName = studentRegisteredName || (databaseRole === "student" ? (cleanRollNo || "Student") : (registeredUser.name || currentUser.displayName || prefix));
+    const resolvedName = databaseName || (databaseRole === "student" ? (cleanRollNo || "Student") : prefix);
+
+    // STRICT: Extract photo strictly from database record only (never from Google account)
+    const databasePhoto = registeredUser.photoURL || registeredUser.photo || registeredUser.image || registeredUser.avatar || registeredUser.profilePic || "";
 
     const enrichedProfile = {
       id: registeredUser.id || cleanRollNo || cleanEmail,
       ...registeredUser,
       rollNo: cleanRollNo,
-      email: cleanEmail,
+      email: registeredUser.email || cleanEmail,
       name: resolvedName,
+      fullName: resolvedName,
       branch: branch,
       semester: registeredUser.semester || "1",
       uid: currentUser.uid,
       role: databaseRole,
-      photoURL: registeredUser.photoURL || registeredUser.photo || registeredUser.image || currentUser.photoURL || currentUser.photoUrl || "",
-      approved: true,
-      status: "active"
+      photoURL: databasePhoto,
+      photo: databasePhoto,
+      image: databasePhoto,
+      faceDescriptor: registeredUser.faceDescriptor || null,
+      faceRegistered: Boolean(
+        (Array.isArray(registeredUser.faceDescriptor) && registeredUser.faceDescriptor.length === 128) ||
+        ((registeredUser.faceRegistered || registeredUser.biometricEnrolled) && Array.isArray(registeredUser.faceDescriptor) && registeredUser.faceDescriptor.length > 0)
+      ),
+      biometricEnrolled: Boolean(
+        (Array.isArray(registeredUser.faceDescriptor) && registeredUser.faceDescriptor.length === 128) ||
+        ((registeredUser.faceRegistered || registeredUser.biometricEnrolled) && Array.isArray(registeredUser.faceDescriptor) && registeredUser.faceDescriptor.length > 0)
+      ),
+      approved: registeredUser.approved !== false,
+      status: registeredUser.status || "active"
     };
 
     // Grant access in React state - Zero database writes!

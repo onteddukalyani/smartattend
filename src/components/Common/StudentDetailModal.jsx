@@ -21,13 +21,13 @@ import {
   FaTrashAlt,
   FaShieldAlt
 } from "react-icons/fa";
-import { collection, getDocs, query, where, doc, setDoc, deleteDoc } from "firebase/firestore";
+import { collection, getDocs, query, where, doc, setDoc, deleteDoc, onSnapshot } from "firebase/firestore";
 import { db } from "../../firebase";
 import { useAuth } from "../authcontext";
 import { downloadExcel } from "../../DownloadExcel";
 import { useTableSort, SortIcon } from "./useTableSort";
 import { LiveFaceEnrollment } from "./LiveFaceEnrollment";
-import { removeStudentFaceAndBiometrics, removeStudentPhotoOnly } from "../../utils/biometricManager";
+import { removeStudentFaceAndBiometrics, removeStudentPhotoOnly, checkDuplicateFaceBiometrics } from "../../utils/biometricManager";
 import "./StudentDetailModal.css";
 
 const StudentDetailModal = ({ student, onClose, onUpdate }) => {
@@ -66,6 +66,38 @@ const StudentDetailModal = ({ student, onClose, onUpdate }) => {
   const basePath = isCurrentAdminPath ? "/admin/classes" : "/lecturer/attendance-sessions";
 
   const { sortedItems: sortedAttendance, sortConfig, requestSort } = useTableSort(attendanceRecords, "submittedAt", "desc");
+
+  // Sync currentStudent with updated student prop and live listeners
+  useEffect(() => {
+    if (student) {
+      setCurrentStudent(student);
+    }
+  }, [student]);
+
+  useEffect(() => {
+    if (!currentStudent || !currentStudent.rollNo) return;
+    const cleanRoll = String(currentStudent.rollNo).trim().toUpperCase();
+    const cleanEmail = (currentStudent.email || "").toLowerCase().trim();
+
+    const unsubStudent = onSnapshot(doc(db, "students", cleanRoll), (snap) => {
+      if (snap.exists()) {
+        const d = snap.data();
+        setCurrentStudent((prev) => ({ ...(prev || {}), ...d }));
+      }
+    }, (err) => console.warn("Student doc snapshot warning:", err));
+
+    const unsubUser = onSnapshot(doc(db, "users", cleanRoll), (snap) => {
+      if (snap.exists()) {
+        const d = snap.data();
+        setCurrentStudent((prev) => ({ ...(prev || {}), ...d }));
+      }
+    }, (err) => console.warn("User doc snapshot warning:", err));
+
+    return () => {
+      unsubStudent();
+      unsubUser();
+    };
+  }, [currentStudent?.rollNo]);
 
   useEffect(() => {
     if (!student || !student.rollNo) {
@@ -118,18 +150,18 @@ const StudentDetailModal = ({ student, onClose, onUpdate }) => {
     fetchStudentAttendance();
   }, [student]);
 
-  // Sync currentStudent with updated student prop
-  useEffect(() => {
-    if (student) {
-      setCurrentStudent(student);
-    }
-  }, [student]);
-
   if (!student) return null;
 
   // Aggregate stats
   const totalAttended = attendanceRecords.length;
   const uniqueCourses = new Set(attendanceRecords.map(r => r.session?.courseId || r.courseId).filter(Boolean)).size;
+
+  const isFaceEnrolled = Boolean(
+    (Array.isArray(currentStudent?.faceDescriptor) && currentStudent.faceDescriptor.length === 128) ||
+    ((currentStudent?.faceRegistered === true || currentStudent?.biometricEnrolled === true) && Array.isArray(currentStudent?.faceDescriptor) && currentStudent.faceDescriptor.length > 0) ||
+    currentStudent?.faceRegistered === true ||
+    currentStudent?.biometricEnrolled === true
+  );
 
   const handleExportAttendance = () => {
     if (!attendanceRecords.length) {
@@ -158,15 +190,28 @@ const StudentDetailModal = ({ student, onClose, onUpdate }) => {
     if (!enrolledBiometric || !enrolledBiometric.faceDescriptor) return;
     try {
       setSavingFace(true);
-      const cleanRoll = String(currentStudent.rollNo || "").trim().toUpperCase();
+      const cleanRoll = String(currentStudent.rollNo || currentStudent.id || "").trim().toUpperCase();
       const cleanEmail = String(currentStudent.email || "").trim().toLowerCase();
-      const prefix = cleanEmail ? cleanEmail.split("@")[0] : "";
+      const prefix = cleanEmail ? cleanEmail.split("@")[0].toLowerCase().trim() : cleanRoll.toLowerCase();
+
+      const rawVector = enrolledBiometric.faceDescriptor;
+      const cleanVector = Array.isArray(rawVector) ? rawVector : Array.from(rawVector);
+
+      // Verify no other registered student has this biometric face
+      const duplicateCheck = await checkDuplicateFaceBiometrics(cleanVector, cleanRoll, cleanEmail);
+      if (duplicateCheck.isDuplicate && duplicateCheck.conflictStudent) {
+        const cs = duplicateCheck.conflictStudent;
+        alert(`⛔ Duplicate Face Detected!\n\nThis face is already registered to "${cs.name}" (Roll No: ${cs.rollNo} • ${cs.confidence}% Match).\n\nThe system strictly prohibits saving duplicate facial biometric templates across multiple students.`);
+        setSavingFace(false);
+        return;
+      }
 
       const updateData = {
-        faceDescriptor: enrolledBiometric.faceDescriptor,
+        faceDescriptor: cleanVector,
         photoURL: enrolledBiometric.photoURL || currentStudent.photoURL || "",
         faceRegistered: true,
         biometricEnrolled: true,
+        hasFaceRegistered: true,
         enrolledAt: Date.now()
       };
 
@@ -176,7 +221,21 @@ const StudentDetailModal = ({ student, onClose, onUpdate }) => {
         promises.push(setDoc(doc(db, "users", cleanRoll), updateData, { merge: true }));
       }
       if (cleanEmail) {
-        promises.push(setDoc(doc(db, "authorizedUsers", cleanEmail), updateData, { merge: true }).catch((e) => console.warn("authorizedUsers sync warning:", e)));
+        promises.push(setDoc(doc(db, "authorizedUsers", cleanEmail), updateData, { merge: true }).catch(() => { }));
+        promises.push(setDoc(doc(db, "students", cleanEmail), updateData, { merge: true }).catch(() => { }));
+        promises.push(setDoc(doc(db, "users", cleanEmail), updateData, { merge: true }).catch(() => { }));
+      }
+      if (prefix && prefix !== cleanRoll.toLowerCase()) {
+        promises.push(setDoc(doc(db, "students", prefix), updateData, { merge: true }).catch(() => { }));
+        promises.push(setDoc(doc(db, "users", prefix), updateData, { merge: true }).catch(() => { }));
+        promises.push(setDoc(doc(db, "authorizedUsers", prefix), updateData, { merge: true }).catch(() => { }));
+      }
+      if (currentStudent.id && currentStudent.id !== cleanRoll && currentStudent.id !== cleanEmail) {
+        promises.push(setDoc(doc(db, "students", currentStudent.id), updateData, { merge: true }).catch(() => { }));
+        promises.push(setDoc(doc(db, "users", currentStudent.id), updateData, { merge: true }).catch(() => { }));
+      }
+      if (currentStudent.userDocId) {
+        promises.push(setDoc(doc(db, "users", currentStudent.userDocId), updateData, { merge: true }).catch(() => { }));
       }
 
       await Promise.all(promises);
@@ -480,7 +539,7 @@ const StudentDetailModal = ({ student, onClose, onUpdate }) => {
               </div>
 
               <div className="info-row">
-                {currentStudent.faceRegistered ? (
+                {isFaceEnrolled ? (
                   <FaCheckCircle className="info-icon success" />
                 ) : (
                   <FaTimesCircle className="info-icon warning" />
@@ -488,9 +547,9 @@ const StudentDetailModal = ({ student, onClose, onUpdate }) => {
                 <div>
                   <label>Face Biometric Status</label>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "8px" }}>
-                    <span>{currentStudent.faceRegistered ? "Registered & Active ✅" : "Not Registered ⏳"}</span>
+                    <span>{isFaceEnrolled ? "Registered & Active ✅" : "Not Registered ⏳"}</span>
                     <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
-                      {isStaff && currentStudent.faceRegistered && (
+                      {isStaff && isFaceEnrolled && (
                         <button
                           type="button"
                           onClick={handleRemoveFaceBiometrics}
@@ -531,7 +590,7 @@ const StudentDetailModal = ({ student, onClose, onUpdate }) => {
                           cursor: "pointer"
                         }}
                       >
-                        <FaCamera /> {showFaceEnroll ? "Hide Camera" : (currentStudent.faceRegistered ? "Re-enroll Face" : "Enroll Face")}
+                        <FaCamera /> {showFaceEnroll ? "Hide Camera" : (isFaceEnrolled ? "Re-enroll Face" : "Enroll Face")}
                       </button>
                     </div>
                   </div>
@@ -543,6 +602,9 @@ const StudentDetailModal = ({ student, onClose, onUpdate }) => {
                 <div style={{ marginTop: "12px", borderTop: "1px solid var(--border, #e2e8f0)", paddingTop: "12px" }}>
                   <LiveFaceEnrollment
                     hideHeader={true}
+                    targetRollNo={currentStudent?.rollNo}
+                    targetEmail={currentStudent?.email}
+                    targetName={currentStudent?.name}
                     onFaceEnrolled={(data) => setEnrolledBiometric(data)}
                   />
                   {enrolledBiometric?.faceDescriptor && (

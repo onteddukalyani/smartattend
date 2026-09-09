@@ -288,6 +288,69 @@
   background: #ef4444;
 }
 
+/* Liveness & Anti-Spoofing Indicator */
+.biometric-scanner-card.liveness_check {
+  border-color: #f59e0b;
+  background: linear-gradient(180deg, rgba(245, 158, 11, 0.04) 0%, var(--surface-soft, #f8fafc) 100%);
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.15), 0 8px 25px rgba(245, 158, 11, 0.1);
+}
+
+.biometric-scanner-card.spoof {
+  border-color: #dc2626;
+  background: linear-gradient(180deg, rgba(220, 38, 38, 0.06) 0%, var(--surface-soft, #f8fafc) 100%);
+  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.2), 0 8px 25px rgba(220, 38, 38, 0.15);
+}
+
+.scanner-status-pill.liveness {
+  background: #fef3c7;
+  color: #92400e;
+  animation: pulseScan 1.2s infinite;
+}
+
+.scanner-status-pill.spoof {
+  background: #fee2e2;
+  color: #991b1b;
+  font-weight: 800;
+  animation: shakeAlert 0.4s ease-in-out;
+}
+
+@keyframes shakeAlert {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-4px); }
+  75% { transform: translateX(4px); }
+}
+
+.liveness-badge-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+
+.liveness-shield-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  background: rgba(99, 102, 241, 0.1);
+  color: #4f46e5;
+  border-radius: 6px;
+  font-size: 0.76rem;
+  font-weight: 750;
+}
+
+.liveness-shield-tag.live-pass {
+  background: rgba(16, 185, 129, 0.12);
+  color: #059669;
+}
+
+.liveness-shield-tag.spoof-warn {
+  background: rgba(239, 68, 68, 0.12);
+  color: #dc2626;
+}
+
 /* Unregistered Alert Card */
 .unregistered-face-alert {
   padding: 16px;

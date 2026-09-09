@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   FaSearch,
@@ -26,7 +26,8 @@ import {
   updateDoc,
   deleteDoc,
   deleteField,
-  serverTimestamp
+  serverTimestamp,
+  onSnapshot
 } from "firebase/firestore";
 
 import { db } from "../../../firebase";
@@ -34,7 +35,7 @@ import StudentDetailModal from "../../Common/StudentDetailModal";
 import { useTableSort, SortIcon } from "../../Common/useTableSort";
 import { removeStudentFaceAndBiometrics } from "../../../utils/biometricManager";
 
-import "./ManageStudents.css";
+import { mergeAllStudentRecords, normalizeDescriptor } from "../../../utils/studentDataHelper";
 
 const ManageStudents = () => {
   const navigate = useNavigate();
@@ -61,117 +62,56 @@ const ManageStudents = () => {
   const [cleaningUp, setCleaningUp] = useState(false);
   const [legacyDocsCount, setLegacyDocsCount] = useState(0);
 
-  useEffect(() => {
-    loadStudents();
-  }, []);
-
-  const loadStudents = async () => {
+  const loadStudents = useCallback(async () => {
     try {
       setLoading(true);
-
-      const [usersSnap, studentsSnap, authUsersSnap] = await Promise.all([
-        getDocs(collection(db, "users")).catch((e) => {
-          console.warn("Could not read users collection:", e);
-          return { docs: [] };
-        }),
-        getDocs(collection(db, "students")).catch((e) => {
-          console.warn("Could not read students collection:", e);
-          return { docs: [] };
-        }),
-        getDocs(collection(db, "authorizedUsers")).catch((e) => {
-          console.warn("Could not read authorizedUsers collection:", e);
-          return { docs: [] };
-        })
+      const [authSnap, studentsSnap, usersSnap] = await Promise.all([
+        getDocs(collection(db, "authorizedUsers")).catch(() => ({ docs: [] })),
+        getDocs(collection(db, "students")).catch(() => ({ docs: [] })),
+        getDocs(collection(db, "users")).catch(() => ({ docs: [] }))
       ]);
 
-      const getCanonicalRoll = (d, id) => {
-        if (d?.rollNo && String(d.rollNo).trim()) {
-          const r = String(d.rollNo).trim();
-          return (r.includes("@") ? r.split("@")[0] : r).toUpperCase();
-        }
-        if (d?.email && String(d.email).includes("@")) {
-          return String(d.email).split("@")[0].trim().toUpperCase();
-        }
-        if (id && String(id).includes("@")) {
-          return String(id).split("@")[0].trim().toUpperCase();
-        }
-        return String(id || "").trim().toUpperCase();
-      };
-
-      const studentsMap = new Map();
-      let legacyCount = 0;
-
-      const isStudentDoc = (d, id) => {
-        const r = String(d?.role || "").toLowerCase().trim();
-        if (r === "student") return true;
-        if (r === "lecturer" || r === "faculty" || r === "admin") return false;
-        if (d?.rollNo || d?.semester || d?.branch) return true;
-        if (/^\d{2}[a-zA-Z]{3}\d{2,4}$/i.test(id)) return true;
-        return false;
-      };
-
-      const mergeAdminStudent = (docSnap) => {
-        const data = docSnap.data();
-        if (!isStudentDoc(data, docSnap.id)) return;
-
-        const roll = getCanonicalRoll(data, docSnap.id);
-        if (!roll) return;
-
-        if (docSnap.id !== roll) {
-          legacyCount++;
-        }
-
-        const existing = studentsMap.get(roll) || {};
-        const cleanEmail = (data.email || existing.email || (roll.toLowerCase() + "@iiitdwd.ac.in")).toLowerCase().trim();
-        const branch = (data.branch && String(data.branch).toLowerCase() !== "general")
-          ? data.branch
-          : ((existing.branch && String(existing.branch).toLowerCase() !== "general") ? existing.branch : "CSE");
-
-        studentsMap.set(roll, {
-          ...existing,
-          ...data,
-          id: roll,
-          userDocId: roll,
-          rollNo: roll,
-          name: data.name || existing.name || "Student",
-          email: cleanEmail,
-          branch: branch,
-          semester: data.semester || existing.semester || "1",
-          phone: data.phone || existing.phone || "",
-          status: data.status || existing.status || "active",
-          faceRegistered: data.faceRegistered ?? existing.faceRegistered ?? false,
-          biometricEnrolled: data.biometricEnrolled ?? existing.biometricEnrolled ?? false,
-          faceDescriptor: data.faceDescriptor || existing.faceDescriptor || null,
-          photoURL: data.photoURL || existing.photoURL || "",
-          role: "student"
-        });
-      };
-
-      // 1. Ingest students from authorizedUsers
-      authUsersSnap.docs.forEach(mergeAdminStudent);
-
-      // 2. Ingest students from students collection
-      studentsSnap.docs.forEach(mergeAdminStudent);
-
-      // 3. Ingest students from users collection
-      usersSnap.docs.forEach(mergeAdminStudent);
-
-      setLegacyDocsCount(legacyCount);
-      const studentList = Array.from(studentsMap.values());
-
-      studentList.sort((a, b) => {
-        const rollA = a.rollNo || "";
-        const rollB = b.rollNo || "";
-        return rollA.localeCompare(rollB, undefined, { numeric: true, sensitivity: 'base' });
-      });
-
-      setStudents(studentList);
-    } catch (error) {
-      console.error("Error loading students:", error);
+      const merged = mergeAllStudentRecords(authSnap.docs, studentsSnap.docs, usersSnap.docs);
+      setStudents(merged);
+    } catch (err) {
+      console.error("Error loading students:", err);
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    let authDocs = [];
+    let studentsDocs = [];
+    let usersDocs = [];
+
+    const recomputeStudents = () => {
+      const merged = mergeAllStudentRecords(authDocs, studentsDocs, usersDocs);
+      setStudents(merged);
+      setLoading(false);
+    };
+
+    const unsubAuth = onSnapshot(collection(db, "authorizedUsers"), (snap) => {
+      authDocs = snap.docs;
+      recomputeStudents();
+    }, (err) => console.warn("authorizedUsers snapshot error:", err));
+
+    const unsubStudents = onSnapshot(collection(db, "students"), (snap) => {
+      studentsDocs = snap.docs;
+      recomputeStudents();
+    }, (err) => console.warn("students snapshot error:", err));
+
+    const unsubUsers = onSnapshot(collection(db, "users"), (snap) => {
+      usersDocs = snap.docs;
+      recomputeStudents();
+    }, (err) => console.warn("users snapshot error:", err));
+
+    return () => {
+      unsubAuth();
+      unsubStudents();
+      unsubUsers();
+    };
+  }, []);
 
   // Comprehensive migration of separated collections (students, lecturers, admins) & General → CSE in Firestore
   const migrateGeneralToCSEInFirestore = async () => {

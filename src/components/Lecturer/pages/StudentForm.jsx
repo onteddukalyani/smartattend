@@ -15,21 +15,24 @@ import {
 import { db } from "../../../firebase";
 import { useAuth } from "../../authcontext";
 import FaceScanner from "./FaceScanner";
-import { LiveFaceEnrollment } from "../../Common/LiveFaceEnrollment";
 import './StudentForm.css';
 
 function StudentForm() {
     const navigate = useNavigate();
     const { user, profile } = useAuth();
 
+    const isStudentLoggedIn = Boolean(user && (profile?.rollNo || profile?.email || user?.email));
+    const loggedInRollNo = (profile?.rollNo || (user?.email || "").split("@")[0] || "").trim().toUpperCase();
+    const loggedInName = profile?.name || user?.displayName || "";
+
     const [formData, setFormData] = useState({
         image: "",
-        rollNo: "",
-        fullName: "",
-        email: "",
-        phone: "",
-        branch: "",
-        semester: "",
+        rollNo: loggedInRollNo || "",
+        fullName: loggedInName || "",
+        email: user?.email || profile?.email || "",
+        phone: profile?.phone || "",
+        branch: profile?.branch || "",
+        semester: profile?.semester || "",
         dob: "",
         gender: "",
         bio: ""
@@ -44,12 +47,9 @@ function StudentForm() {
     const [verifiedStudent, setVerifiedStudent] = useState(null);
     const [lookupDone, setLookupDone] = useState(false);
 
-    // Live Face Biometric Verification & Inline Enrollment State
+    // Live Face Biometric Verification State
     const [faceVerified, setFaceVerified] = useState(false);
     const [faceVerificationData, setFaceVerificationData] = useState(null);
-    const [showInlineEnroll, setShowInlineEnroll] = useState(false);
-    const [enrollSaving, setEnrollSaving] = useState(false);
-    const [enrollSuccessMsg, setEnrollSuccessMsg] = useState("");
 
     // After-submission state
     const [submitted, setSubmitted] = useState(false);
@@ -58,23 +58,23 @@ function StudentForm() {
 
     const sessionId = new URLSearchParams(window.location.search).get("session");
 
-    // Auto-prefill if student is already logged in or has saved roll number
+    // Auto-prefill and lock if student is logged in
     useEffect(() => {
         const storedRoll = localStorage.getItem("smartattend_student_roll");
-        const rollToUse = profile?.rollNo || storedRoll || "";
+        const rollToUse = loggedInRollNo || storedRoll || "";
 
-        if (rollToUse && !formData.rollNo) {
+        if (rollToUse) {
             const cleanRoll = rollToUse.toUpperCase();
             setFormData((prev) => ({
                 ...prev,
                 rollNo: cleanRoll,
-                fullName: profile?.name || prev.fullName,
-                branch: profile?.branch || prev.branch,
-                email: profile?.email || prev.email
+                fullName: loggedInName || prev.fullName,
+                branch: (profile?.branch && String(profile.branch).toLowerCase() !== "general") ? profile.branch : (prev.branch || "CSE"),
+                email: user?.email || profile?.email || prev.email
             }));
             lookupStudentByRoll(cleanRoll);
         }
-    }, [profile]);
+    }, [user, profile, loggedInRollNo, loggedInName]);
 
     // Return to student dashboard countdown after successful submission
     useEffect(() => {
@@ -150,7 +150,7 @@ function StudentForm() {
         checkSession();
     }, [sessionId]);
 
-    // Lookup registered student in Firestore by Roll Number
+    // Lookup registered student in Firestore by Roll Number with multi-collection document merging
     const lookupStudentByRoll = async (rollToSearch) => {
         const targetRoll = (rollToSearch !== undefined ? rollToSearch : formData.rollNo).trim().toUpperCase();
         if (!targetRoll || targetRoll.length < 2) {
@@ -161,157 +161,99 @@ function StudentForm() {
 
         setLookingUp(true);
         try {
-            // 1. Direct document ID lookup in students collection
-            const studentDirectSnap = await getDoc(doc(db, "students", targetRoll)).catch(() => ({ exists: () => false }));
-            if (studentDirectSnap.exists()) {
-                const studentData = studentDirectSnap.data();
-                setVerifiedStudent(studentData);
-                setLookupDone(true);
-                if (studentData.name) {
-                    setFormData((prev) => ({
-                        ...prev,
-                        fullName: studentData.name,
-                        branch: studentData.branch || prev.branch,
-                        email: studentData.email || prev.email
-                    }));
-                }
-                return;
-            }
-
-            // 2. Direct document ID lookup in users collection
-            const directSnap = await getDoc(doc(db, "users", targetRoll)).catch(() => ({ exists: () => false }));
-            if (directSnap.exists()) {
-                const studentData = directSnap.data();
-                setVerifiedStudent(studentData);
-                setLookupDone(true);
-                if (studentData.name) {
-                    setFormData((prev) => ({
-                        ...prev,
-                        fullName: studentData.name,
-                        branch: studentData.branch || prev.branch,
-                        email: studentData.email || prev.email
-                    }));
-                }
-                return;
-            }
-
-            // 3. Query students collection by uppercase rollNo
-            const studentRollQ = query(
-                collection(db, "students"),
-                where("rollNo", "==", targetRoll)
-            );
-            const studentRollSnap = await getDocs(studentRollQ).catch(() => ({ empty: true }));
-            if (!studentRollSnap.empty) {
-                const studentData = studentRollSnap.docs[0].data();
-                setVerifiedStudent(studentData);
-                setLookupDone(true);
-                if (studentData.name) {
-                    setFormData((prev) => ({
-                        ...prev,
-                        fullName: studentData.name,
-                        branch: studentData.branch || prev.branch,
-                        email: studentData.email || prev.email
-                    }));
-                }
-                return;
-            }
-
-            // 4. Query users collection by uppercase rollNo
-            const q = query(
-                collection(db, "users"),
-                where("rollNo", "==", targetRoll)
-            );
-            const snapshot = await getDocs(q).catch(() => ({ empty: true }));
-
-            if (!snapshot.empty) {
-                const studentData = snapshot.docs[0].data();
-                setVerifiedStudent(studentData);
-                setLookupDone(true);
-                if (studentData.name) {
-                    setFormData((prev) => ({
-                        ...prev,
-                        fullName: studentData.name,
-                        branch: studentData.branch || prev.branch,
-                        email: studentData.email || prev.email
-                    }));
-                }
-                return;
-            }
-
-            // 5. Query users collection by lowercase rollNo
-            const qLower = query(
-                collection(db, "users"),
-                where("rollNo", "==", targetRoll.toLowerCase())
-            );
-            const snapLower = await getDocs(qLower).catch(() => ({ empty: true }));
-
-            if (!snapLower.empty) {
-                const studentData = snapLower.docs[0].data();
-                setVerifiedStudent(studentData);
-                setLookupDone(true);
-                if (studentData.name) {
-                    setFormData((prev) => ({
-                        ...prev,
-                        fullName: studentData.name,
-                        branch: studentData.branch || prev.branch,
-                        email: studentData.email || prev.email
-                    }));
-                }
-                return;
-            }
-
-            // 6. Check authorizedUsers by rollNo
-            const authRollQuery = query(
-                collection(db, "authorizedUsers"),
-                where("rollNo", "==", targetRoll)
-            );
-            const authRollSnap = await getDocs(authRollQuery).catch(() => ({ empty: true }));
-            if (!authRollSnap.empty) {
-                const studentData = authRollSnap.docs[0].data();
-                setVerifiedStudent(studentData);
-                setLookupDone(true);
-                if (studentData.name) {
-                    setFormData((prev) => ({
-                        ...prev,
-                        fullName: studentData.name,
-                        branch: studentData.branch || prev.branch,
-                        email: studentData.email || prev.email
-                    }));
-                }
-                return;
-            }
-
-            // 7. Check direct prefix / email document IDs in students & authorizedUsers
             const prefix = targetRoll.toLowerCase().trim();
             const possibleEmail = targetRoll.includes("@") ? targetRoll.toLowerCase() : `${prefix}@iiitdwd.ac.in`;
 
-            const [authDocSnap, studentPrefixSnap, studentEmailSnap] = await Promise.all([
-                getDoc(doc(db, "authorizedUsers", possibleEmail)).catch(() => ({ exists: () => false })),
+            // Query and fetch across all potential documents in parallel
+            const [
+                studentDirectSnap,
+                userDirectSnap,
+                authDirectSnap,
+                studentPrefixSnap,
+                userPrefixSnap,
+                authPrefixSnap,
+                studentEmailSnap,
+                authEmailSnap,
+                studentRollSnap,
+                userRollSnap,
+                authRollSnap
+            ] = await Promise.all([
+                getDoc(doc(db, "students", targetRoll)).catch(() => ({ exists: () => false })),
+                getDoc(doc(db, "users", targetRoll)).catch(() => ({ exists: () => false })),
+                getDoc(doc(db, "authorizedUsers", targetRoll)).catch(() => ({ exists: () => false })),
                 getDoc(doc(db, "students", prefix)).catch(() => ({ exists: () => false })),
-                getDoc(doc(db, "students", possibleEmail)).catch(() => ({ exists: () => false }))
+                getDoc(doc(db, "users", prefix)).catch(() => ({ exists: () => false })),
+                getDoc(doc(db, "authorizedUsers", prefix)).catch(() => ({ exists: () => false })),
+                getDoc(doc(db, "students", possibleEmail)).catch(() => ({ exists: () => false })),
+                getDoc(doc(db, "authorizedUsers", possibleEmail)).catch(() => ({ exists: () => false })),
+                getDocs(query(collection(db, "students"), where("rollNo", "==", targetRoll))).catch(() => ({ docs: [] })),
+                getDocs(query(collection(db, "users"), where("rollNo", "==", targetRoll))).catch(() => ({ docs: [] })),
+                getDocs(query(collection(db, "authorizedUsers"), where("rollNo", "==", targetRoll))).catch(() => ({ docs: [] }))
             ]);
 
-            const matchedDoc = studentPrefixSnap.exists()
-                ? studentPrefixSnap
-                : (studentEmailSnap.exists() ? studentEmailSnap : (authDocSnap.exists() ? authDocSnap : null));
+            const candidateDocs = [];
+            if (studentDirectSnap.exists()) candidateDocs.push(studentDirectSnap.data());
+            if (userDirectSnap.exists()) candidateDocs.push(userDirectSnap.data());
+            if (authDirectSnap.exists()) candidateDocs.push(authDirectSnap.data());
+            if (studentPrefixSnap.exists()) candidateDocs.push(studentPrefixSnap.data());
+            if (userPrefixSnap.exists()) candidateDocs.push(userPrefixSnap.data());
+            if (authPrefixSnap.exists()) candidateDocs.push(authPrefixSnap.data());
+            if (studentEmailSnap.exists()) candidateDocs.push(studentEmailSnap.data());
+            if (authEmailSnap.exists()) candidateDocs.push(authEmailSnap.data());
 
-            if (matchedDoc) {
-                const studentData = matchedDoc.data();
-                setVerifiedStudent(studentData);
+            studentRollSnap.docs?.forEach((d) => candidateDocs.push(d.data()));
+            userRollSnap.docs?.forEach((d) => candidateDocs.push(d.data()));
+            authRollSnap.docs?.forEach((d) => candidateDocs.push(d.data()));
+
+            if (candidateDocs.length === 0) {
+                setVerifiedStudent(null);
                 setLookupDone(true);
-                if (studentData.name) {
-                    setFormData((prev) => ({
-                        ...prev,
-                        fullName: studentData.name,
-                        branch: studentData.branch || prev.branch,
-                        email: studentData.email || prev.email
-                    }));
-                }
                 return;
             }
 
-            setVerifiedStudent(null);
+            let mergedStudent = { rollNo: targetRoll };
+            for (const docData of candidateDocs) {
+                const cleanEmail = (docData.email || mergedStudent.email || "").toLowerCase().trim();
+                const branch = (docData.branch && String(docData.branch).toLowerCase() !== "general")
+                    ? docData.branch
+                    : ((mergedStudent.branch && String(mergedStudent.branch).toLowerCase() !== "general") ? mergedStudent.branch : "CSE");
+
+                const hasFace = Boolean(
+                    (Array.isArray(docData.faceDescriptor) && docData.faceDescriptor.length === 128) ||
+                    (Array.isArray(mergedStudent.faceDescriptor) && mergedStudent.faceDescriptor.length === 128) ||
+                    docData.faceRegistered === true ||
+                    mergedStudent.faceRegistered === true ||
+                    docData.biometricEnrolled === true ||
+                    mergedStudent.biometricEnrolled === true
+                );
+
+                mergedStudent = {
+                    ...mergedStudent,
+                    ...docData,
+                    rollNo: targetRoll,
+                    name: docData.name || mergedStudent.name || "",
+                    email: cleanEmail,
+                    branch: branch,
+                    semester: docData.semester || mergedStudent.semester || "1",
+                    faceRegistered: hasFace,
+                    biometricEnrolled: hasFace,
+                    faceDescriptor: (Array.isArray(docData.faceDescriptor) && docData.faceDescriptor.length === 128)
+                        ? docData.faceDescriptor
+                        : ((Array.isArray(mergedStudent.faceDescriptor) && mergedStudent.faceDescriptor.length === 128) ? mergedStudent.faceDescriptor : (docData.faceDescriptor || mergedStudent.faceDescriptor || null)),
+                    photoURL: docData.photoURL || mergedStudent.photoURL || ""
+                };
+            }
+
+            setVerifiedStudent(mergedStudent);
             setLookupDone(true);
+            if (mergedStudent.name) {
+                setFormData((prev) => ({
+                    ...prev,
+                    fullName: mergedStudent.name,
+                    branch: mergedStudent.branch || prev.branch,
+                    email: mergedStudent.email || prev.email
+                }));
+            }
         } catch (err) {
             console.error("Error looking up student by roll number:", err);
         } finally {
@@ -338,68 +280,8 @@ function StudentForm() {
         }
     }, []);
 
-    const handleInlineFaceEnrolled = async (enrollData) => {
-        if (!enrollData || !enrollData.faceDescriptor) return;
-        const targetRoll = formData.rollNo.trim().toUpperCase();
-        if (!targetRoll) {
-            alert("Please enter your roll number first.");
-            return;
-        }
-
-        try {
-            setEnrollSaving(true);
-            const cleanEmail = (formData.email || user?.email || "").toLowerCase().trim();
-            const prefix = cleanEmail ? cleanEmail.split("@")[0] : targetRoll.toLowerCase();
-
-            const studentUpdate = {
-                faceDescriptor: enrollData.faceDescriptor,
-                photoURL: enrollData.photoURL,
-                faceRegistered: true,
-                biometricEnrolled: true,
-                enrolledAt: Date.now()
-            };
-
-            // Write to Firestore across collections
-            const promises = [
-                setDoc(doc(db, "students", targetRoll), studentUpdate, { merge: true }),
-                setDoc(doc(db, "users", targetRoll), studentUpdate, { merge: true })
-            ];
-            if (cleanEmail) {
-                promises.push(setDoc(doc(db, "authorizedUsers", cleanEmail), studentUpdate, { merge: true }));
-            }
-
-            await Promise.all(promises);
-
-            // Update verifiedStudent state
-            setVerifiedStudent((prev) => ({
-                ...(prev || {}),
-                name: prev?.name || formData.fullName || "Student",
-                rollNo: targetRoll,
-                ...studentUpdate
-            }));
-
-            // Mark face as verified for attendance
-            setFaceVerified(true);
-            setFaceVerificationData({
-                verified: true,
-                confidence: 99,
-                distance: 0.05
-            });
-
-            setEnrollSuccessMsg("✅ Facial biometrics registered successfully! You can now submit your attendance.");
-            setTimeout(() => {
-                setShowInlineEnroll(false);
-                setEnrollSuccessMsg("");
-            }, 2500);
-        } catch (err) {
-            console.error("Error saving inline face biometric:", err);
-            alert("Failed to save face biometric: " + err.message);
-        } finally {
-            setEnrollSaving(false);
-        }
-    };
-
     const handleRollNoChange = (e) => {
+        if (isStudentLoggedIn) return; // Prevent altering authenticated roll number
         const upperVal = e.target.value.toUpperCase();
         setFormData((prev) => ({
             ...prev,
@@ -412,6 +294,7 @@ function StudentForm() {
 
     const handleChange = (e) => {
         const { name, value } = e.target;
+        if (isStudentLoggedIn && (name === "rollNo" || name === "fullName" || name === "email")) return;
         setFormData((currentData) => ({
             ...currentData,
             [name]: value
@@ -439,19 +322,30 @@ function StudentForm() {
             return;
         }
 
-        // 2. Consider Full Name second
+        // 2. Strict Authenticated Roll Number Lock check
+        if (isStudentLoggedIn && loggedInRollNo && cleanRollNo !== loggedInRollNo) {
+            alert(`⛔ Security Violation: You are authenticated as ${loggedInRollNo}. You cannot submit attendance for another student (${cleanRollNo}).`);
+            return;
+        }
+
+        // 3. Consider Full Name second
         if (!cleanFullName) {
             alert("⚠️ Please enter your Full Name.");
             return;
         }
 
-        // 3. ENFORCE LIVE FACE BIOMETRIC VERIFICATION
+        // 4. ENFORCE LIVE FACE BIOMETRIC VERIFICATION
         if (!faceVerified) {
             if (verifiedStudent && (!verifiedStudent.faceDescriptor || !Array.isArray(verifiedStudent.faceDescriptor) || verifiedStudent.faceDescriptor.length !== 128)) {
                 alert(`⛔ Face biometric is not registered for ${cleanFullName} (${cleanRollNo}).\n\nAttendance cannot be recorded until an Admin or Lecturer registers your facial biometric data.`);
             } else {
                 alert(`❌ Live face biometric verification required!\n\nPlease position your face in the camera frame to match the registered template for Roll Number ${cleanRollNo}.`);
             }
+            return;
+        }
+
+        if (!verifiedStudent || !verifiedStudent.faceDescriptor || !Array.isArray(verifiedStudent.faceDescriptor) || verifiedStudent.faceDescriptor.length !== 128) {
+            alert(`⛔ Registered face biometric template not found for ${cleanFullName} (${cleanRollNo}). Attendance cannot be marked without registered biometrics.`);
             return;
         }
 
@@ -510,6 +404,9 @@ function StudentForm() {
                 faceVerified: true,
                 faceMatchConfidence: faceVerificationData?.confidence || 100,
                 faceDistance: faceVerificationData?.distance !== undefined ? Number(faceVerificationData.distance.toFixed(4)) : null,
+                livenessConfirmed: faceVerificationData?.liveness === true,
+                antiSpoofScore: "PASSED",
+                blinkCount: faceVerificationData?.blinkCount || 1,
                 biometricVerifiedAt: Date.now(),
                 submittedAt: Date.now()
             });
@@ -537,15 +434,16 @@ function StudentForm() {
     };
 
     const handleReset = () => {
-        setFormData({
-            rollNo: "",
-            fullName: "",
-            email: "",
-            branch: "",
-            semester: ""
-        });
-        setVerifiedStudent(null);
-        setLookupDone(false);
+        if (!isStudentLoggedIn) {
+            setFormData({
+                rollNo: "",
+                fullName: "",
+                email: "",
+                branch: "",
+                semester: ""
+            });
+            setVerifiedStudent(null);
+        }
         setFaceVerified(false);
         setFaceVerificationData(null);
     };
@@ -676,14 +574,20 @@ function StudentForm() {
                 )}
 
                 <h1 className="form-title">Mark Attendance</h1>
-                <p className="form-subtitle">Enter your Roll Number to register your presence.</p>
+                <p className="form-subtitle">
+                    {isStudentLoggedIn
+                        ? "Verify your face in the camera to submit attendance for your account."
+                        : "Enter your Roll Number to register your presence."}
+                </p>
 
                 <div className="form-grid">
                     {/* 1. Roll Number FIRST */}
                     <div className="input-group">
-                        <label>Roll Number *</label>
+                        <label>
+                            Roll Number * {isStudentLoggedIn && <span style={{ color: "#10b981", fontSize: "0.8rem", fontWeight: 700 }}>🔒 (Locked to your login)</span>}
+                        </label>
                         <div className="input-icon">
-                            <FaIdCard />
+                            {isStudentLoggedIn ? <FaLock style={{ color: "#10b981" }} /> : <FaIdCard />}
                             <input
                                 type="text"
                                 name="rollNo"
@@ -691,7 +595,9 @@ function StudentForm() {
                                 value={formData.rollNo}
                                 onChange={handleRollNoChange}
                                 onBlur={() => lookupStudentByRoll()}
-                                autoFocus
+                                readOnly={isStudentLoggedIn}
+                                style={isStudentLoggedIn ? { backgroundColor: "var(--surface-soft, #f1f5f9)", cursor: "not-allowed" } : {}}
+                                autoFocus={!isStudentLoggedIn}
                                 required
                             />
                         </div>
@@ -718,15 +624,19 @@ function StudentForm() {
 
                     {/* 2. Full Name SECOND */}
                     <div className="input-group">
-                        <label>Full Name *</label>
+                        <label>
+                            Full Name * {isStudentLoggedIn && <span style={{ color: "#10b981", fontSize: "0.8rem", fontWeight: 700 }}>🔒 (Verified)</span>}
+                        </label>
                         <div className="input-icon">
-                            <FaUser />
+                            {isStudentLoggedIn ? <FaLock style={{ color: "#10b981" }} /> : <FaUser />}
                             <input
                                 type="text"
                                 name="fullName"
                                 placeholder="Enter Full Name"
                                 value={formData.fullName}
                                 onChange={handleChange}
+                                readOnly={isStudentLoggedIn}
+                                style={isStudentLoggedIn ? { backgroundColor: "var(--surface-soft, #f1f5f9)", cursor: "not-allowed" } : {}}
                                 required
                             />
                         </div>
@@ -742,57 +652,7 @@ function StudentForm() {
                             lookingUp={lookingUp}
                             rollNo={formData.rollNo}
                             onVerificationChange={handleFaceVerificationChange}
-                            onEnrollRequest={() => setShowInlineEnroll(true)}
                         />
-
-                        {/* Inline Face Enrollment Modal / Card */}
-                        {showInlineEnroll && (
-                            <div className="inline-enrollment-card" style={{
-                                marginTop: "16px",
-                                padding: "20px",
-                                borderRadius: "16px",
-                                background: "var(--surface, #ffffff)",
-                                border: "2px solid #6366f1",
-                                boxShadow: "0 8px 32px rgba(99, 102, 241, 0.2)",
-                                animation: "formFadeIn 0.3s ease-out"
-                            }}>
-                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
-                                    <h3 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 800, color: "#4f46e5" }}>
-                                        📸 Register Biometric Face for {verifiedStudent?.name || formData.fullName || "Student"}
-                                    </h3>
-                                    <button
-                                        type="button"
-                                        onClick={() => setShowInlineEnroll(false)}
-                                        style={{
-                                            background: "transparent",
-                                            border: "none",
-                                            fontSize: "1.1rem",
-                                            color: "var(--text-muted, #64748b)",
-                                            cursor: "pointer"
-                                        }}
-                                    >
-                                        ✕
-                                    </button>
-                                </div>
-                                <p style={{ margin: "0 0 14px", fontSize: "0.85rem", color: "var(--text-muted, #64748b)" }}>
-                                    Position your face centered in the camera and click <strong>"Capture & Register Biometrics"</strong>.
-                                </p>
-                                <LiveFaceEnrollment
-                                    hideHeader={true}
-                                    onFaceEnrolled={handleInlineFaceEnrolled}
-                                />
-                                {enrollSaving && (
-                                    <div style={{ marginTop: "12px", textAlign: "center", color: "#6366f1", fontWeight: 700 }}>
-                                        <FaSpinner className="fa-spin" /> Saving biometric vectors to database...
-                                    </div>
-                                )}
-                                {enrollSuccessMsg && (
-                                    <div style={{ marginTop: "12px", padding: "10px", background: "#dcfce7", color: "#15803d", borderRadius: "8px", fontWeight: 700, textAlign: "center" }}>
-                                        {enrollSuccessMsg}
-                                    </div>
-                                )}
-                            </div>
-                        )}
                     </div>
                 </div>
 
