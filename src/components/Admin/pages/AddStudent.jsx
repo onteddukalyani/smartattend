@@ -37,7 +37,7 @@ const AddStudent = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { profile } = useAuth();
-  const isLecturer = profile?.role === "lecturer";
+  const isLecturer = location.pathname.startsWith("/lecturer") || (!location.pathname.startsWith("/admin") && profile?.role === "lecturer");
   const studentsPath = isLecturer ? "/lecturer/students" : "/admin/students";
   const fileInputRef = useRef(null);
 

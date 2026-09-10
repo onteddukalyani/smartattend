@@ -44,8 +44,8 @@ function ClassesData() {
     const isCurrentLecturerPath = window.location.pathname.startsWith("/lecturer");
 
     const isAdmin = isCurrentAdminPath || (!isCurrentLecturerPath && (
-        profile?.role === "admin" || 
-        profile?.role === "administrator" || 
+        profile?.role === "admin" ||
+        profile?.role === "administrator" ||
         profile?.role === "superadmin"
     ));
 
@@ -54,7 +54,7 @@ function ClassesData() {
 
     // Setup real-time listener for attendance_sessions and enrich metadata
     useEffect(() => {
-        let unsubscribeSessions = () => {};
+        let unsubscribeSessions = () => { };
 
         const setupListeners = async () => {
             try {
@@ -97,7 +97,7 @@ function ClassesData() {
 
                         // Auto-heal missing batch in Firestore if not set
                         if (!rawBatch || rawBatch === "—") {
-                            setDoc(doc(db, "attendance_sessions", sess.id), { batch: resolvedBatch }, { merge: true }).catch(() => {});
+                            setDoc(doc(db, "attendance_sessions", sess.id), { batch: resolvedBatch }, { merge: true }).catch(() => { });
                         }
 
                         return {
@@ -160,7 +160,7 @@ function ClassesData() {
         role: profile?.role || "lecturer"
     };
 
-    const mySessions = allSessionsList.filter((sess) => 
+    const mySessions = allSessionsList.filter((sess) =>
         doesSessionBelongToLecturer(sess, currentLecturerObj, lookupMaps, allSessionsList.length <= 1 ? 1 : 100)
     );
 
@@ -374,13 +374,13 @@ export function SessionAttendanceData() {
     const [selectedStudentForModal, setSelectedStudentForModal] = useState(null);
     const navigate = useNavigate();
     const { user, profile } = useAuth();
-    
+
     const isCurrentAdminPath = window.location.pathname.startsWith("/admin");
     const isCurrentLecturerPath = window.location.pathname.startsWith("/lecturer");
 
     const isAdmin = isCurrentAdminPath || (!isCurrentLecturerPath && (
-        profile?.role === "admin" || 
-        profile?.role === "administrator" || 
+        profile?.role === "admin" ||
+        profile?.role === "administrator" ||
         profile?.role === "superadmin"
     ));
 
@@ -404,7 +404,7 @@ export function SessionAttendanceData() {
 
     useEffect(() => {
         let isMounted = true;
-        let unsubscribeRecords = () => {};
+        let unsubscribeRecords = () => { };
 
         const getAttendance = async () => {
             if (!sessionId) {
@@ -424,7 +424,7 @@ export function SessionAttendanceData() {
                     // 2. Case-insensitive search across attendance_sessions
                     const allSessionsSnap = await getDocs(collection(db, "attendance_sessions")).catch(() => ({ docs: [] }));
                     const targetId = String(sessionId).trim().toLowerCase();
-                    const matchedSessionDoc = allSessionsSnap.docs.find((d) => 
+                    const matchedSessionDoc = allSessionsSnap.docs.find((d) =>
                         d.id.toLowerCase() === targetId ||
                         d.id.toLowerCase().startsWith(targetId) ||
                         targetId.startsWith(d.id.toLowerCase())
@@ -530,7 +530,7 @@ export function SessionAttendanceData() {
                     const targetSessId = String(actualSessionId).trim().toLowerCase();
                     const urlSessId = String(sessionId).trim().toLowerCase();
 
-                    let rawRecords = recordsSnapshot.docs
+                    const rawRecords = recordsSnapshot.docs
                         .filter((d) => {
                             const data = d.data();
                             const rSessId = String(data.sessionId || data.session_id || "").trim().toLowerCase();
@@ -549,17 +549,25 @@ export function SessionAttendanceData() {
                             ...recordDoc.data()
                         }));
 
-                    // Fallback to embedded attendees array if collection query returned 0
-                    if (rawRecords.length === 0 && Array.isArray(sessData?.attendees)) {
-                        rawRecords = sessData.attendees.map((att, idx) => ({
-                            id: att.id || `${actualSessionId}_${att.rollNo || idx}`,
-                            sessionId: actualSessionId,
-                            rollNo: att.rollNo || att.roll || att.studentId || "—",
-                            fullName: att.fullName || att.name || att.studentName || "Student",
-                            studentEmail: att.studentEmail || att.email || "",
-                            submittedAt: att.submittedAt || att.timestamp || att.time || sessData.createdAt,
-                            faceVerified: att.faceVerified ?? true
-                        }));
+                    // Also include attendees from current session data if not already present
+                    if (Array.isArray(sessData?.attendees)) {
+                        const existingRolls = new Set(rawRecords.map(r => String(r.rollNo || "").toUpperCase().trim()));
+                        sessData.attendees.forEach((att, idx) => {
+                            const roll = att.rollNo || att.rollNumber || (typeof att === 'string' ? att : null);
+                            const cleanRoll = roll ? String(roll).toUpperCase().trim() : "";
+                            if (cleanRoll && !existingRolls.has(cleanRoll)) {
+                                existingRolls.add(cleanRoll);
+                                rawRecords.push({
+                                    id: att.id || `${actualSessionId}_${roll || idx}`,
+                                    sessionId: actualSessionId,
+                                    rollNo: roll,
+                                    fullName: att.fullName || att.name || att.studentName || "Student",
+                                    studentEmail: att.studentEmail || att.email || "",
+                                    submittedAt: att.submittedAt || att.timestamp || att.time || sessData.createdAt,
+                                    faceVerified: att.faceVerified ?? true
+                                });
+                            }
+                        });
                     }
 
                     rawRecords.sort((a, b) => {
@@ -716,7 +724,7 @@ export function SessionAttendanceData() {
                 <StudentDetailModal
                     student={selectedStudentForModal}
                     onClose={() => setSelectedStudentForModal(null)}
-                    onUpdate={() => {}}
+                    onUpdate={() => { }}
                 />
             )}
         </div>

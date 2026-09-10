@@ -32,10 +32,10 @@ import StudentDetailModal from "../../Common/StudentDetailModal";
 import { useTableSort, SortIcon } from "../../Common/useTableSort";
 import "./StudentsList.css";
 
-import { mergeAllStudentRecords, normalizeDescriptor } from "../../../utils/studentDataHelper";
+import { mergeAllStudentRecords, normalizeDescriptor, deleteStudentRecordCompletely } from "../../../utils/studentDataHelper";
 
 function StudentsList() {
-    const { user } = useAuth();
+    const { user, profile } = useAuth();
     const [students, setStudents] = useState([]);
     const [search, setSearch] = useState("");
     const [branchFilter, setBranchFilter] = useState("ALL");
@@ -46,6 +46,9 @@ function StudentsList() {
     const [actionLoading, setActionLoading] = useState(null);
     const [selectedStudent, setSelectedStudent] = useState(null);
     const navigate = useNavigate();
+
+    const isAdmin = profile?.role === "admin" || profile?.role === "administrator" || profile?.role === "superadmin" || window.location.pathname.startsWith("/admin");
+    const basePath = isAdmin ? "/admin" : "/lecturer";
 
     const getStudents = useCallback(async () => {
         try {
@@ -100,11 +103,14 @@ function StudentsList() {
 
     // Check if a student has biometric face enrolled
     const checkHasFace = (student) => {
-        return Boolean(
-            (student?.faceDescriptor && (Array.isArray(student.faceDescriptor) || student.faceDescriptor instanceof Float32Array || typeof student.faceDescriptor === "object")) ||
-            student?.faceRegistered === true ||
-            student?.biometricEnrolled === true
-        );
+        if (!student) return false;
+        if (student.faceRemovedAt || student.faceRegistered === false || student.biometricEnrolled === false || student.hasFaceRegistered === false) {
+            return false;
+        }
+        const fd = student.faceDescriptor;
+        if (Array.isArray(fd) && fd.length === 128) return true;
+        if (fd instanceof Float32Array && fd.length === 128) return true;
+        return false;
     };
 
 
@@ -117,38 +123,20 @@ function StudentsList() {
         );
         if (!confirmed) return;
 
+        const roll = (student.rollNo || student.id || "").trim().toUpperCase();
+        const previousState = [...students];
+
+        // OPTIMISTIC UPDATE: Instant 0ms removal from UI
+        setStudents((prev) => prev.filter((s) => s.id !== student.id && s.rollNo !== roll));
+
         try {
-            setActionLoading(student.id || student.rollNo);
-            const roll = (student.rollNo || student.id || "").trim().toUpperCase();
-            const email = student.email ? student.email.toLowerCase().trim() : null;
-            const prefix = email ? email.split("@")[0].toLowerCase().trim() : null;
-
-            const promises = [
-                deleteDoc(doc(db, "users", roll)).catch(() => {}),
-                deleteDoc(doc(db, "students", roll)).catch(() => {})
-            ];
-
-            if (student.id && student.id !== roll) {
-                promises.push(deleteDoc(doc(db, "users", student.id)).catch(() => {}));
-                promises.push(deleteDoc(doc(db, "students", student.id)).catch(() => {}));
-            }
-
-            if (email) {
-                promises.push(deleteDoc(doc(db, "authorizedUsers", email)).catch(() => {}));
-                promises.push(deleteDoc(doc(db, "students", email)).catch(() => {}));
-            }
-
-            if (prefix && prefix !== email && prefix !== roll.toLowerCase()) {
-                promises.push(deleteDoc(doc(db, "authorizedUsers", prefix)).catch(() => {}));
-                promises.push(deleteDoc(doc(db, "students", prefix)).catch(() => {}));
-            }
-
-            await Promise.all(promises);
-
-            setStudents((prev) => prev.filter((s) => s.id !== student.id && s.rollNo !== roll));
+            setActionLoading(student.id || roll);
+            await deleteStudentRecordCompletely(student);
             alert(`✅ Student ${studentName} (${roll}) has been deleted.`);
         } catch (err) {
             console.error("Error deleting student:", err);
+            // Rollback on error
+            setStudents(previousState);
             alert("Failed to delete student: " + err.message);
         } finally {
             setActionLoading(null);
@@ -159,41 +147,39 @@ function StudentsList() {
     const handleRemoveFaceBiometrics = async (student, e) => {
         if (e) e.stopPropagation();
         const studentName = student.name || "Student";
-        const studentRoll = student.rollNo || student.id || "";
+        const cleanRoll = String(student.rollNo || student.id || "").trim().toUpperCase();
 
         const confirmed = window.confirm(
-            `⚠️ Clear Facial Biometrics & Photo?\n\nAre you sure you want to remove the registered facial biometric vector and photo for ${studentName} (${studentRoll})?\n\nThis will allow the student or lecturer to re-enroll facial biometrics cleanly.`
+            `⚠️ Clear Facial Biometrics & Photo?\n\nAre you sure you want to remove the registered facial biometric vector and photo for ${studentName} (${cleanRoll})?\n\nThis will allow the student or lecturer to re-enroll facial biometrics cleanly.`
         );
         if (!confirmed) return;
 
+        const updated = {
+            faceRegistered: false,
+            biometricEnrolled: false,
+            hasFaceRegistered: false,
+            faceDescriptor: null,
+            photoURL: "",
+            image: "",
+            photo: ""
+        };
+
+        // OPTIMISTIC UPDATE: Instant 0ms response in UI
+        setStudents((prev) =>
+            prev.map((s) =>
+                s.id === student.id || (cleanRoll && s.rollNo === cleanRoll)
+                    ? { ...s, ...updated }
+                    : s
+            )
+        );
+
+        if (selectedStudent && (selectedStudent.id === student.id || selectedStudent.rollNo === cleanRoll)) {
+            setSelectedStudent((prev) => (prev ? { ...prev, ...updated } : null));
+        }
+
         try {
             setActionLoading(student.id || student.rollNo);
-            const cleanRoll = String(student.rollNo || student.id || "").trim().toUpperCase();
-
             await removeStudentFaceAndBiometrics(student);
-
-            const updated = {
-                faceRegistered: false,
-                biometricEnrolled: false,
-                hasFaceRegistered: false,
-                faceDescriptor: null,
-                photoURL: "",
-                image: "",
-                photo: ""
-            };
-
-            setStudents((prev) =>
-                prev.map((s) =>
-                    s.id === student.id || (cleanRoll && s.rollNo === cleanRoll)
-                        ? { ...s, ...updated }
-                        : s
-                )
-            );
-
-            if (selectedStudent && (selectedStudent.id === student.id || selectedStudent.rollNo === cleanRoll)) {
-                setSelectedStudent((prev) => (prev ? { ...prev, ...updated } : null));
-            }
-
             alert(`✅ Facial biometric data and photo for ${studentName} (${cleanRoll}) have been cleared.`);
         } catch (err) {
             console.error("Error removing face biometrics:", err);
@@ -279,13 +265,13 @@ function StudentsList() {
             <div className="students-top-bar">
                 <button
                     className="back-btn"
-                    onClick={() => navigate("/lecturer")}
-                    title="Return to Lecturer Dashboard"
+                    onClick={() => navigate(basePath)}
+                    title={`Return to ${isAdmin ? "Admin" : "Lecturer"} Dashboard`}
                 >
                     <FaArrowLeft /> Back to Dashboard
                 </button>
                 <div className="top-bar-badge">
-                    <FaGraduationCap /> Student Management
+                    <FaGraduationCap /> {isAdmin ? "Admin Portal • Student Directory" : "Lecturer Portal • Student Directory"}
                 </div>
             </div>
 
@@ -313,7 +299,7 @@ function StudentsList() {
                         <button
                             type="button"
                             className="hero-action-btn btn-bulk"
-                            onClick={() => navigate("/lecturer/students/add?tab=bulk")}
+                            onClick={() => navigate(`${basePath}/students/add?tab=bulk`)}
                             title="Bulk upload students via CSV/Excel"
                         >
                             <FaFileExcel /> Bulk Upload
@@ -321,7 +307,7 @@ function StudentsList() {
                         <button
                             type="button"
                             className="hero-action-btn btn-add"
-                            onClick={() => navigate("/lecturer/students/add?tab=single")}
+                            onClick={() => navigate(`${basePath}/students/add?tab=single`)}
                             title="Add a new student"
                         >
                             <FaUserPlus /> Add Student
@@ -536,13 +522,13 @@ function StudentsList() {
                         <div className="empty-actions">
                             <button
                                 className="empty-add-btn"
-                                onClick={() => navigate("/lecturer/students/add?tab=single")}
+                                onClick={() => navigate(`${basePath}/students/add?tab=single`)}
                             >
                                 <FaUserPlus /> Add First Student
                             </button>
                             <button
                                 className="empty-bulk-btn"
-                                onClick={() => navigate("/lecturer/students/add?tab=bulk")}
+                                onClick={() => navigate(`${basePath}/students/add?tab=bulk`)}
                             >
                                 <FaFileExcel /> Bulk Upload CSV
                             </button>

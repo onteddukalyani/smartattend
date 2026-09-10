@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { QRCodeCanvas } from "qrcode.react";
 import { Link } from "react-router-dom";
-import { collection, getDocs } from "firebase/firestore";
+import { collection, onSnapshot } from "firebase/firestore";
 import { db } from "../../../firebase";
 import { useAuth } from "../../authcontext";
 import { FaQrcode, FaClock, FaCheckCircle, FaDoorOpen, FaUsers } from "react-icons/fa";
@@ -14,41 +14,40 @@ function ActiveSessions() {
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        const getActiveSessions = async () => {
-            if (!user) {
-                setLoading(false);
-                return;
-            }
+        if (!user) {
+            setLoading(false);
+            return;
+        }
+
+        const userEmail = (user?.email || "").toLowerCase().trim();
+        const userPrefix = userEmail ? userEmail.split("@")[0] : "";
+        const userName = (profile?.name || user?.displayName || "").toLowerCase().trim();
+        const userUid = user?.uid || "";
+        const isAdmin = 
+            profile?.role === "admin" || 
+            profile?.role === "administrator" || 
+            profile?.role === "superadmin" || 
+            localStorage.getItem("smartattend-user-role") === "admin";
+
+        const genericNames = new Set(["lecturer", "faculty", "admin", "faculty member", "user", "teacher", "unknown", "n/a", "student", "staff"]);
+        const isNamedProperly = userName && !genericNames.has(userName) && userName.length >= 4;
+
+        const isMySession = (data) => {
+            if (isAdmin) return true;
+            const ownerId = String(data.ownerId || "").toLowerCase().trim();
+            const ownerEmail = String(data.ownerEmail || data.lecturerEmail || "").toLowerCase().trim();
+            const sessLectName = String(data.lecturerName || "").toLowerCase().trim();
+
+            if (userUid && (ownerId === userUid.toLowerCase() || ownerEmail === userUid.toLowerCase())) return true;
+            if (userEmail && (ownerEmail === userEmail || ownerId === userEmail)) return true;
+            if (userPrefix && userPrefix.length >= 3 && (ownerId === userPrefix || ownerEmail === `${userPrefix}@iiitdwd.ac.in` || ownerEmail === `${userPrefix}@gmail.com`)) return true;
+            if (isNamedProperly && sessLectName && sessLectName === userName) return true;
+            return false;
+        };
+
+        const unsub = onSnapshot(collection(db, "attendance_sessions"), (snapshot) => {
             try {
-                const userEmail = (user?.email || "").toLowerCase().trim();
-                const userPrefix = userEmail ? userEmail.split("@")[0] : "";
-                const userName = (profile?.name || user?.displayName || "").toLowerCase().trim();
-                const userUid = user?.uid || "";
-                const isAdmin = 
-                    profile?.role === "admin" || 
-                    profile?.role === "administrator" || 
-                    profile?.role === "superadmin" || 
-                    localStorage.getItem("smartattend-user-role") === "admin";
-
-                const snapshot = await getDocs(collection(db, "attendance_sessions"));
                 const now = Date.now();
-
-                const genericNames = new Set(["lecturer", "faculty", "admin", "faculty member", "user", "teacher", "unknown", "n/a", "student", "staff"]);
-                const isNamedProperly = userName && !genericNames.has(userName) && userName.length >= 4;
-
-                const isMySession = (data) => {
-                    if (isAdmin) return true;
-                    const ownerId = String(data.ownerId || "").toLowerCase().trim();
-                    const ownerEmail = String(data.ownerEmail || data.lecturerEmail || "").toLowerCase().trim();
-                    const sessLectName = String(data.lecturerName || "").toLowerCase().trim();
-
-                    if (userUid && (ownerId === userUid.toLowerCase() || ownerEmail === userUid.toLowerCase())) return true;
-                    if (userEmail && (ownerEmail === userEmail || ownerId === userEmail)) return true;
-                    if (userPrefix && userPrefix.length >= 3 && (ownerId === userPrefix || ownerEmail === `${userPrefix}@iiitdwd.ac.in` || ownerEmail === `${userPrefix}@gmail.com`)) return true;
-                    if (isNamedProperly && sessLectName && sessLectName === userName) return true;
-                    return false;
-                };
-
                 const allMy = snapshot.docs
                     .map((sessionDoc) => ({ id: sessionDoc.id, ...sessionDoc.data() }))
                     .filter((session) => isMySession(session))
@@ -60,13 +59,16 @@ function ActiveSessions() {
                 setActiveSessions(live);
                 setRecentSessions(recent);
             } catch (error) {
-                console.error("Error getting active sessions:", error);
+                console.error("Error processing active sessions snapshot:", error);
             } finally {
                 setLoading(false);
             }
-        };
+        }, (err) => {
+            console.error("Error subscribing to active sessions:", err);
+            setLoading(false);
+        });
 
-        getActiveSessions();
+        return () => unsub();
     }, [user, profile]);
 
     return (

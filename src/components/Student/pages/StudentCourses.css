@@ -1066,12 +1066,29 @@
     background: #f8fafc;
     border-radius: 10px;
     border: 1px solid #f1f5f9;
+    transition: background 0.15s ease;
+}
+
+.sc-log-row.present {
+    border-left: 3px solid #10b981;
+}
+
+.sc-log-row.missed {
+    border-left: 3px solid #ef4444;
+    background: rgba(239, 68, 68, 0.02);
 }
 
 .sc-log-icon {
-    color: #10b981;
     font-size: 15px;
     flex-shrink: 0;
+}
+
+.sc-log-icon.present-icon {
+    color: #10b981;
+}
+
+.sc-log-icon.missed-icon {
+    color: #ef4444;
 }
 
 .sc-log-info {
@@ -1107,10 +1124,18 @@
     font-weight: 700;
     padding: 2px 7px;
     border-radius: 6px;
-    background: rgba(16, 185, 129, 0.1);
-    color: #059669;
     text-transform: uppercase;
     flex-shrink: 0;
+}
+
+.sc-log-badge.badge-present {
+    background: rgba(16, 185, 129, 0.1);
+    color: #059669;
+}
+
+.sc-log-badge.badge-missed {
+    background: rgba(239, 68, 68, 0.1);
+    color: #dc2626;
 }
 
 .sc-modal-footer {

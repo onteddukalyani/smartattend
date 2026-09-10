@@ -28,6 +28,7 @@ import { downloadExcel } from "../../DownloadExcel";
 import { useTableSort, SortIcon } from "./useTableSort";
 import { LiveFaceEnrollment } from "./LiveFaceEnrollment";
 import { removeStudentFaceAndBiometrics, removeStudentPhotoOnly, checkDuplicateFaceBiometrics } from "../../utils/biometricManager";
+import { deleteStudentRecordCompletely } from "../../utils/studentDataHelper";
 import "./StudentDetailModal.css";
 
 const StudentDetailModal = ({ student, onClose, onUpdate }) => {
@@ -156,11 +157,17 @@ const StudentDetailModal = ({ student, onClose, onUpdate }) => {
   const totalAttended = attendanceRecords.length;
   const uniqueCourses = new Set(attendanceRecords.map(r => r.session?.courseId || r.courseId).filter(Boolean)).size;
 
+  const isFaceExplicitlyRemoved = Boolean(
+    currentStudent?.faceRemovedAt ||
+    currentStudent?.faceRegistered === false ||
+    currentStudent?.biometricEnrolled === false ||
+    currentStudent?.hasFaceRegistered === false
+  );
+
   const isFaceEnrolled = Boolean(
-    (Array.isArray(currentStudent?.faceDescriptor) && currentStudent.faceDescriptor.length === 128) ||
-    ((currentStudent?.faceRegistered === true || currentStudent?.biometricEnrolled === true) && Array.isArray(currentStudent?.faceDescriptor) && currentStudent.faceDescriptor.length > 0) ||
-    currentStudent?.faceRegistered === true ||
-    currentStudent?.biometricEnrolled === true
+    !isFaceExplicitlyRemoved &&
+    Array.isArray(currentStudent?.faceDescriptor) &&
+    currentStudent.faceDescriptor.length === 128
   );
 
   const handleExportAttendance = () => {
@@ -363,30 +370,8 @@ const StudentDetailModal = ({ student, onClose, onUpdate }) => {
     try {
       setDeletingStudent(true);
       const cleanRoll = String(currentStudent.rollNo || currentStudent.id || "").trim().toUpperCase();
-      const cleanEmail = currentStudent.email ? String(currentStudent.email).toLowerCase().trim() : null;
-      const prefix = cleanEmail ? cleanEmail.split("@")[0].toLowerCase().trim() : null;
 
-      const promises = [
-        deleteDoc(doc(db, "users", cleanRoll)).catch(() => {}),
-        deleteDoc(doc(db, "students", cleanRoll)).catch(() => {})
-      ];
-
-      if (currentStudent.id && currentStudent.id !== cleanRoll) {
-        promises.push(deleteDoc(doc(db, "users", currentStudent.id)).catch(() => {}));
-        promises.push(deleteDoc(doc(db, "students", currentStudent.id)).catch(() => {}));
-      }
-
-      if (cleanEmail) {
-        promises.push(deleteDoc(doc(db, "authorizedUsers", cleanEmail)).catch(() => {}));
-        promises.push(deleteDoc(doc(db, "students", cleanEmail)).catch(() => {}));
-      }
-
-      if (prefix && prefix !== cleanEmail && prefix !== cleanRoll.toLowerCase()) {
-        promises.push(deleteDoc(doc(db, "authorizedUsers", prefix)).catch(() => {}));
-        promises.push(deleteDoc(doc(db, "students", prefix)).catch(() => {}));
-      }
-
-      await Promise.all(promises);
+      await deleteStudentRecordCompletely(currentStudent);
 
       alert(`✅ Student ${studentName} (${cleanRoll}) was successfully deleted.`);
       if (onUpdate) onUpdate(null);
@@ -619,13 +604,13 @@ const StudentDetailModal = ({ student, onClose, onUpdate }) => {
                           gap: "8px",
                           padding: "10px 20px",
                           borderRadius: "10px",
-                          background: "#10b981",
+                          background: "#6366f1",
                           color: "#ffffff",
                           border: "none",
                           fontWeight: 700,
                           fontSize: "0.9rem",
                           cursor: savingFace ? "not-allowed" : "pointer",
-                          boxShadow: "0 4px 12px rgba(16, 185, 129, 0.3)"
+                          boxShadow: "0 4px 12px rgba(99, 102, 241, 0.3)"
                         }}
                       >
                         <FaSave /> {savingFace ? "Saving Biometrics..." : "💾 Save & Sync Face Biometrics"}

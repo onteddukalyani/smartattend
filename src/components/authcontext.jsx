@@ -23,6 +23,7 @@ import {
   loginWithGoogle as firebaseLoginWithGoogle,
   logoutUser as firebaseLogoutUser
 } from "../firebase";
+import { isGenericName } from "../utils/studentDataHelper";
 
 const AuthContext = createContext(null);
 
@@ -121,22 +122,34 @@ export const AuthProvider = ({ children }) => {
 
       if (candidateDocs.length > 0) {
         let merged = {};
+        let authoritativeName = "";
         for (const c of candidateDocs) {
+          if (!authoritativeName && c.name && !isGenericName(c.name, rollFromEmail, cleanEmail)) {
+            authoritativeName = String(c.name).trim();
+          }
+          if (!authoritativeName && c.fullName && !isGenericName(c.fullName, rollFromEmail, cleanEmail)) {
+            authoritativeName = String(c.fullName).trim();
+          }
+          if (!authoritativeName && c.displayName && !isGenericName(c.displayName, rollFromEmail, cleanEmail)) {
+            authoritativeName = String(c.displayName).trim();
+          }
           merged = {
             ...merged,
             ...c,
             faceDescriptor: c.faceDescriptor || merged.faceDescriptor,
             photoURL: c.photoURL || c.photo || c.image || merged.photoURL || "",
-            name: c.name || c.fullName || merged.name,
-            branch: c.branch || merged.branch,
+            branch: (c.branch && String(c.branch).toLowerCase() !== "general") ? c.branch : (merged.branch || "CSE"),
             semester: c.semester || merged.semester,
             rollNo: c.rollNo || merged.rollNo || rollFromEmail,
             role: c.role || merged.role || "student"
           };
         }
+        const finalName = authoritativeName || merged.name || merged.fullName || "";
         return {
           id: rollFromEmail || cleanEmail,
           ...merged,
+          name: finalName,
+          fullName: finalName,
           email: merged.email || cleanEmail,
           rollNo: merged.rollNo || rollFromEmail,
           role: String(merged.role || "student").trim().toLowerCase()
@@ -160,22 +173,34 @@ export const AuthProvider = ({ children }) => {
 
       if (fieldDocs.length > 0) {
         let merged = {};
+        let authoritativeName = "";
         for (const c of fieldDocs) {
+          if (!authoritativeName && c.name && !isGenericName(c.name, rollFromEmail, cleanEmail)) {
+            authoritativeName = String(c.name).trim();
+          }
+          if (!authoritativeName && c.fullName && !isGenericName(c.fullName, rollFromEmail, cleanEmail)) {
+            authoritativeName = String(c.fullName).trim();
+          }
+          if (!authoritativeName && c.displayName && !isGenericName(c.displayName, rollFromEmail, cleanEmail)) {
+            authoritativeName = String(c.displayName).trim();
+          }
           merged = {
             ...merged,
             ...c,
             faceDescriptor: c.faceDescriptor || merged.faceDescriptor,
             photoURL: c.photoURL || c.photo || c.image || merged.photoURL || "",
-            name: c.name || c.fullName || merged.name,
-            branch: c.branch || merged.branch,
+            branch: (c.branch && String(c.branch).toLowerCase() !== "general") ? c.branch : (merged.branch || "CSE"),
             semester: c.semester || merged.semester,
             rollNo: c.rollNo || merged.rollNo || rollFromEmail,
             role: c.role || merged.role || "student"
           };
         }
+        const finalName = authoritativeName || merged.name || merged.fullName || "";
         return {
           id: rollFromEmail || cleanEmail,
           ...merged,
+          name: finalName,
+          fullName: finalName,
           email: merged.email || cleanEmail,
           rollNo: merged.rollNo || rollFromEmail,
           role: String(merged.role || "student").trim().toLowerCase()
@@ -198,10 +223,70 @@ export const AuthProvider = ({ children }) => {
     return "student";
   };
 
-  // =========================================================
-  // RESTORE LOGIN AFTER REFRESH (READ-ONLY: ZERO DATABASE WRITES)
-  // =========================================================
+  const buildEnrichedProfile = (registeredUser, currentUser) => {
+    if (!registeredUser || !currentUser) return null;
 
+    const databaseRole = normalizeRole(registeredUser.role);
+    const cleanEmail = currentUser.email.toLowerCase().trim();
+    const prefix = cleanEmail.split("@")[0].toLowerCase().trim();
+    const cleanRollNo = registeredUser.rollNo || (databaseRole === "student" ? prefix.toUpperCase() : undefined);
+    const branch = (registeredUser.branch && String(registeredUser.branch).toLowerCase() !== "general")
+      ? registeredUser.branch
+      : ((registeredUser.department && String(registeredUser.department).toLowerCase() !== "general") ? registeredUser.department : "CSE");
+
+    // STRICT: Extract name strictly from database record only (never from email or Google account)
+    const databaseName = (registeredUser.name && !isGenericName(registeredUser.name, cleanRollNo, cleanEmail))
+      ? registeredUser.name.trim()
+      : (registeredUser.fullName && !isGenericName(registeredUser.fullName, cleanRollNo, cleanEmail) ? registeredUser.fullName.trim() : "");
+
+    const resolvedName = databaseName || (databaseRole === "student" ? (cleanRollNo || "Student") : prefix);
+
+    // Use profile photo from database if present, or fallback to photo from the login email (Google account)
+    const resolvedPhoto = registeredUser.photoURL || registeredUser.photo || registeredUser.image || registeredUser.avatar || registeredUser.profilePic || currentUser.photoURL || "";
+
+    // Strict biometrics check: If removed by admin or invalid vector, immediately mark false
+    const hasFaceRemoval = Boolean(
+      registeredUser.faceRemovedAt ||
+      registeredUser.faceRegistered === false ||
+      registeredUser.biometricEnrolled === false ||
+      registeredUser.hasFaceRegistered === false ||
+      !registeredUser.faceDescriptor ||
+      (Array.isArray(registeredUser.faceDescriptor) && registeredUser.faceDescriptor.length !== 128)
+    );
+
+    const hasValidFace = Boolean(
+      !hasFaceRemoval &&
+      Array.isArray(registeredUser.faceDescriptor) &&
+      registeredUser.faceDescriptor.length === 128
+    );
+
+    return {
+      id: registeredUser.id || cleanRollNo || cleanEmail,
+      ...registeredUser,
+      rollNo: cleanRollNo,
+      email: registeredUser.email || cleanEmail,
+      name: resolvedName,
+      fullName: resolvedName,
+      branch: branch,
+      semester: registeredUser.semester || "1",
+      uid: currentUser.uid,
+      role: databaseRole,
+      photoURL: resolvedPhoto,
+      photo: resolvedPhoto,
+      image: resolvedPhoto,
+      faceDescriptor: hasValidFace ? registeredUser.faceDescriptor : null,
+      faceRegistered: hasValidFace,
+      biometricEnrolled: hasValidFace,
+      hasFaceRegistered: hasValidFace,
+      faceRemovedAt: registeredUser.faceRemovedAt || (hasFaceRemoval ? Date.now() : null),
+      approved: registeredUser.approved !== false,
+      status: registeredUser.status || "active"
+    };
+  };
+
+  // =========================================================
+  // ON AUTH STATE CHANGED (STRICT READ-ONLY: ZERO DATABASE WRITES)
+  // =========================================================
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(
       auth,
@@ -215,9 +300,8 @@ export const AuthProvider = ({ children }) => {
 
           const registeredUser = await lookupUserInSystem(currentUser.email);
 
-          // If user is NOT registered in the system, deny access and sign out immediately
           if (!registeredUser) {
-            console.warn("Unregistered user attempted access:", currentUser.email);
+            console.warn("Unregistered user attempted access on session restore:", currentUser.email);
             await firebaseLogoutUser();
             setUser(null);
             setProfile(null);
@@ -233,50 +317,7 @@ export const AuthProvider = ({ children }) => {
             return;
           }
 
-          const databaseRole = normalizeRole(registeredUser.role);
-          const cleanEmail = currentUser.email.toLowerCase().trim();
-          const prefix = cleanEmail.split("@")[0].toLowerCase().trim();
-          const cleanRollNo = registeredUser.rollNo || (databaseRole === "student" ? prefix.toUpperCase() : undefined);
-          const branch = (registeredUser.branch && String(registeredUser.branch).toLowerCase() !== "general")
-            ? registeredUser.branch
-            : ((registeredUser.department && String(registeredUser.department).toLowerCase() !== "general") ? registeredUser.department : "CSE");
-
-          // STRICT: Extract name strictly from database record only
-          const databaseName = (registeredUser.name && registeredUser.name.trim())
-            ? registeredUser.name.trim()
-            : (registeredUser.fullName && registeredUser.fullName.trim() ? registeredUser.fullName.trim() : "");
-
-          const resolvedName = databaseName || (databaseRole === "student" ? (cleanRollNo || "Student") : prefix);
-
-          // STRICT: Extract photo strictly from database record only (never from Google account)
-          const databasePhoto = registeredUser.photoURL || registeredUser.photo || registeredUser.image || registeredUser.avatar || registeredUser.profilePic || "";
-
-          const enrichedProfile = {
-            id: registeredUser.id || cleanRollNo || cleanEmail,
-            ...registeredUser,
-            rollNo: cleanRollNo,
-            email: registeredUser.email || cleanEmail,
-            name: resolvedName,
-            fullName: resolvedName,
-            branch: branch,
-            semester: registeredUser.semester || "1",
-            uid: currentUser.uid,
-            role: databaseRole,
-            photoURL: databasePhoto,
-            photo: databasePhoto,
-            image: databasePhoto,
-            faceDescriptor: registeredUser.faceDescriptor || null,
-            faceRegistered: Boolean(
-              (Array.isArray(registeredUser.faceDescriptor) && registeredUser.faceDescriptor.length === 128) ||
-              ((registeredUser.faceRegistered || registeredUser.biometricEnrolled) && Array.isArray(registeredUser.faceDescriptor) && registeredUser.faceDescriptor.length > 0)
-            ),
-            biometricEnrolled: Boolean(
-              (Array.isArray(registeredUser.faceDescriptor) && registeredUser.faceDescriptor.length === 128) ||
-              ((registeredUser.faceRegistered || registeredUser.biometricEnrolled) && Array.isArray(registeredUser.faceDescriptor) && registeredUser.faceDescriptor.length > 0)
-            ),
-            approved: registeredUser.approved !== false,
-            status: registeredUser.status || "active"
-          };
+          const enrichedProfile = buildEnrichedProfile(registeredUser, currentUser);
 
           // Grant access without modifying or writing to the database
           setUser(currentUser);
@@ -367,15 +408,15 @@ export const AuthProvider = ({ children }) => {
       ? registeredUser.branch
       : ((registeredUser.department && String(registeredUser.department).toLowerCase() !== "general") ? registeredUser.department : "CSE");
 
-    // STRICT: Extract name strictly from database record only
-    const databaseName = (registeredUser.name && registeredUser.name.trim())
+    // STRICT: Extract name strictly from database record only (never from email or Google account)
+    const databaseName = (registeredUser.name && !isGenericName(registeredUser.name, cleanRollNo, cleanEmail))
       ? registeredUser.name.trim()
-      : (registeredUser.fullName && registeredUser.fullName.trim() ? registeredUser.fullName.trim() : "");
+      : (registeredUser.fullName && !isGenericName(registeredUser.fullName, cleanRollNo, cleanEmail) ? registeredUser.fullName.trim() : "");
 
     const resolvedName = databaseName || (databaseRole === "student" ? (cleanRollNo || "Student") : prefix);
 
-    // STRICT: Extract photo strictly from database record only (never from Google account)
-    const databasePhoto = registeredUser.photoURL || registeredUser.photo || registeredUser.image || registeredUser.avatar || registeredUser.profilePic || "";
+    // Use profile photo from database if present, or fallback to photo from the login email (Google account)
+    const resolvedPhoto = registeredUser.photoURL || registeredUser.photo || registeredUser.image || registeredUser.avatar || registeredUser.profilePic || currentUser.photoURL || "";
 
     const enrichedProfile = {
       id: registeredUser.id || cleanRollNo || cleanEmail,
@@ -388,9 +429,9 @@ export const AuthProvider = ({ children }) => {
       semester: registeredUser.semester || "1",
       uid: currentUser.uid,
       role: databaseRole,
-      photoURL: databasePhoto,
-      photo: databasePhoto,
-      image: databasePhoto,
+      photoURL: resolvedPhoto,
+      photo: resolvedPhoto,
+      image: resolvedPhoto,
       faceDescriptor: registeredUser.faceDescriptor || null,
       faceRegistered: Boolean(
         (Array.isArray(registeredUser.faceDescriptor) && registeredUser.faceDescriptor.length === 128) ||

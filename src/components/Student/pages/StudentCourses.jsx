@@ -27,7 +27,7 @@ import {
 } from "react-icons/fa";
 import { db } from "../../../firebase";
 import { useAuth } from "../../authcontext";
-import { getCandidateRolls, computeStudentMetrics } from "../studentAttendanceHelper";
+import { getCandidateRolls, computeStudentMetrics, parseTimestampMillis } from "../studentAttendanceHelper";
 import "./StudentCourses.css";
 
 export default function StudentCourses() {
@@ -145,9 +145,12 @@ export default function StudentCourses() {
     const metrics = useMemo(() => {
         return computeStudentMetrics(courses, sessions, records, {
             branch: studentDept,
-            semester: studentSemester
+            semester: studentSemester,
+            candidateRolls,
+            rollNo: activeRollNo,
+            email: user?.email
         });
-    }, [courses, sessions, records, studentDept, studentSemester]);
+    }, [courses, sessions, records, studentDept, studentSemester, candidateRolls, activeRollNo, user?.email]);
 
     // Unique departments & semesters for filters
     const departments = useMemo(() => {
@@ -643,40 +646,75 @@ export default function StudentCourses() {
                                 </div>
                             </div>
 
-                            {/* Student's recent attendance logs for this course */}
+                            {/* Conducted Class Sessions & Attendance History */}
                             <div className="sc-modal-section">
                                 <h4 className="sc-section-title">
-                                    Attendance Logs ({selectedCourseModal.history?.length || 0})
+                                    Conducted Sessions & Class Log ({selectedCourseModal.sessions?.length || selectedCourseModal.totalConducted || 0})
                                 </h4>
-                                {(!selectedCourseModal.history || selectedCourseModal.history.length === 0) ? (
-                                    <div className="sc-no-records-box">
-                                        <FaCalendarCheck />
-                                        <p>No individual attendance entries logged yet for this subject.</p>
-                                    </div>
+                                {(!selectedCourseModal.sessions || selectedCourseModal.sessions.length === 0) ? (
+                                    (!selectedCourseModal.history || selectedCourseModal.history.length === 0) ? (
+                                        <div className="sc-no-records-box">
+                                            <FaCalendarCheck />
+                                            <p>No class sessions have been conducted for this course yet.</p>
+                                        </div>
+                                    ) : (
+                                        <div className="sc-modal-logs-list">
+                                            {selectedCourseModal.history.map((record, idx) => {
+                                                const millis = parseTimestampMillis(record.submittedAt);
+                                                const timeStr = millis
+                                                    ? new Date(millis).toLocaleString(undefined, {
+                                                        dateStyle: "medium",
+                                                        timeStyle: "short"
+                                                    })
+                                                    : "Recorded";
+
+                                                return (
+                                                    <div key={record.id || idx} className="sc-log-row">
+                                                        <div className="sc-log-icon">
+                                                            <FaCheckCircle />
+                                                        </div>
+                                                        <div className="sc-log-info">
+                                                            <span className="sc-log-title">
+                                                                {record.classCode || selectedCourseModal.courseCode} — Present
+                                                            </span>
+                                                            <span className="sc-log-sub">
+                                                                <FaClock /> {timeStr} • Room {record.roomNo || selectedCourseModal.defaultRoom || "N/A"}
+                                                            </span>
+                                                        </div>
+                                                        <span className="sc-log-badge">Verified</span>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    )
                                 ) : (
                                     <div className="sc-modal-logs-list">
-                                        {selectedCourseModal.history.map((record, idx) => {
-                                            const timeStr = record.submittedAt
-                                                ? new Date(record.submittedAt).toLocaleString(undefined, {
+                                        {selectedCourseModal.sessions.map((sess, idx) => {
+                                            const millis = parseTimestampMillis(sess.submittedAt || sess.createdAt);
+                                            const timeStr = millis
+                                                ? new Date(millis).toLocaleString(undefined, {
                                                     dateStyle: "medium",
                                                     timeStyle: "short"
                                                 })
-                                                : "Recorded";
+                                                : "Class Session";
 
                                             return (
-                                                <div key={record.id || idx} className="sc-log-row">
-                                                    <div className="sc-log-icon">
-                                                        <FaCheckCircle />
+                                                <div key={sess.id || idx} className={`sc-log-row ${sess.isPresent ? "present" : "missed"}`}>
+                                                    <div className={`sc-log-icon ${sess.isPresent ? "present-icon" : "missed-icon"}`}>
+                                                        {sess.isPresent ? <FaCheckCircle /> : <FaTimes />}
                                                     </div>
                                                     <div className="sc-log-info">
                                                         <span className="sc-log-title">
-                                                            {record.classCode || selectedCourseModal.courseCode} — Present
+                                                            {sess.topic || sess.courseCode || selectedCourseModal.courseCode} — {sess.isPresent ? "Attended" : "Missed"}
                                                         </span>
                                                         <span className="sc-log-sub">
-                                                            <FaClock /> {timeStr} • Room {record.roomNo || selectedCourseModal.defaultRoom || "N/A"}
+                                                            <FaClock /> {timeStr} • Room {sess.roomNo || selectedCourseModal.defaultRoom || "N/A"}
+                                                            {sess.lecturerName && ` • By ${sess.lecturerName}`}
                                                         </span>
                                                     </div>
-                                                    <span className="sc-log-badge">Verified</span>
+                                                    <span className={`sc-log-badge ${sess.isPresent ? "badge-present" : "badge-missed"}`}>
+                                                        {sess.isPresent ? (sess.faceVerified ? "Face Verified" : "QR Verified") : "Absent"}
+                                                    </span>
                                                 </div>
                                             );
                                         })}

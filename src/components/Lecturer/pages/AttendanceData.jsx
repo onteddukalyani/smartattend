@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { collection, getDocs, query, where } from "firebase/firestore";
+import { collection, onSnapshot } from "firebase/firestore";
 import { db } from "../../../firebase";
 import { useAuth } from "../../authcontext";
 import './AttendanceData.css'
@@ -29,61 +29,115 @@ function AttendanceData() {
     const { sortedItems: sortedRecords, sortConfig, requestSort } = useTableSort(records, "rollNo", "asc");
 
     useEffect(() => {
-        const getAttendance = async () => {
-            if (!user) return;
-            try {
-                const userEmail = (user?.email || "").toLowerCase().trim();
-                const userPrefix = userEmail ? userEmail.split("@")[0] : "";
-                const userUid = user?.uid || "";
+        if (!user) {
+            setLoading(false);
+            return;
+        }
 
-                const [recordsSnapshot, sessionsSnapshot] = await Promise.all([
-                    getDocs(collection(db, "attendance_records")),
-                    getDocs(collection(db, "attendance_sessions"))
-                ]);
+        const userEmail = (user?.email || "").toLowerCase().trim();
+        const userPrefix = userEmail ? userEmail.split("@")[0] : "";
+        const userUid = user?.uid || "";
 
-                const isMyData = (data) => {
-                    const ownerId = String(data.ownerId || "").toLowerCase().trim();
-                    const ownerEmail = String(data.ownerEmail || data.lecturerEmail || "").toLowerCase().trim();
-                    if (userUid && (ownerId === userUid.toLowerCase() || ownerEmail === userUid.toLowerCase())) return true;
-                    if (userEmail && (ownerEmail === userEmail || ownerId === userEmail)) return true;
-                    if (userPrefix && userPrefix.length >= 3 && (ownerId === userPrefix || ownerEmail === `${userPrefix}@iiitdwd.ac.in` || ownerEmail === `${userPrefix}@gmail.com`)) return true;
-                    return false;
-                };
-
-                const mySessionsMap = new Map();
-                sessionsSnapshot.docs.forEach((sessionDoc) => {
-                    const data = sessionDoc.data();
-                    if (isMyData(data)) {
-                        mySessionsMap.set(sessionDoc.id, { id: sessionDoc.id, ...data });
-                    }
-                });
-
-                const data = recordsSnapshot.docs
-                    .filter((recordDoc) => {
-                        const rec = recordDoc.data();
-                        return isMyData(rec) || mySessionsMap.has(rec.sessionId);
-                    })
-                    .map((recordDoc) => ({
-                        id: recordDoc.id,
-                        ...recordDoc.data(),
-                        session: mySessionsMap.get(recordDoc.data().sessionId) || { classCode: recordDoc.data().classCode, roomNo: recordDoc.data().roomNo }
-                    })).sort((a, b) => {
-                        const rollA = a.rollNo || "";
-                        const rollB = b.rollNo || "";
-                        return rollA.localeCompare(rollB, undefined, { numeric: true, sensitivity: 'base' });
-                    });
-
-                setRecords(data);
-
-            } catch (error) {
-                console.error("Error getting attendance:", error);
-            } finally {
-                setLoading(false);
-            }
+        const isMyData = (data) => {
+            if (isAdmin) return true;
+            const ownerId = String(data.ownerId || "").toLowerCase().trim();
+            const ownerEmail = String(data.ownerEmail || data.lecturerEmail || "").toLowerCase().trim();
+            if (userUid && (ownerId === userUid.toLowerCase() || ownerEmail === userUid.toLowerCase())) return true;
+            if (userEmail && (ownerEmail === userEmail || ownerId === userEmail)) return true;
+            if (userPrefix && userPrefix.length >= 3 && (ownerId === userPrefix || ownerEmail === `${userPrefix}@iiitdwd.ac.in` || ownerEmail === `${userPrefix}@gmail.com`)) return true;
+            return false;
         };
 
-        getAttendance();
-    }, [user]);
+        let currentRecordsDocs = [];
+        let currentSessionsDocs = [];
+
+        const processAttendance = () => {
+            const mySessionsMap = new Map();
+            currentSessionsDocs.forEach((sessionDoc) => {
+                const data = sessionDoc.data();
+                if (isMyData(data)) {
+                    mySessionsMap.set(sessionDoc.id, { id: sessionDoc.id, ...data });
+                }
+            });
+
+            const recordsMap = new Map();
+
+            // 1. Process explicit attendance_records
+            currentRecordsDocs.forEach((recordDoc) => {
+                const rec = recordDoc.data();
+                if (isAdmin || isMyData(rec) || mySessionsMap.has(rec.sessionId)) {
+                    const recId = recordDoc.id;
+                    const sessionData = mySessionsMap.get(rec.sessionId) || { 
+                        classCode: rec.classCode, 
+                        roomNo: rec.roomNo,
+                        department: rec.department
+                    };
+                    recordsMap.set(recId, {
+                        id: recId,
+                        ...rec,
+                        session: sessionData
+                    });
+                }
+            });
+
+            // 2. Process embedded attendees in sessions
+            mySessionsMap.forEach((session, sId) => {
+                if (Array.isArray(session.attendees)) {
+                    session.attendees.forEach((att, idx) => {
+                        const roll = att.rollNo || att.rollNumber || (typeof att === 'string' ? att : null);
+                        const compositeId = `${sId}_${roll || idx}`;
+                        if (roll && !recordsMap.has(compositeId)) {
+                            recordsMap.set(compositeId, {
+                                id: compositeId,
+                                sessionId: sId,
+                                rollNo: roll,
+                                fullName: att.name || att.fullName || att.studentName || "Student",
+                                studentEmail: att.email || att.studentEmail || "",
+                                submittedAt: att.submittedAt || att.timestamp || session.createdAt || Date.now(),
+                                status: att.status || "Present",
+                                session: {
+                                    id: sId,
+                                    classCode: session.classCode,
+                                    roomNo: session.roomNo,
+                                    department: session.department
+                                }
+                            });
+                        }
+                    });
+                }
+            });
+
+            const data = Array.from(recordsMap.values()).sort((a, b) => {
+                const rollA = a.rollNo || "";
+                const rollB = b.rollNo || "";
+                return rollA.localeCompare(rollB, undefined, { numeric: true, sensitivity: 'base' });
+            });
+
+            setRecords(data);
+            setLoading(false);
+        };
+
+        const unsubRecords = onSnapshot(collection(db, "attendance_records"), (snapshot) => {
+            currentRecordsDocs = snapshot.docs;
+            processAttendance();
+        }, (err) => {
+            console.error("Error subscribing to attendance_records:", err);
+            setLoading(false);
+        });
+
+        const unsubSessions = onSnapshot(collection(db, "attendance_sessions"), (snapshot) => {
+            currentSessionsDocs = snapshot.docs;
+            processAttendance();
+        }, (err) => {
+            console.error("Error subscribing to attendance_sessions:", err);
+            setLoading(false);
+        });
+
+        return () => {
+            unsubRecords();
+            unsubSessions();
+        };
+    }, [user, isAdmin]);
 
     if (loading) {
         return <p>Loading attendance...</p>;

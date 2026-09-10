@@ -43,10 +43,10 @@
     --btn-secondary-border: var(--border);
     --btn-secondary-hover-bg: #eef2f6;
 
-    --btn-success-bg: linear-gradient(135deg, #10b981, #059669);
+    --btn-success-bg: linear-gradient(135deg, #6366f1, #4f46e5);
     --btn-success-text: #ffffff;
-    --btn-success-hover: linear-gradient(135deg, #059669, #047857);
-    --btn-success-shadow: 0 4px 14px rgba(16, 185, 129, 0.24);
+    --btn-success-hover: linear-gradient(135deg, #4f46e5, #4338ca);
+    --btn-success-shadow: 0 4px 14px rgba(99, 102, 241, 0.28);
 
     --btn-danger-bg: #fee2e2;
     --btn-danger-text: #dc2626;
@@ -90,10 +90,10 @@
     --btn-secondary-border: #dbe3ee;
     --btn-secondary-hover-bg: #f1f5f9;
 
-    --btn-success-bg: linear-gradient(135deg, #10b981, #059669);
+    --btn-success-bg: linear-gradient(135deg, #6366f1, #4f46e5);
     --btn-success-text: #ffffff;
-    --btn-success-hover: linear-gradient(135deg, #059669, #047857);
-    --btn-success-shadow: 0 4px 14px rgba(16, 185, 129, 0.24);
+    --btn-success-hover: linear-gradient(135deg, #4f46e5, #4338ca);
+    --btn-success-shadow: 0 4px 14px rgba(99, 102, 241, 0.28);
 
     --btn-danger-bg: #fee2e2;
     --btn-danger-text: #dc2626;
@@ -141,10 +141,10 @@
     --btn-secondary-border: #34465f;
     --btn-secondary-hover-bg: #22344e;
 
-    --btn-success-bg: linear-gradient(135deg, #10b981, #059669);
+    --btn-success-bg: linear-gradient(135deg, #6366f1, #4f46e5);
     --btn-success-text: #ffffff;
-    --btn-success-hover: linear-gradient(135deg, #34d399, #10b981);
-    --btn-success-shadow: 0 4px 18px rgba(16, 185, 129, 0.35);
+    --btn-success-hover: linear-gradient(135deg, #818cf8, #6366f1);
+    --btn-success-shadow: 0 4px 18px rgba(99, 102, 241, 0.45);
 
     --btn-danger-bg: rgba(239, 68, 68, 0.16);
     --btn-danger-text: #f87171;

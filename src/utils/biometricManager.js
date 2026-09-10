@@ -5,12 +5,13 @@ import {
   query,
   where,
   setDoc,
+  deleteDoc,
   deleteField
 } from "firebase/firestore";
 import { db } from "../firebase";
 
 /**
- * Completely removes facial biometric vectors and all avatar/enrolled photos for a student
+ * Completely and permanently removes facial biometric vectors and all avatar/enrolled photos for a student
  * across all Firestore collections (students, users, authorizedUsers) and all possible document IDs.
  * 
  * @param {Object|string} studentOrRoll - Student object or roll number string
@@ -26,9 +27,16 @@ export async function removeStudentFaceAndBiometrics(studentOrRoll) {
     const studentId = student.id ? String(student.id).trim() : "";
     const userDocId = student.userDocId ? String(student.userDocId).trim() : "";
 
-    // Comprehensive payload that deletes all biometric & photo fields in Firestore
+    // Comprehensive payload that permanently deletes all biometric & photo fields in Firestore
     const resetPayload = {
       faceDescriptor: deleteField(),
+      faceDescriptors: deleteField(),
+      descriptor: deleteField(),
+      descriptors: deleteField(),
+      faceVector: deleteField(),
+      faceVectors: deleteField(),
+      embedding: deleteField(),
+      embeddings: deleteField(),
       photoURL: deleteField(),
       image: deleteField(),
       photo: deleteField(),
@@ -39,10 +47,13 @@ export async function removeStudentFaceAndBiometrics(studentOrRoll) {
       facePhoto: deleteField(),
       enrolledFace: deleteField(),
       faceData: deleteField(),
+      faceEnrolled: deleteField(),
+      isFaceRegistered: deleteField(),
+      faceEnrolledAt: deleteField(),
+      enrolledAt: deleteField(),
       faceRegistered: false,
       biometricEnrolled: false,
       hasFaceRegistered: false,
-      faceEnrolledAt: null,
       faceRemovedAt: Date.now()
     };
 
@@ -50,37 +61,56 @@ export async function removeStudentFaceAndBiometrics(studentOrRoll) {
     const studentDocKeys = new Set();
     const userDocKeys = new Set();
     const authUserDocKeys = new Set();
+    const legacyDocKeysToDelete = [];
 
     if (cleanRoll) {
       studentDocKeys.add(cleanRoll);
       userDocKeys.add(cleanRoll);
       authUserDocKeys.add(cleanRoll);
+      if (cleanRoll.toLowerCase() !== cleanRoll) {
+        studentDocKeys.add(cleanRoll.toLowerCase());
+        userDocKeys.add(cleanRoll.toLowerCase());
+        authUserDocKeys.add(cleanRoll.toLowerCase());
+      }
     }
     if (studentId) {
       studentDocKeys.add(studentId);
       userDocKeys.add(studentId);
+      authUserDocKeys.add(studentId);
+      if (studentId.includes("@")) {
+        legacyDocKeysToDelete.push({ coll: "students", id: studentId });
+        legacyDocKeysToDelete.push({ coll: "users", id: studentId });
+      }
     }
     if (userDocId) {
       userDocKeys.add(userDocId);
       studentDocKeys.add(userDocId);
+      authUserDocKeys.add(userDocId);
     }
     if (cleanEmail) {
       authUserDocKeys.add(cleanEmail);
       studentDocKeys.add(cleanEmail);
       userDocKeys.add(cleanEmail);
+      legacyDocKeysToDelete.push({ coll: "students", id: cleanEmail });
+      legacyDocKeysToDelete.push({ coll: "users", id: cleanEmail });
     }
-    if (prefix) {
+    if (prefix && prefix !== cleanRoll.toLowerCase()) {
       studentDocKeys.add(prefix);
       userDocKeys.add(prefix);
       authUserDocKeys.add(prefix);
+      legacyDocKeysToDelete.push({ coll: "students", id: prefix });
+      legacyDocKeysToDelete.push({ coll: "users", id: prefix });
     }
 
     // Also query collections by rollNo and email to catch any docs keyed with random IDs
     const queryPromises = [];
     if (cleanRoll) {
       queryPromises.push(getDocs(query(collection(db, "students"), where("rollNo", "==", cleanRoll))).catch(() => ({ docs: [] })));
+      queryPromises.push(getDocs(query(collection(db, "students"), where("rollNo", "==", cleanRoll.toLowerCase()))).catch(() => ({ docs: [] })));
       queryPromises.push(getDocs(query(collection(db, "users"), where("rollNo", "==", cleanRoll))).catch(() => ({ docs: [] })));
+      queryPromises.push(getDocs(query(collection(db, "users"), where("rollNo", "==", cleanRoll.toLowerCase()))).catch(() => ({ docs: [] })));
       queryPromises.push(getDocs(query(collection(db, "authorizedUsers"), where("rollNo", "==", cleanRoll))).catch(() => ({ docs: [] })));
+      queryPromises.push(getDocs(query(collection(db, "authorizedUsers"), where("rollNo", "==", cleanRoll.toLowerCase()))).catch(() => ({ docs: [] })));
     }
     if (cleanEmail) {
       queryPromises.push(getDocs(query(collection(db, "students"), where("email", "==", cleanEmail))).catch(() => ({ docs: [] })));
@@ -113,6 +143,13 @@ export async function removeStudentFaceAndBiometrics(studentOrRoll) {
     // Write reset payload to all identified authorizedUsers docs
     authUserDocKeys.forEach((k) => {
       if (k) updatePromises.push(setDoc(doc(db, "authorizedUsers", k), resetPayload, { merge: true }).catch(() => { }));
+    });
+
+    // Also delete any redundant email-keyed duplicate docs in students/users collections
+    legacyDocKeysToDelete.forEach(({ coll, id }) => {
+      if (id && id !== cleanRoll) {
+        updatePromises.push(deleteDoc(doc(db, coll, id)).catch(() => { }));
+      }
     });
 
     await Promise.all(updatePromises);

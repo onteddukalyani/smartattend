@@ -8,6 +8,20 @@ export function normalizeCode(str) {
     return String(str).toUpperCase().replace(/[^A-Z0-9]/g, "").trim();
 }
 
+export function parseTimestampMillis(ts) {
+    if (!ts) return 0;
+    if (typeof ts === "number") return ts;
+    if (typeof ts === "string") {
+        const parsed = Date.parse(ts);
+        return isNaN(parsed) ? 0 : parsed;
+    }
+    if (typeof ts.toMillis === "function") return ts.toMillis();
+    if (typeof ts.toDate === "function") return ts.toDate().getTime();
+    if (typeof ts.seconds === "number") return ts.seconds * 1000 + (ts.nanoseconds ? Math.floor(ts.nanoseconds / 1000000) : 0);
+    if (ts._seconds) return ts._seconds * 1000;
+    return 0;
+}
+
 export function getCandidateRolls(user, profile, fetchedStudentData = null) {
     const set = new Set();
 
@@ -66,24 +80,62 @@ export function computeStudentMetrics(coursesDocs = [], sessionsDocs = [], recor
         if (id) sessionMap.set(id, s);
     });
 
-    // 2. Enrich and sort attendance records
-    const enrichedRecords = recordsDocs.map((rec) => {
+    const candidateSet = new Set((studentProfile.candidateRolls || []).map((r) => String(r).toUpperCase().trim()));
+    if (studentProfile.rollNo) candidateSet.add(String(studentProfile.rollNo).toUpperCase().trim());
+    if (studentProfile.email) candidateSet.add(String(studentProfile.email).split("@")[0].toUpperCase().trim());
+
+    // 2. Enrich and sort attendance records (combining attendance_records AND session.attendees array)
+    const recordsMap = new Map();
+
+    recordsDocs.forEach((rec) => {
         const session = sessionMap.get(rec.sessionId) || {};
         const rawCourse = rec.courseCode || session.courseCode || rec.classCode || session.classCode || "General";
         const cleanCourse = (rawCourse === "N/A" || !rawCourse) ? "General" : rawCourse.trim();
+        const key = rec.id || `${rec.sessionId}_${rec.rollNo || ""}`;
 
-        return {
+        recordsMap.set(key, {
             ...rec,
             courseCode: cleanCourse,
             classCode: rec.classCode || session.classCode || cleanCourse,
             roomNo: rec.roomNo || session.roomNo || "N/A",
             lecturerName: rec.lecturerName || session.lecturerName || "Faculty",
             submittedAt: rec.submittedAt || session.createdAt || Date.now()
-        };
+        });
     });
 
-    // Sort descending by submission time
-    enrichedRecords.sort((a, b) => (b.submittedAt || 0) - (a.submittedAt || 0));
+    // Also ingest embedded attendees on session docs matching this student
+    if (candidateSet.size > 0) {
+        sessionsDocs.forEach((s) => {
+            if (Array.isArray(s.attendees)) {
+                s.attendees.forEach((att) => {
+                    const roll = (att.rollNo || att.roll || att.studentId || "").toUpperCase().trim();
+                    const email = (att.studentEmail || att.email || "").split("@")[0].toUpperCase().trim();
+                    if (roll && (candidateSet.has(roll) || (email && candidateSet.has(email)))) {
+                        const key = att.id || `${s.id}_${roll}`;
+                        if (!recordsMap.has(key)) {
+                            const rawCourse = s.courseCode || s.classCode || "General";
+                            const cleanCourse = (rawCourse === "N/A" || !rawCourse) ? "General" : rawCourse.trim();
+                            recordsMap.set(key, {
+                                id: key,
+                                sessionId: s.id,
+                                rollNo: roll,
+                                courseCode: cleanCourse,
+                                classCode: s.classCode || cleanCourse,
+                                roomNo: s.roomNo || "N/A",
+                                lecturerName: s.lecturerName || "Faculty",
+                                submittedAt: att.submittedAt || att.timestamp || s.createdAt || Date.now()
+                            });
+                        }
+                    }
+                });
+            }
+        });
+    }
+
+    const enrichedRecords = Array.from(recordsMap.values());
+
+    // Sort descending by submission time safely using parseTimestampMillis
+    enrichedRecords.sort((a, b) => parseTimestampMillis(b.submittedAt) - parseTimestampMillis(a.submittedAt));
 
     // 3. Build comprehensive course catalog
     // Start with official courses collection
@@ -216,6 +268,26 @@ export function computeStudentMetrics(coursesDocs = [], sessionsDocs = [], recor
             }
         }
 
+        // Build detailed conducted sessions list with student's Present / Absent status
+        const attendedSessionIds = new Set(matchingRecords.map((r) => String(r.sessionId || "").trim().toUpperCase()).filter(Boolean));
+        const detailedSessions = matchingSessions.map((s) => {
+            const sid = String(s.id || "").trim().toUpperCase();
+            const myRecord = matchingRecords.find((r) => String(r.sessionId || "").trim().toUpperCase() === sid || (r.id && String(r.id).toUpperCase().startsWith(`${sid}_`)));
+            const isPresent = Boolean(myRecord) || attendedSessionIds.has(sid);
+
+            return {
+                id: s.id,
+                courseCode: s.courseCode || course.courseCode,
+                topic: s.topic || s.courseName || course.courseName,
+                roomNo: s.roomNo || course.defaultRoom || "Main Hall",
+                lecturerName: s.lecturerName || course.lecturerName || "Faculty",
+                createdAt: s.createdAt || s.timestamp || Date.now(),
+                isPresent,
+                submittedAt: myRecord ? (myRecord.submittedAt || s.createdAt) : null,
+                faceVerified: myRecord?.faceVerified ?? true
+            };
+        }).sort((a, b) => parseTimestampMillis(b.createdAt) - parseTimestampMillis(a.createdAt));
+
         return {
             ...course,
             totalConducted,
@@ -224,7 +296,8 @@ export function computeStudentMetrics(coursesDocs = [], sessionsDocs = [], recor
             status,
             leavesAvailable,
             classesNeeded,
-            history: matchingRecords
+            history: matchingRecords,
+            sessions: detailedSessions
         };
     });
 

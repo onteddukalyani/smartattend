@@ -260,20 +260,20 @@ function QrScannerApp() {
                         width: '100%',
                         padding: '13px 20px',
                         borderRadius: '14px',
-                        background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                        background: 'linear-gradient(180deg, var(--accent, #6366f1), var(--accent-strong, #4338ca))',
                         color: '#ffffff',
                         border: 'none',
                         fontWeight: 800,
                         fontSize: '0.98rem',
                         cursor: 'pointer',
-                        boxShadow: '0 4px 16px rgba(16, 185, 129, 0.35)',
+                        boxShadow: '0 4px 16px #6366f1',
                         transition: 'all 0.2s ease'
                     }}
                 >
                     {scanningFile ? (
                         <><FaSpinner className="fa-spin" /> Decoding QR Code...</>
                     ) : (
-                        <><FaCamera /> 📸 Scan QR via Device Camera</>
+                        <><FaCamera /> Scan QR via Device Camera</>
                     )}
                 </button>
             </div>
@@ -317,10 +317,10 @@ function QrScannerApp() {
                         color: '#f8fafc',
                         zIndex: 10
                     }}>
-                        <FaCamera style={{ fontSize: '2.4rem', color: '#10b981', marginBottom: '10px' }} />
+                        <FaCamera style={{ fontSize: '2.4rem', color: '#6366f1', marginBottom: '10px' }} />
                         <h4 style={{ margin: '0 0 6px', fontSize: '1rem', fontWeight: 800 }}>Tap Above to Scan</h4>
                         <p style={{ margin: '0 0 14px', fontSize: '0.82rem', color: '#94a3b8', lineHeight: 1.4, maxWidth: '300px' }}>
-                            Live WebRTC video streams require HTTPS on mobile IP. Click the green <strong>"📸 Scan QR via Device Camera"</strong> button above to scan instantly with your camera!
+                            Live WebRTC video streams require HTTPS on mobile IP. Click the <strong>"Scan QR via Device Camera"</strong> button above to scan instantly with your camera!
                         </p>
                         <button
                             type="button"
@@ -331,7 +331,7 @@ function QrScannerApp() {
                                 gap: '6px',
                                 padding: '10px 20px',
                                 borderRadius: '10px',
-                                background: '#10b981',
+                                background: '#6366f1',
                                 color: '#ffffff',
                                 border: 'none',
                                 fontWeight: 700,
@@ -346,43 +346,47 @@ function QrScannerApp() {
             </div>
 
             {/* Error Message */}
-            {cameraError && !permissionDenied && (
-                <div style={{
-                    marginTop: '12px',
-                    padding: '10px 14px',
-                    borderRadius: '10px',
-                    background: 'rgba(239, 68, 68, 0.1)',
-                    border: '1px solid rgba(239, 68, 68, 0.25)',
-                    color: '#ef4444',
-                    fontSize: '0.84rem',
-                    fontWeight: 600,
-                    textAlign: 'left'
-                }}>
-                    {cameraError}
-                </div>
-            )}
+            {
+                cameraError && !permissionDenied && (
+                    <div style={{
+                        marginTop: '12px',
+                        padding: '10px 14px',
+                        borderRadius: '10px',
+                        background: 'rgba(239, 68, 68, 0.1)',
+                        border: '1px solid rgba(239, 68, 68, 0.25)',
+                        color: '#ef4444',
+                        fontSize: '0.84rem',
+                        fontWeight: 600,
+                        textAlign: 'left'
+                    }}>
+                        {cameraError}
+                    </div>
+                )
+            }
 
             {/* Success Navigating Alert */}
-            {isNavigating && (
-                <div style={{
-                    marginTop: '18px',
-                    padding: '14px 18px',
-                    borderRadius: '12px',
-                    background: '#dcfce7',
-                    color: '#15803d',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '8px',
-                    fontWeight: 800,
-                    fontSize: '0.98rem',
-                    boxShadow: '0 4px 14px rgba(22, 163, 74, 0.15)'
-                }}>
-                    <FaCheckCircle />
-                    <span>Session QR Code Verified! Opening attendance form...</span>
-                </div>
-            )}
-        </div>
+            {
+                isNavigating && (
+                    <div style={{
+                        marginTop: '18px',
+                        padding: '14px 18px',
+                        borderRadius: '12px',
+                        background: '#dcfce7',
+                        color: '#15803d',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '8px',
+                        fontWeight: 800,
+                        fontSize: '0.98rem',
+                        boxShadow: '0 4px 14px rgba(22, 163, 74, 0.15)'
+                    }}>
+                        <FaCheckCircle />
+                        <span>Session QR Code Verified! Opening attendance form...</span>
+                    </div>
+                )
+            }
+        </div >
     );
 }
 

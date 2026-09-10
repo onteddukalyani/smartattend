@@ -9,7 +9,7 @@ import { LuClipboardList } from "react-icons/lu";
 import { SlCalender } from "react-icons/sl";
 import { FaChalkboardTeacher, FaUniversity, FaEnvelope } from "react-icons/fa";
 import { Link } from "react-router-dom";
-import { collection, getDocs } from "firebase/firestore";
+import { collection, getDocs, onSnapshot } from "firebase/firestore";
 import { db } from "../../../firebase";
 import { useAuth } from "../../authcontext";
 
@@ -29,51 +29,72 @@ function Dashboard() {
     const avatarSrc = profile?.photoURL || profile?.image || profile?.photo || user?.photoURL || user?.photoUrl;
 
     useEffect(() => {
-        const getDashboardCounts = async () => {
-            if (!user) return;
+        if (!user) return;
+
+        const userEmail = (user?.email || "").toLowerCase().trim();
+        const userPrefix = userEmail ? userEmail.split("@")[0] : "";
+        const userUid = user?.uid || "";
+        const isAdmin = profile?.role === "admin" || profile?.role === "administrator" || profile?.role === "superadmin";
+
+        const isMySession = (data) => {
+            if (isAdmin) return true;
+            const ownerId = String(data.ownerId || "").toLowerCase().trim();
+            const ownerEmail = String(data.ownerEmail || data.lecturerEmail || "").toLowerCase().trim();
+            if (userUid && (ownerId === userUid.toLowerCase() || ownerEmail === userUid.toLowerCase())) return true;
+            if (userEmail && (ownerEmail === userEmail || ownerId === userEmail)) return true;
+            if (userPrefix && userPrefix.length >= 3 && (ownerId === userPrefix || ownerEmail === `${userPrefix}@iiitdwd.ac.in` || ownerEmail === `${userPrefix}@gmail.com`)) return true;
+            return false;
+        };
+
+        let sessionsDocs = [];
+        let recordsDocs = [];
+
+        const recomputeLecturerDashboard = () => {
             try {
-                const userEmail = (user?.email || "").toLowerCase().trim();
-                const userPrefix = userEmail ? userEmail.split("@")[0] : "";
-                const userUid = user?.uid || "";
-
-                const [sessionsSnapshot, recordsSnapshot] = await Promise.all([
-                    getDocs(collection(db, "attendance_sessions")),
-                    getDocs(collection(db, "attendance_records"))
-                ]);
-
-                const isMySession = (data) => {
-                    const ownerId = String(data.ownerId || "").toLowerCase().trim();
-                    const ownerEmail = String(data.ownerEmail || data.lecturerEmail || "").toLowerCase().trim();
-                    if (userUid && (ownerId === userUid.toLowerCase() || ownerEmail === userUid.toLowerCase())) return true;
-                    if (userEmail && (ownerEmail === userEmail || ownerId === userEmail)) return true;
-                    if (userPrefix && userPrefix.length >= 3 && (ownerId === userPrefix || ownerEmail === `${userPrefix}@iiitdwd.ac.in` || ownerEmail === `${userPrefix}@gmail.com`)) return true;
-                    return false;
-                };
-
-                const mySessions = sessionsSnapshot.docs
+                const mySessions = sessionsDocs
                     .map((sessionDoc) => ({
                         id: sessionDoc.id,
-                        ...sessionDoc.data()
+                        ...(typeof sessionDoc.data === "function" ? sessionDoc.data() : sessionDoc)
                     }))
                     .filter((s) => isMySession(s))
-                    .sort((firstSession, secondSession) => (secondSession.createdAt || 0) - (firstSession.createdAt || 0));
+                    .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
 
                 setRecentSessions(mySessions.slice(0, 3));
                 const now = Date.now();
                 const startOfToday = new Date();
                 startOfToday.setHours(0, 0, 0, 0);
+                const startOfTodayMs = startOfToday.getTime();
+
                 const studentRollNumbers = new Set();
                 let attendanceToday = 0;
 
-                recordsSnapshot.docs.forEach((recordDoc) => {
-                    const record = recordDoc.data();
-                    if (isMySession(record) || mySessions.some((s) => s.id === record.sessionId)) {
+                const mySessionIds = new Set(mySessions.map((s) => s.id));
+
+                recordsDocs.forEach((recordDoc) => {
+                    const record = typeof recordDoc.data === "function" ? recordDoc.data() : recordDoc;
+                    if (isMySession(record) || mySessionIds.has(record.sessionId)) {
                         if (record.rollNo) {
-                            studentRollNumbers.add(record.rollNo);
+                            studentRollNumbers.add(String(record.rollNo).toUpperCase().trim());
                         }
-                        if (record.submittedAt >= startOfToday.getTime()) {
+                        if ((record.submittedAt || 0) >= startOfTodayMs) {
                             attendanceToday += 1;
                         }
+                    }
+                });
+
+                // Also count embedded session attendees
+                mySessions.forEach((sess) => {
+                    if (Array.isArray(sess.attendees)) {
+                        sess.attendees.forEach((att) => {
+                            const roll = att.rollNo || att.rollNumber || (typeof att === "string" ? att : null);
+                            if (roll) {
+                                studentRollNumbers.add(String(roll).toUpperCase().trim());
+                            }
+                            const t = att.submittedAt || att.timestamp || sess.createdAt || 0;
+                            if (t >= startOfTodayMs) {
+                                attendanceToday += 1;
+                            }
+                        });
                     }
                 });
 
@@ -83,13 +104,26 @@ function Dashboard() {
                     students: studentRollNumbers.size,
                     attendanceToday
                 });
-            } catch (error) {
-                console.error("Error getting dashboard counts:", error);
+            } catch (err) {
+                console.error("Error computing lecturer dashboard counts:", err);
             }
         };
 
-        getDashboardCounts();
-    }, [user]);
+        const unsubSessions = onSnapshot(collection(db, "attendance_sessions"), (snap) => {
+            sessionsDocs = snap.docs;
+            recomputeLecturerDashboard();
+        }, (e) => console.warn("sessions snapshot error:", e));
+
+        const unsubRecords = onSnapshot(collection(db, "attendance_records"), (snap) => {
+            recordsDocs = snap.docs;
+            recomputeLecturerDashboard();
+        }, (e) => console.warn("records snapshot error:", e));
+
+        return () => {
+            unsubSessions();
+            unsubRecords();
+        };
+    }, [user, profile]);
 
     const dashcards = [
         { icon: <IoAddCircleOutline />, name: "Take Attendance", value: "Start", path: "/lecturer/lecturerpage", description: "New class session" },

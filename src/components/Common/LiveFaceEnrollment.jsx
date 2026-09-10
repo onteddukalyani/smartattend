@@ -15,70 +15,24 @@ import {
     FaInfoCircle,
     FaEye,
     FaEyeSlash,
-    FaUserTimes
+    FaUserTimes,
+    FaCloudUploadAlt,
+    FaImage,
+    FaSync
 } from "react-icons/fa";
 import { checkDuplicateFaceBiometrics } from "../../utils/biometricManager";
+import {
+    LivenessEngine,
+    computeEAR,
+    computeHeadPose,
+    computeFacialRatios,
+    computeMotionVariance,
+    BLINK_CLOSED_THRESHOLD,
+    BLINK_OPEN_THRESHOLD
+} from "../../utils/livenessDetector";
 import "./LiveFaceEnrollment.css";
 
 const MODEL_CDN_URL = "https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/";
-const BLINK_CLOSED_THRESHOLD = 0.205; // EAR below this = eye closed
-const BLINK_OPEN_THRESHOLD = 0.245;   // EAR above this = eye open
-const STATIC_VARIANCE_THRESHOLD = 0.00010;
-
-// Helper to compute Euclidean distance between 2 landmark points
-const getDist = (p1, p2) => {
-    if (!p1 || !p2) return 0;
-    return Math.hypot(p1.x - p2.x, p1.y - p2.y);
-};
-
-// Compute Eye Aspect Ratio (EAR)
-const computeEAR = (eye) => {
-    if (!eye || eye.length < 6) return 0.3;
-    const v1 = getDist(eye[1], eye[5]);
-    const v2 = getDist(eye[2], eye[4]);
-    const h = getDist(eye[0], eye[3]);
-    if (h === 0) return 0.3;
-    return (v1 + v2) / (2.0 * h);
-};
-
-// Compute 5 normalized 3D facial geometric ratios
-const computeFacialRatios = (positions) => {
-    if (!positions || positions.length < 68) return [0, 0, 0, 0, 0];
-    const p36 = positions[36];
-    const p45 = positions[45];
-    const eyeSpan = getDist(p36, p45);
-    if (eyeSpan < 1) return [0, 0, 0, 0, 0];
-
-    const p30 = positions[30];
-    const p27 = positions[27];
-    const p48 = positions[48];
-    const p54 = positions[54];
-    const p8 = positions[8];
-
-    return [
-        getDist(p30, p36) / eyeSpan,
-        getDist(p30, p45) / eyeSpan,
-        getDist(p48, p54) / eyeSpan,
-        getDist(p30, p8) / eyeSpan,
-        getDist(p27, p30) / eyeSpan
-    ];
-};
-
-const computeVariance = (history) => {
-    if (!history || history.length < 8) return 0.001;
-    const n = history.length;
-    let totalVar = 0;
-    for (let dim = 0; dim < 5; dim++) {
-        let mean = 0;
-        for (let i = 0; i < n; i++) mean += history[i][dim];
-        mean /= n;
-        let v = 0;
-        for (let i = 0; i < n; i++) v += Math.pow(history[i][dim] - mean, 2);
-        v /= n;
-        totalVar += v;
-    }
-    return totalVar / 5;
-};
 
 export function LiveFaceEnrollment({
     onFaceEnrolled,
@@ -94,13 +48,8 @@ export function LiveFaceEnrollment({
     const animationRef = useRef(null);
     const fileInputRef = useRef(null);
 
-    // Liveness & Anti-spoofing tracking refs
-    const eyeStateRef = useRef("open");
-    const blinkCountRef = useRef(0);
-    const livenessConfirmedRef = useRef(false);
-    const ratioHistoryRef = useRef([]);
-    const staticFramesCountRef = useRef(0);
-    const spoofDetectedRef = useRef(false);
+    // Dynamic Anti-Spoofing & Liveness Engine Ref
+    const livenessEngineRef = useRef(null);
 
     const [cameraActive, setCameraActive] = useState(false);
     const [cameraLoading, setCameraLoading] = useState(false);
@@ -113,12 +62,38 @@ export function LiveFaceEnrollment({
     const [statusType, setStatusType] = useState("ready"); // "ready", "capturing", "success", "warning", "error"
     const [enrolledPhoto, setEnrolledPhoto] = useState(initialPhoto);
     const [capturedVector, setCapturedVector] = useState(null);
+    const [activeMode, setActiveMode] = useState("camera"); // "camera" or "upload"
+    const [isDragging, setIsDragging] = useState(false);
+    const [selectedFileName, setSelectedFileName] = useState("");
 
     // Liveness & Anti-Duplicate UI States
     const [blinkCount, setBlinkCount] = useState(0);
     const [livenessPassed, setLivenessPassed] = useState(false);
     const [isSpoof, setIsSpoof] = useState(false);
     const [duplicateError, setDuplicateError] = useState("");
+    const [livenessStep, setLivenessStep] = useState("ALIGN");
+    const [livenessProgress, setLivenessProgress] = useState(10);
+    const [challengeMessage, setChallengeMessage] = useState("");
+
+    // Initialize Liveness Engine
+    useEffect(() => {
+        livenessEngineRef.current = new LivenessEngine({
+            onStateChange: (state) => {
+                setLivenessStep(state.step);
+                setBlinkCount(state.blinkCount);
+                setLivenessPassed(state.livenessConfirmed);
+                setIsSpoof(state.spoofDetected);
+                setLivenessProgress(state.progress);
+                setChallengeMessage(state.message);
+                if (state.message) {
+                    setFaceQualityStatus(state.message);
+                }
+                if (state.statusType) {
+                    setStatusType(state.statusType);
+                }
+            }
+        });
+    }, []);
 
     // 1. Check Browser Permission and Secure Context State
     useEffect(() => {
@@ -327,63 +302,17 @@ export function LiveFaceEnrollment({
                         const positions = landmarks.positions;
                         const box = detection.detection.box;
 
-                        // Blink check via EAR
-                        const leftEye = positions.slice(36, 42);
-                        const rightEye = positions.slice(42, 48);
-                        const leftEAR = computeEAR(leftEye);
-                        const rightEAR = computeEAR(rightEye);
-                        const avgEAR = (leftEAR + rightEAR) / 2.0;
-
-                        if (avgEAR < BLINK_CLOSED_THRESHOLD) {
-                            eyeStateRef.current = "closed";
-                        } else if (avgEAR >= BLINK_OPEN_THRESHOLD) {
-                            if (eyeStateRef.current === "closed") {
-                                blinkCountRef.current += 1;
-                                livenessConfirmedRef.current = true;
-                                spoofDetectedRef.current = false;
-                                setBlinkCount(blinkCountRef.current);
-                                setLivenessPassed(true);
-                                setIsSpoof(false);
-                                setFaceQualityStatus("✅ Live human presence verified! Click 'Capture & Register' to enroll.");
-                            }
-                            eyeStateRef.current = "open";
+                        // Process through active 3D landmark Liveness & Anti-Spoof Engine
+                        if (livenessEngineRef.current) {
+                            livenessEngineRef.current.processFrame(detection);
                         }
 
-                        // Micro-motion tracking
-                        const currentRatios = computeFacialRatios(positions);
-                        ratioHistoryRef.current.push(currentRatios);
-                        if (ratioHistoryRef.current.length > 20) ratioHistoryRef.current.shift();
-
-                        const motionVar = computeVariance(ratioHistoryRef.current);
-                        if (motionVar > 0.00065 && ratioHistoryRef.current.length >= 10) {
-                            livenessConfirmedRef.current = true;
-                            spoofDetectedRef.current = false;
-                            setLivenessPassed(true);
-                            setIsSpoof(false);
-                        }
-
-                        if (
-                            blinkCountRef.current === 0 &&
-                            !livenessConfirmedRef.current &&
-                            motionVar < STATIC_VARIANCE_THRESHOLD &&
-                            ratioHistoryRef.current.length >= 12
-                        ) {
-                            staticFramesCountRef.current += 1;
-                            if (staticFramesCountRef.current >= 18) {
-                                spoofDetectedRef.current = true;
-                                livenessConfirmedRef.current = false;
-                                setIsSpoof(true);
-                                setLivenessPassed(false);
-                                setFaceQualityStatus("⚠️ Anti-Spoof Alert: Static Photo or Screen Detected! Live presence required.");
-                            }
-                        }
-
-                        // Render Canvas Reticle
+                        // Render Canvas Reticle HUD
                         if (ctx && canvas) {
                             const { x, y, width, height } = box;
                             const cornerLen = Math.min(width, height) * 0.22;
-                            ctx.lineWidth = 3;
-                            ctx.strokeStyle = spoofDetectedRef.current ? "#ef4444" : livenessConfirmedRef.current ? "#10b981" : "#6366f1";
+                            ctx.lineWidth = 3.5;
+                            ctx.strokeStyle = isSpoof ? "#ef4444" : livenessPassed ? "#10b981" : "#6366f1";
                             ctx.lineCap = "round";
 
                             // Corners
@@ -411,11 +340,13 @@ export function LiveFaceEnrollment({
                             ctx.lineTo(x + width, y + height - cornerLen);
                             ctx.stroke();
 
-                            // Eye dots
-                            ctx.fillStyle = livenessConfirmedRef.current ? "#10b981" : "#06b6d4";
+                            // Eye landmarks
+                            const leftEye = positions.slice(36, 42);
+                            const rightEye = positions.slice(42, 48);
+                            ctx.fillStyle = livenessPassed ? "#10b981" : "#06b6d4";
                             [...leftEye, ...rightEye].forEach((pt) => {
                                 ctx.beginPath();
-                                ctx.arc(pt.x, pt.y, 2, 0, 2 * Math.PI);
+                                ctx.arc(pt.x, pt.y, 2.5, 0, 2 * Math.PI);
                                 ctx.fill();
                             });
                         }
@@ -432,7 +363,7 @@ export function LiveFaceEnrollment({
             isRunning = false;
             if (animationRef.current) cancelAnimationFrame(animationRef.current);
         };
-    }, [cameraActive, modelsLoaded, enrolledPhoto]);
+    }, [cameraActive, modelsLoaded, enrolledPhoto, isSpoof, livenessPassed]);
 
     // 5. Capture Live Video Frames, Check Liveness & Duplicate Biometrics
     const handleCaptureFace = async () => {
@@ -440,8 +371,15 @@ export function LiveFaceEnrollment({
         setDuplicateError("");
 
         // Check if spoof detected
-        if (spoofDetectedRef.current) {
-            setFaceQualityStatus("⛔ Cannot enroll static photo or screen. Live biological face with eye blink required.");
+        if (isSpoof || (livenessEngineRef.current && livenessEngineRef.current.spoofDetected)) {
+            setFaceQualityStatus("⛔ Cannot enroll static photo or screen replay. Live biological face with eye blink & 3D head movement required.");
+            setStatusType("warning");
+            return;
+        }
+
+        // Verify that liveness passed
+        if (!livenessPassed && (!livenessEngineRef.current || !livenessEngineRef.current.livenessConfirmed)) {
+            setFaceQualityStatus("👁️ Please complete live verification (look straight, blink, and turn head slightly) before capturing.");
             setStatusType("warning");
             return;
         }
@@ -449,7 +387,7 @@ export function LiveFaceEnrollment({
         setCapturing(true);
         setCaptureStep(0);
         setStatusType("capturing");
-        setFaceQualityStatus("Scanning & extracting 128-dimensional biometric vectors (Hold still)...");
+        setFaceQualityStatus("Scanning & extracting 128-dimensional biometric vectors across live frames...");
 
         try {
             const capturedDescriptors = [];
@@ -474,7 +412,7 @@ export function LiveFaceEnrollment({
             }
 
             if (capturedDescriptors.length < 3) {
-                setFaceQualityStatus("❌ Face not clearly detected. Ensure good lighting and look directly into the camera.");
+                setFaceQualityStatus("❌ Face not clearly detected across frames. Ensure good lighting and look directly into the camera.");
                 setStatusType("warning");
                 setCapturing(false);
                 setCaptureStep(0);
@@ -482,7 +420,7 @@ export function LiveFaceEnrollment({
             }
 
             // Average the 128-dimensional vectors
-            const avgDescriptor = new Array(128).fill(0);
+            const avgDescriptor = new Array(128).fill(0);(128).fill(0);
             for (let i = 0; i < 128; i++) {
                 let sum = 0;
                 for (let j = 0; j < capturedDescriptors.length; j++) {
@@ -538,12 +476,17 @@ export function LiveFaceEnrollment({
         }
     };
 
-    // 6. Photo File Upload Handler with Duplicate Prevention
-    const handleNativePhotoCapture = async (e) => {
-        const file = e.target.files?.[0];
+    // 6. Photo File Upload & Processing Handler with Duplicate Prevention
+    const processPhotoFile = async (file) => {
         if (!file) return;
-        setDuplicateError("");
+        if (!file.type || !file.type.startsWith("image/")) {
+            setFaceQualityStatus("⚠️ Please upload a valid image file (PNG, JPG, JPEG, WEBP).");
+            setStatusType("warning");
+            return;
+        }
 
+        setSelectedFileName(file.name || "Uploaded Photo");
+        setDuplicateError("");
         setCapturing(true);
         setFaceQualityStatus("Extracting 128-D biometric vector from photo...");
         setStatusType("capturing");
@@ -585,7 +528,7 @@ export function LiveFaceEnrollment({
                             .withFaceDescriptor();
 
                         if (!detection) {
-                            setFaceQualityStatus("❌ No face detected in photo. Please choose a clear, well-lit photo looking directly at camera.");
+                            setFaceQualityStatus("❌ No clear face detected in photo. Please choose a well-lit photo looking directly at camera.");
                             setStatusType("warning");
                             setCapturing(false);
                             return;
@@ -656,10 +599,39 @@ export function LiveFaceEnrollment({
         }
     };
 
+    const handleNativePhotoCapture = (e) => {
+        const file = e.target.files?.[0];
+        if (file) processPhotoFile(file);
+    };
+
+    const handleDragOver = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsDragging(true);
+    };
+
+    const handleDragLeave = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsDragging(false);
+    };
+
+    const handleDrop = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsDragging(false);
+        const file = e.dataTransfer?.files?.[0];
+        if (file) {
+            setActiveMode("upload");
+            processPhotoFile(file);
+        }
+    };
+
     const handleRetake = () => {
         setEnrolledPhoto(null);
         setCapturedVector(null);
         setDuplicateError("");
+        setSelectedFileName("");
         eyeStateRef.current = "open";
         blinkCountRef.current = 0;
         livenessConfirmedRef.current = false;
@@ -669,7 +641,7 @@ export function LiveFaceEnrollment({
         setBlinkCount(0);
         setLivenessPassed(false);
         setIsSpoof(false);
-        setFaceQualityStatus("Position your face in the camera frame to register biometric vectors.");
+        setFaceQualityStatus("Position your face in camera or upload a clear frontal photo to register biometrics.");
         setStatusType("ready");
         if (fileInputRef.current) {
             fileInputRef.current.value = "";
@@ -677,7 +649,9 @@ export function LiveFaceEnrollment({
         if (onFaceEnrolled) {
             onFaceEnrolled(null);
         }
-        startCameraStream();
+        if (activeMode === "camera") {
+            startCameraStream();
+        }
     };
 
     return (
@@ -692,24 +666,115 @@ export function LiveFaceEnrollment({
                 onChange={handleNativePhotoCapture}
             />
 
-            {/* Viewport Container for Camera Video */}
-            <div className={`lfe-viewport-container ${enrolledPhoto ? "enrolled" : ""} ${capturing ? "capturing" : ""}`}>
+            {/* Mode Switcher Tabs (Live Camera vs Upload Photo) */}
+            {!enrolledPhoto && (
+                <div className="lfe-mode-tabs-wrapper">
+                    <div className="lfe-mode-tabs">
+                        <button
+                            type="button"
+                            className={`lfe-mode-tab ${activeMode === "camera" ? "active" : ""}`}
+                            onClick={() => {
+                                setActiveMode("camera");
+                                if (!cameraActive && !enrolledPhoto) startCameraStream();
+                            }}
+                        >
+                            <FaVideo /> Live Camera
+                        </button>
+                        <button
+                            type="button"
+                            className={`lfe-mode-tab ${activeMode === "upload" ? "active" : ""}`}
+                            onClick={() => {
+                                setActiveMode("upload");
+                                if (streamRef.current) {
+                                    streamRef.current.getTracks().forEach((t) => t.stop());
+                                    streamRef.current = null;
+                                    setCameraActive(false);
+                                }
+                            }}
+                        >
+                            <FaUpload /> Upload Face Photo
+                        </button>
+                    </div>
+                </div>
+            )}
+
+            {/* Viewport Container for Camera Video or Upload Dropzone */}
+            <div
+                className={`lfe-viewport-container ${enrolledPhoto ? "enrolled" : ""} ${capturing ? "capturing" : ""} ${isDragging ? "dragging" : ""} ${activeMode === "upload" && !cameraActive && !enrolledPhoto ? "upload-mode" : ""}`}
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+            >
                 {/* Clean Corner Brackets */}
                 <span className="lfe-corner-bracket lfe-corner-tl" />
                 <span className="lfe-corner-bracket lfe-corner-tr" />
                 <span className="lfe-corner-bracket lfe-corner-bl" />
                 <span className="lfe-corner-bracket lfe-corner-br" />
 
-                {/* Face Oval Target Guide */}
-                {!enrolledPhoto && cameraActive && <div className="lfe-face-guide" />}
+                {/* Face Oval Target Guide (only in active camera feed) */}
+                {!enrolledPhoto && cameraActive && activeMode === "camera" && <div className="lfe-face-guide" />}
 
                 {/* Laser Scanning Bar */}
-                {!enrolledPhoto && cameraActive && <div className="lfe-scan-laser" />}
+                {((!enrolledPhoto && cameraActive && activeMode === "camera") || (capturing && !enrolledPhoto)) && (
+                    <div className="lfe-scan-laser" />
+                )}
 
-                {/* Media Feed */}
+                {/* Media Feed / Upload Area */}
                 {enrolledPhoto ? (
-                    <img src={enrolledPhoto} alt="Enrolled Student" className="lfe-preview-img" />
+                    <div className="lfe-enrolled-preview-wrap">
+                        <img src={enrolledPhoto} alt="Enrolled Student" className="lfe-preview-img" />
+                        <div className="lfe-enrolled-floating-badge">
+                            <FaCheckCircle className="badge-icon" />
+                            <span>Biometrics Verified &amp; Ready</span>
+                        </div>
+                    </div>
+                ) : activeMode === "upload" && !cameraActive ? (
+                    /* DEDICATED UPLOAD DROPZONE */
+                    <div
+                        className="lfe-upload-dropzone"
+                        onClick={() => fileInputRef.current?.click()}
+                    >
+                        <div className="lfe-upload-icon-container">
+                            <FaCloudUploadAlt className="lfe-upload-hero-icon" />
+                        </div>
+                        <h4 className="lfe-upload-title">
+                            {isDragging ? "Drop your face photo here!" : "Upload Student Face Photo"}
+                        </h4>
+                        <p className="lfe-upload-subtitle">
+                            Drag &amp; drop an image file here, or click to browse from device
+                        </p>
+
+                        <div className="lfe-upload-guidelines">
+                            <span className="lfe-guide-badge"><FaCheckCircle /> Frontal Face</span>
+                            <span className="lfe-guide-badge"><FaCheckCircle /> Good Lighting</span>
+                            <span className="lfe-guide-badge"><FaCheckCircle /> Single Person</span>
+                        </div>
+
+                        <div className="lfe-upload-formats">
+                            <span className="lfe-format-tag">PNG</span>
+                            <span className="lfe-format-tag">JPG</span>
+                            <span className="lfe-format-tag">JPEG</span>
+                            <span className="lfe-format-tag">WEBP</span>
+                        </div>
+
+                        <button
+                            type="button"
+                            className="lfe-browse-btn"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                fileInputRef.current?.click();
+                            }}
+                            disabled={capturing}
+                        >
+                            {capturing ? (
+                                <><FaSpinner className="fa-spin" /> Processing Photo...</>
+                            ) : (
+                                <><FaImage /> Browse Photo File</>
+                            )}
+                        </button>
+                    </div>
                 ) : (
+                    /* CAMERA STREAM OR CAMERA PLACEHOLDER */
                     <>
                         <video
                             ref={videoRef}
@@ -739,6 +804,8 @@ export function LiveFaceEnrollment({
                                 <div className="lfe-placeholder-icon-wrap">
                                     <FaCamera className="lfe-camera-placeholder-icon" />
                                 </div>
+                                <h5>AI Facial Biometrics Scanner</h5>
+                                <p>Start your camera for live liveness verification or switch to photo upload.</p>
 
                                 <div className="lfe-placeholder-btn-group">
                                     <button
@@ -757,7 +824,10 @@ export function LiveFaceEnrollment({
                                     <button
                                         type="button"
                                         className="lfe-secondary-upload-btn"
-                                        onClick={() => fileInputRef.current?.click()}
+                                        onClick={() => {
+                                            setActiveMode("upload");
+                                            fileInputRef.current?.click();
+                                        }}
                                     >
                                         <FaUpload /> Upload Photo
                                     </button>
@@ -789,35 +859,76 @@ export function LiveFaceEnrollment({
                 )}
             </div>
 
-            {/* Anti-Spoofing & Liveness Shield Badges in Enrollment */}
-            {cameraActive && !enrolledPhoto && (
-                <div style={{ display: "flex", justifyContent: "center", gap: "10px", margin: "10px 0", flexWrap: "wrap" }}>
-                    <span style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: "6px",
-                        padding: "5px 12px",
-                        borderRadius: "8px",
-                        fontSize: "0.8rem",
-                        fontWeight: 700,
-                        background: isSpoof ? "rgba(239, 68, 68, 0.15)" : livenessPassed ? "rgba(16, 185, 129, 0.15)" : "rgba(99, 102, 241, 0.12)",
-                        color: isSpoof ? "#dc2626" : livenessPassed ? "#059669" : "#4f46e5"
-                    }}>
-                        <FaShieldAlt /> Anti-Spoof: {isSpoof ? "⚠️ ALERT (Static Photo/Screen)" : livenessPassed ? "PASSED (Live Human)" : "Active 🛡️"}
-                    </span>
-                    <span style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: "6px",
-                        padding: "5px 12px",
-                        borderRadius: "8px",
-                        fontSize: "0.8rem",
-                        fontWeight: 700,
-                        background: livenessPassed ? "rgba(16, 185, 129, 0.15)" : "rgba(245, 158, 11, 0.12)",
-                        color: livenessPassed ? "#059669" : "#b45309"
-                    }}>
-                        {livenessPassed ? <FaEye /> : <FaEyeSlash />} Blink Challenge: {blinkCount >= 1 ? `✅ Blink Verified (${blinkCount})` : "👁️ Blink to Verify"}
-                    </span>
+            {/* Interactive Liveness Steps & Progress Indicator */}
+            {cameraActive && !enrolledPhoto && activeMode === "camera" && (
+                <div style={{ margin: "12px 0 6px" }}>
+                    <div style={{ display: "flex", justifyContent: "center", gap: "8px", marginBottom: "8px", flexWrap: "wrap" }}>
+                        <span style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: "5px",
+                            padding: "4px 10px",
+                            borderRadius: "6px",
+                            fontSize: "0.78rem",
+                            fontWeight: 700,
+                            background: livenessStep !== "ALIGN" ? "#dcfce7" : "#e0e7ff",
+                            color: livenessStep !== "ALIGN" ? "#15803d" : "#4338ca",
+                            border: livenessStep === "ALIGN" ? "1.5px solid #6366f1" : "1px solid #bbf7d0"
+                        }}>
+                            {livenessStep !== "ALIGN" ? "✅" : "1️⃣"} Center Face
+                        </span>
+                        <span style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: "5px",
+                            padding: "4px 10px",
+                            borderRadius: "6px",
+                            fontSize: "0.78rem",
+                            fontWeight: 700,
+                            background: blinkCount >= 1 ? "#dcfce7" : livenessStep === "BLINK" ? "#fef3c7" : "#f1f5f9",
+                            color: blinkCount >= 1 ? "#15803d" : livenessStep === "BLINK" ? "#b45309" : "#64748b",
+                            border: livenessStep === "BLINK" ? "1.5px solid #f59e0b" : "1px solid #e2e8f0"
+                        }}>
+                            {blinkCount >= 1 ? "✅" : "2️⃣"} Blink Eyes ({blinkCount})
+                        </span>
+                        <span style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: "5px",
+                            padding: "4px 10px",
+                            borderRadius: "6px",
+                            fontSize: "0.78rem",
+                            fontWeight: 700,
+                            background: livenessPassed ? "#dcfce7" : livenessStep === "TURN" ? "#fef3c7" : "#f1f5f9",
+                            color: livenessPassed ? "#15803d" : livenessStep === "TURN" ? "#b45309" : "#64748b",
+                            border: livenessStep === "TURN" ? "1.5px solid #f59e0b" : "1px solid #e2e8f0"
+                        }}>
+                            {livenessPassed ? "✅" : "3️⃣"} 3D Head Turn
+                        </span>
+                        <span style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: "5px",
+                            padding: "4px 10px",
+                            borderRadius: "6px",
+                            fontSize: "0.78rem",
+                            fontWeight: 700,
+                            background: isSpoof ? "#fee2e2" : livenessPassed ? "#dcfce7" : "#f1f5f9",
+                            color: isSpoof ? "#b91c1c" : livenessPassed ? "#15803d" : "#475569"
+                        }}>
+                            <FaShieldAlt /> {isSpoof ? "⚠️ Replay Spoof Alert" : livenessPassed ? "🛡️ Live Anti-Spoof: PASSED" : "Anti-Spoof: Active"}
+                        </span>
+                    </div>
+
+                    {/* Liveness Progress Bar */}
+                    <div style={{ width: "100%", height: "6px", background: "#e2e8f0", borderRadius: "999px", overflow: "hidden", margin: "6px 0" }}>
+                        <div style={{
+                            width: `${livenessProgress}%`,
+                            height: "100%",
+                            background: isSpoof ? "#ef4444" : livenessPassed ? "#10b981" : "#6366f1",
+                            transition: "width 0.3s ease, background-color 0.3s ease"
+                        }} />
+                    </div>
                 </div>
             )}
 
@@ -852,12 +963,12 @@ export function LiveFaceEnrollment({
                 {faceQualityStatus}
             </div>
 
-            {/* Multi-Frame Progress Bar during live capture */}
+            {/* Multi-Frame Progress Bar during live capture or vector extraction */}
             {capturing && (
                 <div className="lfe-progress-bar-wrapper">
                     <div className="lfe-progress-info">
-                        <span>{captureStep > 0 ? `Biometric Sampling: Frame ${captureStep}/5` : "Verifying Biometric Uniqueness..."}</span>
-                        <span>{captureStep > 0 ? `${Math.round((captureStep / 5) * 100)}%` : "Processing..."}</span>
+                        <span>{captureStep > 0 ? `Biometric Sampling: Frame ${captureStep}/5` : "Extracting & Verifying Biometric Uniqueness..."}</span>
+                        <span>{captureStep > 0 ? `${Math.round((captureStep / 5) * 100)}%` : "AI Processing..."}</span>
                     </div>
                     <div className="lfe-progress-track">
                         <div
@@ -869,7 +980,7 @@ export function LiveFaceEnrollment({
             )}
 
             {/* Action Bar */}
-            {(cameraActive || enrolledPhoto) && (
+            {(cameraActive || enrolledPhoto || activeMode === "upload") && (
                 <div className="lfe-actions">
                     {enrolledPhoto ? (
                         <>
@@ -881,10 +992,10 @@ export function LiveFaceEnrollment({
                                 className="lfe-retake-btn"
                                 onClick={handleRetake}
                             >
-                                <FaRedo /> Retake / Re-scan
+                                <FaRedo /> Retake / Upload New Photo
                             </button>
                         </>
-                    ) : (
+                    ) : cameraActive ? (
                         <div className="lfe-active-action-row">
                             <button
                                 type="button"
@@ -906,13 +1017,16 @@ export function LiveFaceEnrollment({
                             <button
                                 type="button"
                                 className="lfe-secondary-upload-btn"
-                                onClick={() => fileInputRef.current?.click()}
+                                onClick={() => {
+                                    setActiveMode("upload");
+                                    fileInputRef.current?.click();
+                                }}
                                 title="Upload or snap photo from device"
                             >
                                 <FaUpload /> Upload Photo
                             </button>
                         </div>
-                    )}
+                    ) : null}
                 </div>
             )}
         </div>

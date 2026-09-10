@@ -37,6 +37,7 @@ import { useAuth } from "../../authcontext";
 import { downloadExcel } from "../../../DownloadExcel";
 import { useTableSort, SortIcon } from "../../Common/useTableSort";
 import { getCandidateRolls, computeStudentMetrics } from "../studentAttendanceHelper";
+import { isGenericName } from "../../../utils/studentDataHelper";
 import "./Statistics.css";
 
 export default function Statistics() {
@@ -66,22 +67,46 @@ export default function Statistics() {
             if (snap.exists()) {
                 const d = snap.data();
                 setFetchedStudentData((prev) => {
-                    const hasFace = Boolean(
-                        (Array.isArray(d.faceDescriptor) && d.faceDescriptor.length === 128) ||
-                        (Array.isArray(prev?.faceDescriptor) && prev.faceDescriptor.length === 128) ||
-                        d.faceRegistered === true ||
-                        prev?.faceRegistered === true ||
-                        d.biometricEnrolled === true ||
-                        prev?.biometricEnrolled === true
+                    let resolvedName = prev?.name;
+                    if (isGenericName(resolvedName, activeRollNo, cleanEmail) && !isGenericName(d.name, activeRollNo, cleanEmail)) resolvedName = String(d.name).trim();
+                    if (isGenericName(resolvedName, activeRollNo, cleanEmail) && !isGenericName(d.fullName, activeRollNo, cleanEmail)) resolvedName = String(d.fullName).trim();
+                    if (isGenericName(resolvedName, activeRollNo, cleanEmail) && !isGenericName(d.displayName, activeRollNo, cleanEmail)) resolvedName = String(d.displayName).trim();
+                    if (!resolvedName || isGenericName(resolvedName, activeRollNo, cleanEmail)) resolvedName = (!isGenericName(d.name, activeRollNo, cleanEmail) ? d.name : null) || (!isGenericName(d.fullName, activeRollNo, cleanEmail) ? d.fullName : null) || prev?.name || "";
+
+                    const branch = (d.branch && String(d.branch).toLowerCase() !== "general")
+                        ? d.branch
+                        : (prev?.branch || d.department || "CSE");
+
+                    const semester = (d.semester && String(d.semester).trim() && String(d.semester).trim() !== "1")
+                        ? d.semester
+                        : (prev?.semester || d.semester || "1");
+
+                    const isExplicitlyRemoved = Boolean(
+                        d.faceRemovedAt ||
+                        d.faceRegistered === false ||
+                        d.biometricEnrolled === false ||
+                        d.hasFaceRegistered === false ||
+                        !d.faceDescriptor ||
+                        (Array.isArray(d.faceDescriptor) && d.faceDescriptor.length !== 128)
                     );
+
+                    const hasFace = !isExplicitlyRemoved && Array.isArray(d.faceDescriptor) && d.faceDescriptor.length === 128;
+                    const validDescriptor = hasFace ? d.faceDescriptor : null;
+                    const photo = isExplicitlyRemoved ? "" : ((d.photoURL && d.photoURL.length > 5) ? d.photoURL : (prev?.photoURL || d.photo || d.image || ""));
+
                     return {
                         ...(prev || {}),
                         ...d,
+                        name: resolvedName,
+                        fullName: resolvedName,
+                        branch: branch,
+                        semester: semester,
+                        photoURL: photo,
                         faceRegistered: hasFace,
                         biometricEnrolled: hasFace,
-                        faceDescriptor: (Array.isArray(d.faceDescriptor) && d.faceDescriptor.length === 128)
-                            ? d.faceDescriptor
-                            : ((Array.isArray(prev?.faceDescriptor) && prev.faceDescriptor.length === 128) ? prev.faceDescriptor : (d.faceDescriptor || prev?.faceDescriptor || null))
+                        hasFaceRegistered: hasFace,
+                        faceRemovedAt: isExplicitlyRemoved ? (d.faceRemovedAt || Date.now()) : null,
+                        faceDescriptor: validDescriptor
                     };
                 });
             }
@@ -110,12 +135,21 @@ export default function Statistics() {
 
     // Face biometric registration status detection
     const hasFaceRegistered = Boolean(
-        (Array.isArray(fetchedStudentData?.faceDescriptor) && fetchedStudentData.faceDescriptor.length === 128) ||
-        (Array.isArray(profile?.faceDescriptor) && profile.faceDescriptor.length === 128) ||
-        fetchedStudentData?.faceRegistered === true ||
-        fetchedStudentData?.biometricEnrolled === true ||
-        profile?.faceRegistered === true ||
-        profile?.biometricEnrolled === true
+        fetchedStudentData
+            ? (
+                !fetchedStudentData.faceRemovedAt &&
+                fetchedStudentData.faceRegistered !== false &&
+                fetchedStudentData.biometricEnrolled !== false &&
+                Array.isArray(fetchedStudentData.faceDescriptor) &&
+                fetchedStudentData.faceDescriptor.length === 128
+            )
+            : (
+                !profile?.faceRemovedAt &&
+                profile?.faceRegistered !== false &&
+                profile?.biometricEnrolled !== false &&
+                Array.isArray(profile?.faceDescriptor) &&
+                profile.faceDescriptor.length === 128
+            )
     );
 
     // Build candidate roll numbers for matching

@@ -38,15 +38,42 @@ const AttendanceOverview = () => {
       const totalSessionsCount = sessionsDocs.length;
       const totalRecordsCount = recordsDocs.length;
 
-      // Map attended count per canonical Roll Number
-      const attendanceCountMap = new Map();
+      // Map unique attended session count per canonical Roll Number
+      const studentAttendedSessionSet = new Map();
+
       recordsDocs.forEach((docSnap) => {
         const d = typeof docSnap.data === "function" ? docSnap.data() : docSnap;
         const roll = d.rollNo;
+        const sessionId = d.sessionId || (docSnap.id && docSnap.id.includes("_") ? docSnap.id.split("_")[0] : docSnap.id);
         if (roll) {
           const clean = roll.toUpperCase().trim();
-          attendanceCountMap.set(clean, (attendanceCountMap.get(clean) || 0) + 1);
+          if (!studentAttendedSessionSet.has(clean)) {
+            studentAttendedSessionSet.set(clean, new Set());
+          }
+          studentAttendedSessionSet.get(clean).add(sessionId || `rec_${Math.random()}`);
         }
+      });
+
+      sessionsDocs.forEach((docSnap) => {
+        const s = typeof docSnap.data === "function" ? docSnap.data() : docSnap;
+        const sessionId = docSnap.id || s.id;
+        if (Array.isArray(s.attendees)) {
+          s.attendees.forEach((att) => {
+            const roll = att.rollNo || att.rollNumber || (typeof att === "string" ? att : null);
+            if (roll) {
+              const clean = String(roll).toUpperCase().trim();
+              if (!studentAttendedSessionSet.has(clean)) {
+                studentAttendedSessionSet.set(clean, new Set());
+              }
+              studentAttendedSessionSet.get(clean).add(sessionId || `sess_${Math.random()}`);
+            }
+          });
+        }
+      });
+
+      const attendanceCountMap = new Map();
+      studentAttendedSessionSet.forEach((sessionSet, cleanRoll) => {
+        attendanceCountMap.set(cleanRoll, sessionSet.size);
       });
 
       // Merge students across all collections via unified engine
@@ -92,10 +119,21 @@ const AttendanceOverview = () => {
       setRecentSessions(sessionsList.slice(0, 6));
       setStats({
         totalStudents: studentList.length,
-        totalRecords: totalRecordsCount,
+        totalRecords: Math.max(totalRecordsCount, studentAttendedSessionSet.size),
         totalSessions: totalSessionsCount,
         activeSessions: activeCount,
         averageAttendanceRate: avgRate
+      });
+
+      // Keep selected student modal state in sync with real-time updates
+      setSelectedStudent((prevSelected) => {
+        if (!prevSelected) return null;
+        const fresh = studentList.find((s) =>
+          (s.rollNo && prevSelected.rollNo && s.rollNo.toUpperCase().trim() === prevSelected.rollNo.toUpperCase().trim()) ||
+          (s.email && prevSelected.email && s.email.toLowerCase().trim() === prevSelected.email.toLowerCase().trim()) ||
+          (s.id && prevSelected.id && s.id === prevSelected.id)
+        );
+        return fresh ? { ...prevSelected, ...fresh } : prevSelected;
       });
     } catch (error) {
       console.error("Error computing attendance overview:", error);

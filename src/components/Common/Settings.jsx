@@ -685,7 +685,7 @@ function Settings() {
                                     style={{
                                         padding: "10px 22px",
                                         borderRadius: "10px",
-                                        background: "linear-gradient(135deg, #10b981, #059669)",
+                                        background: "linear-gradient(135deg, #6366f1, #4f46e5)",
                                         color: "#ffffff",
                                         border: "none",
                                         fontWeight: 700,
@@ -694,7 +694,7 @@ function Settings() {
                                         display: "inline-flex",
                                         alignItems: "center",
                                         gap: "8px",
-                                        boxShadow: "0 4px 14px rgba(16, 185, 129, 0.3)"
+                                        boxShadow: "0 4px 14px rgba(99, 102, 241, 0.3)"
                                     }}
                                 >
                                     {savingName ? <FaSpinner className="fa-spin" /> : <><FaCheck /> Save Name</>}

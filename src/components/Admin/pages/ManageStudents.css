@@ -115,12 +115,12 @@
 .students-table {
   width: 100%;
   border-collapse: collapse;
-  min-width: 900px;
+  min-width: 720px;
 }
 
 .students-table th {
   text-align: left;
-  padding: 16px 18px;
+  padding: 12px 14px;
   font-size: 12px;
   color: var(--text-muted, #777);
   background: var(--surface-soft, #f8fafc);
@@ -128,14 +128,57 @@
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.03em;
+  white-space: nowrap;
 }
 
 .students-table td {
-  padding: 16px 18px;
+  padding: 12px 14px;
   border-bottom: 1px solid var(--border, #f1f5f9);
-  font-size: 14px;
+  font-size: 13.5px;
   color: var(--text-main, inherit);
   vertical-align: middle;
+  white-space: nowrap;
+}
+
+.students-table th:nth-child(1),
+.students-table td:nth-child(1) {
+  width: 120px;
+  max-width: 135px;
+}
+
+.students-table th:nth-child(2),
+.students-table td:nth-child(2) {
+  white-space: normal;
+  min-width: 180px;
+}
+
+.students-table th:nth-child(3),
+.students-table td:nth-child(3) {
+  width: 75px;
+  text-align: center;
+}
+
+.students-table th:nth-child(4),
+.students-table td:nth-child(4) {
+  width: 75px;
+  text-align: center;
+}
+
+.students-table th:nth-child(5),
+.students-table td:nth-child(5) {
+  width: 115px;
+}
+
+.students-table th:nth-child(6),
+.students-table td:nth-child(6) {
+  width: 85px;
+  text-align: center;
+}
+
+.students-table th:nth-child(7),
+.students-table td:nth-child(7) {
+  width: 130px;
+  text-align: right;
 }
 
 .students-table tbody tr {
@@ -413,35 +456,82 @@
 
 @media (max-width: 800px) {
   .manage-students {
-    padding: 16px 14px calc(88px + env(safe-area-inset-bottom, 0px)) !important;
+    padding: 14px 10px calc(88px + env(safe-area-inset-bottom, 0px)) !important;
+  }
+
+  .students-table-container {
+    border-radius: 14px;
+    margin-top: 10px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.04);
+  }
+
+  .students-table {
+    min-width: 620px;
+  }
+
+  .students-table th,
+  .students-table td {
+    padding: 10px 8px;
+    font-size: 12.5px;
+  }
+
+  .student-info {
+    gap: 8px;
+  }
+
+  .student-avatar,
+  .student-info img {
+    width: 32px;
+    height: 32px;
+    font-size: 13px;
+    border-radius: 8px;
+  }
+
+  .student-info strong {
+    font-size: 13px;
+  }
+
+  .student-info span {
+    font-size: 11px;
+  }
+
+  .student-actions {
+    gap: 4px;
+  }
+
+  .student-actions button {
+    width: 30px;
+    height: 30px;
+    font-size: 12px;
+    border-radius: 8px;
   }
 
   .students-header {
     flex-direction: column;
     align-items: stretch;
     gap: 14px;
-    margin-bottom: 20px;
+    margin-bottom: 16px;
   }
 
   .students-header h1 {
-    font-size: 22px;
+    font-size: 20px;
   }
 
   .add-student-btn {
     width: 100%;
     justify-content: center;
-    padding: 12px 18px;
+    padding: 11px 16px;
   }
 
   .students-toolbar {
     flex-direction: column;
     align-items: stretch;
-    gap: 12px;
+    gap: 10px;
   }
 
   .student-search {
     width: 100%;
-    padding: 10px 14px;
+    padding: 9px 12px;
   }
 
   .edit-form-grid {

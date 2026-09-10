@@ -169,13 +169,14 @@
 }
 
 .student-statistics-page .stats-btn-export {
-    background: linear-gradient(135deg, #10b981, #059669);
+    background: linear-gradient(135deg, #6366f1, #4f46e5);
     color: #ffffff;
-    box-shadow: 0 4px 12px rgba(16, 185, 129, 0.25);
+    box-shadow: 0 4px 12px rgba(99, 102, 241, 0.28);
 }
 
 .student-statistics-page .stats-btn-export:hover:not(:disabled) {
-    box-shadow: 0 6px 16px rgba(16, 185, 129, 0.35);
+    background: linear-gradient(135deg, #4f46e5, #4338ca);
+    box-shadow: 0 6px 16px rgba(99, 102, 241, 0.38);
     transform: translateY(-1px);
 }
 

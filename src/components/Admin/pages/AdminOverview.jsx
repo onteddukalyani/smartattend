@@ -11,9 +11,8 @@ import {
   FaChalkboard,
   FaSyncAlt
 } from "react-icons/fa";
-import { collection, getDocs, query, where } from "firebase/firestore";
+import { collection, getDocs, query, where, onSnapshot } from "firebase/firestore";
 import { db } from "../../../firebase";
-import { autoMigrateAndOrganizeFirestore } from "../../../utils/firestoreMigration";
 import "./AdminOverview.css";
 
 const AdminOverview = () => {
@@ -29,42 +28,8 @@ const AdminOverview = () => {
   const [recentSessions, setRecentSessions] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    // Run background migration to ensure separated collections & CSE defaults in Firebase
-    autoMigrateAndOrganizeFirestore().then((count) => {
-      if (count > 0) {
-        console.log(`✅ Auto-migrated ${count} Firebase documents to separated collections & CSE.`);
-      }
-    });
-  }, []);
-
-  const fetchOverviewData = async () => {
+  const computeAdminData = (usersDocs, studentsDocs, sessionsDocs, recordsDocs, authDocs) => {
     try {
-      setLoading(true);
-
-      const [usersSnap, studentsSnap, sessionsSnap, recordsSnap, authUsersSnap] = await Promise.all([
-        getDocs(collection(db, "users")).catch((e) => {
-          console.warn("Could not read users collection:", e);
-          return { docs: [], size: 0 };
-        }),
-        getDocs(collection(db, "students")).catch((e) => {
-          console.warn("Could not read students collection:", e);
-          return { docs: [], size: 0 };
-        }),
-        getDocs(collection(db, "attendance_sessions")).catch((e) => {
-          console.warn("Could not read attendance_sessions collection:", e);
-          return { docs: [], size: 0 };
-        }),
-        getDocs(collection(db, "attendance_records")).catch((e) => {
-          console.warn("Could not read attendance_records collection:", e);
-          return { docs: [], size: 0 };
-        }),
-        getDocs(collection(db, "authorizedUsers")).catch((e) => {
-          console.warn("Could not read authorizedUsers collection:", e);
-          return { docs: [], size: 0 };
-        })
-      ]);
-
       const getCanonicalRoll = (d, id) => {
         if (d?.rollNo && String(d.rollNo).trim()) {
           const r = String(d.rollNo).trim();
@@ -84,8 +49,8 @@ const AdminOverview = () => {
       let admins = 0;
 
       // 1. Process authorizedUsers
-      authUsersSnap.docs.forEach((docSnap) => {
-        const d = docSnap.data();
+      authDocs.forEach((docSnap) => {
+        const d = typeof docSnap.data === "function" ? docSnap.data() : docSnap;
         const role = String(d.role || "").toLowerCase().trim();
         const email = (d.email || docSnap.id).toLowerCase().trim();
 
@@ -100,15 +65,15 @@ const AdminOverview = () => {
       });
 
       // 2. Process students collection
-      studentsSnap.docs.forEach((docSnap) => {
-        const d = docSnap.data();
+      studentsDocs.forEach((docSnap) => {
+        const d = typeof docSnap.data === "function" ? docSnap.data() : docSnap;
         const roll = getCanonicalRoll(d, docSnap.id);
         if (roll) studentSet.add(roll);
       });
 
       // 3. Process users collection
-      usersSnap.docs.forEach((docSnap) => {
-        const d = docSnap.data();
+      usersDocs.forEach((docSnap) => {
+        const d = typeof docSnap.data === "function" ? docSnap.data() : docSnap;
         const role = String(d.role || "").toLowerCase().trim();
         const email = (d.email || "").toLowerCase().trim();
 
@@ -131,23 +96,23 @@ const AdminOverview = () => {
       });
 
       // Recent attendances
-      const recordsList = recordsSnap.docs.map((d) => ({
+      const recordsList = recordsDocs.map((d) => ({
         id: d.id,
-        ...d.data()
+        ...(typeof d.data === "function" ? d.data() : d)
       }));
       recordsList.sort((a, b) => (b.submittedAt || 0) - (a.submittedAt || 0));
 
       // Build map of users for lecturer name resolution
       const userMap = new Map();
-      usersSnap.docs.forEach((d) => {
-        const u = d.data();
+      usersDocs.forEach((d) => {
+        const u = typeof d.data === "function" ? d.data() : d;
         if (u.name) {
           userMap.set(d.id, u.name);
           if (u.email) userMap.set(u.email.toLowerCase().trim(), u.name);
         }
       });
-      authUsersSnap.docs.forEach((d) => {
-        const u = d.data();
+      authDocs.forEach((d) => {
+        const u = typeof d.data === "function" ? d.data() : d;
         if (u.name) {
           userMap.set(d.id.toLowerCase().trim(), u.name);
           if (u.email) userMap.set(u.email.toLowerCase().trim(), u.name);
@@ -155,8 +120,8 @@ const AdminOverview = () => {
       });
 
       // Recent sessions
-      const sessionsList = sessionsSnap.docs.map((d) => {
-        const data = d.data();
+      const sessionsList = sessionsDocs.map((d) => {
+        const data = typeof d.data === "function" ? d.data() : d;
         const ownerEmail = (data.ownerEmail || data.lecturerEmail || "").toLowerCase().trim();
         const ownerId = data.ownerId;
         const resolvedLecturer = data.lecturerName || userMap.get(ownerId) || userMap.get(ownerEmail) || (ownerEmail ? ownerEmail.split("@")[0] : "Faculty");
@@ -173,13 +138,31 @@ const AdminOverview = () => {
         studentsCount: studentSet.size,
         lecturersCount: lecturerSet.size,
         adminsCount: Math.max(admins, 1),
-        sessionsCount: sessionsSnap.size || 0,
-        attendancesCount: recordsSnap.size || 0
+        sessionsCount: sessionsDocs.length || 0,
+        attendancesCount: recordsDocs.length || 0
       });
 
       setRecentRecords(recordsList.slice(0, 5));
       setRecentSessions(sessionsList.slice(0, 5));
 
+    } catch (err) {
+      console.error("Error computing admin overview data:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchOverviewData = async () => {
+    try {
+      setLoading(true);
+      const [usersSnap, studentsSnap, sessionsSnap, recordsSnap, authUsersSnap] = await Promise.all([
+        getDocs(collection(db, "users")).catch(() => ({ docs: [] })),
+        getDocs(collection(db, "students")).catch(() => ({ docs: [] })),
+        getDocs(collection(db, "attendance_sessions")).catch(() => ({ docs: [] })),
+        getDocs(collection(db, "attendance_records")).catch(() => ({ docs: [] })),
+        getDocs(collection(db, "authorizedUsers")).catch(() => ({ docs: [] }))
+      ]);
+      computeAdminData(usersSnap.docs, studentsSnap.docs, sessionsSnap.docs, recordsSnap.docs, authUsersSnap.docs);
     } catch (err) {
       console.error("Error fetching admin overview data:", err);
     } finally {
@@ -188,7 +171,48 @@ const AdminOverview = () => {
   };
 
   useEffect(() => {
-    fetchOverviewData();
+    let usersDocs = [];
+    let studentsDocs = [];
+    let sessionsDocs = [];
+    let recordsDocs = [];
+    let authDocs = [];
+
+    const recompute = () => {
+      computeAdminData(usersDocs, studentsDocs, sessionsDocs, recordsDocs, authDocs);
+    };
+
+    const unsubUsers = onSnapshot(collection(db, "users"), (snap) => {
+      usersDocs = snap.docs;
+      recompute();
+    }, (e) => console.warn("users snapshot error:", e));
+
+    const unsubStudents = onSnapshot(collection(db, "students"), (snap) => {
+      studentsDocs = snap.docs;
+      recompute();
+    }, (e) => console.warn("students snapshot error:", e));
+
+    const unsubSessions = onSnapshot(collection(db, "attendance_sessions"), (snap) => {
+      sessionsDocs = snap.docs;
+      recompute();
+    }, (e) => console.warn("sessions snapshot error:", e));
+
+    const unsubRecords = onSnapshot(collection(db, "attendance_records"), (snap) => {
+      recordsDocs = snap.docs;
+      recompute();
+    }, (e) => console.warn("records snapshot error:", e));
+
+    const unsubAuth = onSnapshot(collection(db, "authorizedUsers"), (snap) => {
+      authDocs = snap.docs;
+      recompute();
+    }, (e) => console.warn("auth snapshot error:", e));
+
+    return () => {
+      unsubUsers();
+      unsubStudents();
+      unsubSessions();
+      unsubRecords();
+      unsubAuth();
+    };
   }, []);
 
   return (

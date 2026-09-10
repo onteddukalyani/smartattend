@@ -124,18 +124,18 @@
 }
 
 .manage-admins-page .export-btn {
-  background: rgba(16, 185, 129, 0.2);
-  color: #6ee7b7;
-  border: 1px solid rgba(16, 185, 129, 0.4);
+  background: rgba(99, 102, 241, 0.2);
+  color: #c7d2fe;
+  border: 1px solid rgba(99, 102, 241, 0.4);
   backdrop-filter: blur(8px);
 }
 
 .manage-admins-page .export-btn:hover:not(:disabled) {
-  background: #10b981;
+  background: #6366f1;
   color: #ffffff;
-  border-color: #10b981;
+  border-color: #6366f1;
   transform: translateY(-2px);
-  box-shadow: 0 8px 20px rgba(16, 185, 129, 0.4);
+  box-shadow: 0 8px 20px rgba(99, 102, 241, 0.4);
 }
 
 .manage-admins-page .add-admin-btn {

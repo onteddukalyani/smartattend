@@ -32,16 +32,16 @@
     font-size: 0.88rem;
     font-weight: 700;
     color: #ffffff;
-    background: #10b981;
+    background: #6366f1;
     border: none;
     border-radius: 10px;
     cursor: pointer;
-    box-shadow: 0 4px 12px rgba(16, 185, 129, 0.25);
+    box-shadow: 0 4px 12px rgba(99, 102, 241, 0.28);
     transition: transform 160ms ease, background 160ms ease;
 }
 
 .download-excel-btn:hover {
-    background: #059669;
+    background: #4f46e5;
     transform: translateY(-1px);
 }
 

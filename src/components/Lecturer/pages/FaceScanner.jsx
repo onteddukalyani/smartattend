@@ -16,70 +16,20 @@ import {
 } from "react-icons/fa";
 import { collection, getDocs } from "firebase/firestore";
 import { db } from "../../../firebase";
+import {
+  computeEAR,
+  computeHeadPose,
+  computeFacialRatios,
+  computeMotionVariance,
+  BLINK_CLOSED_THRESHOLD,
+  BLINK_OPEN_THRESHOLD,
+  STATIC_VARIANCE_THRESHOLD
+} from "../../../utils/livenessDetector";
 import "./FaceScanner.css";
 
 const MODEL_CDN_URL = "https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/";
 const MATCH_THRESHOLD = 0.50; // Strict euclidean distance threshold (<= 0.50 = authentic match)
-const BLINK_CLOSED_THRESHOLD = 0.205; // Eye Aspect Ratio below this = eye closed
-const BLINK_OPEN_THRESHOLD = 0.245;   // Eye Aspect Ratio above this = eye open
-const STATIC_VARIANCE_THRESHOLD = 0.00010; // Ratio variance below this across frames = 2D static photo
 const STATIC_FRAME_LIMIT = 18; // ~3 seconds of dead static face triggers spoof alert
-
-// Helper to compute Euclidean distance between 2 landmark points
-const getDist = (p1, p2) => {
-  if (!p1 || !p2) return 0;
-  return Math.hypot(p1.x - p2.x, p1.y - p2.y);
-};
-
-// Compute Eye Aspect Ratio (EAR) for 6 landmark points of an eye
-const computeEAR = (eye) => {
-  if (!eye || eye.length < 6) return 0.3;
-  const v1 = getDist(eye[1], eye[5]);
-  const v2 = getDist(eye[2], eye[4]);
-  const h = getDist(eye[0], eye[3]);
-  if (h === 0) return 0.3;
-  return (v1 + v2) / (2.0 * h);
-};
-
-// Compute 5 normalized 3D facial geometric ratios to track non-rigid parallax movement
-const computeFacialRatios = (positions) => {
-  if (!positions || positions.length < 68) return [0, 0, 0, 0, 0];
-  const p36 = positions[36]; // Left eye outer
-  const p45 = positions[45]; // Right eye outer
-  const eyeSpan = getDist(p36, p45);
-  if (eyeSpan < 1) return [0, 0, 0, 0, 0];
-
-  const p30 = positions[30]; // Nose tip
-  const p27 = positions[27]; // Nose bridge top
-  const p48 = positions[48]; // Mouth left corner
-  const p54 = positions[54]; // Mouth right corner
-  const p8 = positions[8];   // Chin bottom
-
-  return [
-    getDist(p30, p36) / eyeSpan,
-    getDist(p30, p45) / eyeSpan,
-    getDist(p48, p54) / eyeSpan,
-    getDist(p30, p8) / eyeSpan,
-    getDist(p27, p30) / eyeSpan
-  ];
-};
-
-// Calculate multi-frame geometric variance to distinguish live humans from 2D photos/screens
-const computeVariance = (history) => {
-  if (!history || history.length < 8) return 0.001;
-  const n = history.length;
-  let totalVar = 0;
-  for (let dim = 0; dim < 5; dim++) {
-    let mean = 0;
-    for (let i = 0; i < n; i++) mean += history[i][dim];
-    mean /= n;
-    let v = 0;
-    for (let i = 0; i < n; i++) v += Math.pow(history[i][dim] - mean, 2);
-    v /= n;
-    totalVar += v;
-  }
-  return totalVar / 5;
-};
 
 // Helper for camera stream capture
 const getCameraStream = async () => {

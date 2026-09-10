@@ -1,5 +1,5 @@
 /* =========================================================
-   LIVE FACE ENROLLMENT - MODERN SPACIOUS BIOMETRIC AI STYLES
+   LIVE FACE ENROLLMENT & PHOTO UPLOAD - MODERN BIOMETRIC AI STYLES
    ========================================================= */
 
 .live-enrollment-card {
@@ -41,24 +41,100 @@
 }
 
 /* =========================================================
-   LARGE SPACIOUS CAMERA VIEWPORT & CYBER OVERLAYS
+   MODE SWITCHER TABS (LIVE CAMERA vs UPLOAD PHOTO)
+   ========================================================= */
+
+.lfe-mode-tabs-wrapper {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 20px;
+}
+
+.lfe-mode-tabs {
+  display: inline-flex;
+  background: var(--surface-soft, #f1f5f9);
+  padding: 5px;
+  border-radius: 16px;
+  gap: 6px;
+  border: 1px solid var(--border, #e2e8f0);
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.04);
+}
+
+[data-theme="midnight"] .lfe-mode-tabs {
+  background: #1e293b;
+  border-color: #334155;
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.lfe-mode-tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 22px;
+  border-radius: 12px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted, #64748b);
+  font-size: 0.9rem;
+  font-weight: 750;
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  user-select: none;
+}
+
+.lfe-mode-tab:hover {
+  color: var(--text-main, #0f172a);
+}
+
+[data-theme="midnight"] .lfe-mode-tab:hover {
+  color: #f8fafc;
+}
+
+.lfe-mode-tab.active {
+  background: var(--surface, #ffffff);
+  color: #4f46e5;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(99, 102, 241, 0.15);
+}
+
+[data-theme="midnight"] .lfe-mode-tab.active {
+  background: #0f172a;
+  color: #818cf8;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(129, 140, 248, 0.25);
+}
+
+/* =========================================================
+   CAMERA & PHOTO VIEWPORT CONTAINER
    ========================================================= */
 
 .lfe-viewport-container {
   position: relative;
   width: 100%;
   max-width: 100%;
-  min-height: 520px;
-  height: 560px;
+  min-height: 480px;
+  height: 520px;
   margin: 0 auto 20px;
-  border-radius: 20px;
+  border-radius: 22px;
   overflow: hidden;
   background: #020617;
-  box-shadow: 0 16px 36px -4px rgba(0, 0, 0, 0.28), 0 0 0 2.5px #6366f1;
-  transition: all 0.3s ease;
+  box-shadow: 0 16px 36px -4px rgba(0, 0, 0, 0.28), 0 0 0 2px #6366f1;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   display: flex;
   align-items: center;
   justify-content: center;
+  box-sizing: border-box;
+}
+
+.lfe-viewport-container.upload-mode {
+  background: radial-gradient(circle at 50% 30%, #1e1b4b 0%, #090d16 100%);
+  border: 2px dashed rgba(99, 102, 241, 0.4);
+  box-shadow: 0 16px 36px -4px rgba(99, 102, 241, 0.15);
+}
+
+.lfe-viewport-container.dragging {
+  border-color: #10b981 !important;
+  box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.4), 0 20px 45px rgba(16, 185, 129, 0.25) !important;
+  transform: scale(1.008);
 }
 
 .lfe-viewport-container.enrolled {
@@ -74,113 +150,156 @@
   height: 100%;
   object-fit: cover;
   display: block;
-  transform: scaleX(-1); /* Mirror camera for natural look */
+  transform: scaleX(-1);
 }
 
-/* Camera Placeholder Box */
-.lfe-camera-placeholder {
+/* =========================================================
+   DEDICATED DRAG & DROP PHOTO UPLOAD ZONE
+   ========================================================= */
+
+.lfe-upload-dropzone {
   position: absolute;
   inset: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  background: radial-gradient(circle at 50% 40%, #17213b 0%, #090d16 100%);
-  color: #94a3b8;
-  padding: 30px 24px;
-  z-index: 8;
+  padding: 32px 24px;
+  cursor: pointer;
+  z-index: 10;
   text-align: center;
   box-sizing: border-box;
+  transition: all 0.3s ease;
+  background: radial-gradient(circle at 50% 35%, rgba(99, 102, 241, 0.12) 0%, rgba(2, 6, 23, 0.85) 100%);
 }
 
-.lfe-placeholder-icon-wrap {
-  width: 72px;
-  height: 72px;
-  border-radius: 20px;
-  background: rgba(99, 102, 241, 0.15);
-  color: #6366f1;
+.lfe-upload-dropzone:hover {
+  background: radial-gradient(circle at 50% 35%, rgba(99, 102, 241, 0.2) 0%, rgba(2, 6, 23, 0.9) 100%);
+}
+
+.lfe-upload-icon-container {
+  width: 84px;
+  height: 84px;
+  border-radius: 24px;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.25), rgba(79, 70, 229, 0.15));
+  border: 1.5px solid rgba(165, 180, 252, 0.3);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 32px;
-  margin-bottom: 16px;
-  box-shadow: 0 0 0 8px rgba(99, 102, 241, 0.08);
-  animation: lfePulseBubble 2.5s infinite ease-in-out;
+  margin-bottom: 18px;
+  color: #818cf8;
+  box-shadow: 0 8px 24px rgba(99, 102, 241, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  animation: lfeFloatIcon 3s ease-in-out infinite alternate;
 }
 
-.lfe-camera-placeholder h5 {
+.lfe-upload-hero-icon {
+  font-size: 42px;
+  filter: drop-shadow(0 2px 8px rgba(99, 102, 241, 0.5));
+}
+
+.lfe-upload-title {
   margin: 0 0 8px 0;
-  font-size: 1.15rem;
+  font-size: 1.35rem;
   font-weight: 800;
   color: #f8fafc;
+  letter-spacing: -0.01em;
 }
 
-.lfe-camera-placeholder p {
+.lfe-upload-subtitle {
   margin: 0 0 20px 0;
-  font-size: 0.88rem;
+  font-size: 0.92rem;
   color: #94a3b8;
-  max-width: 340px;
+  max-width: 420px;
   line-height: 1.5;
 }
 
-/* Clean, Balanced Placeholder Buttons */
-.lfe-placeholder-btn-group {
+.lfe-upload-guidelines {
   display: flex;
-  gap: 12px;
-  width: 100%;
-  max-width: 380px;
+  gap: 10px;
   justify-content: center;
   flex-wrap: wrap;
+  margin-bottom: 18px;
 }
 
-.lfe-primary-cam-btn {
+.lfe-guide-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #e2e8f0;
+  font-size: 0.8rem;
+  font-weight: 700;
+  backdrop-filter: blur(8px);
+}
+
+.lfe-guide-badge svg {
+  color: #34d399;
+  font-size: 12px;
+}
+
+.lfe-upload-formats {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  margin-bottom: 24px;
+}
+
+.lfe-format-tag {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 6px;
+  background: rgba(99, 102, 241, 0.18);
+  border: 1px solid rgba(129, 140, 248, 0.3);
+  color: #c7d2fe;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.lfe-browse-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  padding: 13px 24px;
-  border-radius: 12px;
+  gap: 10px;
+  padding: 13px 32px;
+  border-radius: 14px;
   background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
   color: #ffffff;
-  border: none;
-  font-size: 0.92rem;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  font-size: 0.96rem;
   font-weight: 800;
   cursor: pointer;
-  box-shadow: 0 4px 16px rgba(99, 102, 241, 0.4);
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  flex: 1;
-  min-width: 160px;
+  box-shadow: 0 8px 24px rgba(99, 102, 241, 0.45);
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.lfe-primary-cam-btn:hover {
+.lfe-browse-btn:hover {
   transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(99, 102, 241, 0.55);
+  box-shadow: 0 12px 30px rgba(99, 102, 241, 0.65);
   background: linear-gradient(135deg, #4f46e5 0%, #4338ca 100%);
 }
 
-.lfe-secondary-upload-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 12px 20px;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.1);
-  backdrop-filter: blur(8px);
-  color: #f8fafc;
-  border: 1.5px solid rgba(255, 255, 255, 0.2);
-  font-size: 0.9rem;
-  font-weight: 700;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  flex: 1;
-  min-width: 140px;
+.lfe-browse-btn:active {
+  transform: translateY(0);
 }
 
-.lfe-secondary-upload-btn:hover {
-  background: rgba(255, 255, 255, 0.18);
-  border-color: #ffffff;
-  transform: translateY(-2px);
+/* =========================================================
+   ENROLLED PHOTO PREVIEW WITH CYBERNETIC BADGE
+   ========================================================= */
+
+.lfe-enrolled-preview-wrap {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  border-radius: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .lfe-preview-img {
@@ -189,16 +308,44 @@
   object-fit: cover;
   display: block;
   transform: scaleX(-1);
-  filter: contrast(1.02) brightness(1.02);
+  filter: contrast(1.03) brightness(1.02);
 }
 
-/* Cybernetic Corner Brackets */
+.lfe-enrolled-floating-badge {
+  position: absolute;
+  bottom: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 22px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.85);
+  backdrop-filter: blur(12px);
+  color: #34d399;
+  font-size: 0.88rem;
+  font-weight: 800;
+  border: 1.5px solid rgba(52, 211, 153, 0.45);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4), 0 0 16px rgba(16, 185, 129, 0.3);
+  z-index: 12;
+}
+
+.lfe-enrolled-floating-badge .badge-icon {
+  font-size: 16px;
+  color: #10b981;
+}
+
+/* =========================================================
+   CYBERNETIC CORNER BRACKETS & LASER
+   ========================================================= */
+
 .lfe-corner-bracket {
   position: absolute;
-  width: 26px;
-  height: 26px;
+  width: 28px;
+  height: 28px;
   pointer-events: none;
-  z-index: 5;
+  z-index: 8;
   transition: all 0.3s ease;
 }
 
@@ -238,55 +385,6 @@
   border-color: #10b981;
 }
 
-/* HUD Top Live Bar */
-.lfe-hud-top {
-  position: absolute;
-  top: 14px;
-  left: 16px;
-  right: 16px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  z-index: 6;
-  pointer-events: none;
-}
-
-.lfe-hud-live-tag {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  background: rgba(15, 23, 42, 0.8);
-  backdrop-filter: blur(8px);
-  padding: 5px 12px;
-  border-radius: 999px;
-  color: #f8fafc;
-  font-size: 0.75rem;
-  font-weight: 800;
-  letter-spacing: 0.5px;
-  border: 1px solid rgba(255, 255, 255, 0.15);
-}
-
-.lfe-live-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #10b981;
-  box-shadow: 0 0 10px #10b981;
-  animation: lfePulseDot 1.5s infinite;
-}
-
-.lfe-hud-info-tag {
-  background: rgba(15, 23, 42, 0.8);
-  backdrop-filter: blur(8px);
-  padding: 5px 12px;
-  border-radius: 999px;
-  color: #a5b4fc;
-  font-size: 0.75rem;
-  font-weight: 750;
-  border: 1px solid rgba(165, 180, 252, 0.25);
-}
-
-/* Large Face Oval Target Guide */
 .lfe-face-guide {
   position: absolute;
   top: 50%;
@@ -302,18 +400,6 @@
   transition: all 0.3s ease;
 }
 
-.lfe-viewport-container.capturing .lfe-face-guide {
-  border-color: #818cf8;
-  border-style: solid;
-  border-width: 3px;
-  animation: lfeGuideGlow 1s infinite alternate;
-}
-
-.lfe-viewport-container.enrolled .lfe-face-guide {
-  display: none;
-}
-
-/* Laser Scanning Line Animation */
 .lfe-scan-laser {
   position: absolute;
   left: 0;
@@ -321,7 +407,7 @@
   height: 3.5px;
   background: linear-gradient(90deg, transparent 0%, #6366f1 20%, #818cf8 50%, #6366f1 80%, transparent 100%);
   box-shadow: 0 0 16px 3px rgba(99, 102, 241, 0.85);
-  z-index: 5;
+  z-index: 6;
   pointer-events: none;
   animation: lfeScanSweep 2.2s ease-in-out infinite alternate;
 }
@@ -332,32 +418,124 @@
   animation-duration: 0.9s;
 }
 
-.lfe-viewport-container.enrolled .lfe-scan-laser {
-  display: none;
+/* =========================================================
+   STANDBY CAMERA PLACEHOLDER BOX
+   ========================================================= */
+
+.lfe-camera-placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle at 50% 40%, #17213b 0%, #090d16 100%);
+  color: #94a3b8;
+  padding: 30px 24px;
+  z-index: 8;
+  text-align: center;
+  box-sizing: border-box;
 }
 
-/* Success Enrolled Overlay */
-.lfe-enrolled-overlay {
-  position: absolute;
-  bottom: 14px;
-  left: 14px;
-  right: 14px;
-  background: rgba(15, 23, 42, 0.88);
-  backdrop-filter: blur(10px);
-  padding: 10px 16px;
-  border-radius: 12px;
+.lfe-placeholder-icon-wrap {
+  width: 72px;
+  height: 72px;
+  border-radius: 20px;
+  background: rgba(99, 102, 241, 0.15);
+  color: #6366f1;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  color: #34d399;
-  font-size: 0.88rem;
-  font-weight: 800;
-  border: 1px solid rgba(52, 211, 153, 0.35);
-  z-index: 7;
+  font-size: 32px;
+  margin-bottom: 16px;
+  box-shadow: 0 0 0 8px rgba(99, 102, 241, 0.08);
+  animation: lfePulseBubble 2.5s infinite ease-in-out;
 }
 
-/* Multi-Frame Progress Bar */
+.lfe-camera-placeholder h5 {
+  margin: 0 0 8px 0;
+  font-size: 1.2rem;
+  font-weight: 800;
+  color: #f8fafc;
+}
+
+.lfe-camera-placeholder p {
+  margin: 0 0 20px 0;
+  font-size: 0.88rem;
+  color: #94a3b8;
+  max-width: 360px;
+  line-height: 1.5;
+}
+
+.lfe-placeholder-btn-group {
+  display: flex;
+  gap: 12px;
+  width: 100%;
+  max-width: 400px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.lfe-primary-cam-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 13px 24px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+  color: #ffffff;
+  border: none;
+  font-size: 0.92rem;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 4px 16px rgba(99, 102, 241, 0.4);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  flex: 1;
+  min-width: 160px;
+}
+
+.lfe-primary-cam-btn:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(99, 102, 241, 0.55);
+  background: linear-gradient(135deg, #4f46e5 0%, #4338ca 100%);
+}
+
+.lfe-primary-cam-btn:disabled {
+  opacity: 0.75;
+  cursor: wait;
+}
+
+.lfe-secondary-upload-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px 20px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(10px);
+  color: #f8fafc;
+  border: 1.5px solid rgba(255, 255, 255, 0.25);
+  font-size: 0.9rem;
+  font-weight: 750;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  flex: 1;
+  min-width: 140px;
+}
+
+.lfe-secondary-upload-btn:hover {
+  background: rgba(255, 255, 255, 0.22);
+  border-color: #ffffff;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
+}
+
+/* =========================================================
+   PROGRESS BAR & STATUS MESSAGES
+   ========================================================= */
+
 .lfe-progress-bar-wrapper {
   max-width: 520px;
   margin: 0 auto 18px;
@@ -402,7 +580,7 @@
 }
 
 /* =========================================================
-   ACTION BUTTONS & CONTROLS
+   ACTION CONTROLS (CAPTURE / RETAKE / RE-UPLOAD)
    ========================================================= */
 
 .lfe-actions {
@@ -452,7 +630,7 @@
   align-items: center;
   justify-content: center;
   gap: 8px;
-  padding: 11px 22px;
+  padding: 11px 24px;
   border-radius: 12px;
   background: var(--surface, #ffffff);
   border: 1.5px solid var(--border, #cbd5e1);
@@ -543,16 +721,15 @@
    KEYFRAME ANIMATIONS
    ========================================================= */
 
+@keyframes lfeFloatIcon {
+  0% { transform: translateY(0); }
+  100% { transform: translateY(-8px); }
+}
+
 @keyframes lfePulseBubble {
   0% { box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.3); }
   70% { box-shadow: 0 0 0 16px rgba(99, 102, 241, 0); }
   100% { box-shadow: 0 0 0 0 rgba(99, 102, 241, 0); }
-}
-
-@keyframes lfePulseDot {
-  0% { opacity: 0.6; transform: scale(0.9); }
-  50% { opacity: 1; transform: scale(1.15); }
-  100% { opacity: 0.6; transform: scale(0.9); }
 }
 
 @keyframes lfeScanSweep {
@@ -560,10 +737,9 @@
   100% { top: 92%; }
 }
 
-@keyframes lfeGuideGlow {
-  0% { box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.22), 0 0 12px rgba(99, 102, 241, 0.4); }
-  100% { box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.22), 0 0 24px rgba(129, 140, 248, 0.85); }
-}
+/* =========================================================
+   RESPONSIVE DESIGN (MOBILE & TABLET)
+   ========================================================= */
 
 @media (max-width: 600px) {
   .live-enrollment-card {
@@ -572,13 +748,61 @@
     margin: 6px auto;
   }
 
+  .lfe-mode-tabs {
+    width: 100%;
+  }
+
+  .lfe-mode-tab {
+    flex: 1;
+    padding: 8px 12px;
+    font-size: 0.82rem;
+  }
+
   .lfe-viewport-container {
-    height: 420px;
+    height: 440px;
     min-height: 380px;
     margin-bottom: 16px;
     border-radius: 18px;
   }
-  
+
+  .lfe-upload-dropzone {
+    padding: 24px 16px;
+  }
+
+  .lfe-upload-icon-container {
+    width: 64px;
+    height: 64px;
+    margin-bottom: 12px;
+  }
+
+  .lfe-upload-hero-icon {
+    font-size: 32px;
+  }
+
+  .lfe-upload-title {
+    font-size: 1.15rem;
+  }
+
+  .lfe-upload-subtitle {
+    font-size: 0.82rem;
+    margin-bottom: 14px;
+  }
+
+  .lfe-guidelines {
+    gap: 6px;
+  }
+
+  .lfe-guide-badge {
+    font-size: 0.72rem;
+    padding: 4px 10px;
+  }
+
+  .lfe-browse-btn {
+    width: 100%;
+    padding: 11px 20px;
+    font-size: 0.88rem;
+  }
+
   .lfe-camera-placeholder {
     padding: 24px 16px;
   }

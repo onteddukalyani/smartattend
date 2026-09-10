@@ -9,7 +9,7 @@ import ManageAdmins from "./pages/ManageAdmins";
 import AddAdmin from "./pages/AddAdmin";
 import ManageLecturers from "./pages/ManageLecturers";
 import AddLecturer from "./pages/AddLecturer";
-import ManageStudents from "./pages/ManageStudents";
+import StudentsList from "../Lecturer/pages/StudentsList";
 import AddStudent from "./pages/AddStudent";
 import AttendanceOverview from "./pages/AttendanceOverview";
 import InstitutionSettings from "./pages/InstitutionSettings";
@@ -36,7 +36,7 @@ const AdminDashboard = () => {
             <Route path="admins" element={<ManageAdmins />} />
             <Route path="admins/add" element={<AddAdmin />} />
             <Route path="add-admin" element={<AddAdmin />} />
-            <Route path="students" element={<ManageStudents />} />
+            <Route path="students" element={<StudentsList />} />
             <Route path="students/add" element={<AddStudent />} />
             <Route path="students/bulk" element={<AddStudent />} />
             <Route path="add-student" element={<AddStudent />} />

@@ -35,7 +35,33 @@ import {
     FaQrcode
 } from "react-icons/fa";
 import { db } from "../../../firebase";
+import { mergeAllStudentRecords } from "../../../utils/studentDataHelper";
 import "./ManageCourses.css";
+
+export function normalizeCode(str) {
+    if (!str) return "";
+    return String(str).toUpperCase().replace(/[^A-Z0-9]/g, "").trim();
+}
+
+export function parseTimestampMillis(ts) {
+    if (!ts) return 0;
+    if (typeof ts === "number") return ts;
+    if (typeof ts === "string") {
+        const parsed = Date.parse(ts);
+        return isNaN(parsed) ? 0 : parsed;
+    }
+    if (typeof ts.toMillis === "function") return ts.toMillis();
+    if (typeof ts.toDate === "function") return ts.toDate().getTime();
+    if (typeof ts.seconds === "number") return ts.seconds * 1000 + (ts.nanoseconds ? Math.floor(ts.nanoseconds / 1000000) : 0);
+    if (ts._seconds) return ts._seconds * 1000;
+    return 0;
+}
+
+export function formatTimestamp(ts, options = { dateStyle: "medium", timeStyle: "short" }) {
+    const millis = parseTimestampMillis(ts);
+    if (!millis) return "—";
+    return new Date(millis).toLocaleString(undefined, options);
+}
 
 export default function ManageCourses() {
     const navigate = useNavigate();
@@ -43,6 +69,7 @@ export default function ManageCourses() {
     const [lecturers, setLecturers] = useState([]);
     const [sessions, setSessions] = useState([]);
     const [records, setRecords] = useState([]);
+    const [allStudents, setAllStudents] = useState([]);
     const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState("");
     const [selectedDept, setSelectedDept] = useState("all");
@@ -117,7 +144,7 @@ export default function ManageCourses() {
 
                 const lectMap = new Map();
 
-                // 1. Ingest faculty from lecturers collection
+                // Ingest faculty from lecturers collection
                 lecturersSnap.docs.forEach((d) => {
                     const data = d.data();
                     const email = (data.email || (d.id.includes("@") ? d.id : "")).toLowerCase().trim();
@@ -130,7 +157,7 @@ export default function ManageCourses() {
                     }
                 });
 
-                // 2. Ingest authorized faculty from authorizedUsers collection
+                // Ingest authorized faculty from authorizedUsers collection
                 authSnap.docs.forEach((d) => {
                     const data = d.data();
                     const role = String(data.role || "").toLowerCase().trim();
@@ -149,7 +176,7 @@ export default function ManageCourses() {
                     }
                 });
 
-                // 3. Ingest faculty from users collection
+                // Ingest faculty from users collection
                 usersSnap.docs.forEach((d) => {
                     const data = d.data();
                     const role = String(data.role || "").toLowerCase().trim();
@@ -217,17 +244,85 @@ export default function ManageCourses() {
         return () => unsubscribe();
     }, []);
 
-    // Session count per course map
+    // 5. Real-time Students Catalog listener
+    useEffect(() => {
+        let authDocs = [];
+        let studentsDocs = [];
+        let usersDocs = [];
+
+        const recomputeStudents = () => {
+            const canonicalList = mergeAllStudentRecords(authDocs, studentsDocs, usersDocs);
+            const mapped = canonicalList.map((s) => ({
+                id: s.id || s.rollNo,
+                rollNo: s.rollNo,
+                name: s.name || s.rollNo,
+                email: s.email || "",
+                department: s.branch || "CSE",
+                branch: s.branch || "CSE",
+                semester: s.semester || "1",
+                batch: s.batch || "2025",
+                hasFace: Boolean(s.faceRegistered || s.biometricEnrolled),
+                photoURL: s.photoURL || ""
+            }));
+            setAllStudents(mapped);
+        };
+
+        const unsubAuth = onSnapshot(collection(db, "authorizedUsers"), (snap) => {
+            authDocs = snap.docs;
+            recomputeStudents();
+        }, (err) => console.warn("authorizedUsers snapshot error:", err));
+
+        const unsubStudents = onSnapshot(collection(db, "students"), (snap) => {
+            studentsDocs = snap.docs;
+            recomputeStudents();
+        }, (err) => console.warn("students snapshot error:", err));
+
+        const unsubUsers = onSnapshot(collection(db, "users"), (snap) => {
+            usersDocs = snap.docs;
+            recomputeStudents();
+        }, (err) => console.warn("users snapshot error:", err));
+
+        return () => {
+            unsubAuth();
+            unsubStudents();
+            unsubUsers();
+        };
+    }, []);
+
+    // Session count per course map with robust multi-field matching
     const sessionsPerCourse = useMemo(() => {
         const map = {};
-        sessions.forEach((s) => {
-            const code = (s.courseCode || s.classCode || "").trim().toUpperCase();
-            if (code) {
-                map[code] = (map[code] || 0) + 1;
-            }
+        courses.forEach((c) => {
+            const normCode = normalizeCode(c.courseCode || c.id);
+            const normName = normalizeCode(c.courseName);
+            const cIdNorm = normalizeCode(c.id);
+
+            const count = sessions.filter((s) => {
+                const sCodeNorm = normalizeCode(s.courseCode || s.classCode);
+                const sCourseIdNorm = normalizeCode(s.courseId);
+                const sNameNorm = normalizeCode(s.courseName || s.topic);
+                const sIdNorm = normalizeCode(s.id);
+
+                if (normCode && sCodeNorm === normCode) return true;
+                if (normCode && sCourseIdNorm === normCode) return true;
+                if (cIdNorm && sCourseIdNorm === cIdNorm) return true;
+                if (normCode && sIdNorm.startsWith(normCode)) return true;
+                if (normName && sNameNorm === normName) return true;
+
+                // Check records in this session
+                return records.some((r) => {
+                    const rSessId = String(r.sessionId || "").trim().toUpperCase();
+                    const rCodeNorm = normalizeCode(r.courseCode || r.classCode);
+                    return rSessId === String(s.id).toUpperCase() && normCode && rCodeNorm === normCode;
+                });
+            }).length;
+
+            const cleanCode = (c.courseCode || "").toUpperCase();
+            if (cleanCode) map[cleanCode] = count;
+            if (c.id) map[c.id.toUpperCase()] = count;
         });
         return map;
-    }, [sessions]);
+    }, [courses, sessions, records]);
 
     // Filter courses
     const filteredCourses = useMemo(() => {
@@ -358,58 +453,142 @@ export default function ManageCourses() {
         }
     };
 
-    // Deep Analysis for Selected Course in Details Modal
+    // Deep Analysis for Selected Course in Details Modal (Full Complete Data)
     const courseDetailsData = useMemo(() => {
         if (!selectedCourseDetails) return null;
 
-        const code = (selectedCourseDetails.courseCode || "").trim().toUpperCase();
+        const normCode = normalizeCode(selectedCourseDetails.courseCode || selectedCourseDetails.id);
+        const normName = normalizeCode(selectedCourseDetails.courseName);
+        const normId = normalizeCode(selectedCourseDetails.id);
+        const deptUpper = (selectedCourseDetails.department || "").toUpperCase().trim();
+        const semStr = String(selectedCourseDetails.semester || "").trim();
 
-        // 1. Relevant Sessions
+        // 1. Relevant Sessions (multi-field matching + safe timestamp sort)
         const courseSessions = sessions.filter((s) => {
-            const cCode = (s.courseCode || s.classCode || "").trim().toUpperCase();
-            return cCode === code;
-        }).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+            const sCodeNorm = normalizeCode(s.courseCode || s.classCode);
+            const sCourseIdNorm = normalizeCode(s.courseId);
+            const sNameNorm = normalizeCode(s.courseName || s.topic);
+            const sIdNorm = normalizeCode(s.id);
+
+            if (normCode && sCodeNorm === normCode) return true;
+            if (normCode && sCourseIdNorm === normCode) return true;
+            if (normId && sCourseIdNorm === normId) return true;
+            if (normCode && sIdNorm.startsWith(normCode)) return true;
+            if (normName && sNameNorm === normName) return true;
+
+            return records.some((r) => {
+                const rSessId = String(r.sessionId || "").trim().toUpperCase();
+                const rCodeNorm = normalizeCode(r.courseCode || r.classCode);
+                return rSessId === String(s.id).toUpperCase() && normCode && rCodeNorm === normCode;
+            });
+        }).sort((a, b) => parseTimestampMillis(b.createdAt) - parseTimestampMillis(a.createdAt));
 
         const sessionIdsSet = new Set(courseSessions.map((s) => s.id));
 
         // 2. Relevant Records
         const courseRecords = records.filter((r) => {
-            const cCode = (r.courseCode || r.classCode || "").trim().toUpperCase();
-            return cCode === code || (r.sessionId && sessionIdsSet.has(r.sessionId));
+            const rCodeNorm = normalizeCode(r.courseCode || r.classCode);
+            return (r.sessionId && sessionIdsSet.has(r.sessionId)) ||
+                   (normCode && rCodeNorm === normCode) ||
+                   (r.id && Array.from(sessionIdsSet).some((sid) => r.id.startsWith(`${sid}_`)));
         });
 
-        // 3. Map attendees by Session ID
+        // 3. Map attendees by Session ID (combining attendance_records AND embedded session.attendees)
         const attendeesBySession = new Map();
-        courseRecords.forEach((r) => {
-            if (r.sessionId) {
-                if (!attendeesBySession.has(r.sessionId)) {
-                    attendeesBySession.set(r.sessionId, []);
+        courseSessions.forEach((s) => {
+            const list = [];
+            const seenRolls = new Set();
+
+            // From records collection
+            courseRecords.forEach((r) => {
+                if (r.sessionId === s.id || (r.id && r.id.startsWith(`${s.id}_`))) {
+                    const roll = (r.rollNo || r.studentRoll || "").trim().toUpperCase();
+                    if (roll && !seenRolls.has(roll)) {
+                        seenRolls.add(roll);
+                        list.push({
+                            id: r.id || `${s.id}_${roll}`,
+                            rollNo: roll,
+                            studentName: r.studentName || r.name || roll,
+                            studentEmail: r.studentEmail || r.email || "",
+                            submittedAt: r.submittedAt || s.createdAt,
+                            faceVerified: r.faceVerified ?? true
+                        });
+                    }
                 }
-                attendeesBySession.get(r.sessionId).push(r);
+            });
+
+            // From embedded attendees array on session doc
+            if (Array.isArray(s.attendees)) {
+                s.attendees.forEach((att, idx) => {
+                    const roll = (att.rollNo || att.roll || att.studentId || "").trim().toUpperCase();
+                    if (roll && !seenRolls.has(roll)) {
+                        seenRolls.add(roll);
+                        list.push({
+                            id: att.id || `${s.id}_${roll || idx}`,
+                            rollNo: roll || "—",
+                            studentName: att.fullName || att.name || att.studentName || "Student",
+                            studentEmail: att.studentEmail || att.email || "",
+                            submittedAt: att.submittedAt || att.timestamp || s.createdAt,
+                            faceVerified: att.faceVerified ?? true
+                        });
+                    }
+                });
             }
+
+            list.sort((a, b) => a.rollNo.localeCompare(b.rollNo, undefined, { numeric: true }));
+            attendeesBySession.set(s.id, list);
         });
 
-        // 4. Map attendees by Student Roll Number
+        // 4. Map Course Attendees strictly (only students who have attendance in this course or explicit course enrollment)
         const studentRegisterMap = new Map();
-        courseRecords.forEach((r) => {
-            const roll = (r.rollNo || r.studentRoll || "").trim().toUpperCase();
-            if (roll) {
-                if (!studentRegisterMap.has(roll)) {
+
+        // If the course document itself has an explicit enrolledStudents list:
+        if (Array.isArray(selectedCourseDetails.enrolledStudents)) {
+            selectedCourseDetails.enrolledStudents.forEach((enrolled) => {
+                const roll = (typeof enrolled === "string" ? enrolled : (enrolled?.rollNo || enrolled?.id || "")).toUpperCase().trim();
+                if (roll) {
+                    const matchedSt = allStudents.find((s) => (s.rollNo || "").toUpperCase() === roll);
                     studentRegisterMap.set(roll, {
                         rollNo: roll,
-                        name: r.studentName || r.name || roll,
+                        name: matchedSt?.name || enrolled?.name || roll,
+                        department: matchedSt?.department || deptUpper || "CSE",
+                        semester: matchedSt?.semester || semStr || "1",
+                        email: matchedSt?.email || "",
                         attendedCount: 0,
-                        lastAttended: r.submittedAt || null,
-                        sessionsList: []
+                        lastAttended: null,
+                        hasFace: matchedSt ? matchedSt.hasFace : false
                     });
                 }
-                const entry = studentRegisterMap.get(roll);
-                entry.attendedCount += 1;
-                entry.sessionsList.push(r);
-                if (r.submittedAt && (!entry.lastAttended || r.submittedAt > entry.lastAttended)) {
-                    entry.lastAttended = r.submittedAt;
+            });
+        }
+
+        // Calculate attended count for every student who attended sessions for this course
+        courseSessions.forEach((s) => {
+            const sessionAtts = attendeesBySession.get(s.id) || [];
+            sessionAtts.forEach((att) => {
+                const roll = (att.rollNo || "").toUpperCase().trim();
+                if (roll && roll !== "—") {
+                    if (!studentRegisterMap.has(roll)) {
+                        const matchedSt = allStudents.find((s) => (s.rollNo || "").toUpperCase() === roll);
+                        studentRegisterMap.set(roll, {
+                            rollNo: roll,
+                            name: att.studentName || matchedSt?.name || roll,
+                            department: matchedSt?.department || deptUpper || "CSE",
+                            semester: matchedSt?.semester || semStr || "1",
+                            email: att.studentEmail || matchedSt?.email || "",
+                            attendedCount: 0,
+                            lastAttended: null,
+                            hasFace: matchedSt ? matchedSt.hasFace : (att.faceVerified ?? true)
+                        });
+                    }
+                    const entry = studentRegisterMap.get(roll);
+                    entry.attendedCount += 1;
+                    const subTime = parseTimestampMillis(att.submittedAt);
+                    if (subTime && (!entry.lastAttended || subTime > parseTimestampMillis(entry.lastAttended))) {
+                        entry.lastAttended = subTime;
+                    }
                 }
-            }
+            });
         });
 
         const studentsList = Array.from(studentRegisterMap.values()).sort((a, b) =>
@@ -417,8 +596,8 @@ export default function ManageCourses() {
         );
 
         const totalConductedCount = courseSessions.length;
-        const totalAttendancesCount = courseRecords.length;
-        const avgAttendeesPerSession = totalConductedCount > 0 ? (totalAttendancesCount / totalConductedCount).toFixed(1) : 0;
+        const totalAttendancesCount = Array.from(attendeesBySession.values()).reduce((acc, list) => acc + list.length, 0);
+        const avgAttendeesPerSession = totalConductedCount > 0 ? (totalAttendancesCount / totalConductedCount).toFixed(1) : "0";
         const uniqueStudentsCount = studentRegisterMap.size;
 
         return {
@@ -431,7 +610,7 @@ export default function ManageCourses() {
             avgAttendeesPerSession,
             uniqueStudentsCount
         };
-    }, [selectedCourseDetails, sessions, records]);
+    }, [selectedCourseDetails, sessions, records, allStudents]);
 
     // Filter students inside modal
     const filteredModalStudents = useMemo(() => {
@@ -780,9 +959,9 @@ export default function ManageCourses() {
                                     <FaGraduationCap />
                                 </div>
                                 <div className="cd-stat-info">
-                                    <span className="cd-stat-label">Unique Attendees</span>
+                                    <span className="cd-stat-label">Course Attendees</span>
                                     <strong className="cd-stat-number text-purple">{courseDetailsData.uniqueStudentsCount}</strong>
-                                    <span className="cd-stat-sub">Active students</span>
+                                    <span className="cd-stat-sub">Active attendees</span>
                                 </div>
                             </div>
                         </div>
@@ -804,7 +983,7 @@ export default function ManageCourses() {
                                 onClick={() => setDetailTab("students")}
                             >
                                 <FaUsers />
-                                <span>Student Register ({courseDetailsData.uniqueStudentsCount})</span>
+                                <span>Course Attendees ({courseDetailsData.uniqueStudentsCount})</span>
                             </button>
 
                             <button
@@ -838,14 +1017,7 @@ export default function ManageCourses() {
                                                 const attendees = courseDetailsData.attendeesBySession.get(session.id) || [];
                                                 const attendeeCount = attendees.length;
                                                 const isExpanded = expandedSessionId === session.id;
-
-                                                const timeFormatted = session.createdAt
-                                                    ? new Date(session.createdAt).toLocaleString(undefined, {
-                                                        dateStyle: "medium",
-                                                        timeStyle: "short"
-                                                    })
-                                                    : "Date recorded";
-
+                                                const timeFormatted = formatTimestamp(session.createdAt);
                                                 const isLive = session.status === "active";
 
                                                 return (
@@ -989,7 +1161,7 @@ export default function ManageCourses() {
                                             )}
                                         </div>
                                         <span className="cd-students-count-badge">
-                                            {filteredModalStudents.length} Students Logged
+                                            {filteredModalStudents.length} Course Attendees
                                         </span>
                                     </div>
 
@@ -998,11 +1170,11 @@ export default function ManageCourses() {
                                             <div className="cd-empty-icon">
                                                 <FaUsers />
                                             </div>
-                                            <h4>No Student Attendance Found</h4>
+                                            <h4>No Course Attendees Yet</h4>
                                             <p>
                                                 {studentSearchTerm
-                                                    ? `No students match "${studentSearchTerm}".`
-                                                    : "No student records logged for this course yet."}
+                                                    ? `No attendees match "${studentSearchTerm}".`
+                                                    : "No student attendance records recorded for this course yet."}
                                             </p>
                                         </div>
                                     ) : (
@@ -1012,6 +1184,7 @@ export default function ManageCourses() {
                                                     <tr>
                                                         <th>Student Roll No</th>
                                                         <th>Student Name</th>
+                                                        <th>Department &amp; Sem</th>
                                                         <th>Sessions Attended</th>
                                                         <th>Attendance %</th>
                                                         <th>Last Attendance</th>
@@ -1020,16 +1193,13 @@ export default function ManageCourses() {
                                                 <tbody>
                                                     {filteredModalStudents.map((st) => {
                                                         const totalSes = courseDetailsData.totalConductedCount || 1;
-                                                        const pct = totalSes > 0 ? Math.round((st.attendedCount / totalSes) * 100) : 100;
+                                                        const pct = courseDetailsData.totalConductedCount > 0
+                                                            ? Math.round((st.attendedCount / courseDetailsData.totalConductedCount) * 100)
+                                                            : (st.attendedCount > 0 ? 100 : 0);
                                                         const isSafe = pct >= 75;
-
                                                         const lastStr = st.lastAttended
-                                                            ? new Date(st.lastAttended).toLocaleDateString(undefined, {
-                                                                month: "short",
-                                                                day: "numeric",
-                                                                year: "numeric"
-                                                            })
-                                                            : "N/A";
+                                                            ? formatTimestamp(st.lastAttended, { dateStyle: "medium" })
+                                                            : (st.attendedCount > 0 ? "Recorded" : "Never");
 
                                                         return (
                                                             <tr key={st.rollNo}>
@@ -1043,12 +1213,17 @@ export default function ManageCourses() {
                                                                     <span className="cd-student-name">{st.name}</span>
                                                                 </td>
                                                                 <td>
+                                                                    <span className="cd-student-dept-tag">
+                                                                        {st.department || selectedCourseDetails.department} • Sem {st.semester || selectedCourseDetails.semester}
+                                                                    </span>
+                                                                </td>
+                                                                <td>
                                                                     <span className="cd-attended-badge">
                                                                         <strong>{st.attendedCount}</strong> / {courseDetailsData.totalConductedCount}
                                                                     </span>
                                                                 </td>
                                                                 <td>
-                                                                    <span className={`cd-pct-pill ${isSafe ? "safe" : "danger"}`}>
+                                                                    <span className={`cd-pct-pill ${isSafe ? "safe" : pct === 0 ? "zero" : "danger"}`}>
                                                                         {pct}% {isSafe ? "Safe" : "Shortage"}
                                                                     </span>
                                                                 </td>

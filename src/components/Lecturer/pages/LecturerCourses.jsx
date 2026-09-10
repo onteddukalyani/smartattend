@@ -40,7 +40,28 @@ import { db } from "../../../firebase";
 import { useAuth } from "../../authcontext";
 import { downloadExcel } from "../../../DownloadExcel";
 import StudentDetailModal from "../../Common/StudentDetailModal";
+import { deleteStudentRecordCompletely } from "../../../utils/studentDataHelper";
 import "./LecturerCourses.css";
+
+export function parseTimestampMillis(ts) {
+    if (!ts) return 0;
+    if (typeof ts === "number") return ts;
+    if (typeof ts === "string") {
+        const parsed = Date.parse(ts);
+        return isNaN(parsed) ? 0 : parsed;
+    }
+    if (typeof ts.toMillis === "function") return ts.toMillis();
+    if (typeof ts.toDate === "function") return ts.toDate().getTime();
+    if (typeof ts.seconds === "number") return ts.seconds * 1000 + (ts.nanoseconds ? Math.floor(ts.nanoseconds / 1000000) : 0);
+    if (ts._seconds) return ts._seconds * 1000;
+    return 0;
+}
+
+export function formatTimestamp(ts, options = { dateStyle: "medium", timeStyle: "short" }) {
+    const millis = parseTimestampMillis(ts);
+    if (!millis) return "—";
+    return new Date(millis).toLocaleString(undefined, options);
+}
 
 // Strict ownership check: course belongs to current lecturer
 export function isCourseAssignedToLecturer(c, user, profile) {
@@ -356,7 +377,7 @@ export default function LecturerCourses() {
             if (hasMatchingRecord) return true;
 
             return false;
-        });
+        }).sort((a, b) => parseTimestampMillis(b.createdAt) - parseTimestampMillis(a.createdAt));
 
         // Matching attendance records
         const sessionIds = new Set(courseSessions.map((s) => String(s.id || "").trim().toUpperCase()));
@@ -372,21 +393,63 @@ export default function LecturerCourses() {
                    rClass === code;
         });
 
-        // Matching students by department/branch
-        const enrolledStudents = students.filter((st) => {
-            const stDept = (st.department || st.branch || "").trim().toUpperCase();
-            if (!dept || dept === "ALL" || dept === "GENERAL") return true;
-            return stDept === dept || stDept.includes(dept) || dept.includes(stDept);
+        // Compute unique attendees from records and session attendees
+        const uniqueAttendeeRolls = new Set(courseRecords.map((r) => (r.rollNo || "").toUpperCase()).filter(Boolean));
+        courseSessions.forEach((s) => {
+            if (Array.isArray(s.attendees)) {
+                s.attendees.forEach((att) => {
+                    const r = (att.rollNo || att.roll || "").toUpperCase().trim();
+                    if (r) uniqueAttendeeRolls.add(r);
+                });
+            }
         });
 
-        // Compute unique attendees
-        const uniqueAttendeeRolls = new Set(courseRecords.map((r) => (r.rollNo || "").toUpperCase()).filter(Boolean));
+        // Matching students strictly by attendee history or explicit course enrollment
+        const attendeeStudentsList = [];
+        const seenAttendeeRolls = new Set();
+
+        // 1. If course has explicit enrolledStudents array:
+        if (Array.isArray(selectedCourse.enrolledStudents)) {
+            selectedCourse.enrolledStudents.forEach((enrolled) => {
+                const roll = (typeof enrolled === "string" ? enrolled : (enrolled?.rollNo || enrolled?.id || "")).toUpperCase().trim();
+                if (roll && !seenAttendeeRolls.has(roll)) {
+                    seenAttendeeRolls.add(roll);
+                    const matchedSt = students.find((s) => (s.rollNo || "").toUpperCase() === roll);
+                    attendeeStudentsList.push(matchedSt || {
+                        id: roll,
+                        rollNo: roll,
+                        name: enrolled?.name || roll,
+                        email: "",
+                        department: selectedCourse.department || "CSE",
+                        semester: selectedCourse.semester || "1",
+                        hasFace: false
+                    });
+                }
+            });
+        }
+
+        // 2. Add students who attended sessions of this course
+        uniqueAttendeeRolls.forEach((roll) => {
+            if (!seenAttendeeRolls.has(roll)) {
+                seenAttendeeRolls.add(roll);
+                const matchedSt = students.find((s) => (s.rollNo || "").toUpperCase() === roll);
+                attendeeStudentsList.push(matchedSt || {
+                    id: roll,
+                    rollNo: roll,
+                    name: roll,
+                    email: "",
+                    department: selectedCourse.department || "CSE",
+                    semester: selectedCourse.semester || "1",
+                    hasFace: false
+                });
+            }
+        });
 
         return {
             course: selectedCourse,
             sessions: courseSessions,
             records: courseRecords,
-            students: enrolledStudents,
+            students: attendeeStudentsList,
             totalSessions: courseSessions.length,
             totalScans: courseRecords.length,
             uniqueAttendeesCount: uniqueAttendeeRolls.size,
@@ -409,35 +472,55 @@ export default function LecturerCourses() {
         });
     }, [selectedCourseData, studentSearch]);
 
-    // Active session attendees
+    // Active session attendees (Merged from attendance_records AND session.attendees array)
     const sessionAttendees = useMemo(() => {
         if (!selectedSessionForAttendees) return [];
         const sessId = String(selectedSessionForAttendees.id || "").trim().toLowerCase();
+        const attendeesMap = new Map();
 
-        // 1. Check matching records from attendance_records collection
-        const matchedFromRecords = records.filter((r) => {
+        // 1. Ingest matching records from attendance_records collection
+        records.forEach((r) => {
             const rSessId = String(r.sessionId || r.session_id || r.session || "").trim().toLowerCase();
             const docId = String(r.id || "").trim().toLowerCase();
-            if (rSessId && sessId && rSessId === sessId) return true;
-            if (docId && sessId && docId.startsWith(`${sessId}_`)) return true;
-            if (docId && sessId && docId === sessId) return true;
-            return false;
+            const isMatch = (rSessId && sessId && rSessId === sessId) ||
+                            (docId && sessId && docId.startsWith(`${sessId}_`)) ||
+                            (docId && sessId && docId === sessId);
+
+            if (isMatch) {
+                const roll = (r.rollNo || r.studentRoll || "").trim().toUpperCase();
+                if (roll) {
+                    attendeesMap.set(roll, {
+                        id: r.id || `${selectedSessionForAttendees.id}_${roll}`,
+                        sessionId: selectedSessionForAttendees.id,
+                        rollNo: roll,
+                        fullName: r.fullName || r.studentName || r.name || "Student",
+                        studentEmail: r.studentEmail || r.email || "",
+                        submittedAt: r.submittedAt || selectedSessionForAttendees.createdAt,
+                        faceVerified: r.faceVerified ?? true
+                    });
+                }
+            }
         });
 
-        // 2. Check embedded attendees array on session doc if records collection has none
-        let attendeesList = [...matchedFromRecords];
-        if (attendeesList.length === 0 && Array.isArray(selectedSessionForAttendees.attendees)) {
-            attendeesList = selectedSessionForAttendees.attendees.map((att, idx) => ({
-                id: att.id || `${selectedSessionForAttendees.id}_${att.rollNo || idx}`,
-                sessionId: selectedSessionForAttendees.id,
-                rollNo: att.rollNo || att.roll || att.studentId || "—",
-                fullName: att.fullName || att.name || att.studentName || "Student",
-                studentEmail: att.studentEmail || att.email || "",
-                submittedAt: att.submittedAt || att.timestamp || att.time || selectedSessionForAttendees.createdAt,
-                faceVerified: att.faceVerified ?? true
-            }));
+        // 2. Ingest embedded attendees array on session doc
+        if (Array.isArray(selectedSessionForAttendees.attendees)) {
+            selectedSessionForAttendees.attendees.forEach((att, idx) => {
+                const roll = (att.rollNo || att.roll || att.studentId || "").trim().toUpperCase();
+                if (roll && !attendeesMap.has(roll)) {
+                    attendeesMap.set(roll, {
+                        id: att.id || `${selectedSessionForAttendees.id}_${roll || idx}`,
+                        sessionId: selectedSessionForAttendees.id,
+                        rollNo: roll,
+                        fullName: att.fullName || att.name || att.studentName || "Student",
+                        studentEmail: att.studentEmail || att.email || "",
+                        submittedAt: att.submittedAt || att.timestamp || att.time || selectedSessionForAttendees.createdAt,
+                        faceVerified: att.faceVerified ?? true
+                    });
+                }
+            });
         }
 
+        const attendeesList = Array.from(attendeesMap.values());
         return attendeesList.sort((a, b) => {
             const rollA = a.rollNo || "";
             const rollB = b.rollNo || "";
@@ -549,31 +632,7 @@ export default function LecturerCourses() {
 
         try {
             setDeletingStudentId(roll || student.id);
-            const email = student.email ? String(student.email).toLowerCase().trim() : null;
-            const prefix = email ? email.split("@")[0].toLowerCase().trim() : null;
-
-            const promises = [
-                deleteDoc(doc(db, "users", roll)).catch(() => {}),
-                deleteDoc(doc(db, "students", roll)).catch(() => {})
-            ];
-
-            if (student.id && student.id !== roll) {
-                promises.push(deleteDoc(doc(db, "users", student.id)).catch(() => {}));
-                promises.push(deleteDoc(doc(db, "students", student.id)).catch(() => {}));
-            }
-
-            if (email) {
-                promises.push(deleteDoc(doc(db, "authorizedUsers", email)).catch(() => {}));
-                promises.push(deleteDoc(doc(db, "students", email)).catch(() => {}));
-            }
-
-            if (prefix && prefix !== email && prefix !== roll.toLowerCase()) {
-                promises.push(deleteDoc(doc(db, "authorizedUsers", prefix)).catch(() => {}));
-                promises.push(deleteDoc(doc(db, "students", prefix)).catch(() => {}));
-            }
-
-            await Promise.all(promises);
-
+            await deleteStudentRecordCompletely(student);
             setStudents((prev) => prev.filter((s) => s.rollNo !== roll && s.id !== student.id));
             alert(`✅ Student ${studentName} (${roll}) was permanently deleted from the database.`);
         } catch (err) {
@@ -928,7 +987,7 @@ export default function LecturerCourses() {
                                 </div>
                                 <div className="cd-metric-content">
                                     <span className="cd-metric-num">{selectedCourseData.students.length}</span>
-                                    <span className="cd-metric-text">Dept Students</span>
+                                    <span className="cd-metric-text">Course Attendees</span>
                                 </div>
                             </div>
 
@@ -965,7 +1024,7 @@ export default function LecturerCourses() {
                                 }}
                             >
                                 <FaUsers />
-                                <span>Enrolled Students ({selectedCourseData.students.length})</span>
+                                <span>Course Attendees ({selectedCourseData.students.length})</span>
                             </button>
                             <button
                                 type="button"
@@ -1161,13 +1220,22 @@ export default function LecturerCourses() {
                                     ) : (
                                         <div className="cd-sessions-list">
                                             {selectedCourseData.sessions.map((s, idx) => {
-                                                const sDate = s.createdAt?.toDate ? s.createdAt.toDate() : (s.createdAt?.seconds ? new Date(s.createdAt.seconds * 1000) : (s.createdAt ? new Date(s.createdAt) : (s.timestamp ? new Date(s.timestamp) : null)));
-                                                const dateStr = sDate && !isNaN(sDate.getTime())
-                                                    ? sDate.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit" })
-                                                    : (s.date || "Past Session");
+                                                const dateStr = formatTimestamp(s.createdAt || s.timestamp, {
+                                                    weekday: "short",
+                                                    month: "short",
+                                                    day: "numeric",
+                                                    year: "numeric",
+                                                    hour: "2-digit",
+                                                    minute: "2-digit"
+                                                }) || (s.date || "Past Session");
 
-                                                // Count attendance records for this session
-                                                const count = records.filter((r) => r.sessionId === s.id).length || s.attendeesCount || (Array.isArray(s.attendees) ? s.attendees.length : 0);
+                                                // Count unique attendance records + embedded attendees for this session
+                                                const matchedRecs = records.filter((r) => r.sessionId === s.id || (r.id && r.id.startsWith(`${s.id}_`)));
+                                                const uniqueSet = new Set([
+                                                    ...matchedRecs.map((r) => (r.rollNo || r.id || "").toUpperCase()).filter(Boolean),
+                                                    ...(Array.isArray(s.attendees) ? s.attendees.map((a) => (a.rollNo || a.roll || a.id || "").toUpperCase()).filter(Boolean) : [])
+                                                ]);
+                                                const count = uniqueSet.size || s.attendeesCount || matchedRecs.length || 0;
 
                                                 return (
                                                     <div
@@ -1251,14 +1319,14 @@ export default function LecturerCourses() {
                                             <FaSearch className="cd-search-icon" />
                                             <input
                                                 type="text"
-                                                placeholder={`Search among ${selectedCourseData.students.length} ${selectedCourseData.course.department} students...`}
+                                                placeholder={`Search among ${selectedCourseData.students.length} course attendees...`}
                                                 value={studentSearch}
                                                 onChange={(e) => setStudentSearch(e.target.value)}
                                                 className="cd-students-search-input"
                                             />
                                         </div>
                                         <span className="cd-student-count-badge">
-                                            {filteredModalStudents.length} of {selectedCourseData.students.length} Students
+                                            {filteredModalStudents.length} of {selectedCourseData.students.length} Course Attendees
                                         </span>
                                     </div>
 
@@ -1267,8 +1335,8 @@ export default function LecturerCourses() {
                                             <div className="cd-empty-icon">
                                                 <FaUsers />
                                             </div>
-                                            <h4>No Matching Students Found</h4>
-                                            <p>No registered students match the search keyword for department "{selectedCourseData.course.department}".</p>
+                                            <h4>No Course Attendees Yet</h4>
+                                            <p>No student attendance records recorded for this course yet.</p>
                                         </div>
                                     ) : (
                                         <div className="cd-students-table-wrapper">
