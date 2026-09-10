@@ -23,8 +23,12 @@ function generateRandomHex(length = 20) {
   return Array.from(bytes).map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+export const PHASE_1_DURATION_MS = 60 * 1000;   // 1 minute (60s)
+export const PHASE_2_DURATION_MS = 120 * 1000;  // 2 minutes (120s)
+export const TOTAL_SESSION_DURATION_MS = 180 * 1000; // 3 minutes total (180s)
+
 /**
- * 1. Lecturer: Initiate 2-Phase Attendance Session (0:00 -> 1:00 -> 2:00)
+ * 1. Lecturer: Initiate 2-Phase Attendance Session (0:00 -> 1:00 -> 3:00)
  * Tries Cloud Function first, gracefully falls back to direct Firestore setup if functions are not deployed.
  */
 export async function initiateSession(sessionParams) {
@@ -41,9 +45,9 @@ export async function initiateSession(sessionParams) {
   // Direct Firestore Fallback with exact same timeline and tokens
   const currentUser = auth.currentUser;
   const nowMs = Date.now();
-  const qr1ExpiresMs = nowMs + 60 * 1000;    // T = 60s
+  const qr1ExpiresMs = nowMs + 60 * 1000;    // T = 60s (1 min)
   const qr2StartsMs = nowMs + 60 * 1000;     // T = 60s
-  const kioskEndsMs = nowMs + 120 * 1000;    // T = 120s (fixed unlock deadline)
+  const kioskEndsMs = nowMs + 180 * 1000;    // T = 180s (3 min total: 1 min QR 1 + 2 min QR 2)
 
   const qr1Token = generateRandomHex(20);
   const qr1TokenHash = await sha256(qr1Token);
@@ -105,7 +109,7 @@ export async function initiateSession(sessionParams) {
 /**
  * 2. Student: Authorize QR 1 (Phase 1 Check-In)
  */
-export async function authorizeStudentQR1(sessionId, qr1Token) {
+export async function authorizeStudentQR1(sessionId, qr1Token, studentProfileOverride = null) {
   try {
     const fn = httpsCallable(functions, "authorizeQR1");
     const result = await fn({ sessionId, qr1Token });
@@ -130,9 +134,9 @@ export async function authorizeStudentQR1(sessionId, qr1Token) {
     throw new Error("❌ QR 1 has expired! The 60-second check-in window is closed.");
   }
 
-  const studentEmail = (currentUser.email || "").toLowerCase().trim();
-  const rollNo = (studentEmail.split("@")[0] || "STUDENT").toUpperCase();
-  const studentName = currentUser.displayName || rollNo;
+  const studentEmail = (currentUser.email || studentProfileOverride?.email || "").toLowerCase().trim();
+  const rollNo = (studentProfileOverride?.rollNo || studentEmail.split("@")[0] || "STUDENT").toUpperCase();
+  const studentName = studentProfileOverride?.name || studentProfileOverride?.fullName || currentUser.displayName || rollNo;
 
   const authRef = doc(db, "attendance_sessions", sessionId, "authorizations", currentUser.uid);
   await setDoc(authRef, {
@@ -143,7 +147,7 @@ export async function authorizeStudentQR1(sessionId, qr1Token) {
     status: "SESSION_AUTHORIZED",
     authorizedAt: Date.now(),
     sessionId: sessionId,
-    kioskEndsAt: session.kioskEndsAt || (now + 120000)
+    kioskEndsAt: session.kioskEndsAt || (now + 180000)
   }, { merge: true });
 
   await updateDoc(sessionRef, {
@@ -158,7 +162,7 @@ export async function authorizeStudentQR1(sessionId, qr1Token) {
     studentName: studentName,
     sessionStartAt: session.sessionStartAt || now,
     qr1ExpiresAt: qr1ExpiresAt,
-    kioskEndsAt: session.kioskEndsAt || (now + 120000)
+    kioskEndsAt: session.kioskEndsAt || (now + 180000)
   };
 }
 
@@ -213,7 +217,7 @@ export async function validateStudentQR2(sessionId, qr2Token) {
   const session = sessionSnap.data();
   const now = Date.now();
   if (now > (session.kioskEndsAt || session.expiresAt || 0)) {
-    throw new Error("❌ Attendance session has closed. 120s deadline elapsed.");
+    throw new Error("❌ Attendance session has closed. 3-minute deadline elapsed.");
   }
 
   // Check QR 1 authorization

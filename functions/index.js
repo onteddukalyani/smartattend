@@ -82,8 +82,8 @@ async function resolveTrustedStudent(uid, email) {
  * 1. INITIATE ATTENDANCE SESSION (Lecturer only)
  * Sets fixed authoritative session timeline:
  * T = 0s  : Session Start
- * T = 60s : QR 1 Expires / QR 2 Starts
- * T = 120s: Session & Kiosk Period Ends (kioskEndsAt)
+ * T = 60s : QR 1 Expires (1 min) / QR 2 Starts (2 min)
+ * T = 180s: Session & Kiosk Period Ends (kioskEndsAt, 3 min total)
  */
 exports.initiateAttendanceSession = onCall(async (request) => {
   if (!request.auth || !request.auth.uid) {
@@ -97,9 +97,9 @@ exports.initiateAttendanceSession = onCall(async (request) => {
 
   const nowMs = Date.now();
   const sessionStartMs = nowMs;
-  const qr1ExpiresMs = nowMs + 60 * 1000;    // Exactly T = 60s
+  const qr1ExpiresMs = nowMs + 60 * 1000;    // Exactly T = 60s (1 min)
   const qr2StartsMs = nowMs + 60 * 1000;     // Exactly T = 60s
-  const kioskEndsMs = nowMs + 120 * 1000;    // Exactly T = 120s (fixed unlock deadline)
+  const kioskEndsMs = nowMs + 180 * 1000;    // Exactly T = 180s (3 min total: 1 min QR1 + 2 min QR2)
 
   const qr1Token = crypto.randomBytes(20).toString("hex");
   const qr1TokenHash = hashToken(qr1Token);
@@ -357,12 +357,12 @@ exports.validateQR2 = onCall(async (request) => {
     throw new HttpsError("failed-precondition", "This attendance session has ended.");
   }
 
-  // 2. Validate server time within T = 60s to 120s
+  // 2. Validate server time within T = 60s to 180s
   const serverNow = Date.now();
   const kioskEndsAtMs = security.kioskEndsAt ? security.kioskEndsAt.toMillis() : 0;
 
   if (serverNow > kioskEndsAtMs) {
-    throw new HttpsError("deadline-exceeded", "❌ Attendance session has closed. Deadline of 120s elapsed.");
+    throw new HttpsError("deadline-exceeded", "❌ Attendance session has closed. 3-minute session deadline elapsed.");
   }
 
   // 3. Validate QR 2 token
@@ -443,7 +443,7 @@ exports.submitAttendance = onCall(async (request) => {
   const kioskEndsAtMs = security.kioskEndsAt ? security.kioskEndsAt.toMillis() : 0;
 
   if (session.active === false || serverNow > kioskEndsAtMs) {
-    throw new HttpsError("failed-precondition", "Attendance session is closed (120s elapsed).");
+    throw new HttpsError("failed-precondition", "Attendance session is closed (3-minute session elapsed).");
   }
 
   // 1. Re-validate QR 2 token

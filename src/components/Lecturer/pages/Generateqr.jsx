@@ -258,18 +258,18 @@ function GenerateQR() {
     };
 
     const qr1Remaining = Math.max(0, 60 - elapsedSeconds);
-    const sessionRemaining = Math.max(0, 120 - elapsedSeconds);
+    const sessionRemaining = Math.max(0, 180 - elapsedSeconds);
 
     return (
         <div className="qrpage">
             {/* Header */}
             <div className="qrpage-header">
                 <div className="qrpage-header-badge">
-                    <FaShieldAlt /> 2-Minute Authoritative Session Timeline
+                    <FaShieldAlt /> 3-Minute Authoritative Session Timeline
                 </div>
                 <h1>Generate Attendance QR</h1>
                 <p>
-                    <strong>0:00–1:00 (QR 1):</strong> Student Device Check-in &amp; Kiosk Lock <br></br> &bull; <strong>1:00–2:00 (QR 2):</strong> Biometric Attendance <br></br> &bull; <strong>2:00:</strong> Kiosks End
+                    <strong>0:00–1:00 (QR 1, 1 min):</strong> Student Device Check-in &amp; Kiosk Lock <br></br> &bull; <strong>1:00–3:00 (QR 2, 2 min):</strong> Biometric Attendance <br></br> &bull; <strong>3:00:</strong> Kiosks End
                 </p>
             </div>
 
@@ -395,7 +395,7 @@ function GenerateQR() {
                             className="genqr-btn"
                             disabled={isGenerating}
                         >
-                            <span>{isGenerating ? "Initializing Timeline..." : "Start 2-Minute Attendance Session"}</span>
+                            <span>{isGenerating ? "Initializing Timeline..." : "Start 3-Minute Attendance Session"}</span>
                             {!isGenerating ? <FaArrowRight /> : <FaSyncAlt className="fa-spin" />}
                         </button>
                     ) : (
@@ -420,7 +420,7 @@ function GenerateQR() {
                     {errorMessage && <p className="qr-error" role="alert">{errorMessage}</p>}
                 </section>
 
-                {/* 2. QR Code Display & Authoritative 2-Minute Session Timeline */}
+                {/* 2. QR Code Display & Authoritative 3-Minute Session Timeline */}
                 <section className={`qr-result ${sessionId ? "qr-result-ready" : ""}`}>
                     {sessionId ? (
                         <>
@@ -441,7 +441,7 @@ function GenerateQR() {
                                         Authoritative Session Clock
                                     </div>
                                     <div style={{ fontSize: "1.25rem", fontWeight: 800, color: "#6366f1", marginTop: "2px" }}>
-                                        {formatMmSs(elapsedSeconds)} / 2:00
+                                        {formatMmSs(elapsedSeconds)} / 3:00
                                     </div>
                                 </div>
 
@@ -457,7 +457,7 @@ function GenerateQR() {
                                         background: phase === "PHASE_1" ? "rgba(99, 102, 241, 0.15)" : phase === "PHASE_2" ? "rgba(16, 185, 129, 0.15)" : "#fee2e2",
                                         color: phase === "PHASE_1" ? "#6366f1" : phase === "PHASE_2" ? "#10b981" : "#b91c1c"
                                     }}>
-                                        {phase === "PHASE_1" ? "⚡ Phase 1: 0:00-1:00 (QR 1)" : phase === "PHASE_2" ? "🎯 Phase 2: 1:00-2:00 (QR 2)" : "🔒 Session Closed (T=120s)"}
+                                        {phase === "PHASE_1" ? "⚡ Phase 1: 0:00-1:00 (QR 1, 1m)" : phase === "PHASE_2" ? "🎯 Phase 2: 1:00-3:00 (QR 2, 2m)" : "🔒 Session Closed (T=180s)"}
                                     </span>
                                 </div>
                             </div>
@@ -562,7 +562,7 @@ function GenerateQR() {
                                 </div>
                             )}
 
-                            {/* Phase 2 Status (1:00 to 2:00) */}
+                            {/* Phase 2 Status (1:00 to 3:00) */}
                             {phase === "PHASE_2" && (
                                 <div style={{ width: "100%", margin: "6px 0 16px" }}>
                                     <div style={{
@@ -593,7 +593,7 @@ function GenerateQR() {
                                             <span>Attendance Recorded:</span>
                                         </div>
                                         <strong style={{ fontSize: "1.25rem", color: "#10b981" }}>
-                                            {sessionData?.attendanceCount || 0} / {authorizedStudents.length}
+                                             {sessionData?.attendanceCount || 0} / {authorizedStudents.length}
                                         </strong>
                                     </div>
 
@@ -603,7 +603,7 @@ function GenerateQR() {
                                         marginBottom: "14px",
                                         fontWeight: 600
                                     }}>
-                                        ⏱️ All student devices unlock automatically at <strong>2:00 ({sessionRemaining}s remaining)</strong>.
+                                        ⏱️ All student devices unlock automatically at <strong>3:00 ({sessionRemaining}s remaining)</strong>.
                                     </div>
 
                                     <div className="qr-active-shortcuts">
@@ -617,7 +617,7 @@ function GenerateQR() {
                                 </div>
                             )}
 
-                            {/* Session Finished Status (T >= 2:00) */}
+                            {/* Session Finished Status (T >= 3:00) */}
                             {phase === "CLOSED" && (
                                 <div style={{ width: "100%", margin: "8px 0 16px" }}>
                                     <div style={{
@@ -665,7 +665,7 @@ function GenerateQR() {
                             <h2>Your 2-Phase QR Session Will Appear Here</h2>
                             <p>Select a course code, department and room, then click generate.</p>
                             <div className="qr-empty-hint">
-                                <span>⚡ 0:00–1:00 Check-in &bull; 1:00–2:00 Biometrics</span>
+                                <span>⚡ 0:00–1:00 Check-in (1m) &bull; 1:00–3:00 Biometrics (2m)</span>
                             </div>
                         </div>
                     )}

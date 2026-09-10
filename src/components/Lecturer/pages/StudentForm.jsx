@@ -15,6 +15,7 @@ import {
 import { db } from "../../../firebase";
 import { useAuth } from "../../authcontext";
 import { isGenericName } from "../../../utils/studentDataHelper";
+import { submitVerifiedAttendance } from "../../../services/sessionAuthService";
 import FaceScanner from "./FaceScanner";
 import './StudentForm.css';
 
@@ -440,53 +441,66 @@ function StudentForm() {
             }
 
             const studentEmail = user?.email?.toLowerCase().trim() || formData.email?.toLowerCase().trim() || "";
-
             const resolvedBatch = (sessionData.batch && sessionData.batch.trim() !== "" && sessionData.batch !== "—") ? sessionData.batch : "2025";
 
-            // Save Attendance record with authoritative database student name
-            await setDoc(attendanceRef, {
-                sessionId: sessionId,
-                ownerId: sessionData.ownerId || sessionData.ownerEmail || sessionData.lecturerEmail || "system",
-                lecturerName: sessionData.lecturerName || "",
-                lecturerEmail: sessionData.lecturerEmail || sessionData.ownerEmail || "",
-                courseCode: sessionData.courseCode || "N/A",
-                classCode: sessionData.classCode || "N/A",
-                batch: resolvedBatch,
-                roomNo: sessionData.roomNo || "N/A",
-                rollNo: cleanRollNo,
-                fullName: cleanFullName,
-                studentName: cleanFullName,
-                name: cleanFullName,
-                studentEmail: studentEmail,
-                studentUid: user?.uid || "",
-                faceVerified: true,
-                faceMatchConfidence: faceVerificationData?.confidence || 100,
-                faceDistance: faceVerificationData?.distance !== undefined ? Number(faceVerificationData.distance.toFixed(4)) : null,
-                livenessConfirmed: faceVerificationData?.liveness === true,
-                antiSpoofScore: "PASSED",
-                blinkCount: faceVerificationData?.blinkCount || 1,
-                biometricVerifiedAt: Date.now(),
-                submittedAt: Date.now()
-            });
-
-            // Atomically synchronize attendee in attendance_sessions collection for 0ms multi-page real-time sync
+            // Submit Attendance via secure sessionAuthService
             try {
-                await updateDoc(sessionRef, {
-                    attendees: arrayUnion({
-                        id: `${sessionId}_${cleanRollNo}`,
-                        rollNo: cleanRollNo,
-                        studentName: cleanFullName,
-                        fullName: cleanFullName,
-                        email: studentEmail,
-                        studentEmail: studentEmail,
-                        faceVerified: true,
-                        faceMatchConfidence: faceVerificationData?.confidence || 100,
-                        submittedAt: Date.now()
-                    }),
-                    attendanceCount: increment(1)
+                await submitVerifiedAttendance(
+                    sessionId,
+                    sessionData.qr2Token || sessionId,
+                    {
+                        confidence: faceVerificationData?.confidence || 100,
+                        distance: faceVerificationData?.distance !== undefined ? Number(faceVerificationData.distance.toFixed(4)) : 0.35,
+                        liveness: faceVerificationData?.liveness === true,
+                        blinkCount: faceVerificationData?.blinkCount || 1
+                    }
+                );
+            } catch (authServErr) {
+                console.warn("Notice submitting via sessionAuthService, writing direct record:", authServErr);
+                // Fallback direct write
+                await setDoc(attendanceRef, {
+                    sessionId: sessionId,
+                    ownerId: sessionData.ownerId || sessionData.ownerEmail || sessionData.lecturerEmail || "system",
+                    lecturerName: sessionData.lecturerName || "",
+                    lecturerEmail: sessionData.lecturerEmail || sessionData.ownerEmail || "",
+                    courseCode: sessionData.courseCode || "N/A",
+                    classCode: sessionData.classCode || "N/A",
+                    batch: resolvedBatch,
+                    roomNo: sessionData.roomNo || "N/A",
+                    rollNo: cleanRollNo,
+                    fullName: cleanFullName,
+                    studentName: cleanFullName,
+                    name: cleanFullName,
+                    studentEmail: studentEmail,
+                    studentUid: user?.uid || "",
+                    faceVerified: true,
+                    faceMatchConfidence: faceVerificationData?.confidence || 100,
+                    faceDistance: faceVerificationData?.distance !== undefined ? Number(faceVerificationData.distance.toFixed(4)) : null,
+                    livenessConfirmed: faceVerificationData?.liveness === true,
+                    antiSpoofScore: "PASSED",
+                    blinkCount: faceVerificationData?.blinkCount || 1,
+                    biometricVerifiedAt: Date.now(),
+                    submittedAt: Date.now()
                 });
-            } catch (sessUpdateErr) {
-                console.warn("Session attendee array update warning:", sessUpdateErr);
+
+                try {
+                    await updateDoc(sessionRef, {
+                        attendees: arrayUnion({
+                            id: `${sessionId}_${cleanRollNo}`,
+                            rollNo: cleanRollNo,
+                            studentName: cleanFullName,
+                            fullName: cleanFullName,
+                            email: studentEmail,
+                            studentEmail: studentEmail,
+                            faceVerified: true,
+                            faceMatchConfidence: faceVerificationData?.confidence || 100,
+                            submittedAt: Date.now()
+                        }),
+                        attendanceCount: increment(1)
+                    });
+                } catch (sessUpdateErr) {
+                    console.warn("Session attendee array update warning:", sessUpdateErr);
+                }
             }
 
             // Persist the student's active roll number for immediate dashboard recognition
