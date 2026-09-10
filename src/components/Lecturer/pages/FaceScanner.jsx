@@ -684,7 +684,7 @@ function FaceScanner({
                 boxShadow: "0 4px 12px rgba(99, 102, 241, 0.3)"
               }}
             >
-              <FaCamera /> 📸 Register / Enroll Facial Biometrics Now
+              <FaCamera /> Register / Enroll Facial Biometrics Now
             </button>
           )}
         </div>
