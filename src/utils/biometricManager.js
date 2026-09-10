@@ -26,6 +26,7 @@ export async function removeStudentFaceAndBiometrics(studentOrRoll) {
     const prefix = cleanEmail ? cleanEmail.split("@")[0].toLowerCase() : (cleanRoll ? cleanRoll.toLowerCase() : "");
     const studentId = student.id ? String(student.id).trim() : "";
     const userDocId = student.userDocId ? String(student.userDocId).trim() : "";
+    const uid = student.uid || student.studentUid || "";
 
     // Comprehensive payload that permanently deletes all biometric & photo fields in Firestore
     const resetPayload = {
@@ -51,6 +52,8 @@ export async function removeStudentFaceAndBiometrics(studentOrRoll) {
       isFaceRegistered: deleteField(),
       faceEnrolledAt: deleteField(),
       enrolledAt: deleteField(),
+      aadhaarVerified: deleteField(),
+      biometricRegistered: deleteField(),
       faceRegistered: false,
       biometricEnrolled: false,
       hasFaceRegistered: false,
@@ -87,6 +90,11 @@ export async function removeStudentFaceAndBiometrics(studentOrRoll) {
       studentDocKeys.add(userDocId);
       authUserDocKeys.add(userDocId);
     }
+    if (uid) {
+      userDocKeys.add(uid);
+      studentDocKeys.add(uid);
+      authUserDocKeys.add(uid);
+    }
     if (cleanEmail) {
       authUserDocKeys.add(cleanEmail);
       studentDocKeys.add(cleanEmail);
@@ -102,7 +110,7 @@ export async function removeStudentFaceAndBiometrics(studentOrRoll) {
       legacyDocKeysToDelete.push({ coll: "users", id: prefix });
     }
 
-    // Also query collections by rollNo and email to catch any docs keyed with random IDs
+    // Also query collections by rollNo, email, and uid fields
     const queryPromises = [];
     if (cleanRoll) {
       queryPromises.push(getDocs(query(collection(db, "students"), where("rollNo", "==", cleanRoll))).catch(() => ({ docs: [] })));
@@ -116,6 +124,11 @@ export async function removeStudentFaceAndBiometrics(studentOrRoll) {
       queryPromises.push(getDocs(query(collection(db, "students"), where("email", "==", cleanEmail))).catch(() => ({ docs: [] })));
       queryPromises.push(getDocs(query(collection(db, "users"), where("email", "==", cleanEmail))).catch(() => ({ docs: [] })));
       queryPromises.push(getDocs(query(collection(db, "authorizedUsers"), where("email", "==", cleanEmail))).catch(() => ({ docs: [] })));
+    }
+    if (uid) {
+      queryPromises.push(getDocs(query(collection(db, "students"), where("uid", "==", uid))).catch(() => ({ docs: [] })));
+      queryPromises.push(getDocs(query(collection(db, "users"), where("uid", "==", uid))).catch(() => ({ docs: [] })));
+      queryPromises.push(getDocs(query(collection(db, "authorizedUsers"), where("uid", "==", uid))).catch(() => ({ docs: [] })));
     }
 
     const queryResults = await Promise.all(queryPromises);

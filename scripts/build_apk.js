@@ -21,25 +21,9 @@ try {
   console.log('\n🔄 Step 2/3: Syncing Capacitor Android Assets...');
   execSync('npx cap sync android', { cwd: rootDir, stdio: 'inherit' });
 
-  // Clean stale build directories to avoid Windows file lock & snapshot issues
-  const cleanDirs = [
-    path.join(rootDir, 'node_modules', '@capacitor', 'android', 'capacitor', 'build'),
-    path.join(androidDir, 'app', 'build'),
-    path.join(androidDir, 'capacitor-cordova-android-plugins', 'build')
-  ];
-  for (const dir of cleanDirs) {
-    if (fs.existsSync(dir)) {
-      try {
-        fs.rmSync(dir, { recursive: true, force: true });
-      } catch (e) {
-        // ignore
-      }
-    }
-  }
-
   const gradlewCmd = process.platform === 'win32' ? '.\\gradlew.bat' : './gradlew';
-  console.log('\n🔨 Step 3/3: Compiling Android APK...');
-  execSync(`${gradlewCmd} assembleDebug --no-daemon --no-build-cache`, { cwd: androidDir, stdio: 'inherit' });
+  console.log('\n🔨 Step 3/3: Compiling Android APK with Gradle clean & assembleDebug...');
+  execSync(`${gradlewCmd} clean assembleDebug --no-daemon`, { cwd: androidDir, stdio: 'inherit' });
 
   // 4. Copy to Root
   if (fs.existsSync(srcApk)) {
