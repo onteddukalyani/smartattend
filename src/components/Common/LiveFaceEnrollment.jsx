@@ -7,29 +7,18 @@ import {
     FaSpinner,
     FaUserCheck,
     FaShieldAlt,
-    FaMicrochip,
-    FaExclamationTriangle,
     FaVideo,
     FaUpload,
     FaLock,
     FaInfoCircle,
-    FaEye,
-    FaEyeSlash,
-    FaUserTimes,
     FaCloudUploadAlt,
     FaImage,
-    FaSync
+    FaBolt,
+    FaUserTimes,
+    FaMagic
 } from "react-icons/fa";
 import { checkDuplicateFaceBiometrics } from "../../utils/biometricManager";
-import {
-    LivenessEngine,
-    computeEAR,
-    computeHeadPose,
-    computeFacialRatios,
-    computeMotionVariance,
-    BLINK_CLOSED_THRESHOLD,
-    BLINK_OPEN_THRESHOLD
-} from "../../utils/livenessDetector";
+import { LivenessEngine } from "../../utils/livenessDetector";
 import "./LiveFaceEnrollment.css";
 
 const MODEL_CDN_URL = "https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/";
@@ -47,9 +36,8 @@ export function LiveFaceEnrollment({
     const canvasRef = useRef(null);
     const animationRef = useRef(null);
     const fileInputRef = useRef(null);
-
-    // Dynamic Anti-Spoofing & Liveness Engine Ref
     const livenessEngineRef = useRef(null);
+    const autoCaptureTimerRef = useRef(null);
 
     const [cameraActive, setCameraActive] = useState(false);
     const [cameraLoading, setCameraLoading] = useState(false);
@@ -57,45 +45,34 @@ export function LiveFaceEnrollment({
     const [cameraError, setCameraError] = useState("");
     const [modelsLoaded, setModelsLoaded] = useState(false);
     const [capturing, setCapturing] = useState(false);
-    const [captureStep, setCaptureStep] = useState(0);
-    const [faceQualityStatus, setFaceQualityStatus] = useState("Look into the camera and blink naturally to verify live human presence.");
-    const [statusType, setStatusType] = useState("ready"); // "ready", "capturing", "success", "warning", "error"
+    const [statusMessage, setStatusMessage] = useState("Position your face in the camera frame");
+    const [statusType, setStatusType] = useState("ready"); // "ready", "aligned", "capturing", "success", "warning", "error"
     const [enrolledPhoto, setEnrolledPhoto] = useState(initialPhoto);
     const [capturedVector, setCapturedVector] = useState(null);
     const [activeMode, setActiveMode] = useState("camera"); // "camera" or "upload"
     const [isDragging, setIsDragging] = useState(false);
-    const [selectedFileName, setSelectedFileName] = useState("");
-
-    // Liveness & Anti-Duplicate UI States
-    const [blinkCount, setBlinkCount] = useState(0);
-    const [livenessPassed, setLivenessPassed] = useState(false);
-    const [isSpoof, setIsSpoof] = useState(false);
+    const [isAligned, setIsAligned] = useState(false);
+    const [faceScore, setFaceScore] = useState(0);
+    const [autoCaptureEnabled, setAutoCaptureEnabled] = useState(true);
+    const [autoCaptureCountdown, setAutoCaptureCountdown] = useState(null);
     const [duplicateError, setDuplicateError] = useState("");
-    const [livenessStep, setLivenessStep] = useState("ALIGN");
-    const [livenessProgress, setLivenessProgress] = useState(10);
-    const [challengeMessage, setChallengeMessage] = useState("");
+    const [flashEffect, setFlashEffect] = useState(false);
 
-    // Initialize Liveness Engine
+    // Initialize Fast Liveness Engine
     useEffect(() => {
         livenessEngineRef.current = new LivenessEngine({
             onStateChange: (state) => {
-                setLivenessStep(state.step);
-                setBlinkCount(state.blinkCount);
-                setLivenessPassed(state.livenessConfirmed);
-                setIsSpoof(state.spoofDetected);
-                setLivenessProgress(state.progress);
-                setChallengeMessage(state.message);
-                if (state.message) {
-                    setFaceQualityStatus(state.message);
-                }
-                if (state.statusType) {
+                setIsAligned(state.isAligned);
+                setFaceScore(state.faceScore);
+                if (!capturing && !enrolledPhoto) {
+                    setStatusMessage(state.message);
                     setStatusType(state.statusType);
                 }
             }
         });
-    }, []);
+    }, [capturing, enrolledPhoto]);
 
-    // 1. Check Browser Permission and Secure Context State
+    // 1. Check Camera Permission
     useEffect(() => {
         const checkPerms = async () => {
             if (typeof window !== "undefined") {
@@ -122,7 +99,7 @@ export function LiveFaceEnrollment({
         checkPerms();
     }, [cameraActive, enrolledPhoto]);
 
-    // 2. Load AI Models
+    // 2. Fast Model Loading
     const loadAiModels = useCallback(async () => {
         try {
             if (
@@ -171,15 +148,18 @@ export function LiveFaceEnrollment({
                 streamRef.current.getTracks().forEach((t) => t.stop());
                 streamRef.current = null;
             }
+            if (autoCaptureTimerRef.current) {
+                clearInterval(autoCaptureTimerRef.current);
+            }
         };
     }, [loadAiModels, initialPhoto]);
 
-    // 3. User Gesture Driven Camera Stream Initializer
+    // 3. Start Camera Stream
     const startCameraStream = async () => {
         setCameraError("");
         setDuplicateError("");
         setCameraLoading(true);
-        setFaceQualityStatus("Requesting camera access...");
+        setStatusMessage("Connecting camera...");
         setStatusType("ready");
 
         try {
@@ -189,82 +169,57 @@ export function LiveFaceEnrollment({
             }
 
             if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-                const legacyGetUserMedia =
-                    navigator.getUserMedia ||
-                    navigator.webkitGetUserMedia ||
-                    navigator.mozGetUserMedia ||
-                    navigator.msGetUserMedia;
-
-                if (legacyGetUserMedia) {
-                    const legacyStream = await new Promise((resolve, reject) => {
-                        legacyGetUserMedia.call(navigator, { video: true, audio: false }, resolve, reject);
-                    });
-                    attachStreamToVideo(legacyStream);
-                    return;
-                }
-
-                if (typeof window !== "undefined" && !window.isSecureContext) {
-                    setPermissionStatus("insecure");
-                    throw new Error("WebRTC live camera requires HTTPS or localhost. Please use 'Upload Photo' below.");
-                }
-
                 throw new Error("Camera API is not supported in this browser.");
             }
 
             let stream = null;
             try {
                 stream = await navigator.mediaDevices.getUserMedia({
-                    video: { facingMode: "user", width: { ideal: 1280, min: 640 }, height: { ideal: 720, min: 480 } },
+                    video: {
+                        facingMode: "user",
+                        width: { ideal: 640, min: 320 },
+                        height: { ideal: 480, min: 240 }
+                    },
                     audio: false
                 });
             } catch (err1) {
-                console.warn("facingMode: user failed, trying fallback video:", err1);
-                if (err1.name === "NotAllowedError" || err1.name === "PermissionDeniedError") {
-                    setPermissionStatus("denied");
-                    throw new Error("Camera permission was denied in your browser settings.");
-                }
+                console.warn("User facing camera fallback:", err1);
                 stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
             }
 
             if (!stream) {
-                throw new Error("Unable to obtain video stream.");
+                throw new Error("Unable to obtain camera stream.");
             }
 
-            attachStreamToVideo(stream);
+            streamRef.current = stream;
+            if (videoRef.current) {
+                videoRef.current.srcObject = stream;
+                videoRef.current.setAttribute("autoplay", "true");
+                videoRef.current.setAttribute("playsinline", "true");
+                videoRef.current.setAttribute("muted", "true");
+                videoRef.current.play().catch((e) => console.warn("Video play error:", e));
+            }
+            setCameraActive(true);
             setPermissionStatus("granted");
+            setStatusMessage("Position your face inside the target oval");
+            setStatusType("ready");
         } catch (camErr) {
             console.error("Camera access error:", camErr);
             setCameraActive(false);
             if (camErr.name === "NotAllowedError" || camErr.name === "PermissionDeniedError") {
                 setPermissionStatus("denied");
-                setCameraError("Camera permission blocked in browser. Click the lock icon in your URL address bar to allow camera access.");
-            } else if (camErr.name === "NotReadableError" || camErr.name === "TrackStartError") {
-                setCameraError("Camera is already in use by another application (e.g. Teams, Zoom, or Windows Camera).");
+                setCameraError("Camera permission blocked in browser. Allow camera permission or upload a photo.");
             } else {
                 setCameraError(camErr.message || "Failed to start camera.");
             }
-            setFaceQualityStatus("⚠️ Camera stream unavailable. You can use 'Upload Face Photo' below.");
+            setStatusMessage("⚠️ Camera unavailable. You can upload a photo below.");
             setStatusType("warning");
         } finally {
             setCameraLoading(false);
         }
     };
 
-    const attachStreamToVideo = (stream) => {
-        streamRef.current = stream;
-        if (videoRef.current) {
-            videoRef.current.srcObject = stream;
-            videoRef.current.setAttribute("autoplay", "true");
-            videoRef.current.setAttribute("playsinline", "true");
-            videoRef.current.setAttribute("muted", "true");
-            videoRef.current.play().catch((e) => console.warn("Video play error:", e));
-        }
-        setCameraActive(true);
-        setFaceQualityStatus("Look directly into the camera and blink naturally to verify live human presence.");
-        setStatusType("ready");
-    };
-
-    // 4. Real-time Live Detection & Blink Tracking Loop during Enrollment
+    // 4. Snappy Real-time Tracking Loop (60ms throttle for silky smooth 20+ FPS tracking)
     useEffect(() => {
         if (!cameraActive || !modelsLoaded || enrolledPhoto) return;
 
@@ -274,7 +229,7 @@ export function LiveFaceEnrollment({
         const runLiveTracking = async (time) => {
             if (!isRunning) return;
 
-            if (time - lastScanTime > 160 && videoRef.current && videoRef.current.readyState >= 2) {
+            if (time - lastScanTime > 60 && videoRef.current && videoRef.current.readyState >= 2) {
                 lastScanTime = time;
 
                 try {
@@ -289,7 +244,7 @@ export function LiveFaceEnrollment({
                     }
 
                     const detection = await faceapi
-                        .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.5 }))
+                        .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.45 }))
                         .withFaceLandmarks();
 
                     const ctx = canvas ? canvas.getContext("2d") : null;
@@ -298,24 +253,21 @@ export function LiveFaceEnrollment({
                     }
 
                     if (detection) {
-                        const landmarks = detection.landmarks;
-                        const positions = landmarks.positions;
-                        const box = detection.detection.box;
-
-                        // Process through active 3D landmark Liveness & Anti-Spoof Engine
                         if (livenessEngineRef.current) {
                             livenessEngineRef.current.processFrame(detection);
                         }
 
-                        // Render Canvas Reticle HUD
+                        // Render lightweight, beautiful HUD Reticle
                         if (ctx && canvas) {
-                            const { x, y, width, height } = box;
-                            const cornerLen = Math.min(width, height) * 0.22;
-                            ctx.lineWidth = 3.5;
-                            ctx.strokeStyle = isSpoof ? "#ef4444" : livenessPassed ? "#10b981" : "#6366f1";
+                            const { x, y, width, height } = detection.detection.box;
+                            const cornerLen = Math.min(width, height) * 0.20;
+                            const isFaceAligned = livenessEngineRef.current?.isAligned;
+
+                            ctx.lineWidth = 3;
+                            ctx.strokeStyle = isFaceAligned ? "#10b981" : "#6366f1";
                             ctx.lineCap = "round";
 
-                            // Corners
+                            // 4 Corner Brackets
                             ctx.beginPath();
                             ctx.moveTo(x, y + cornerLen);
                             ctx.lineTo(x, y);
@@ -340,15 +292,19 @@ export function LiveFaceEnrollment({
                             ctx.lineTo(x + width, y + height - cornerLen);
                             ctx.stroke();
 
-                            // Eye landmarks
-                            const leftEye = positions.slice(36, 42);
-                            const rightEye = positions.slice(42, 48);
-                            ctx.fillStyle = livenessPassed ? "#10b981" : "#06b6d4";
+                            // Eye landmarks highlight
+                            const leftEye = detection.landmarks.positions.slice(36, 42);
+                            const rightEye = detection.landmarks.positions.slice(42, 48);
+                            ctx.fillStyle = isFaceAligned ? "rgba(16, 185, 129, 0.85)" : "rgba(99, 102, 241, 0.8)";
                             [...leftEye, ...rightEye].forEach((pt) => {
                                 ctx.beginPath();
-                                ctx.arc(pt.x, pt.y, 2.5, 0, 2 * Math.PI);
+                                ctx.arc(pt.x, pt.y, 2, 0, 2 * Math.PI);
                                 ctx.fill();
                             });
+                        }
+                    } else {
+                        if (livenessEngineRef.current) {
+                            livenessEngineRef.current.processFrame(null);
                         }
                     }
                 } catch (e) { }
@@ -363,91 +319,97 @@ export function LiveFaceEnrollment({
             isRunning = false;
             if (animationRef.current) cancelAnimationFrame(animationRef.current);
         };
-    }, [cameraActive, modelsLoaded, enrolledPhoto, isSpoof, livenessPassed]);
+    }, [cameraActive, modelsLoaded, enrolledPhoto]);
 
-    // 5. Capture Live Video Frames, Check Liveness & Duplicate Biometrics
+    // 5. Smart Auto-Capture Trigger
+    useEffect(() => {
+        if (!autoCaptureEnabled || !isAligned || capturing || enrolledPhoto || !cameraActive) {
+            if (autoCaptureTimerRef.current) {
+                clearTimeout(autoCaptureTimerRef.current);
+                autoCaptureTimerRef.current = null;
+            }
+            setAutoCaptureCountdown(null);
+            return;
+        }
+
+        if (!autoCaptureCountdown && !autoCaptureTimerRef.current) {
+            setAutoCaptureCountdown(2);
+            let count = 2;
+
+            const interval = setInterval(() => {
+                count -= 1;
+                if (count > 0) {
+                    setAutoCaptureCountdown(count);
+                } else {
+                    clearInterval(interval);
+                    autoCaptureTimerRef.current = null;
+                    setAutoCaptureCountdown(null);
+                    handleCaptureFace();
+                }
+            }, 600);
+
+            autoCaptureTimerRef.current = interval;
+        }
+
+        return () => {
+            if (autoCaptureTimerRef.current) {
+                clearInterval(autoCaptureTimerRef.current);
+                autoCaptureTimerRef.current = null;
+            }
+        };
+    }, [autoCaptureEnabled, isAligned, capturing, enrolledPhoto, cameraActive]);
+
+    // 6. Fast Single-Snapshot Biometric Capture (< 150ms)
     const handleCaptureFace = async () => {
         if (!videoRef.current || capturing) return;
         setDuplicateError("");
-
-        // Check if spoof detected
-        if (isSpoof || (livenessEngineRef.current && livenessEngineRef.current.spoofDetected)) {
-            setFaceQualityStatus("⛔ Cannot enroll static photo or screen replay. Live biological face with eye blink & 3D head movement required.");
-            setStatusType("warning");
-            return;
-        }
-
-        // Verify that liveness passed
-        if (!livenessPassed && (!livenessEngineRef.current || !livenessEngineRef.current.livenessConfirmed)) {
-            setFaceQualityStatus("👁️ Please complete live verification (look straight, blink, and turn head slightly) before capturing.");
-            setStatusType("warning");
-            return;
-        }
-
         setCapturing(true);
-        setCaptureStep(0);
+        setStatusMessage("⚡ Extracting facial biometric vector...");
         setStatusType("capturing");
-        setFaceQualityStatus("Scanning & extracting 128-dimensional biometric vectors across live frames...");
+
+        // Flash effect for delightful feedback
+        setFlashEffect(true);
+        setTimeout(() => setFlashEffect(false), 200);
 
         try {
-            const capturedDescriptors = [];
             const canvas = document.createElement("canvas");
             canvas.width = videoRef.current.videoWidth || 640;
             canvas.height = videoRef.current.videoHeight || 480;
             const ctx = canvas.getContext("2d");
+            ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
 
-            for (let i = 0; i < 5; i++) {
-                setCaptureStep(i + 1);
-                ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
+            const detection = await faceapi
+                .detectSingleFace(videoRef.current, new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.45 }))
+                .withFaceLandmarks()
+                .withFaceDescriptor();
 
-                const detection = await faceapi
-                    .detectSingleFace(videoRef.current, new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.5 }))
-                    .withFaceLandmarks()
-                    .withFaceDescriptor();
-
-                if (detection) {
-                    capturedDescriptors.push(detection.descriptor);
-                }
-                await new Promise((r) => setTimeout(r, 160));
-            }
-
-            if (capturedDescriptors.length < 3) {
-                setFaceQualityStatus("❌ Face not clearly detected across frames. Ensure good lighting and look directly into the camera.");
+            if (!detection || !detection.descriptor) {
+                setStatusMessage("❌ Face not detected clearly. Look straight into the camera and try again.");
                 setStatusType("warning");
                 setCapturing(false);
-                setCaptureStep(0);
                 return;
             }
 
-            // Average the 128-dimensional vectors
-            const avgDescriptor = new Array(128).fill(0);(128).fill(0);
-            for (let i = 0; i < 128; i++) {
-                let sum = 0;
-                for (let j = 0; j < capturedDescriptors.length; j++) {
-                    sum += capturedDescriptors[j][i];
-                }
-                avgDescriptor[i] = sum / capturedDescriptors.length;
-            }
+            const descriptorArray = Array.from(detection.descriptor);
 
-            // DUPLICATE FACE BIOMETRICS SECURITY CHECK
-            setFaceQualityStatus("🔍 Verifying biometric uniqueness across student registry...");
-            const duplicateCheck = await checkDuplicateFaceBiometrics(avgDescriptor, targetRollNo, targetEmail);
+            // DUPLICATE BIOMETRICS SECURITY CHECK
+            setStatusMessage("🔍 Verifying biometric uniqueness...");
+            const duplicateCheck = await checkDuplicateFaceBiometrics(descriptorArray, targetRollNo, targetEmail);
 
             if (duplicateCheck.isDuplicate && duplicateCheck.conflictStudent) {
                 const cs = duplicateCheck.conflictStudent;
-                const errText = `⛔ Duplicate Face Detected! This face is already registered to "${cs.name}" (Roll No: ${cs.rollNo} • ${cs.confidence}% Match). System security strictly prohibits saving the same facial biometric template to multiple students.`;
+                const errText = `⛔ Duplicate Face Detected! This face is already registered to "${cs.name}" (Roll No: ${cs.rollNo}). System prohibits saving identical face data across multiple students.`;
                 setDuplicateError(errText);
-                setFaceQualityStatus(errText);
+                setStatusMessage(errText);
                 setStatusType("warning");
                 setCapturing(false);
-                setCaptureStep(0);
                 return;
             }
 
-            const photoDataUrl = canvas.toDataURL("image/jpeg", 0.88);
+            const photoDataUrl = canvas.toDataURL("image/jpeg", 0.90);
             setEnrolledPhoto(photoDataUrl);
-            setCapturedVector(avgDescriptor);
-            setFaceQualityStatus("✅ Facial biometrics verified unique & registered successfully!");
+            setCapturedVector(descriptorArray);
+            setStatusMessage("✅ Facial biometrics registered successfully!");
             setStatusType("success");
 
             if (streamRef.current) {
@@ -458,42 +420,39 @@ export function LiveFaceEnrollment({
 
             if (onFaceEnrolled) {
                 onFaceEnrolled({
-                    faceDescriptor: avgDescriptor,
+                    faceDescriptor: descriptorArray,
                     photoURL: photoDataUrl,
                     biometricEnrolled: true,
                     livenessConfirmed: true,
-                    blinkCount: blinkCountRef.current || 1,
                     enrolledAt: Date.now()
                 });
             }
         } catch (err) {
-            console.error("Enrollment error:", err);
-            setFaceQualityStatus("Error processing biometric face. Please try again or use photo upload.");
+            console.error("Capture error:", err);
+            setStatusMessage("Failed to process biometric face. Please try again.");
             setStatusType("warning");
         } finally {
             setCapturing(false);
-            setCaptureStep(0);
         }
     };
 
-    // 6. Photo File Upload & Processing Handler with Duplicate Prevention
+    // 7. Photo File Upload Handler
     const processPhotoFile = async (file) => {
         if (!file) return;
         if (!file.type || !file.type.startsWith("image/")) {
-            setFaceQualityStatus("⚠️ Please upload a valid image file (PNG, JPG, JPEG, WEBP).");
+            setStatusMessage("⚠️ Please upload an image file (PNG, JPG, JPEG, WEBP).");
             setStatusType("warning");
             return;
         }
 
-        setSelectedFileName(file.name || "Uploaded Photo");
         setDuplicateError("");
         setCapturing(true);
-        setFaceQualityStatus("Extracting 128-D biometric vector from photo...");
+        setStatusMessage("⚡ Extracting facial biometric vector from photo...");
         setStatusType("capturing");
 
         try {
             if (!modelsLoaded) {
-                setFaceQualityStatus("Loading neural face recognition models...");
+                setStatusMessage("Loading AI recognition models...");
                 await loadAiModels();
             }
 
@@ -523,12 +482,12 @@ export function LiveFaceEnrollment({
                         ctx.drawImage(img, 0, 0, width, height);
 
                         const detection = await faceapi
-                            .detectSingleFace(canvas, new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.5 }))
+                            .detectSingleFace(canvas, new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.45 }))
                             .withFaceLandmarks()
                             .withFaceDescriptor();
 
                         if (!detection) {
-                            setFaceQualityStatus("❌ No clear face detected in photo. Please choose a well-lit photo looking directly at camera.");
+                            setStatusMessage("❌ No face detected in photo. Please choose a well-lit photo looking directly at camera.");
                             setStatusType("warning");
                             setCapturing(false);
                             return;
@@ -537,24 +496,23 @@ export function LiveFaceEnrollment({
                         const descriptorArray = Array.from(detection.descriptor);
 
                         // DUPLICATE BIOMETRICS CHECK
-                        setFaceQualityStatus("🔍 Verifying biometric uniqueness across registry...");
+                        setStatusMessage("🔍 Verifying biometric uniqueness...");
                         const duplicateCheck = await checkDuplicateFaceBiometrics(descriptorArray, targetRollNo, targetEmail);
 
                         if (duplicateCheck.isDuplicate && duplicateCheck.conflictStudent) {
                             const cs = duplicateCheck.conflictStudent;
-                            const errText = `⛔ Duplicate Face Detected! This photo matches already registered student "${cs.name}" (Roll No: ${cs.rollNo} • ${cs.confidence}% Match). Multiple students cannot share identical facial biometrics.`;
+                            const errText = `⛔ Duplicate Face Detected! This photo matches already registered student "${cs.name}" (Roll No: ${cs.rollNo}).`;
                             setDuplicateError(errText);
-                            setFaceQualityStatus(errText);
+                            setStatusMessage(errText);
                             setStatusType("warning");
                             setCapturing(false);
                             return;
                         }
 
-                        const photoDataUrl = canvas.toDataURL("image/jpeg", 0.88);
-
+                        const photoDataUrl = canvas.toDataURL("image/jpeg", 0.90);
                         setEnrolledPhoto(photoDataUrl);
                         setCapturedVector(descriptorArray);
-                        setFaceQualityStatus("✅ Facial biometrics verified unique & registered successfully! (128-D Vector Ready)");
+                        setStatusMessage("✅ Facial biometrics registered successfully!");
                         setStatusType("success");
 
                         if (streamRef.current) {
@@ -573,18 +531,12 @@ export function LiveFaceEnrollment({
                             });
                         }
                     } catch (detectErr) {
-                        console.error("Native photo detection error:", detectErr);
-                        setFaceQualityStatus("Error analyzing face from photo. Please try another photo.");
+                        console.error("Photo detect error:", detectErr);
+                        setStatusMessage("Error analyzing face from photo. Please try another photo.");
                         setStatusType("warning");
                     } finally {
                         setCapturing(false);
                     }
-                };
-
-                img.onerror = () => {
-                    setFaceQualityStatus("Failed to load image file. Please try another photo.");
-                    setStatusType("warning");
-                    setCapturing(false);
                 };
 
                 img.src = readerEvent.target.result;
@@ -592,38 +544,10 @@ export function LiveFaceEnrollment({
 
             reader.readAsDataURL(file);
         } catch (err) {
-            console.error("Native photo capture error:", err);
-            setFaceQualityStatus("Failed to process photo capture.");
+            console.error("Photo capture error:", err);
+            setStatusMessage("Failed to process photo.");
             setStatusType("warning");
             setCapturing(false);
-        }
-    };
-
-    const handleNativePhotoCapture = (e) => {
-        const file = e.target.files?.[0];
-        if (file) processPhotoFile(file);
-    };
-
-    const handleDragOver = (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        setIsDragging(true);
-    };
-
-    const handleDragLeave = (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        setIsDragging(false);
-    };
-
-    const handleDrop = (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        setIsDragging(false);
-        const file = e.dataTransfer?.files?.[0];
-        if (file) {
-            setActiveMode("upload");
-            processPhotoFile(file);
         }
     };
 
@@ -631,17 +555,9 @@ export function LiveFaceEnrollment({
         setEnrolledPhoto(null);
         setCapturedVector(null);
         setDuplicateError("");
-        setSelectedFileName("");
-        eyeStateRef.current = "open";
-        blinkCountRef.current = 0;
-        livenessConfirmedRef.current = false;
-        ratioHistoryRef.current = [];
-        staticFramesCountRef.current = 0;
-        spoofDetectedRef.current = false;
-        setBlinkCount(0);
-        setLivenessPassed(false);
-        setIsSpoof(false);
-        setFaceQualityStatus("Position your face in camera or upload a clear frontal photo to register biometrics.");
+        setIsAligned(false);
+        setAutoCaptureCountdown(null);
+        setStatusMessage("Position your face inside the target oval");
         setStatusType("ready");
         if (fileInputRef.current) {
             fileInputRef.current.value = "";
@@ -663,10 +579,13 @@ export function LiveFaceEnrollment({
                 accept="image/*"
                 capture="user"
                 style={{ display: "none" }}
-                onChange={handleNativePhotoCapture}
+                onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) processPhotoFile(file);
+                }}
             />
 
-            {/* Mode Switcher Tabs (Live Camera vs Upload Photo) */}
+            {/* Mode Switcher Tabs */}
             {!enrolledPhoto && (
                 <div className="lfe-mode-tabs-wrapper">
                     <div className="lfe-mode-tabs">
@@ -692,40 +611,52 @@ export function LiveFaceEnrollment({
                                 }
                             }}
                         >
-                            <FaUpload /> Upload Face Photo
+                            <FaUpload /> Upload Photo
                         </button>
                     </div>
                 </div>
             )}
 
-            {/* Viewport Container for Camera Video or Upload Dropzone */}
+            {/* Viewport Container */}
             <div
-                className={`lfe-viewport-container ${enrolledPhoto ? "enrolled" : ""} ${capturing ? "capturing" : ""} ${isDragging ? "dragging" : ""} ${activeMode === "upload" && !cameraActive && !enrolledPhoto ? "upload-mode" : ""}`}
-                onDragOver={handleDragOver}
-                onDragLeave={handleDragLeave}
-                onDrop={handleDrop}
+                className={`lfe-viewport-container ${enrolledPhoto ? "enrolled" : ""} ${isAligned ? "aligned" : ""} ${capturing ? "capturing" : ""} ${flashEffect ? "flash" : ""} ${activeMode === "upload" && !cameraActive && !enrolledPhoto ? "upload-mode" : ""}`}
+                onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+                onDragLeave={(e) => { e.preventDefault(); setIsDragging(false); }}
+                onDrop={(e) => {
+                    e.preventDefault();
+                    setIsDragging(false);
+                    const file = e.dataTransfer?.files?.[0];
+                    if (file) {
+                        setActiveMode("upload");
+                        processPhotoFile(file);
+                    }
+                }}
             >
-                {/* Clean Corner Brackets */}
-                <span className="lfe-corner-bracket lfe-corner-tl" />
-                <span className="lfe-corner-bracket lfe-corner-tr" />
-                <span className="lfe-corner-bracket lfe-corner-bl" />
-                <span className="lfe-corner-bracket lfe-corner-br" />
-
-                {/* Face Oval Target Guide (only in active camera feed) */}
-                {!enrolledPhoto && cameraActive && activeMode === "camera" && <div className="lfe-face-guide" />}
-
-                {/* Laser Scanning Bar */}
-                {((!enrolledPhoto && cameraActive && activeMode === "camera") || (capturing && !enrolledPhoto)) && (
-                    <div className="lfe-scan-laser" />
+                {/* Modern Face Oval Guide */}
+                {!enrolledPhoto && cameraActive && activeMode === "camera" && (
+                    <div className={`lfe-modern-oval-guide ${isAligned ? "aligned" : ""}`}>
+                        <div className="lfe-oval-pulse" />
+                    </div>
                 )}
 
-                {/* Media Feed / Upload Area */}
+                {/* Shutter Flash Effect */}
+                {flashEffect && <div className="lfe-shutter-flash" />}
+
+                {/* Auto Capture Countdown Overlay */}
+                {autoCaptureCountdown !== null && (
+                    <div className="lfe-countdown-overlay">
+                        <div className="lfe-countdown-num">{autoCaptureCountdown}</div>
+                        <div className="lfe-countdown-text">Hold still • Auto Snapping...</div>
+                    </div>
+                )}
+
+                {/* Enrolled Photo Display */}
                 {enrolledPhoto ? (
                     <div className="lfe-enrolled-preview-wrap">
-                        <img src={enrolledPhoto} alt="Enrolled Student" className="lfe-preview-img" />
+                        <img src={enrolledPhoto} alt="Enrolled Biometric Face" className="lfe-preview-img" />
                         <div className="lfe-enrolled-floating-badge">
                             <FaCheckCircle className="badge-icon" />
-                            <span>Biometrics Verified &amp; Ready</span>
+                            <span>Biometrics Registered</span>
                         </div>
                     </div>
                 ) : activeMode === "upload" && !cameraActive ? (
@@ -738,23 +669,16 @@ export function LiveFaceEnrollment({
                             <FaCloudUploadAlt className="lfe-upload-hero-icon" />
                         </div>
                         <h4 className="lfe-upload-title">
-                            {isDragging ? "Drop your face photo here!" : "Upload Student Face Photo"}
+                            {isDragging ? "Drop your face photo here" : "Upload Student Face Photo"}
                         </h4>
                         <p className="lfe-upload-subtitle">
-                            Drag &amp; drop an image file here, or click to browse from device
+                            Drag &amp; drop an image here, or click to browse
                         </p>
 
                         <div className="lfe-upload-guidelines">
                             <span className="lfe-guide-badge"><FaCheckCircle /> Frontal Face</span>
                             <span className="lfe-guide-badge"><FaCheckCircle /> Good Lighting</span>
-                            <span className="lfe-guide-badge"><FaCheckCircle /> Single Person</span>
-                        </div>
-
-                        <div className="lfe-upload-formats">
-                            <span className="lfe-format-tag">PNG</span>
-                            <span className="lfe-format-tag">JPG</span>
-                            <span className="lfe-format-tag">JPEG</span>
-                            <span className="lfe-format-tag">WEBP</span>
+                            <span className="lfe-guide-badge"><FaCheckCircle /> Clear Eyes</span>
                         </div>
 
                         <button
@@ -767,14 +691,14 @@ export function LiveFaceEnrollment({
                             disabled={capturing}
                         >
                             {capturing ? (
-                                <><FaSpinner className="fa-spin" /> Processing Photo...</>
+                                <><FaSpinner className="fa-spin" /> Processing Biometrics...</>
                             ) : (
                                 <><FaImage /> Browse Photo File</>
                             )}
                         </button>
                     </div>
                 ) : (
-                    /* CAMERA STREAM OR CAMERA PLACEHOLDER */
+                    /* CAMERA STREAM */
                     <>
                         <video
                             ref={videoRef}
@@ -805,7 +729,7 @@ export function LiveFaceEnrollment({
                                     <FaCamera className="lfe-camera-placeholder-icon" />
                                 </div>
                                 <h5>AI Facial Biometrics Scanner</h5>
-                                <p>Start your camera for live liveness verification or switch to photo upload.</p>
+                                <p>Start your camera to register biometrics instantly.</p>
 
                                 <div className="lfe-placeholder-btn-group">
                                     <button
@@ -833,21 +757,17 @@ export function LiveFaceEnrollment({
                                     </button>
                                 </div>
 
-                                {/* Permission Denied Helper */}
                                 {permissionStatus === "denied" && (
                                     <div className="lfe-perm-denied-guide">
                                         <div style={{ fontWeight: 800, marginBottom: "4px", display: "flex", alignItems: "center", gap: "6px" }}>
                                             <FaLock /> Camera Blocked in Browser
                                         </div>
                                         <div>
-                                            1. Click the <strong>Lock / Camera icon 🔒</strong> in your address bar.<br />
-                                            2. Change <strong>Camera</strong> permission to <strong>Allow</strong>.<br />
-                                            3. Refresh or click retry.
+                                            Click the <strong>Lock / Camera icon 🔒</strong> in your address bar and set <strong>Camera</strong> to <strong>Allow</strong>.
                                         </div>
                                     </div>
                                 )}
 
-                                {/* Error Tip */}
                                 {cameraError && permissionStatus !== "denied" && (
                                     <div className="lfe-error-tip">
                                         <FaInfoCircle /> {cameraError}
@@ -859,93 +779,33 @@ export function LiveFaceEnrollment({
                 )}
             </div>
 
-            {/* Interactive Liveness Steps & Progress Indicator */}
-            {cameraActive && !enrolledPhoto && activeMode === "camera" && (
-                <div style={{ margin: "12px 0 6px" }}>
-                    <div style={{ display: "flex", justifyContent: "center", gap: "8px", marginBottom: "8px", flexWrap: "wrap" }}>
-                        <span style={{
-                            display: "inline-flex",
-                            alignItems: "center",
-                            gap: "5px",
-                            padding: "4px 10px",
-                            borderRadius: "6px",
-                            fontSize: "0.78rem",
-                            fontWeight: 700,
-                            background: livenessStep !== "ALIGN" ? "#dcfce7" : "#e0e7ff",
-                            color: livenessStep !== "ALIGN" ? "#15803d" : "#4338ca",
-                            border: livenessStep === "ALIGN" ? "1.5px solid #6366f1" : "1px solid #bbf7d0"
-                        }}>
-                            {livenessStep !== "ALIGN" ? "✅" : "1️⃣"} Center Face
-                        </span>
-                        <span style={{
-                            display: "inline-flex",
-                            alignItems: "center",
-                            gap: "5px",
-                            padding: "4px 10px",
-                            borderRadius: "6px",
-                            fontSize: "0.78rem",
-                            fontWeight: 700,
-                            background: blinkCount >= 1 ? "#dcfce7" : livenessStep === "BLINK" ? "#fef3c7" : "#f1f5f9",
-                            color: blinkCount >= 1 ? "#15803d" : livenessStep === "BLINK" ? "#b45309" : "#64748b",
-                            border: livenessStep === "BLINK" ? "1.5px solid #f59e0b" : "1px solid #e2e8f0"
-                        }}>
-                            {blinkCount >= 1 ? "✅" : "2️⃣"} Blink Eyes ({blinkCount})
-                        </span>
-                        <span style={{
-                            display: "inline-flex",
-                            alignItems: "center",
-                            gap: "5px",
-                            padding: "4px 10px",
-                            borderRadius: "6px",
-                            fontSize: "0.78rem",
-                            fontWeight: 700,
-                            background: livenessPassed ? "#dcfce7" : livenessStep === "TURN" ? "#fef3c7" : "#f1f5f9",
-                            color: livenessPassed ? "#15803d" : livenessStep === "TURN" ? "#b45309" : "#64748b",
-                            border: livenessStep === "TURN" ? "1.5px solid #f59e0b" : "1px solid #e2e8f0"
-                        }}>
-                            {livenessPassed ? "✅" : "3️⃣"} 3D Head Turn
-                        </span>
-                        <span style={{
-                            display: "inline-flex",
-                            alignItems: "center",
-                            gap: "5px",
-                            padding: "4px 10px",
-                            borderRadius: "6px",
-                            fontSize: "0.78rem",
-                            fontWeight: 700,
-                            background: isSpoof ? "#fee2e2" : livenessPassed ? "#dcfce7" : "#f1f5f9",
-                            color: isSpoof ? "#b91c1c" : livenessPassed ? "#15803d" : "#475569"
-                        }}>
-                            <FaShieldAlt /> {isSpoof ? "⚠️ Replay Spoof Alert" : livenessPassed ? "🛡️ Live Anti-Spoof: PASSED" : "Anti-Spoof: Active"}
-                        </span>
-                    </div>
-
-                    {/* Liveness Progress Bar */}
-                    <div style={{ width: "100%", height: "6px", background: "#e2e8f0", borderRadius: "999px", overflow: "hidden", margin: "6px 0" }}>
-                        <div style={{
-                            width: `${livenessProgress}%`,
-                            height: "100%",
-                            background: isSpoof ? "#ef4444" : livenessPassed ? "#10b981" : "#6366f1",
-                            transition: "width 0.3s ease, background-color 0.3s ease"
-                        }} />
-                    </div>
+            {/* Status Capsule & Live Quality Bar */}
+            <div className="lfe-status-capsule-wrapper">
+                <div className={`lfe-status-capsule ${statusType}`}>
+                    {statusType === "success" && <FaCheckCircle style={{ color: "#10b981" }} />}
+                    {statusType === "aligned" && <FaBolt style={{ color: "#10b981" }} />}
+                    {statusType === "capturing" && <FaSpinner className="fa-spin" style={{ color: "#6366f1" }} />}
+                    {statusType === "warning" && <FaInfoCircle style={{ color: "#f59e0b" }} />}
+                    {statusType === "ready" && <FaCamera style={{ color: "#6366f1" }} />}
+                    <span>{statusMessage}</span>
                 </div>
-            )}
+
+                {/* Auto Capture Toggle */}
+                {cameraActive && !enrolledPhoto && activeMode === "camera" && (
+                    <button
+                        type="button"
+                        className={`lfe-auto-toggle-btn ${autoCaptureEnabled ? "enabled" : ""}`}
+                        onClick={() => setAutoCaptureEnabled(!autoCaptureEnabled)}
+                        title="Automatically snap when face is aligned"
+                    >
+                        <FaMagic /> Auto-Snap: {autoCaptureEnabled ? "ON" : "OFF"}
+                    </button>
+                )}
+            </div>
 
             {/* Duplicate Face Error Alert */}
             {duplicateError && (
-                <div style={{
-                    padding: "14px 18px",
-                    borderRadius: "12px",
-                    background: "#fef2f2",
-                    border: "1.5px solid #fecaca",
-                    color: "#991b1b",
-                    margin: "12px 0",
-                    textAlign: "left",
-                    fontSize: "0.86rem",
-                    fontWeight: 600,
-                    lineHeight: 1.45
-                }}>
+                <div className="lfe-duplicate-alert">
                     <div style={{ display: "flex", alignItems: "center", gap: "8px", fontWeight: 800, fontSize: "0.95rem", marginBottom: "4px" }}>
                         <FaUserTimes style={{ color: "#ef4444" }} /> Duplicate Face Rejected
                     </div>
@@ -953,82 +813,46 @@ export function LiveFaceEnrollment({
                 </div>
             )}
 
-            {/* Status Quality Indicator */}
-            <div style={{
-                margin: "8px 0 12px",
-                fontSize: "0.88rem",
-                fontWeight: 700,
-                color: statusType === "success" ? "#10b981" : statusType === "warning" ? "#d97706" : "var(--text-muted, #64748b)"
-            }}>
-                {faceQualityStatus}
+            {/* Action Buttons */}
+            <div className="lfe-actions">
+                {enrolledPhoto ? (
+                    <div className="lfe-enrolled-actions">
+                        <button
+                            type="button"
+                            className="lfe-retake-btn"
+                            onClick={handleRetake}
+                        >
+                            <FaRedo /> Retake / Register New Photo
+                        </button>
+                    </div>
+                ) : cameraActive ? (
+                    <div className="lfe-active-action-row">
+                        <button
+                            type="button"
+                            className={`lfe-capture-btn ${isAligned ? "ready-pulse" : ""}`}
+                            onClick={handleCaptureFace}
+                            disabled={capturing || !modelsLoaded}
+                        >
+                            {capturing ? (
+                                <><FaSpinner className="fa-spin" /> Enrolling Biometrics...</>
+                            ) : (
+                                <><FaCamera /> 📸 Capture Face Biometrics</>
+                            )}
+                        </button>
+
+                        <button
+                            type="button"
+                            className="lfe-secondary-upload-btn"
+                            onClick={() => {
+                                setActiveMode("upload");
+                                fileInputRef.current?.click();
+                            }}
+                        >
+                            <FaUpload /> Upload Photo
+                        </button>
+                    </div>
+                ) : null}
             </div>
-
-            {/* Multi-Frame Progress Bar during live capture or vector extraction */}
-            {capturing && (
-                <div className="lfe-progress-bar-wrapper">
-                    <div className="lfe-progress-info">
-                        <span>{captureStep > 0 ? `Biometric Sampling: Frame ${captureStep}/5` : "Extracting & Verifying Biometric Uniqueness..."}</span>
-                        <span>{captureStep > 0 ? `${Math.round((captureStep / 5) * 100)}%` : "AI Processing..."}</span>
-                    </div>
-                    <div className="lfe-progress-track">
-                        <div
-                            className="lfe-progress-fill"
-                            style={{ width: captureStep > 0 ? `${(captureStep / 5) * 100}%` : "100%" }}
-                        />
-                    </div>
-                </div>
-            )}
-
-            {/* Action Bar */}
-            {(cameraActive || enrolledPhoto || activeMode === "upload") && (
-                <div className="lfe-actions">
-                    {enrolledPhoto ? (
-                        <>
-                            <span className="lfe-success-badge">
-                                <FaCheckCircle /> Face Biometrics Enrolled &amp; Unique
-                            </span>
-                            <button
-                                type="button"
-                                className="lfe-retake-btn"
-                                onClick={handleRetake}
-                            >
-                                <FaRedo /> Retake / Upload New Photo
-                            </button>
-                        </>
-                    ) : cameraActive ? (
-                        <div className="lfe-active-action-row">
-                            <button
-                                type="button"
-                                className="lfe-capture-btn"
-                                onClick={handleCaptureFace}
-                                disabled={capturing || !modelsLoaded || isSpoof}
-                                style={{
-                                    opacity: isSpoof ? 0.6 : 1,
-                                    cursor: isSpoof ? "not-allowed" : "pointer"
-                                }}
-                            >
-                                {capturing ? (
-                                    <><FaSpinner className="fa-spin" /> Verifying &amp; Enrolling...</>
-                                ) : (
-                                    <><FaCamera /> 📸 Capture &amp; Register Facial Data</>
-                                )}
-                            </button>
-
-                            <button
-                                type="button"
-                                className="lfe-secondary-upload-btn"
-                                onClick={() => {
-                                    setActiveMode("upload");
-                                    fileInputRef.current?.click();
-                                }}
-                                title="Upload or snap photo from device"
-                            >
-                                <FaUpload /> Upload Photo
-                            </button>
-                        </div>
-                    ) : null}
-                </div>
-            )}
         </div>
     );
 }

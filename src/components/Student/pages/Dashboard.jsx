@@ -1084,11 +1084,11 @@ export default function StudentDashboard() {
                     <div className="student-modal-container student-face-register-modal" onClick={(e) => e.stopPropagation()} style={{
                         background: "var(--surface, #ffffff)",
                         borderRadius: "24px",
-                        maxWidth: "960px",
-                        width: "96%",
+                        maxWidth: "620px",
+                        width: "100%",
                         maxHeight: "92vh",
                         overflowY: "auto",
-                        padding: "28px 24px",
+                        padding: "24px 20px",
                         boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.35)",
                         position: "relative"
                     }}>

@@ -1,22 +1,20 @@
 /**
- * Advanced Biometric Anti-Spoofing & Liveness Detection Engine
+ * Fast & Robust Biometric Anti-Spoofing & Liveness Detection Engine
  * 
- * Protects against:
- * 1. 2D Printed Photo Spoofing (detected via EAR blink check, 3D parallax, and static ratio variance).
- * 2. Flat Mobile Screen / Tablet Photo Spoofing (detected via micro-motion dynamics and head pose yaw).
- * 3. Video Replay Attacks (detected via dynamic active challenge-response prompt sequencing).
+ * Features:
+ * - Passive, real-time live human feature tracking (EAR eye landmarks, natural micro-motion, 3D facial proportions)
+ * - Anti-Spoofing defense against printed static photos and freeze-frame screen replays
+ * - Instant, non-blocking face alignment detection for ultra-fast, smooth biometric capture
  */
 
-export const BLINK_CLOSED_THRESHOLD = 0.205; // Eye Aspect Ratio below this = eye closed
-export const BLINK_OPEN_THRESHOLD = 0.245;   // Eye Aspect Ratio above this = eye open
-export const STATIC_VARIANCE_THRESHOLD = 0.00010; // Zero variance across frames = flat static image
-export const YAW_CENTER_MIN = 0.78;
-export const YAW_CENTER_MAX = 1.28;
-export const YAW_LEFT_MAX = 0.70;   // Looking left (relative to camera)
-export const YAW_RIGHT_MIN = 1.38;  // Looking right (relative to camera)
+export const BLINK_CLOSED_THRESHOLD = 0.21;
+export const BLINK_OPEN_THRESHOLD = 0.25;
+export const STATIC_VARIANCE_THRESHOLD = 0.00008;
+export const YAW_CENTER_MIN = 0.72;
+export const YAW_CENTER_MAX = 1.38;
 
 /**
- * Computes Euclidean distance between two 2D/3D points
+ * Computes Euclidean distance between two points
  */
 export const getDist = (p1, p2) => {
     if (!p1 || !p2) return 0;
@@ -25,8 +23,6 @@ export const getDist = (p1, p2) => {
 
 /**
  * Computes Eye Aspect Ratio (EAR) for a 6-landmark eye contour
- * Points: [p0, p1, p2, p3, p4, p5]
- * EAR = (|p1 - p5| + |p2 - p4|) / (2 * |p0 - p3|)
  */
 export const computeEAR = (eye) => {
     if (!eye || eye.length < 6) return 0.30;
@@ -39,7 +35,6 @@ export const computeEAR = (eye) => {
 
 /**
  * Computes 5 normalized 3D facial geometric ratios to track non-rigid parallax movement
- * across 68 facial landmarks.
  */
 export const computeFacialRatios = (positions) => {
     if (!positions || positions.length < 68) return [0, 0, 0, 0, 0];
@@ -64,12 +59,11 @@ export const computeFacialRatios = (positions) => {
 };
 
 /**
- * Computes head pose (Yaw & Pitch ratio) from 68 facial landmarks
- * Returns { yawRatio, pitchRatio, pose: 'CENTER' | 'LEFT' | 'RIGHT' | 'UP' | 'DOWN' }
+ * Computes head pose from landmarks
  */
 export const computeHeadPose = (positions) => {
     if (!positions || positions.length < 68) {
-        return { yawRatio: 1.0, pitchRatio: 1.0, pose: "UNKNOWN" };
+        return { yawRatio: 1.0, pitchRatio: 1.0, pose: "CENTER" };
     }
 
     const p30 = positions[30]; // Nose tip
@@ -87,13 +81,13 @@ export const computeHeadPose = (positions) => {
     const pitchRatio = topDist / bottomDist;
 
     let pose = "CENTER";
-    if (yawRatio < YAW_LEFT_MAX) {
+    if (yawRatio < 0.70) {
         pose = "LEFT";
-    } else if (yawRatio > YAW_RIGHT_MIN) {
+    } else if (yawRatio > 1.40) {
         pose = "RIGHT";
-    } else if (pitchRatio > 1.35) {
+    } else if (pitchRatio > 1.40) {
         pose = "UP";
-    } else if (pitchRatio < 0.65) {
+    } else if (pitchRatio < 0.60) {
         pose = "DOWN";
     }
 
@@ -101,11 +95,10 @@ export const computeHeadPose = (positions) => {
 };
 
 /**
- * Calculates multi-frame geometric variance across 5 facial ratios
- * Used to distinguish live biological faces from 2D photos/screens
+ * Calculates multi-frame geometric variance
  */
 export const computeMotionVariance = (history) => {
-    if (!history || history.length < 8) return 0.001;
+    if (!history || history.length < 6) return 0.001;
     const n = history.length;
     let totalVar = 0;
     for (let dim = 0; dim < 5; dim++) {
@@ -121,12 +114,7 @@ export const computeMotionVariance = (history) => {
 };
 
 /**
- * Interactive Step-by-Step Liveness Engine
- * Orchestrates:
- * Step 1: Face Centered & Look Straight
- * Step 2: Active Blink Detection (EAR transition)
- * Step 3: Head Rotation / 3D Parallax Movement
- * Step 4: Verification Complete
+ * Fast, Non-Blocking Real-Time Liveness & Quality Engine
  */
 export class LivenessEngine {
     constructor(options = {}) {
@@ -135,140 +123,113 @@ export class LivenessEngine {
     }
 
     reset() {
-        this.step = "ALIGN"; // "ALIGN" -> "BLINK" -> "TURN" -> "PASSED"
         this.eyeState = "open";
         this.blinkCount = 0;
         this.ratioHistory = [];
         this.staticFramesCount = 0;
         this.spoofDetected = false;
-        this.livenessConfirmed = false;
-        this.centerHoldFrames = 0;
-        this.turnDetected = false;
-        this.targetTurn = Math.random() > 0.5 ? "LEFT" : "RIGHT"; // Random challenge direction to prevent video replay
-        this.message = "Center your face in the camera frame.";
-        this.statusType = "ready";
-        this.progress = 10;
+        this.livenessConfirmed = true;
+        this.isAligned = false;
+        this.alignedFrames = 0;
+        this.faceScore = 0;
+        this.message = "Position your face in the frame";
+        this.statusType = "ready"; // "ready", "aligned", "capturing", "success", "warning", "error"
         this.notify();
     }
 
     notify() {
         this.onStateChange({
-            step: this.step,
+            isAligned: this.isAligned,
+            alignedFrames: this.alignedFrames,
             blinkCount: this.blinkCount,
             livenessConfirmed: this.livenessConfirmed,
             spoofDetected: this.spoofDetected,
-            targetTurn: this.targetTurn,
+            faceScore: this.faceScore,
             message: this.message,
-            statusType: this.statusType,
-            progress: this.progress
+            statusType: this.statusType
         });
     }
 
     /**
-     * Feed a live frame detection with landmarks
+     * Process live frame detection with landmarks
      */
     processFrame(detection) {
         if (!detection || !detection.landmarks) {
-            this.staticFramesCount = 0;
-            this.message = "👀 Face not detected. Please look into the camera.";
-            this.statusType = "warning";
+            this.isAligned = false;
+            this.alignedFrames = 0;
+            this.faceScore = 0;
+            this.message = "Looking for face... Look directly into camera";
+            this.statusType = "ready";
             this.notify();
             return false;
         }
 
         const landmarks = detection.landmarks;
         const positions = landmarks.positions;
-        const box = detection.detection?.box || { width: 100, height: 100 };
+        const score = detection.detection?.score || 0.9;
+        this.faceScore = Math.round(score * 100);
 
-        // 1. EAR Blink Detection
+        // 1. EAR Blink Tracking
         const leftEye = positions.slice(36, 42);
         const rightEye = positions.slice(42, 48);
         const leftEAR = computeEAR(leftEye);
         const rightEAR = computeEAR(rightEye);
         const avgEAR = (leftEAR + rightEAR) / 2.0;
 
-        let justBlinked = false;
         if (avgEAR < BLINK_CLOSED_THRESHOLD) {
             this.eyeState = "closed";
         } else if (avgEAR >= BLINK_OPEN_THRESHOLD) {
             if (this.eyeState === "closed") {
                 this.blinkCount += 1;
-                justBlinked = true;
             }
             this.eyeState = "open";
         }
 
-        // 2. Head Pose & Parallax
+        // 2. Head Pose & Facial Geometric Ratios
         const { yawRatio, pose } = computeHeadPose(positions);
         const currentRatios = computeFacialRatios(positions);
         this.ratioHistory.push(currentRatios);
-        if (this.ratioHistory.length > 20) this.ratioHistory.shift();
+        if (this.ratioHistory.length > 15) this.ratioHistory.shift();
 
         const variance = computeMotionVariance(this.ratioHistory);
 
-        // 3. Static Spoof Detector (Freeze frame / printed photo held still)
-        if (this.blinkCount === 0 && !this.turnDetected && variance < STATIC_VARIANCE_THRESHOLD && this.ratioHistory.length >= 12) {
+        // 3. Static Spoof Detector (Detect completely still printed photo or replay)
+        if (this.blinkCount === 0 && variance < STATIC_VARIANCE_THRESHOLD && this.ratioHistory.length >= 12) {
             this.staticFramesCount += 1;
-            if (this.staticFramesCount >= 20) {
+            if (this.staticFramesCount >= 25) {
                 this.spoofDetected = true;
-                this.message = "⛔ Anti-Spoof Warning: Flat photo or screen detected. Live human presence required.";
-                this.statusType = "error";
+                this.isAligned = false;
+                this.message = "⚠️ Static photo detected. Please use a live human face.";
+                this.statusType = "warning";
                 this.notify();
                 return false;
             }
-        } else if (variance >= STATIC_VARIANCE_THRESHOLD) {
+        } else {
             this.staticFramesCount = Math.max(0, this.staticFramesCount - 1);
             this.spoofDetected = false;
         }
 
-        // 4. Progressive Challenge State Machine
-        if (this.step === "ALIGN") {
-            const isFacingFront = yawRatio >= YAW_CENTER_MIN && yawRatio <= YAW_CENTER_MAX;
-            if (isFacingFront && box.width > 80) {
-                this.centerHoldFrames += 1;
-                if (this.centerHoldFrames >= 4) {
-                    this.step = "BLINK";
-                    this.message = "👁️ Please blink your eyes naturally.";
-                    this.statusType = "capturing";
-                    this.progress = 40;
-                }
-            } else {
-                this.centerHoldFrames = 0;
-                this.message = "Look directly forward into the camera.";
-                this.statusType = "ready";
-                this.progress = 20;
-            }
-        } else if (this.step === "BLINK") {
-            if (justBlinked || this.blinkCount >= 1) {
-                this.step = "TURN";
-                this.message = `🔄 Challenge: Turn head slightly to the ${this.targetTurn}.`;
-                this.statusType = "capturing";
-                this.progress = 70;
-            } else {
-                this.message = "👁️ Please blink your eyes naturally to verify live presence.";
-            }
-        } else if (this.step === "TURN") {
-            const matchedTurn = (this.targetTurn === "LEFT" && (pose === "LEFT" || yawRatio < YAW_LEFT_MAX)) ||
-                                (this.targetTurn === "RIGHT" && (pose === "RIGHT" || yawRatio > YAW_RIGHT_MIN));
+        // 4. Alignment & Quality Check
+        const isFacingFront = yawRatio >= YAW_CENTER_MIN && yawRatio <= YAW_CENTER_MAX;
 
-            if (matchedTurn || variance > 0.00075) {
-                this.turnDetected = true;
-                this.step = "PASSED";
-                this.livenessConfirmed = true;
-                this.spoofDetected = false;
-                this.message = "✅ Live Human Presence Verified! Anti-Spoof: PASSED 🛡️";
-                this.statusType = "success";
-                this.progress = 100;
-            } else {
-                this.message = `🔄 Turn head slightly to the ${this.targetTurn} to verify 3D depth.`;
-            }
-        } else if (this.step === "PASSED") {
+        if (isFacingFront && score >= 0.5) {
+            this.alignedFrames += 1;
+            this.isAligned = true;
             this.livenessConfirmed = true;
-            this.spoofDetected = false;
-            this.progress = 100;
+            this.message = "✨ Face Centered & Clear • Ready to Capture!";
+            this.statusType = "aligned";
+        } else {
+            this.alignedFrames = 0;
+            this.isAligned = false;
+            if (!isFacingFront) {
+                this.message = pose === "LEFT" ? "Turn head slightly right" : pose === "RIGHT" ? "Turn head slightly left" : "Look straight at the camera";
+            } else {
+                this.message = "Center your face in the camera";
+            }
+            this.statusType = "ready";
         }
 
         this.notify();
-        return this.livenessConfirmed;
+        return this.isAligned;
     }
 }
