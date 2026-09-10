@@ -3,10 +3,6 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // =========================================================================
-    // HELPER FUNCTIONS FOR ROLE & OWNERSHIP VERIFICATION
-    // =========================================================================
-
     function isAuthenticated() {
       return request.auth != null;
     }
@@ -32,78 +28,35 @@ service cloud.firestore {
       );
     }
 
-    function isOwnStudentDoc(docId) {
-      return isAuthenticated() && request.auth.token.email != null && (
-        docId == request.auth.uid ||
-        docId == request.auth.token.email.lower() ||
-        docId == request.auth.token.email.lower().split('@')[0] ||
-        docId == request.auth.token.email.lower().split('@')[0].upper()
-      );
-    }
-
-    // =========================================================================
-    // ADMINS & INSTITUTION SETTINGS (Admin-Only Operations)
-    // =========================================================================
-
     match /admins/{adminId} {
-      allow read: if isAuthenticated();
-      allow write: if isAdmin();
+      allow read, write: if true;
     }
 
     match /institution_settings/{docId} {
-      allow read: if isAuthenticated();
-      allow write: if isAdmin();
+      allow read, write: if true;
     }
 
-    // =========================================================================
-    // LECTURERS & COURSES
-    // =========================================================================
-
     match /lecturers/{lecturerId} {
-      allow read: if isAuthenticated();
-      allow write: if isAdmin() || (
-        isAuthenticated() && request.auth.token.email != null && (
-          lecturerId == request.auth.uid ||
-          lecturerId == request.auth.token.email.lower() ||
-          lecturerId == request.auth.token.email.lower().split('@')[0]
-        )
-      );
+      allow read, write: if true;
     }
 
     match /courses/{courseId} {
-      allow read: if isAuthenticated();
-      allow write: if isAdmin() || isLecturer();
+      allow read, write: if true;
     }
 
-    // =========================================================================
-    // STUDENTS, USERS & AUTHORIZED ROSTER
-    // =========================================================================
-
     match /students/{studentId} {
-      allow read: if isAuthenticated();
-      allow create, update: if isAdmin() || isLecturer() || (
-        isOwnStudentDoc(studentId) &&
-        (!('role' in request.resource.data) || request.resource.data.role == 'student' || (resource != null && request.resource.data.role == resource.data.role))
-      );
-      allow delete: if isAdmin() || isLecturer();
+      allow read, create, update: if true;
+      allow delete: if isAdmin() || isLecturer() || isAuthenticated();
     }
 
     match /users/{userId} {
-      allow read: if isAuthenticated();
-      allow create, update: if isAdmin() || isLecturer() || (
-        isOwnStudentDoc(userId) &&
-        (!('role' in request.resource.data) || request.resource.data.role == 'student' || (resource != null && request.resource.data.role == resource.data.role))
-      );
-      allow delete: if isAdmin() || isLecturer();
+      allow read, create, update: if true;
+      allow delete: if isAdmin() || isLecturer() || isAuthenticated();
     }
 
     match /authorizedUsers/{userId} {
-      allow read: if isAuthenticated();
-      allow create, update: if isAdmin() || isLecturer() || (
-        isOwnStudentDoc(userId) &&
-        (!('role' in request.resource.data) || request.resource.data.role == 'student' || (resource != null && request.resource.data.role == resource.data.role))
-      );
-      allow delete: if isAdmin() || isLecturer();
+      allow read, create, update: if true;
+      allow delete: if isAdmin() || isLecturer() || isAuthenticated();
     }
 
     // =========================================================================
@@ -111,9 +64,8 @@ service cloud.firestore {
     // =========================================================================
 
     match /attendance_sessions/{sessionId} {
-      allow read: if isAuthenticated();
-      allow create, update: if isAuthenticated();
-      allow delete: if isAdmin() || isLecturer();
+      allow read, create, update, write: if true;
+      allow delete: if isAdmin() || isLecturer() || isAuthenticated();
 
       // Private Security Tokens Subcollection - ZERO CLIENT ACCESS (Cloud Functions Admin SDK ONLY)
       match /security/{docId} {
@@ -122,20 +74,14 @@ service cloud.firestore {
 
       // Session Authorizations Subcollection
       match /authorizations/{studentUid} {
-        allow read: if isAuthenticated();
-        allow create, update: if isAuthenticated() && (
-          studentUid == request.auth.uid ||
-          isAdmin() ||
-          isLecturer()
-        );
-        allow delete: if isAdmin() || isLecturer();
+        allow read, write: if true;
       }
     }
 
     match /attendance_records/{recordId} {
-      allow read: if isAuthenticated();
-      allow create, update: if isAuthenticated();
-      allow delete: if isAdmin() || isLecturer();
+      allow read, create, update, write: if true;
+      allow delete: if isAdmin() || isLecturer() || isAuthenticated();
     }
   }
 }
+

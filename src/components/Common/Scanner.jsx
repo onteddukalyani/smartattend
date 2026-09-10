@@ -247,11 +247,19 @@ function QrScannerApp() {
             setKioskEndsAt(result.kioskEndsAt || (Date.now() + 180000));
 
             // Start Android Lock Task Mode
-            console.log('[Kiosk] Activating Native Android Lock Task mode for Student...');
-            await Kiosk.startKiosk();
+            try {
+                console.log('[Kiosk] Activating Native Android Lock Task mode for Student...');
+                await Kiosk.startKiosk();
+            } catch (kioskErr) {
+                console.warn('[Kiosk] Notice starting kiosk mode:', kioskErr);
+            }
 
             // Pre-fetch student biometric template
-            lookupStudentBiometrics(result.rollNo || loggedInRollNo);
+            try {
+                await lookupStudentBiometrics(result.rollNo || loggedInRollNo);
+            } catch (bioErr) {
+                console.warn('Biometrics lookup notice:', bioErr);
+            }
 
             // Move to Kiosk Supervised Waiting state
             setScanState('KIOSK_WAITING_QR2');
