@@ -104,12 +104,10 @@ function StudentsList() {
     // Check if a student has biometric face enrolled
     const checkHasFace = (student) => {
         if (!student) return false;
-        if (student.faceRemovedAt || student.faceRegistered === false || student.biometricEnrolled === false || student.hasFaceRegistered === false) {
-            return false;
-        }
-        const fd = student.faceDescriptor;
+        const fd = student.faceDescriptor || student.descriptor;
         if (Array.isArray(fd) && fd.length === 128) return true;
         if (fd instanceof Float32Array && fd.length === 128) return true;
+        if ((student.faceRegistered === true || student.biometricEnrolled === true || student.hasFaceRegistered === true) && !student.faceRemovedAt) return true;
         return false;
     };
 

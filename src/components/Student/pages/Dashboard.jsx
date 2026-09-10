@@ -6,6 +6,7 @@ import {
     getDoc,
     getDocs,
     setDoc,
+    deleteField,
     onSnapshot,
     query,
     where
@@ -110,17 +111,21 @@ export default function StudentDashboard() {
                         ? d.semester
                         : (prev?.semester || d.semester || "1");
 
-                    const isExplicitlyRemoved = Boolean(
-                        d.faceRemovedAt ||
-                        d.faceRegistered === false ||
-                        d.biometricEnrolled === false ||
-                        d.hasFaceRegistered === false ||
-                        !d.faceDescriptor ||
-                        (Array.isArray(d.faceDescriptor) && d.faceDescriptor.length !== 128)
-                    );
+                    // Determine valid 128-D descriptor from current doc or preserve existing
+                    const docVector = (Array.isArray(d.faceDescriptor) && d.faceDescriptor.length === 128)
+                        ? d.faceDescriptor
+                        : ((Array.isArray(d.descriptor) && d.descriptor.length === 128) ? d.descriptor : null);
+                    const prevVector = (Array.isArray(prev?.faceDescriptor) && prev.faceDescriptor.length === 128)
+                        ? prev.faceDescriptor
+                        : null;
+                    const finalVector = docVector || prevVector || null;
 
-                    const hasFace = !isExplicitlyRemoved && Array.isArray(d.faceDescriptor) && d.faceDescriptor.length === 128;
-                    const validDescriptor = hasFace ? d.faceDescriptor : null;
+                    const latestEnrolledAt = Math.max(d.enrolledAt || 0, prev?.enrolledAt || 0);
+                    const latestRemovedAt = Math.max(d.faceRemovedAt || 0, prev?.faceRemovedAt || 0);
+                    const isExplicitlyRemoved = Boolean(latestRemovedAt > 0 && latestRemovedAt > latestEnrolledAt && !docVector);
+
+                    const hasFace = Boolean(!isExplicitlyRemoved && (finalVector || d.faceRegistered === true || prev?.faceRegistered === true));
+                    const validDescriptor = !isExplicitlyRemoved ? finalVector : null;
                     const photo = isExplicitlyRemoved ? "" : ((d.photoURL && d.photoURL.length > 5) ? d.photoURL : (prev?.photoURL || d.photo || d.image || ""));
 
                     return {
@@ -163,21 +168,10 @@ export default function StudentDashboard() {
     const studentSemester = profile?.semester || fetchedStudentData?.semester || "1";
 
     const hasFaceRegistered = Boolean(
-        fetchedStudentData
-            ? (
-                !fetchedStudentData.faceRemovedAt &&
-                fetchedStudentData.faceRegistered !== false &&
-                fetchedStudentData.biometricEnrolled !== false &&
-                Array.isArray(fetchedStudentData.faceDescriptor) &&
-                fetchedStudentData.faceDescriptor.length === 128
-            )
-            : (
-                !profile?.faceRemovedAt &&
-                profile?.faceRegistered !== false &&
-                profile?.biometricEnrolled !== false &&
-                Array.isArray(profile?.faceDescriptor) &&
-                profile.faceDescriptor.length === 128
-            )
+        (Array.isArray(fetchedStudentData?.faceDescriptor) && fetchedStudentData.faceDescriptor.length === 128) ||
+        (Array.isArray(profile?.faceDescriptor) && profile.faceDescriptor.length === 128) ||
+        (fetchedStudentData?.faceRegistered === true && !fetchedStudentData?.faceRemovedAt) ||
+        (profile?.faceRegistered === true && !profile?.faceRemovedAt)
     );
 
     // Build candidate roll numbers to guarantee matching
@@ -306,6 +300,7 @@ export default function StudentDashboard() {
                 faceRegistered: true,
                 biometricEnrolled: true,
                 hasFaceRegistered: true,
+                faceRemovedAt: deleteField(),
                 enrolledAt: Date.now()
             };
 
@@ -330,7 +325,8 @@ export default function StudentDashboard() {
 
             setFetchedStudentData((prev) => ({
                 ...(prev || {}),
-                ...updatePayload
+                ...updatePayload,
+                faceRemovedAt: null
             }));
 
             setFaceSuccessMsg("✅ Face biometrics registered successfully! You can now mark attendance.");

@@ -227,24 +227,19 @@ function StudentForm() {
                     ? docData.branch
                     : ((mergedStudent.branch && String(mergedStudent.branch).toLowerCase() !== "general") ? mergedStudent.branch : "CSE");
 
-                const isExplicitlyRemoved = Boolean(
-                    docData.faceRemovedAt ||
-                    mergedStudent.faceRemovedAt ||
-                    docData.faceRegistered === false ||
-                    mergedStudent.faceRegistered === false ||
-                    docData.biometricEnrolled === false ||
-                    mergedStudent.biometricEnrolled === false ||
-                    docData.hasFaceRegistered === false ||
-                    mergedStudent.hasFaceRegistered === false
-                );
+                const docVector = (Array.isArray(docData.faceDescriptor) && docData.faceDescriptor.length === 128)
+                    ? docData.faceDescriptor
+                    : ((Array.isArray(docData.descriptor) && docData.descriptor.length === 128) ? docData.descriptor : null);
+                const prevVector = (Array.isArray(mergedStudent.faceDescriptor) && mergedStudent.faceDescriptor.length === 128)
+                    ? mergedStudent.faceDescriptor
+                    : null;
+                const validVector = docVector || prevVector || null;
 
-                const validVector = !isExplicitlyRemoved && (
-                    (Array.isArray(docData.faceDescriptor) && docData.faceDescriptor.length === 128)
-                        ? docData.faceDescriptor
-                        : ((Array.isArray(mergedStudent.faceDescriptor) && mergedStudent.faceDescriptor.length === 128) ? mergedStudent.faceDescriptor : null)
-                );
+                const latestEnrolledAt = Math.max(docData.enrolledAt || 0, mergedStudent.enrolledAt || 0);
+                const latestRemovedAt = Math.max(docData.faceRemovedAt || 0, mergedStudent.faceRemovedAt || 0);
+                const isExplicitlyRemoved = Boolean(latestRemovedAt > 0 && latestRemovedAt > latestEnrolledAt && !docVector);
 
-                const hasFace = Boolean(!isExplicitlyRemoved && validVector);
+                const hasFace = Boolean(!isExplicitlyRemoved && (validVector || docData.faceRegistered === true || mergedStudent.faceRegistered === true));
 
                 mergedStudent = {
                     ...mergedStudent,
@@ -256,7 +251,7 @@ function StudentForm() {
                     faceRegistered: hasFace,
                     biometricEnrolled: hasFace,
                     hasFaceRegistered: hasFace,
-                    faceDescriptor: validVector,
+                    faceDescriptor: !isExplicitlyRemoved ? validVector : null,
                     photoURL: isExplicitlyRemoved ? "" : ((docData.photoURL && docData.photoURL.length > 5) ? docData.photoURL : (mergedStudent.photoURL || docData.photo || ""))
                 };
             }

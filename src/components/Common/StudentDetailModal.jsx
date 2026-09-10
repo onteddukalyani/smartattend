@@ -21,7 +21,7 @@ import {
   FaTrashAlt,
   FaShieldAlt
 } from "react-icons/fa";
-import { collection, getDocs, query, where, doc, setDoc, deleteDoc, onSnapshot } from "firebase/firestore";
+import { collection, getDocs, query, where, doc, setDoc, deleteDoc, deleteField, onSnapshot } from "firebase/firestore";
 import { db } from "../../firebase";
 import { useAuth } from "../authcontext";
 import { downloadExcel } from "../../DownloadExcel";
@@ -157,17 +157,10 @@ const StudentDetailModal = ({ student, onClose, onUpdate }) => {
   const totalAttended = attendanceRecords.length;
   const uniqueCourses = new Set(attendanceRecords.map(r => r.session?.courseId || r.courseId).filter(Boolean)).size;
 
-  const isFaceExplicitlyRemoved = Boolean(
-    currentStudent?.faceRemovedAt ||
-    currentStudent?.faceRegistered === false ||
-    currentStudent?.biometricEnrolled === false ||
-    currentStudent?.hasFaceRegistered === false
-  );
-
   const isFaceEnrolled = Boolean(
-    !isFaceExplicitlyRemoved &&
-    Array.isArray(currentStudent?.faceDescriptor) &&
-    currentStudent.faceDescriptor.length === 128
+    (Array.isArray(currentStudent?.faceDescriptor) && currentStudent.faceDescriptor.length === 128) ||
+    (Array.isArray(currentStudent?.descriptor) && currentStudent.descriptor.length === 128) ||
+    (currentStudent?.faceRegistered === true && !currentStudent?.faceRemovedAt)
   );
 
   const handleExportAttendance = () => {
@@ -219,6 +212,7 @@ const StudentDetailModal = ({ student, onClose, onUpdate }) => {
         faceRegistered: true,
         biometricEnrolled: true,
         hasFaceRegistered: true,
+        faceRemovedAt: deleteField(),
         enrolledAt: Date.now()
       };
 

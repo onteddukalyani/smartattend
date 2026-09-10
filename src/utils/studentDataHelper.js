@@ -227,23 +227,14 @@ export function mergeAllStudentRecords(authDocs = [], studentsDocs = [], usersDo
                    canonicalRoll;
         }
 
-        // Check for explicit face removal flags across documents
-        const isExplicitlyRemoved = Boolean(
-            data.faceRemovedAt ||
-            existing.faceRemovedAt ||
-            data.faceRegistered === false ||
-            existing.faceRegistered === false ||
-            data.biometricEnrolled === false ||
-            existing.biometricEnrolled === false
-        );
-
         // Merge Facial Biometrics (128-D vector)
-        let faceDescriptor = null;
-        if (!isExplicitlyRemoved) {
-            const docVector = normalizeDescriptor(data.faceDescriptor);
-            const existingVector = normalizeDescriptor(existing.faceDescriptor);
-            faceDescriptor = docVector || existingVector || null;
-        }
+        const docVector = normalizeDescriptor(data.faceDescriptor) || normalizeDescriptor(data.descriptor);
+        const existingVector = normalizeDescriptor(existing.faceDescriptor) || normalizeDescriptor(existing.descriptor);
+        const faceDescriptor = docVector || existingVector || null;
+
+        const latestEnrolledAt = Math.max(data.enrolledAt || 0, existing.enrolledAt || 0);
+        const latestRemovedAt = Math.max(data.faceRemovedAt || 0, existing.faceRemovedAt || 0);
+        const isExplicitlyRemoved = Boolean(latestRemovedAt > 0 && latestRemovedAt > latestEnrolledAt && !docVector);
 
         const hasValidVector = Boolean(
             !isExplicitlyRemoved &&
@@ -252,9 +243,9 @@ export function mergeAllStudentRecords(authDocs = [], studentsDocs = [], usersDo
             faceDescriptor.length === 128
         );
 
-        const faceRegistered = hasValidVector;
-        const biometricEnrolled = hasValidVector;
-        const hasFaceRegistered = hasValidVector;
+        const faceRegistered = hasValidVector || (Boolean(data.faceRegistered || existing.faceRegistered) && !isExplicitlyRemoved);
+        const biometricEnrolled = hasValidVector || (Boolean(data.biometricEnrolled || existing.biometricEnrolled) && !isExplicitlyRemoved);
+        const hasFaceRegistered = hasValidVector || faceRegistered;
 
         let photoURL = "";
         if (!isExplicitlyRemoved) {

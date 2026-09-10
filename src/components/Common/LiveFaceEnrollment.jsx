@@ -380,14 +380,6 @@ export function LiveFaceEnrollment({
             return;
         }
 
-        // Verify that liveness passed or student blinked
-        const isLive = livenessPassed || blinkCount >= 1 || blinkCountRef.current >= 1 || (livenessEngineRef.current && livenessEngineRef.current.livenessConfirmed);
-        if (!isLive) {
-            setFaceQualityStatus("👁️ Please look straight into the camera and blink naturally to confirm live presence.");
-            setStatusType("warning");
-            return;
-        }
-
         setCapturing(true);
         setCaptureStep(0);
         setStatusType("capturing");
@@ -636,12 +628,10 @@ export function LiveFaceEnrollment({
         setCapturedVector(null);
         setDuplicateError("");
         setSelectedFileName("");
-        eyeStateRef.current = "open";
+        if (livenessEngineRef.current) {
+            livenessEngineRef.current.reset();
+        }
         blinkCountRef.current = 0;
-        livenessConfirmedRef.current = false;
-        ratioHistoryRef.current = [];
-        staticFramesCountRef.current = 0;
-        spoofDetectedRef.current = false;
         setBlinkCount(0);
         setLivenessPassed(false);
         setIsSpoof(false);
