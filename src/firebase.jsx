@@ -13,6 +13,7 @@ import {
   signInWithCredential,
   signOut,
 } from "firebase/auth";
+import { getFunctions } from "firebase/functions";
 import { Capacitor } from "@capacitor/core";
 import { FirebaseAuthentication } from "@capacitor-firebase/authentication";
 
@@ -40,6 +41,7 @@ try {
 
 export const db = firestoreDb;
 export const auth = getAuth(app);
+export const functions = getFunctions(app);
 
 export const googleProvider = new GoogleAuthProvider();
 
