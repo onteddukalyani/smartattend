@@ -50,6 +50,7 @@ export function LiveFaceEnrollment({
 
     // Dynamic Anti-Spoofing & Liveness Engine Ref
     const livenessEngineRef = useRef(null);
+    const blinkCountRef = useRef(0);
 
     const [cameraActive, setCameraActive] = useState(false);
     const [cameraLoading, setCameraLoading] = useState(false);
@@ -72,7 +73,7 @@ export function LiveFaceEnrollment({
     const [isSpoof, setIsSpoof] = useState(false);
     const [duplicateError, setDuplicateError] = useState("");
     const [livenessStep, setLivenessStep] = useState("ALIGN");
-    const [livenessProgress, setLivenessProgress] = useState(10);
+    const [livenessProgress, setLivenessProgress] = useState(15);
     const [challengeMessage, setChallengeMessage] = useState("");
 
     // Initialize Liveness Engine
@@ -81,7 +82,9 @@ export function LiveFaceEnrollment({
             onStateChange: (state) => {
                 setLivenessStep(state.step);
                 setBlinkCount(state.blinkCount);
-                setLivenessPassed(state.livenessConfirmed);
+                blinkCountRef.current = state.blinkCount;
+                const isPassed = state.livenessConfirmed || state.blinkCount >= 1;
+                setLivenessPassed(isPassed);
                 setIsSpoof(state.spoofDetected);
                 setLivenessProgress(state.progress);
                 setChallengeMessage(state.message);
@@ -372,14 +375,15 @@ export function LiveFaceEnrollment({
 
         // Check if spoof detected
         if (isSpoof || (livenessEngineRef.current && livenessEngineRef.current.spoofDetected)) {
-            setFaceQualityStatus("⛔ Cannot enroll static photo or screen replay. Live biological face with eye blink & 3D head movement required.");
+            setFaceQualityStatus("⛔ Cannot enroll static photo or screen replay. Live biological face with natural blink required.");
             setStatusType("warning");
             return;
         }
 
-        // Verify that liveness passed
-        if (!livenessPassed && (!livenessEngineRef.current || !livenessEngineRef.current.livenessConfirmed)) {
-            setFaceQualityStatus("👁️ Please complete live verification (look straight, blink, and turn head slightly) before capturing.");
+        // Verify that liveness passed or student blinked
+        const isLive = livenessPassed || blinkCount >= 1 || blinkCountRef.current >= 1 || (livenessEngineRef.current && livenessEngineRef.current.livenessConfirmed);
+        if (!isLive) {
+            setFaceQualityStatus("👁️ Please look straight into the camera and blink naturally to confirm live presence.");
             setStatusType("warning");
             return;
         }
@@ -408,10 +412,10 @@ export function LiveFaceEnrollment({
                 if (detection) {
                     capturedDescriptors.push(detection.descriptor);
                 }
-                await new Promise((r) => setTimeout(r, 160));
+                await new Promise((r) => setTimeout(r, 140));
             }
 
-            if (capturedDescriptors.length < 3) {
+            if (capturedDescriptors.length < 2) {
                 setFaceQualityStatus("❌ Face not clearly detected across frames. Ensure good lighting and look directly into the camera.");
                 setStatusType("warning");
                 setCapturing(false);
@@ -420,7 +424,7 @@ export function LiveFaceEnrollment({
             }
 
             // Average the 128-dimensional vectors
-            const avgDescriptor = new Array(128).fill(0);(128).fill(0);
+            const avgDescriptor = new Array(128).fill(0);
             for (let i = 0; i < 128; i++) {
                 let sum = 0;
                 for (let j = 0; j < capturedDescriptors.length; j++) {
@@ -462,7 +466,7 @@ export function LiveFaceEnrollment({
                     photoURL: photoDataUrl,
                     biometricEnrolled: true,
                     livenessConfirmed: true,
-                    blinkCount: blinkCountRef.current || 1,
+                    blinkCount: blinkCountRef.current || blinkCount || 1,
                     enrolledAt: Date.now()
                 });
             }

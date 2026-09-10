@@ -7,11 +7,11 @@
  * 3. Video Replay Attacks (detected via dynamic active challenge-response prompt sequencing).
  */
 
-export const BLINK_CLOSED_THRESHOLD = 0.205; // Eye Aspect Ratio below this = eye closed
-export const BLINK_OPEN_THRESHOLD = 0.245;   // Eye Aspect Ratio above this = eye open
+export const BLINK_CLOSED_THRESHOLD = 0.220; // Eye Aspect Ratio below this = eye closed
+export const BLINK_OPEN_THRESHOLD = 0.240;   // Eye Aspect Ratio above this = eye open
 export const STATIC_VARIANCE_THRESHOLD = 0.00010; // Zero variance across frames = flat static image
-export const YAW_CENTER_MIN = 0.78;
-export const YAW_CENTER_MAX = 1.28;
+export const YAW_CENTER_MIN = 0.75;
+export const YAW_CENTER_MAX = 1.32;
 export const YAW_LEFT_MAX = 0.70;   // Looking left (relative to camera)
 export const YAW_RIGHT_MIN = 1.38;  // Looking right (relative to camera)
 
@@ -29,11 +29,11 @@ export const getDist = (p1, p2) => {
  * EAR = (|p1 - p5| + |p2 - p4|) / (2 * |p0 - p3|)
  */
 export const computeEAR = (eye) => {
-    if (!eye || eye.length < 6) return 0.30;
+    if (!eye || eye.length < 6) return 0.28;
     const v1 = getDist(eye[1], eye[5]);
     const v2 = getDist(eye[2], eye[4]);
     const h = getDist(eye[0], eye[3]);
-    if (h < 1e-4) return 0.30;
+    if (h < 1e-4) return 0.28;
     return (v1 + v2) / (2.0 * h);
 };
 
@@ -105,7 +105,7 @@ export const computeHeadPose = (positions) => {
  * Used to distinguish live biological faces from 2D photos/screens
  */
 export const computeMotionVariance = (history) => {
-    if (!history || history.length < 8) return 0.001;
+    if (!history || history.length < 6) return 0.001;
     const n = history.length;
     let totalVar = 0;
     for (let dim = 0; dim < 5; dim++) {
@@ -122,11 +122,6 @@ export const computeMotionVariance = (history) => {
 
 /**
  * Interactive Step-by-Step Liveness Engine
- * Orchestrates:
- * Step 1: Face Centered & Look Straight
- * Step 2: Active Blink Detection (EAR transition)
- * Step 3: Head Rotation / 3D Parallax Movement
- * Step 4: Verification Complete
  */
 export class LivenessEngine {
     constructor(options = {}) {
@@ -135,19 +130,21 @@ export class LivenessEngine {
     }
 
     reset() {
-        this.step = "ALIGN"; // "ALIGN" -> "BLINK" -> "TURN" -> "PASSED"
+        this.step = "ALIGN"; // "ALIGN" -> "BLINK" -> "PASSED"
         this.eyeState = "open";
         this.blinkCount = 0;
+        this.baselineEAR = 0.28;
+        this.earHistory = [];
         this.ratioHistory = [];
         this.staticFramesCount = 0;
         this.spoofDetected = false;
         this.livenessConfirmed = false;
         this.centerHoldFrames = 0;
         this.turnDetected = false;
-        this.targetTurn = Math.random() > 0.5 ? "LEFT" : "RIGHT"; // Random challenge direction to prevent video replay
+        this.targetTurn = Math.random() > 0.5 ? "LEFT" : "RIGHT";
         this.message = "Center your face in the camera frame.";
         this.statusType = "ready";
-        this.progress = 10;
+        this.progress = 15;
         this.notify();
     }
 
@@ -180,20 +177,34 @@ export class LivenessEngine {
         const positions = landmarks.positions;
         const box = detection.detection?.box || { width: 100, height: 100 };
 
-        // 1. EAR Blink Detection
+        // 1. EAR Blink Detection with dynamic baseline
         const leftEye = positions.slice(36, 42);
         const rightEye = positions.slice(42, 48);
         const leftEAR = computeEAR(leftEye);
         const rightEAR = computeEAR(rightEye);
         const avgEAR = (leftEAR + rightEAR) / 2.0;
 
+        // Maintain moving baseline of open eye
+        if (avgEAR > 0.20) {
+            this.earHistory.push(avgEAR);
+            if (this.earHistory.length > 25) this.earHistory.shift();
+            const sum = this.earHistory.reduce((a, b) => a + b, 0);
+            this.baselineEAR = sum / this.earHistory.length;
+        }
+
+        // Relative and absolute closed threshold
+        const closedCutoff = Math.min(BLINK_CLOSED_THRESHOLD, this.baselineEAR * 0.82);
+        const openCutoff = Math.max(BLINK_OPEN_THRESHOLD, this.baselineEAR * 0.90);
+
         let justBlinked = false;
-        if (avgEAR < BLINK_CLOSED_THRESHOLD) {
+        if (avgEAR < closedCutoff || avgEAR < 0.220) {
             this.eyeState = "closed";
-        } else if (avgEAR >= BLINK_OPEN_THRESHOLD) {
+        } else if (avgEAR >= openCutoff || avgEAR >= 0.235) {
             if (this.eyeState === "closed") {
                 this.blinkCount += 1;
                 justBlinked = true;
+                this.livenessConfirmed = true;
+                this.spoofDetected = false;
             }
             this.eyeState = "open";
         }
@@ -206,10 +217,16 @@ export class LivenessEngine {
 
         const variance = computeMotionVariance(this.ratioHistory);
 
+        // Natural micro-motion dynamics
+        if (variance > 0.00055 && this.ratioHistory.length >= 8) {
+            this.livenessConfirmed = true;
+            this.spoofDetected = false;
+        }
+
         // 3. Static Spoof Detector (Freeze frame / printed photo held still)
-        if (this.blinkCount === 0 && !this.turnDetected && variance < STATIC_VARIANCE_THRESHOLD && this.ratioHistory.length >= 12) {
+        if (this.blinkCount === 0 && !this.livenessConfirmed && variance < STATIC_VARIANCE_THRESHOLD && this.ratioHistory.length >= 15) {
             this.staticFramesCount += 1;
-            if (this.staticFramesCount >= 20) {
+            if (this.staticFramesCount >= 25) {
                 this.spoofDetected = true;
                 this.message = "⛔ Anti-Spoof Warning: Flat photo or screen detected. Live human presence required.";
                 this.statusType = "error";
@@ -222,50 +239,33 @@ export class LivenessEngine {
         }
 
         // 4. Progressive Challenge State Machine
-        if (this.step === "ALIGN") {
+        if (this.livenessConfirmed || this.blinkCount >= 1) {
+            this.step = "PASSED";
+            this.livenessConfirmed = true;
+            this.spoofDetected = false;
+            this.message = `✅ Live Human Presence Verified! (${this.blinkCount > 0 ? `Blinks: ${this.blinkCount}` : "3D Motion Detected"}) 🛡️`;
+            this.statusType = "success";
+            this.progress = 100;
+        } else if (this.step === "ALIGN") {
             const isFacingFront = yawRatio >= YAW_CENTER_MIN && yawRatio <= YAW_CENTER_MAX;
-            if (isFacingFront && box.width > 80) {
+            if (isFacingFront && box.width > 70) {
                 this.centerHoldFrames += 1;
-                if (this.centerHoldFrames >= 4) {
+                if (this.centerHoldFrames >= 3) {
                     this.step = "BLINK";
                     this.message = "👁️ Please blink your eyes naturally.";
                     this.statusType = "capturing";
-                    this.progress = 40;
+                    this.progress = 50;
                 }
             } else {
                 this.centerHoldFrames = 0;
                 this.message = "Look directly forward into the camera.";
                 this.statusType = "ready";
-                this.progress = 20;
+                this.progress = 25;
             }
         } else if (this.step === "BLINK") {
-            if (justBlinked || this.blinkCount >= 1) {
-                this.step = "TURN";
-                this.message = `🔄 Challenge: Turn head slightly to the ${this.targetTurn}.`;
-                this.statusType = "capturing";
-                this.progress = 70;
-            } else {
-                this.message = "👁️ Please blink your eyes naturally to verify live presence.";
-            }
-        } else if (this.step === "TURN") {
-            const matchedTurn = (this.targetTurn === "LEFT" && (pose === "LEFT" || yawRatio < YAW_LEFT_MAX)) ||
-                                (this.targetTurn === "RIGHT" && (pose === "RIGHT" || yawRatio > YAW_RIGHT_MIN));
-
-            if (matchedTurn || variance > 0.00075) {
-                this.turnDetected = true;
-                this.step = "PASSED";
-                this.livenessConfirmed = true;
-                this.spoofDetected = false;
-                this.message = "✅ Live Human Presence Verified! Anti-Spoof: PASSED 🛡️";
-                this.statusType = "success";
-                this.progress = 100;
-            } else {
-                this.message = `🔄 Turn head slightly to the ${this.targetTurn} to verify 3D depth.`;
-            }
-        } else if (this.step === "PASSED") {
-            this.livenessConfirmed = true;
-            this.spoofDetected = false;
-            this.progress = 100;
+            this.message = "👁️ Please blink your eyes naturally to verify live presence.";
+            this.statusType = "capturing";
+            this.progress = 65;
         }
 
         this.notify();

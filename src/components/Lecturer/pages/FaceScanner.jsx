@@ -345,7 +345,7 @@ function FaceScanner({
               ratioHistoryRef.current.shift();
             }
 
-            const motionVariance = computeVariance(ratioHistoryRef.current);
+            const motionVariance = computeMotionVariance(ratioHistoryRef.current);
 
             // If authentic 3D micro-movement is detected
             if (motionVariance > 0.00065 && ratioHistoryRef.current.length >= 10) {
