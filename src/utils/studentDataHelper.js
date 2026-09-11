@@ -243,12 +243,12 @@ export function mergeAllStudentRecords(authDocs = [], studentsDocs = [], usersDo
             faceDescriptor.length === 128
         );
 
-        const faceRegistered = hasValidVector || (Boolean(data.faceRegistered || existing.faceRegistered) && !isExplicitlyRemoved);
-        const biometricEnrolled = hasValidVector || (Boolean(data.biometricEnrolled || existing.biometricEnrolled) && !isExplicitlyRemoved);
-        const hasFaceRegistered = hasValidVector || faceRegistered;
+        const faceRegistered = hasValidVector;
+        const biometricEnrolled = hasValidVector;
+        const hasFaceRegistered = hasValidVector;
 
         let photoURL = "";
-        if (!isExplicitlyRemoved) {
+        if (!isExplicitlyRemoved && hasValidVector) {
             photoURL = (data.photoURL && data.photoURL.length > 5) ? data.photoURL : (existing.photoURL || data.image || data.photo || "");
         }
 
@@ -274,7 +274,7 @@ export function mergeAllStudentRecords(authDocs = [], studentsDocs = [], usersDo
             status: status,
             faceRegistered: faceRegistered,
             biometricEnrolled: biometricEnrolled,
-            hasFaceRegistered: faceRegistered,
+            hasFaceRegistered: hasFaceRegistered,
             faceDescriptor: hasValidVector ? faceDescriptor : null,
             photoURL: photoURL,
             role: "student"

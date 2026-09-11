@@ -261,8 +261,8 @@ export default function ManageCourses() {
                 branch: s.branch || "CSE",
                 semester: s.semester || "1",
                 batch: s.batch || "2025",
-                hasFace: Boolean(s.faceRegistered || s.biometricEnrolled),
-                photoURL: s.photoURL || ""
+                hasFace: Boolean(!s.faceRemovedAt && Array.isArray(s.faceDescriptor) && s.faceDescriptor.length === 128),
+                photoURL: (!s.faceRemovedAt && Array.isArray(s.faceDescriptor) && s.faceDescriptor.length === 128) ? (s.photoURL || "") : ""
             }));
             setAllStudents(mapped);
         };

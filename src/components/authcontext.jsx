@@ -432,14 +432,16 @@ export const AuthProvider = ({ children }) => {
       photoURL: resolvedPhoto,
       photo: resolvedPhoto,
       image: resolvedPhoto,
-      faceDescriptor: registeredUser.faceDescriptor || null,
+      faceDescriptor: (Array.isArray(registeredUser.faceDescriptor) && registeredUser.faceDescriptor.length === 128 && !registeredUser.faceRemovedAt) ? registeredUser.faceDescriptor : null,
       faceRegistered: Boolean(
-        (Array.isArray(registeredUser.faceDescriptor) && registeredUser.faceDescriptor.length === 128) ||
-        ((registeredUser.faceRegistered || registeredUser.biometricEnrolled) && Array.isArray(registeredUser.faceDescriptor) && registeredUser.faceDescriptor.length > 0)
+        !registeredUser.faceRemovedAt &&
+        Array.isArray(registeredUser.faceDescriptor) &&
+        registeredUser.faceDescriptor.length === 128
       ),
       biometricEnrolled: Boolean(
-        (Array.isArray(registeredUser.faceDescriptor) && registeredUser.faceDescriptor.length === 128) ||
-        ((registeredUser.faceRegistered || registeredUser.biometricEnrolled) && Array.isArray(registeredUser.faceDescriptor) && registeredUser.faceDescriptor.length > 0)
+        !registeredUser.faceRemovedAt &&
+        Array.isArray(registeredUser.faceDescriptor) &&
+        registeredUser.faceDescriptor.length === 128
       ),
       approved: registeredUser.approved !== false,
       status: registeredUser.status || "active"

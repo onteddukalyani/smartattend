@@ -124,9 +124,9 @@ export default function StudentDashboard() {
                     const latestRemovedAt = Math.max(d.faceRemovedAt || 0, prev?.faceRemovedAt || 0);
                     const isExplicitlyRemoved = Boolean(latestRemovedAt > 0 && latestRemovedAt > latestEnrolledAt && !docVector);
 
-                    const hasFace = Boolean(!isExplicitlyRemoved && (finalVector || d.faceRegistered === true || prev?.faceRegistered === true));
-                    const validDescriptor = !isExplicitlyRemoved ? finalVector : null;
-                    const photo = isExplicitlyRemoved ? "" : ((d.photoURL && d.photoURL.length > 5) ? d.photoURL : (prev?.photoURL || d.photo || d.image || ""));
+                    const hasFace = Boolean(!isExplicitlyRemoved && finalVector && Array.isArray(finalVector) && finalVector.length === 128);
+                    const validDescriptor = hasFace ? finalVector : null;
+                    const photo = hasFace ? ((d.photoURL && d.photoURL.length > 5) ? d.photoURL : (prev?.photoURL || d.photo || d.image || "")) : "";
 
                     return {
                         ...(prev || {}),
@@ -168,10 +168,8 @@ export default function StudentDashboard() {
     const studentSemester = profile?.semester || fetchedStudentData?.semester || "1";
 
     const hasFaceRegistered = Boolean(
-        (Array.isArray(fetchedStudentData?.faceDescriptor) && fetchedStudentData.faceDescriptor.length === 128) ||
-        (Array.isArray(profile?.faceDescriptor) && profile.faceDescriptor.length === 128) ||
-        (fetchedStudentData?.faceRegistered === true && !fetchedStudentData?.faceRemovedAt) ||
-        (profile?.faceRegistered === true && !profile?.faceRemovedAt)
+        (!fetchedStudentData?.faceRemovedAt && Array.isArray(fetchedStudentData?.faceDescriptor) && fetchedStudentData.faceDescriptor.length === 128) ||
+        (!profile?.faceRemovedAt && Array.isArray(profile?.faceDescriptor) && profile.faceDescriptor.length === 128)
     );
 
     // Build candidate roll numbers to guarantee matching

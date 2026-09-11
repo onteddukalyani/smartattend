@@ -158,9 +158,9 @@ const StudentDetailModal = ({ student, onClose, onUpdate }) => {
   const uniqueCourses = new Set(attendanceRecords.map(r => r.session?.courseId || r.courseId).filter(Boolean)).size;
 
   const isFaceEnrolled = Boolean(
-    (Array.isArray(currentStudent?.faceDescriptor) && currentStudent.faceDescriptor.length === 128) ||
-    (Array.isArray(currentStudent?.descriptor) && currentStudent.descriptor.length === 128) ||
-    (currentStudent?.faceRegistered === true && !currentStudent?.faceRemovedAt)
+    !currentStudent?.faceRemovedAt &&
+    ((Array.isArray(currentStudent?.faceDescriptor) && currentStudent.faceDescriptor.length === 128) ||
+     (Array.isArray(currentStudent?.descriptor) && currentStudent.descriptor.length === 128))
   );
 
   const handleExportAttendance = () => {

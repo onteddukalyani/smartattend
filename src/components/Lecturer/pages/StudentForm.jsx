@@ -239,7 +239,7 @@ function StudentForm() {
                 const latestRemovedAt = Math.max(docData.faceRemovedAt || 0, mergedStudent.faceRemovedAt || 0);
                 const isExplicitlyRemoved = Boolean(latestRemovedAt > 0 && latestRemovedAt > latestEnrolledAt && !docVector);
 
-                const hasFace = Boolean(!isExplicitlyRemoved && (validVector || docData.faceRegistered === true || mergedStudent.faceRegistered === true));
+                const hasFace = Boolean(!isExplicitlyRemoved && validVector && Array.isArray(validVector) && validVector.length === 128);
 
                 mergedStudent = {
                     ...mergedStudent,
@@ -251,8 +251,8 @@ function StudentForm() {
                     faceRegistered: hasFace,
                     biometricEnrolled: hasFace,
                     hasFaceRegistered: hasFace,
-                    faceDescriptor: !isExplicitlyRemoved ? validVector : null,
-                    photoURL: isExplicitlyRemoved ? "" : ((docData.photoURL && docData.photoURL.length > 5) ? docData.photoURL : (mergedStudent.photoURL || docData.photo || ""))
+                    faceDescriptor: hasFace ? validVector : null,
+                    photoURL: (hasFace && !isExplicitlyRemoved) ? ((docData.photoURL && docData.photoURL.length > 5) ? docData.photoURL : (mergedStudent.photoURL || docData.photo || "")) : ""
                 };
             }
 
@@ -693,15 +693,15 @@ function StudentForm() {
                         <span style={{
                             padding: "6px 14px",
                             borderRadius: "8px",
-                            background: (verifiedStudent?.faceRegistered || (verifiedStudent?.faceDescriptor && verifiedStudent.faceDescriptor.length === 128)) ? "#dcfce7" : "#fee2e2",
-                            color: (verifiedStudent?.faceRegistered || (verifiedStudent?.faceDescriptor && verifiedStudent.faceDescriptor.length === 128)) ? "#15803d" : "#b91c1c",
+                            background: (verifiedStudent?.faceDescriptor && Array.isArray(verifiedStudent.faceDescriptor) && verifiedStudent.faceDescriptor.length === 128) ? "#dcfce7" : "#fee2e2",
+                            color: (verifiedStudent?.faceDescriptor && Array.isArray(verifiedStudent.faceDescriptor) && verifiedStudent.faceDescriptor.length === 128) ? "#15803d" : "#b91c1c",
                             fontSize: "0.82rem",
                             fontWeight: 700,
                             display: "inline-flex",
                             alignItems: "center",
                             gap: "6px"
                         }}>
-                            {(verifiedStudent?.faceRegistered || (verifiedStudent?.faceDescriptor && verifiedStudent.faceDescriptor.length === 128))
+                            {(verifiedStudent?.faceDescriptor && Array.isArray(verifiedStudent.faceDescriptor) && verifiedStudent.faceDescriptor.length === 128)
                                 ? "🛡️ 128-D Biometric Registered"
                                 : "⚠️ Biometrics Not Registered"}
                         </span>
