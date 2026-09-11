@@ -64,12 +64,19 @@ const Login = () => {
     );
 
     const roleTarget = String(authorizedUser?.role || selectedRole || "student").toLowerCase().trim();
+    const pendingRedirect = sessionStorage.getItem("smartattend_redirect_after_login");
+
     if (roleTarget === "admin" || roleTarget === "administrator" || roleTarget === "superadmin") {
       navigate("/admin", { replace: true });
     } else if (roleTarget === "lecturer" || roleTarget === "faculty") {
       navigate("/lecturer", { replace: true });
     } else {
-      navigate("/student", { replace: true });
+      if (pendingRedirect && pendingRedirect.includes("mark-attendance")) {
+        sessionStorage.removeItem("smartattend_redirect_after_login");
+        navigate(pendingRedirect, { replace: true });
+      } else {
+        navigate("/student", { replace: true });
+      }
     }
 
   } catch (error) {

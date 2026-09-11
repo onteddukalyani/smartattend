@@ -15,11 +15,31 @@
             android:label="@string/title_activity_main"
             android:theme="@style/AppTheme.NoActionBarLaunch"
             android:launchMode="singleTask"
+            android:lockTaskMode="if_whitelisted"
             android:exported="true">
 
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <!-- Deep Link Intent Filter: Custom Scheme smartattend:// -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="smartattend" />
+            </intent-filter>
+
+            <!-- App Links Intent Filter: HTTPS Web URLs for SmartAttend domains -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="smartattend.vercel.app" />
+                <data android:scheme="https" android:host="smartattend-app.vercel.app" />
+                <data android:scheme="https" android:host="smartattend-project.vercel.app" />
+                <data android:scheme="http" android:host="smartattend.vercel.app" />
             </intent-filter>
 
         </activity>
@@ -35,12 +55,10 @@
         </provider>
     </application>
 
-    <!-- Permissions -->
+    <!-- Permissions (Camera only for QR & Face Biometrics; NO Audio) -->
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.CAMERA" />
-    <uses-permission android:name="android.permission.RECORD_AUDIO" />
-    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
 

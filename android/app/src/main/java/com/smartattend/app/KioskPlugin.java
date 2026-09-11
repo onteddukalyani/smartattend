@@ -5,6 +5,7 @@ import android.app.ActivityManager;
 import android.content.Context;
 import android.os.Build;
 import android.util.Log;
+import android.view.WindowManager;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
@@ -17,8 +18,8 @@ import com.getcapacitor.annotation.CapacitorPlugin;
  * Manages Android Lock Task mode for supervised attendance sessions:
  * - On MDM / Device Owner managed devices: Enforces true zero-escape dedicated Lock Task.
  * - On unmanaged consumer devices: Activates standard Android screen pinning gracefully.
- * - CAMERA SAFETY: Explicitly avoids disabling camera hardware so SmartAttend's WebRTC
- *   and Face Biometrics remain 100% operational.
+ * - Screen Wake: Adds FLAG_KEEP_SCREEN_ON so student devices remain awake throughout the session.
+ * - CAMERA SAFETY: Camera hardware remains 100% active for QR scanning & Biometric verification.
  */
 @CapacitorPlugin(name = "KioskPlugin")
 public class KioskPlugin extends Plugin {
@@ -35,6 +36,9 @@ public class KioskPlugin extends Plugin {
         try {
             activity.runOnUiThread(() -> {
                 try {
+                    // 1. Keep screen alive so phone doesn't sleep during the 3-minute session
+                    activity.getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+
                     ActivityManager am = (ActivityManager) activity.getSystemService(Context.ACTIVITY_SERVICE);
                     boolean isLocked = false;
                     int currentLockMode = 0;
@@ -82,6 +86,9 @@ public class KioskPlugin extends Plugin {
         try {
             activity.runOnUiThread(() -> {
                 try {
+                    // Clear keep screen awake flag
+                    activity.getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+
                     ActivityManager am = (ActivityManager) activity.getSystemService(Context.ACTIVITY_SERVICE);
                     boolean isLocked = true;
 

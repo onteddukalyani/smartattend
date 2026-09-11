@@ -14,6 +14,7 @@
   "dependencies": {
     "@capacitor-firebase/authentication": "^8.5.1",
     "@capacitor/android": "^8.5.1",
+    "@capacitor/app": "^8.1.1",
     "@capacitor/cli": "^8.5.1",
     "@capacitor/core": "^8.5.1",
     "@mediapipe/tasks-vision": "^1.0.1",

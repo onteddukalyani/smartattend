@@ -20,8 +20,7 @@ public class MainActivity extends BridgeActivity {
         // Explicitly request camera runtime permission on launch if not already granted
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
             ActivityCompat.requestPermissions(this, new String[]{
-                Manifest.permission.CAMERA,
-                Manifest.permission.RECORD_AUDIO
+                Manifest.permission.CAMERA
             }, 100);
         }
     }

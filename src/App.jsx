@@ -1,9 +1,12 @@
-import React from "react";
+import React, { useEffect } from "react";
 import {
   Routes,
   Route,
-  Navigate
+  Navigate,
+  useNavigate
 } from "react-router-dom";
+import { App as CapacitorApp } from "@capacitor/app";
+import { Capacitor } from "@capacitor/core";
 
 import Login from "./components/login";
 import AdminDashboard from "./components/Admin/AdminDashboard";
@@ -35,7 +38,69 @@ import { FaGraduationCap } from "react-icons/fa";
 import "./App.css";
 
 function App() {
+  const navigate = useNavigate();
   const { user, profile, loading } = useAuth();
+
+  // 1. Listen for Native Deep Links & App Links (smartattend:// or https://)
+  useEffect(() => {
+    let listenerHandle = null;
+
+    if (Capacitor.isNativePlatform()) {
+      listenerHandle = CapacitorApp.addListener("appUrlOpen", (event) => {
+        try {
+          console.log("[DeepLink] App opened with URL:", event.url);
+          if (!event.url) return;
+
+          let targetPath = "/student/mark-attendance";
+          let searchStr = "";
+
+          if (event.url.startsWith("smartattend://")) {
+            const rawPart = event.url.replace("smartattend://", "");
+            const parts = rawPart.split("?");
+            targetPath = parts[0] ? `/${parts[0].replace(/^\//, "")}` : "/student/mark-attendance";
+            if (!targetPath.startsWith("/student/mark-attendance") && !targetPath.startsWith("/scanqr")) {
+              targetPath = "/student/mark-attendance";
+            }
+            searchStr = parts[1] ? `?${parts[1]}` : "";
+          } else {
+            const parsed = new URL(event.url);
+            targetPath = parsed.pathname || "/student/mark-attendance";
+            searchStr = parsed.search || "";
+          }
+
+          const fullRoute = `${targetPath}${searchStr}`;
+          console.log("[DeepLink] Routing to:", fullRoute);
+
+          if (!user) {
+            sessionStorage.setItem("smartattend_redirect_after_login", fullRoute);
+            navigate("/login", { replace: true });
+          } else {
+            navigate(fullRoute, { replace: true });
+          }
+        } catch (err) {
+          console.warn("[DeepLink] Error parsing deep link URL:", err);
+        }
+      });
+    }
+
+    return () => {
+      if (listenerHandle && typeof listenerHandle.remove === "function") {
+        listenerHandle.remove();
+      }
+    };
+  }, [user, navigate]);
+
+  // 2. Preserve unauthenticated incoming attendance URL in sessionStorage
+  useEffect(() => {
+    if (!loading && !user && typeof window !== "undefined") {
+      const currentPath = window.location.pathname;
+      const currentSearch = window.location.search;
+      if (currentSearch.includes("session=") || currentPath.includes("mark-attendance") || currentPath.includes("scanqr")) {
+        const redirectUrl = `${currentPath}${currentSearch}`;
+        sessionStorage.setItem("smartattend_redirect_after_login", redirectUrl);
+      }
+    }
+  }, [loading, user]);
 
   // Wait until Firebase checks the current login
   if (loading) {

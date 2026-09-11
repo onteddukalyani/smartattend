@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Scanner } from '@yudiel/react-qr-scanner';
 import jsQR from 'jsqr';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Capacitor } from '@capacitor/core';
 import {
     FaArrowLeft,
     FaCheckCircle,
@@ -11,7 +12,10 @@ import {
     FaClock,
     FaUserCheck,
     FaArrowRight,
-    FaCamera
+    FaCamera,
+    FaExclamationTriangle,
+    FaMobileAlt,
+    FaExternalLinkAlt
 } from 'react-icons/fa';
 import { MdQrCodeScanner } from 'react-icons/md';
 import { useAuth } from '../authcontext';
@@ -38,12 +42,21 @@ import FaceScanner from '../Lecturer/pages/FaceScanner';
 function QrScannerApp() {
     const navigate = useNavigate();
     const [searchParams] = useSearchParams();
-    const { user, profile } = useAuth();
+    const { user, profile, loading } = useAuth();
     const fileInputRef = useRef(null);
     const sessionTimerRef = useRef(null);
 
+    // Platform & App Detection
+    const isNativeApp = Capacitor.isNativePlatform();
+    const [showAppBanner, setShowAppBanner] = useState(false);
+    const [dismissedAppBanner, setDismissedAppBanner] = useState(false);
+
     // Current State: 'IDLE' | 'AUTHORIZING_QR1' | 'KIOSK_WAITING_QR2' | 'VALIDATING_QR2' | 'BIOMETRIC_SCAN' | 'ATTENDANCE_SUCCESS'
     const [scanState, setScanState] = useState('IDLE');
+
+    // Web Guardian Supervision State
+    const [supervisionViolation, setSupervisionViolation] = useState(false);
+    const [violationCount, setViolationCount] = useState(0);
 
     // Camera & Scanner State
     const [facingMode, setFacingMode] = useState('environment');
@@ -166,6 +179,71 @@ function QrScannerApp() {
         };
     }, [sessionStartAt, kioskEndsAt, scanState, navigate]);
 
+    // Cleanup Kiosk lock when component unmounts
+    useEffect(() => {
+        return () => {
+            Kiosk.stopKiosk().catch(() => {});
+        };
+    }, []);
+
+    // Web Guardian Supervision: Monitor tab switches or leaving app during active session
+    useEffect(() => {
+        const isSessionActive = scanState === 'KIOSK_WAITING_QR2' || scanState === 'BIOMETRIC_SCAN' || scanState === 'ATTENDANCE_SUCCESS';
+        if (!isSessionActive) {
+            setSupervisionViolation(false);
+            return;
+        }
+
+        const handleVisibilityChange = () => {
+            if (document.hidden || document.visibilityState === 'hidden') {
+                console.warn('[Kiosk Guardian] Tab switch or App minimize detected!');
+                setSupervisionViolation(true);
+                setViolationCount((c) => c + 1);
+            }
+        };
+
+        const handleBlur = () => {
+            if (!isNativeApp) {
+                console.warn('[Kiosk Guardian] Window blur detected!');
+                setSupervisionViolation(true);
+                setViolationCount((c) => c + 1);
+            }
+        };
+
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+        window.addEventListener('blur', handleBlur);
+
+        return () => {
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
+            window.removeEventListener('blur', handleBlur);
+        };
+    }, [scanState, isNativeApp]);
+
+    // Mobile Web App Detection
+    useEffect(() => {
+        if (typeof window !== 'undefined' && !isNativeApp) {
+            const isAndroid = /Android/i.test(navigator.userAgent);
+            if (isAndroid) {
+                setShowAppBanner(true);
+            }
+        }
+    }, [isNativeApp]);
+
+    const handleOpenInSmartAttendApp = () => {
+        const currentUrl = window.location.href;
+        const session = searchParams.get('session') || activeSessionId || '';
+        const qr1 = searchParams.get('qr1Token') || '';
+        const qr2 = searchParams.get('qr2Token') || activeQr2Token || '';
+        const phase = searchParams.get('phase') || '';
+
+        // Android Chrome Intent:
+        // If SmartAttend App is installed -> Directly launches native app!
+        // If SmartAttend App is NOT installed -> Stays seamlessly on fallback webpage!
+        const intentUrl = `intent://student/mark-attendance?session=${encodeURIComponent(session)}&qr1Token=${encodeURIComponent(qr1)}&qr2Token=${encodeURIComponent(qr2)}&phase=${encodeURIComponent(phase)}#Intent;scheme=smartattend;package=com.smartattend.app;S.browser_fallback_url=${encodeURIComponent(currentUrl)};end`;
+
+        window.location.href = intentUrl;
+    };
+
     // Subscribe to Session document updates
     useEffect(() => {
         if (!activeSessionId) return;
@@ -246,9 +324,9 @@ function QrScannerApp() {
             setSessionStartAt(result.sessionStartAt || Date.now());
             setKioskEndsAt(result.kioskEndsAt || (Date.now() + 180000));
 
-            // Start Android Lock Task Mode
+            // Start Android Lock Task Mode & Web Supervision
             try {
-                console.log('[Kiosk] Activating Native Android Lock Task mode for Student...');
+                console.log('[Kiosk] Activating Native Android Lock Task / Supervised Kiosk mode for Student...');
                 await Kiosk.startKiosk();
             } catch (kioskErr) {
                 console.warn('[Kiosk] Notice starting kiosk mode:', kioskErr);
@@ -332,6 +410,9 @@ function QrScannerApp() {
 
     // Auto-check URL search params on mount (e.g. if student opened link directly)
     useEffect(() => {
+        if (loading) return;
+        if (!user) return;
+
         const urlSession = searchParams.get('session');
         const urlQr1 = searchParams.get('qr1Token');
         const urlQr2 = searchParams.get('qr2Token');
@@ -342,7 +423,7 @@ function QrScannerApp() {
         } else if (urlSession && (urlQr2 || urlPhase === '2')) {
             handleProcessQR2(urlSession, urlQr2 || urlSession);
         }
-    }, [searchParams]);
+    }, [searchParams, loading, user]);
 
     const handleCameraScan = (result) => {
         if (!result) return;
@@ -652,8 +733,77 @@ function QrScannerApp() {
                 border: '1.5px solid var(--border, #e2e8f0)',
                 boxShadow: '0 20px 45px -20px rgba(0, 0, 0, 0.15)',
                 color: 'var(--text-main, #0f172a)',
-                textAlign: 'center'
+                textAlign: 'center',
+                position: 'relative'
             }}>
+                {/* Web Guardian Violation Overlay */}
+                {supervisionViolation && (
+                    <div style={{
+                        position: 'fixed',
+                        inset: 0,
+                        backgroundColor: 'rgba(15, 23, 42, 0.96)',
+                        zIndex: 9999,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        padding: '24px',
+                        color: '#ffffff',
+                        textAlign: 'center'
+                    }}>
+                        <div style={{
+                            width: '80px',
+                            height: '80px',
+                            borderRadius: '50%',
+                            background: '#fee2e2',
+                            color: '#b91c1c',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontSize: '40px',
+                            marginBottom: '16px'
+                        }}>
+                            <FaExclamationTriangle />
+                        </div>
+                        <h2 style={{ fontSize: '1.6rem', fontWeight: 800, margin: '0 0 10px 0', color: '#f87171' }}>
+                            Supervision Alert!
+                        </h2>
+                        <p style={{ maxWidth: '420px', fontSize: '0.95rem', color: '#cbd5e1', lineHeight: 1.5, marginBottom: '20px' }}>
+                            You switched tabs or left SmartAttend during an active attendance session ({loggedInRollNo}).
+                            App switching is strictly prohibited to prevent proxy attendance.
+                        </p>
+                        <div style={{
+                            padding: '10px 18px',
+                            borderRadius: '12px',
+                            background: 'rgba(239, 68, 68, 0.2)',
+                            border: '1px solid rgba(239, 68, 68, 0.4)',
+                            color: '#fca5a5',
+                            fontSize: '0.85rem',
+                            fontWeight: 700,
+                            marginBottom: '24px'
+                        }}>
+                            Violations Logged: {violationCount} · Time Remaining: {formatMmSs(sessionRemaining)}
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => setSupervisionViolation(false)}
+                            style={{
+                                padding: '14px 28px',
+                                borderRadius: '14px',
+                                background: '#6366f1',
+                                color: '#ffffff',
+                                border: 'none',
+                                fontWeight: 800,
+                                fontSize: '1rem',
+                                cursor: 'pointer',
+                                boxShadow: '0 4px 16px rgba(99, 102, 241, 0.4)'
+                            }}
+                        >
+                            Return to Attendance Session
+                        </button>
+                    </div>
+                )}
+
                 <input
                     ref={fileInputRef}
                     type="file"
@@ -675,7 +825,7 @@ function QrScannerApp() {
                     marginBottom: '16px'
                 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 800, fontSize: '0.85rem' }}>
-                        <FaShieldAlt /> Kiosk Mode Active (App Locked)
+                        <FaShieldAlt /> {isNativeApp ? 'Android Kiosk Mode Active (App Locked)' : 'Supervised Session Active'}
                     </div>
                     <div style={{ fontWeight: 800, fontSize: '0.95rem' }}>
                         ⏱️ {formatMmSs(sessionRemaining)} / 3:00
@@ -801,6 +951,82 @@ function QrScannerApp() {
             color: 'var(--text-main, #0f172a)',
             textAlign: 'center'
         }}>
+            {/* Smart App vs Website Banner for Mobile Web Browsers */}
+            {showAppBanner && !dismissedAppBanner && (
+                <div style={{
+                    marginBottom: '18px',
+                    padding: '12px 14px',
+                    borderRadius: '14px',
+                    background: 'linear-gradient(135deg, #1e1b4b 0%, #312e81 100%)',
+                    color: '#ffffff',
+                    border: '1px solid #4338ca',
+                    textAlign: 'left',
+                    boxShadow: '0 4px 14px rgba(49, 46, 129, 0.3)'
+                }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 800, fontSize: '0.88rem' }}>
+                            <FaMobileAlt style={{ color: '#a5b4fc' }} /> SmartAttend App
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => setDismissedAppBanner(true)}
+                            style={{
+                                background: 'transparent',
+                                border: 'none',
+                                color: '#94a3b8',
+                                cursor: 'pointer',
+                                fontSize: '0.8rem',
+                                padding: '2px 6px'
+                            }}
+                        >
+                            ✕
+                        </button>
+                    </div>
+                    <p style={{ margin: '0 0 10px 0', fontSize: '0.8rem', color: '#e0e7ff', lineHeight: 1.35 }}>
+                        Have the SmartAttend Android App? Open directly in app for seamless Kiosk Lock Task mode.
+                    </p>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                        <button
+                            type="button"
+                            onClick={handleOpenInSmartAttendApp}
+                            style={{
+                                flex: 1,
+                                padding: '8px 12px',
+                                borderRadius: '10px',
+                                background: '#6366f1',
+                                color: '#ffffff',
+                                border: 'none',
+                                fontWeight: 800,
+                                fontSize: '0.82rem',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: '6px'
+                            }}
+                        >
+                            <FaExternalLinkAlt style={{ fontSize: '0.75rem' }} /> Open in App
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setDismissedAppBanner(true)}
+                            style={{
+                                padding: '8px 12px',
+                                borderRadius: '10px',
+                                background: 'rgba(255, 255, 255, 0.12)',
+                                color: '#ffffff',
+                                border: 'none',
+                                fontWeight: 700,
+                                fontSize: '0.82rem',
+                                cursor: 'pointer'
+                            }}
+                        >
+                            Stay on Web
+                        </button>
+                    </div>
+                </div>
+            )}
+
             <input
                 ref={fileInputRef}
                 type="file"
