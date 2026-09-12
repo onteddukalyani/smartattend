@@ -49,6 +49,10 @@ public class KioskPlugin extends Plugin {
                     isKioskEnforced = true;
                     reEnforceKiosk(activity);
 
+                    if (activity instanceof MainActivity) {
+                        ((MainActivity) activity).startKioskWatchdog();
+                    }
+
                     JSObject ret = new JSObject();
                     ret.put("active", true);
                     ret.put("flagSecure", true);
@@ -81,6 +85,10 @@ public class KioskPlugin extends Plugin {
             activity.runOnUiThread(() -> {
                 try {
                     isKioskEnforced = false;
+
+                    if (activity instanceof MainActivity) {
+                        ((MainActivity) activity).stopKioskWatchdog();
+                    }
 
                     // Clear keep screen awake flag & clear screenshot block
                     activity.getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);

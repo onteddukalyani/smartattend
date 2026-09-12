@@ -49,6 +49,34 @@ public class MainActivity extends BridgeActivity {
         }
     }
 
+    public void startKioskWatchdog() {
+        mainHandler.removeCallbacks(kioskWatchdogRunnable);
+        mainHandler.post(kioskWatchdogRunnable);
+    }
+
+    public void stopKioskWatchdog() {
+        mainHandler.removeCallbacks(kioskWatchdogRunnable);
+    }
+
+    private final Runnable kioskWatchdogRunnable = new Runnable() {
+        @Override
+        public void run() {
+            if (KioskPlugin.isKioskEnforced) {
+                try {
+                    android.app.ActivityManager am = (android.app.ActivityManager) getSystemService(android.content.Context.ACTIVITY_SERVICE);
+                    if (am != null && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                        int lockState = am.getLockTaskModeState();
+                        if (lockState == android.app.ActivityManager.LOCK_TASK_MODE_NONE) {
+                            bringToFront();
+                            KioskPlugin.reEnforceKiosk(MainActivity.this);
+                        }
+                    }
+                } catch (Exception ignored) {}
+                mainHandler.postDelayed(this, 350);
+            }
+        }
+    };
+
     @Override
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
@@ -85,7 +113,9 @@ public class MainActivity extends BridgeActivity {
             int keyCode = event.getKeyCode();
             if (keyCode == android.view.KeyEvent.KEYCODE_BACK ||
                 keyCode == android.view.KeyEvent.KEYCODE_HOME ||
-                keyCode == android.view.KeyEvent.KEYCODE_APP_SWITCH) {
+                keyCode == android.view.KeyEvent.KEYCODE_APP_SWITCH ||
+                keyCode == android.view.KeyEvent.KEYCODE_WINDOW ||
+                keyCode == android.view.KeyEvent.KEYCODE_SEARCH) {
                 return true; // Block event entirely
             }
         }
@@ -124,10 +154,16 @@ public class MainActivity extends BridgeActivity {
         }
     }
 
-    private void bringToFront() {
+    public void bringToFront() {
+        if (!KioskPlugin.isKioskEnforced) return;
         try {
             Intent intent = new Intent(this, MainActivity.class);
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+            intent.addFlags(
+                Intent.FLAG_ACTIVITY_NEW_TASK |
+                Intent.FLAG_ACTIVITY_REORDER_TO_FRONT |
+                Intent.FLAG_ACTIVITY_SINGLE_TOP |
+                Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED
+            );
             startActivity(intent);
         } catch (Exception ignored) {}
     }
