@@ -165,10 +165,15 @@ export async function authorizeStudentQR1(sessionId, qr1Token, studentProfileOve
     localStorage.setItem(`smartattend_qr1_auth_${sessionId}`, JSON.stringify(authPayload));
   } catch (e) {}
 
-  // Attempt Firestore write gracefully
+  // Write authorization by studentUid and rollNo in Firestore
   try {
     const authRef = doc(db, "attendance_sessions", sessionId, "authorizations", studentUid);
     await setDoc(authRef, authPayload, { merge: true });
+
+    if (rollNo && rollNo !== studentUid) {
+      const authRollRef = doc(db, "attendance_sessions", sessionId, "authorizations", rollNo);
+      await setDoc(authRollRef, authPayload, { merge: true });
+    }
   } catch (authErr) {
     console.warn("Authorizations subcollection write notice:", authErr.message);
   }
@@ -224,6 +229,7 @@ export async function transitionSessionToPhase2(sessionId) {
 /**
  * 4. Student: Validate QR 2 (Phase 2 Gate)
  * STRICT: Enforces that the student has passed QR 1 for this exact session.
+ * Rejects with Access Denied if QR 1 was not scanned.
  */
 export async function validateStudentQR2(sessionId, qr2Token) {
   try {
@@ -233,13 +239,15 @@ export async function validateStudentQR2(sessionId, qr2Token) {
   } catch (cloudErr) {
     const msg = cloudErr.message || "";
     if (msg.includes("Access denied") || msg.includes("QR 1") || msg.includes("permission-denied")) {
-      throw new Error("⛔ Access denied. You must scan QR 1 first.");
+      throw new Error("⛔ Access Denied: You did not scan QR 1 during Phase 1 (0:00 - 1:00). You cannot mark attendance for this session.");
     }
     console.warn("Cloud function validateQR2 notice:", cloudErr.message || cloudErr);
   }
 
   const currentUser = auth.currentUser;
-  const studentUid = currentUser?.uid || auth.currentUser?.email || "STUDENT";
+  const currentEmail = currentUser?.email?.toLowerCase().trim() || "";
+  const currentRollNo = (currentEmail ? currentEmail.split("@")[0] : "").toUpperCase();
+  const currentUid = currentUser?.uid || "";
 
   let session = null;
   try {
@@ -257,40 +265,67 @@ export async function validateStudentQR2(sessionId, qr2Token) {
     throw new Error("❌ Attendance session has closed. 3-minute deadline elapsed.");
   }
 
-  // Check QR 1 authorization: Firestore subcollection first, then local verified check-in
+  // 1. Check QR 1 authorization in Firestore subcollection (check uid, rollNo, email)
   let authData = null;
-  try {
-    const authRef = doc(db, "attendance_sessions", sessionId, "authorizations", studentUid);
-    const authSnap = await getDoc(authRef);
-    if (authSnap.exists() && authSnap.data().status === "SESSION_AUTHORIZED") {
-      authData = authSnap.data();
+  const candidateKeys = [currentUid, currentRollNo, currentEmail].filter(Boolean);
+
+  for (const key of candidateKeys) {
+    if (authData) break;
+    try {
+      const authRef = doc(db, "attendance_sessions", sessionId, "authorizations", key);
+      const authSnap = await getDoc(authRef);
+      if (authSnap.exists() && authSnap.data().status === "SESSION_AUTHORIZED") {
+        authData = authSnap.data();
+      }
+    } catch (e) {
+      console.warn("Firestore auth read notice:", e.message);
     }
-  } catch (e) {
-    console.warn("Firestore auth read notice:", e.message);
   }
 
+  // 2. Check Local/Session Storage Fallback (ensure it belongs to current user)
   if (!authData) {
     try {
       const stored = sessionStorage.getItem(`smartattend_qr1_auth_${sessionId}`) || localStorage.getItem(`smartattend_qr1_auth_${sessionId}`);
       if (stored) {
         const parsed = JSON.parse(stored);
-        if (parsed.status === "SESSION_AUTHORIZED" && parsed.sessionId === sessionId) {
+        const matchUid = !currentUid || parsed.studentUid === currentUid;
+        const matchRoll = !currentRollNo || parsed.rollNo?.toUpperCase() === currentRollNo;
+        const matchEmail = !currentEmail || parsed.studentEmail?.toLowerCase() === currentEmail;
+
+        if (parsed.status === "SESSION_AUTHORIZED" && parsed.sessionId === sessionId && (matchUid || matchRoll || matchEmail)) {
           authData = parsed;
         }
       }
     } catch (e) {}
   }
 
-  if (!authData) {
-    throw new Error("⛔ Access denied. You must scan QR 1 first during Phase 1 (0:00 - 1:00).");
+  // 3. STRICT GATE: If student never checked in with QR 1, reject immediately!
+  if (!authData || authData.status !== "SESSION_AUTHORIZED") {
+    throw new Error("⛔ Access Denied: You did not scan QR 1 during Phase 1 (0:00 - 1:00). You cannot mark attendance for this session.");
+  }
+
+  const targetRoll = (authData.rollNo || currentRollNo || "STUDENT").toUpperCase();
+
+  // 4. Duplicate Check
+  try {
+    const recordId = `${sessionId}_${targetRoll}`;
+    const recordRef = doc(db, "attendance_records", recordId);
+    const recordSnap = await getDoc(recordRef);
+    if (recordSnap.exists()) {
+      throw new Error(`Roll Number ${targetRoll} has already marked attendance for this session.`);
+    }
+  } catch (dupErr) {
+    if (dupErr.message && dupErr.message.includes("already marked attendance")) {
+      throw dupErr;
+    }
   }
 
   return {
     success: true,
     authorized: true,
     sessionId: sessionId,
-    rollNo: authData.rollNo,
-    studentName: authData.studentName,
+    rollNo: targetRoll,
+    studentName: authData.studentName || currentUser?.displayName || targetRoll,
     kioskEndsAt: session?.kioskEndsAt || authData.kioskEndsAt || 0,
     sessionDetails: {
       courseCode: session?.courseCode || "N/A",
@@ -304,6 +339,7 @@ export async function validateStudentQR2(sessionId, qr2Token) {
 
 /**
  * 5. Student: Submit Final Attendance Record
+ * STRICT: Gated by prior QR 1 authorization record.
  */
 export async function submitVerifiedAttendance(sessionId, qr2Token, biometricData) {
   try {
@@ -311,11 +347,17 @@ export async function submitVerifiedAttendance(sessionId, qr2Token, biometricDat
     const result = await fn({ sessionId, qr2Token, biometricData });
     if (result && result.data && result.data.success) return result.data;
   } catch (cloudErr) {
+    const msg = cloudErr.message || "";
+    if (msg.includes("Access denied") || msg.includes("QR 1") || msg.includes("permission-denied")) {
+      throw new Error("⛔ Attendance Rejected: Missing Phase 1 QR 1 check-in. You must scan QR 1 first during Phase 1 (0:00 - 1:00).");
+    }
     console.warn("Cloud function submitAttendance notice:", cloudErr.message || cloudErr);
   }
 
   const currentUser = auth.currentUser;
-  const studentUid = currentUser?.uid || auth.currentUser?.email || "STUDENT";
+  const currentEmail = currentUser?.email?.toLowerCase().trim() || "";
+  const currentRollNo = (currentEmail ? currentEmail.split("@")[0] : "").toUpperCase();
+  const currentUid = currentUser?.uid || "";
 
   let session = null;
   try {
@@ -333,34 +375,62 @@ export async function submitVerifiedAttendance(sessionId, qr2Token, biometricDat
     throw new Error("❌ Attendance session closed.");
   }
 
-  // Re-check QR 1 authorization
+  // 1. Re-verify QR 1 authorization in Firestore
   let authData = null;
-  try {
-    const authRef = doc(db, "attendance_sessions", sessionId, "authorizations", studentUid);
-    const authSnap = await getDoc(authRef);
-    if (authSnap.exists() && authSnap.data().status === "SESSION_AUTHORIZED") {
-      authData = authSnap.data();
-    }
-  } catch (e) {}
+  const candidateKeys = [currentUid, currentRollNo, currentEmail].filter(Boolean);
 
+  for (const key of candidateKeys) {
+    if (authData) break;
+    try {
+      const authRef = doc(db, "attendance_sessions", sessionId, "authorizations", key);
+      const authSnap = await getDoc(authRef);
+      if (authSnap.exists() && authSnap.data().status === "SESSION_AUTHORIZED") {
+        authData = authSnap.data();
+      }
+    } catch (e) {}
+  }
+
+  // 2. Check local fallback
   if (!authData) {
     try {
       const stored = sessionStorage.getItem(`smartattend_qr1_auth_${sessionId}`) || localStorage.getItem(`smartattend_qr1_auth_${sessionId}`);
       if (stored) {
         const parsed = JSON.parse(stored);
-        if (parsed.status === "SESSION_AUTHORIZED" && parsed.sessionId === sessionId) {
+        const matchUid = !currentUid || parsed.studentUid === currentUid;
+        const matchRoll = !currentRollNo || parsed.rollNo?.toUpperCase() === currentRollNo;
+        const matchEmail = !currentEmail || parsed.studentEmail?.toLowerCase() === currentEmail;
+
+        if (parsed.status === "SESSION_AUTHORIZED" && parsed.sessionId === sessionId && (matchUid || matchRoll || matchEmail)) {
           authData = parsed;
         }
       }
     } catch (e) {}
   }
 
-  const studentEmail = (currentUser?.email || authData?.studentEmail || "").toLowerCase().trim();
-  const rollNo = (authData?.rollNo || studentEmail.split("@")[0] || "STUDENT").toUpperCase();
-  const studentName = authData?.studentName || currentUser?.displayName || rollNo;
+  // 3. STRICT NON-NEGOTIABLE CHECK: Reject submission if student didn't scan QR 1
+  if (!authData || authData.status !== "SESSION_AUTHORIZED") {
+    throw new Error("⛔ Attendance Rejected: Missing Phase 1 QR 1 check-in. You must scan QR 1 first during Phase 1 (0:00 - 1:00) before submitting QR 2.");
+  }
+
+  const studentEmail = (currentEmail || authData.studentEmail || "").toLowerCase().trim();
+  const rollNo = (authData.rollNo || currentRollNo || studentEmail.split("@")[0] || "STUDENT").toUpperCase();
+  const studentName = authData.studentName || currentUser?.displayName || rollNo;
+  const studentUid = currentUid || authData.studentUid || rollNo;
 
   const recordId = `${sessionId}_${rollNo}`;
   const recordRef = doc(db, "attendance_records", recordId);
+
+  // 4. Duplicate Check
+  try {
+    const existingSnap = await getDoc(recordRef);
+    if (existingSnap.exists()) {
+      throw new Error(`Roll Number ${rollNo} has already marked attendance for this session.`);
+    }
+  } catch (dupErr) {
+    if (dupErr.message && dupErr.message.includes("already marked attendance")) {
+      throw dupErr;
+    }
+  }
 
   const attendanceRecord = {
     id: recordId,

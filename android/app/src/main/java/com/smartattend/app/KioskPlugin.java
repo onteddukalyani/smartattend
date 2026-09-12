@@ -45,36 +45,10 @@ public class KioskPlugin extends Plugin {
             activity.runOnUiThread(() -> {
                 try {
                     isKioskEnforced = true;
-
-                    // 1. Keep screen alive so phone doesn't sleep during the 3-minute session
-                    activity.getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-
-                    // 2. FLAG_SECURE: Blocks screenshots, screen recordings, and recents task thumbnails
-                    activity.getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
-
-                    // 3. Immersive sticky fullscreen: Hide navigation bar and status drawer
-                    applyImmersiveMode(activity);
-
-                    // 4. Android Lock Task Mode (Screen Pinning / Dedicated Kiosk)
-                    ActivityManager am = (ActivityManager) activity.getSystemService(Context.ACTIVITY_SERVICE);
-                    boolean isLocked = false;
-                    int currentLockMode = 0;
-
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && am != null) {
-                        currentLockMode = am.getLockTaskModeState();
-                        isLocked = (currentLockMode != ActivityManager.LOCK_TASK_MODE_NONE);
-                    }
-
-                    if (!isLocked) {
-                        Log.i(TAG, "Starting Lock Task mode for SmartAttend...");
-                        activity.startLockTask();
-                    } else {
-                        Log.i(TAG, "Lock Task mode already active (mode: " + currentLockMode + ").");
-                    }
+                    reEnforceKiosk(activity);
 
                     JSObject ret = new JSObject();
                     ret.put("active", true);
-                    ret.put("mode", currentLockMode);
                     ret.put("flagSecure", true);
                     ret.put("message", "Zero-escape Kiosk Mode started successfully");
                     call.resolve(ret);
@@ -109,6 +83,9 @@ public class KioskPlugin extends Plugin {
                     // Clear keep screen awake flag & clear screenshot block
                     activity.getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
                     activity.getWindow().clearFlags(WindowManager.LayoutParams.FLAG_SECURE);
+                    activity.getWindow().clearFlags(WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD);
+                    activity.getWindow().clearFlags(WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED);
+                    activity.getWindow().clearFlags(WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON);
 
                     // Restore system UI
                     clearImmersiveMode(activity);
@@ -180,7 +157,50 @@ public class KioskPlugin extends Plugin {
         }
     }
 
-    private void applyImmersiveMode(Activity activity) {
+    /**
+     * Static helper to forcefully re-assert Kiosk locks, screen wake, secure flag,
+     * immersive sticky fullscreen, and lock task mode whenever focus or gesture events occur.
+     */
+    public static void reEnforceKiosk(Activity activity) {
+        if (activity == null || !isKioskEnforced) return;
+
+        try {
+            activity.runOnUiThread(() -> {
+                try {
+                    Window window = activity.getWindow();
+                    if (window != null) {
+                        // 1. Keep screen alive
+                        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+                        // 2. Block screenshots, screen recording, and recents thumbnail snooping
+                        window.addFlags(WindowManager.LayoutParams.FLAG_SECURE);
+                        // 3. Keep on top of lockscreen
+                        window.addFlags(WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD);
+                        window.addFlags(WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED);
+                        window.addFlags(WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON);
+                    }
+
+                    // 4. Apply sticky immersive fullscreen
+                    applyImmersiveMode(activity);
+
+                    // 5. Android Lock Task Mode (Screen Pinning / Dedicated Kiosk)
+                    ActivityManager am = (ActivityManager) activity.getSystemService(Context.ACTIVITY_SERVICE);
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && am != null) {
+                        int currentLockMode = am.getLockTaskModeState();
+                        if (currentLockMode == ActivityManager.LOCK_TASK_MODE_NONE && isKioskEnforced) {
+                            Log.i(TAG, "Re-asserting Lock Task mode...");
+                            activity.startLockTask();
+                        }
+                    }
+                } catch (Exception e) {
+                    Log.w(TAG, "reEnforceKiosk internal error: " + e.getMessage());
+                }
+            });
+        } catch (Exception e) {
+            Log.w(TAG, "reEnforceKiosk dispatch error: " + e.getMessage());
+        }
+    }
+
+    public static void applyImmersiveMode(Activity activity) {
         if (activity == null) return;
         Window window = activity.getWindow();
         if (window == null) return;
@@ -205,7 +225,7 @@ public class KioskPlugin extends Plugin {
         }
     }
 
-    private void clearImmersiveMode(Activity activity) {
+    public static void clearImmersiveMode(Activity activity) {
         if (activity == null) return;
         Window window = activity.getWindow();
         if (window == null) return;

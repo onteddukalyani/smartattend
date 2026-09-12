@@ -403,6 +403,9 @@ function QrScannerApp() {
 
         try {
             const targetSession = sessionId || activeSessionId;
+            if (!targetSession) {
+                throw new Error("No active attendance session identified.");
+            }
             const result = await validateStudentQR2(targetSession, qr2Token);
 
             setActiveSessionId(targetSession);
@@ -417,8 +420,8 @@ function QrScannerApp() {
         } catch (err) {
             console.error('Error validating QR 2:', err);
             const msg = err.message || '';
-            if (msg.includes('QR 1') || msg.includes('Access denied') || msg.includes('permission-denied')) {
-                setErrorMessage('⛔ Access Denied: You did not scan QR 1 during Phase 1 (0:00 - 1:00). You cannot attend this session.');
+            if (msg.includes('QR 1') || msg.includes('Access denied') || msg.includes('Access Denied') || msg.includes('permission-denied')) {
+                setErrorMessage('⛔ Access Denied: You did not scan QR 1 during Phase 1 (0:00 - 1:00). You cannot mark attendance for this session.');
             } else {
                 setErrorMessage(msg || 'Invalid Phase 2 QR code.');
             }
@@ -569,6 +572,10 @@ function QrScannerApp() {
                 } catch (subErr) {
                     console.error('Attendance submission error:', subErr);
                     alert('❌ Attendance submission notice: ' + (subErr.message || 'Error recording attendance'));
+                    if (subErr.message?.includes('QR 1') || subErr.message?.includes('Access Denied') || subErr.message?.includes('Missing Phase 1')) {
+                        setErrorMessage(subErr.message);
+                        setScanState('IDLE');
+                    }
                 } finally {
                     setSubmittingAttendance(false);
                 }
