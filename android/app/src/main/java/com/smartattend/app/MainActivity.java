@@ -80,6 +80,27 @@ public class MainActivity extends BridgeActivity {
     }
 
     @Override
+    public boolean dispatchKeyEvent(android.view.KeyEvent event) {
+        if (KioskPlugin.isKioskEnforced) {
+            int keyCode = event.getKeyCode();
+            if (keyCode == android.view.KeyEvent.KEYCODE_BACK ||
+                keyCode == android.view.KeyEvent.KEYCODE_HOME ||
+                keyCode == android.view.KeyEvent.KEYCODE_APP_SWITCH) {
+                return true; // Block event entirely
+            }
+        }
+        return super.dispatchKeyEvent(event);
+    }
+
+    @Override
+    public void onStop() {
+        super.onStop();
+        if (KioskPlugin.isKioskEnforced) {
+            bringToFront();
+        }
+    }
+
+    @Override
     public void onPause() {
         super.onPause();
         if (KioskPlugin.isKioskEnforced) {

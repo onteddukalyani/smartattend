@@ -179,14 +179,6 @@ function QrScannerApp() {
         };
     }, [sessionStartAt, kioskEndsAt, scanState, navigate]);
 
-    // Cleanup Kiosk lock when component unmounts
-    useEffect(() => {
-        return () => {
-            // Only unlock if session is not actively waiting or finished
-            Kiosk.stopKiosk().catch(() => {});
-        };
-    }, []);
-
     // Intercept hardware/software back button on Android
     useEffect(() => {
         let backListener = null;
