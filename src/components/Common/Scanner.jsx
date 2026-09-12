@@ -30,7 +30,7 @@ import {
 import { db } from '../../firebase';
 import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { isGenericName } from '../../utils/studentDataHelper';
-import FaceScanner from '../Lecturer/pages/FaceScanner';
+import FaceScanner, { releaseAllMediaTracks } from '../Lecturer/pages/FaceScanner';
 
 /**
  * Stage 4: Student Two-Phase Attendance Scanner & Supervised Kiosk Controller
@@ -88,7 +88,7 @@ function QrScannerApp() {
     const rawProfileName = profile?.name || profile?.fullName || '';
     const loggedInName = (!isGenericName(rawProfileName, loggedInRollNo, user?.email)) ? rawProfileName.trim() : loggedInRollNo;
 
-    // Camera default preference (desktop vs mobile)
+    // Camera default preference (desktop vs mobile) and unmount track release
     useEffect(() => {
         if (typeof window !== 'undefined') {
             const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
@@ -96,6 +96,10 @@ function QrScannerApp() {
                 setFacingMode('user');
             }
         }
+
+        return () => {
+            releaseAllMediaTracks();
+        };
     }, []);
 
     // Student Database Record Lookup for Facial Biometrics
@@ -406,6 +410,10 @@ function QrScannerApp() {
 
             // Ensure biometrics are loaded
             await lookupStudentBiometrics(result.rollNo || loggedInRollNo);
+
+            // Explicitly release previous QR camera tracks to avoid camera resource collision
+            releaseAllMediaTracks();
+            setScannerActive(false);
 
             // Move to Live Biometric Face Verification
             setScanState('BIOMETRIC_SCAN');

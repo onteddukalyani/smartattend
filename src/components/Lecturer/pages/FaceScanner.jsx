@@ -12,7 +12,8 @@ import {
   FaUser,
   FaRedo,
   FaEye,
-  FaEyeSlash
+  FaEyeSlash,
+  FaSyncAlt
 } from "react-icons/fa";
 import { collection, getDocs } from "firebase/firestore";
 import { db } from "../../../firebase";
@@ -31,23 +32,58 @@ const MODEL_CDN_URL = "https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/"
 const MATCH_THRESHOLD = 0.50; // Strict euclidean distance threshold (<= 0.50 = authentic match)
 const STATIC_FRAME_LIMIT = 18; // ~3 seconds of dead static face triggers spoof alert
 
-// Helper for camera stream capture
-const getCameraStream = async () => {
+// Helper to release all active media tracks across DOM to avoid hardware camera collisions
+export const releaseAllMediaTracks = () => {
+  try {
+    if (typeof document !== "undefined") {
+      document.querySelectorAll("video").forEach((v) => {
+        if (v.srcObject && typeof v.srcObject.getTracks === "function") {
+          v.srcObject.getTracks().forEach((t) => {
+            try { t.stop(); } catch (_) { }
+          });
+          v.srcObject = null;
+        }
+      });
+    }
+  } catch (e) {
+    console.warn("Track release notice:", e);
+  }
+};
+
+// Helper for camera stream capture with progressive fallback and automatic retry
+const getCameraStream = async (requestedFacingMode = "user", maxRetries = 2) => {
+  releaseAllMediaTracks();
+  // Brief cooldown for hardware camera HAL release
+  await new Promise((resolve) => setTimeout(resolve, 150));
+
   if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
     const attempts = [
-      { video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: "user" }, audio: false },
-      { video: { facingMode: "user" }, audio: false },
-      { video: { width: 640, height: 480 }, audio: false },
+      { video: { facingMode: requestedFacingMode, width: { ideal: 640 }, height: { ideal: 480 } }, audio: false },
+      { video: { facingMode: requestedFacingMode }, audio: false },
+      { video: { facingMode: { ideal: requestedFacingMode } }, audio: false },
       { video: true, audio: false }
     ];
+
     let lastError = null;
-    for (const constraints of attempts) {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia(constraints);
-        if (stream) return stream;
-      } catch (err) {
-        lastError = err;
-        console.warn("Camera attempt with constraints failed:", constraints, err);
+    for (let retry = 0; retry <= maxRetries; retry++) {
+      if (retry > 0) {
+        await new Promise((r) => setTimeout(r, retry * 300));
+        releaseAllMediaTracks();
+      }
+
+      for (const constraints of attempts) {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia(constraints);
+          if (stream && stream.getVideoTracks().length > 0) {
+            return stream;
+          }
+        } catch (err) {
+          lastError = err;
+          console.warn(`Camera attempt (retry ${retry}) failed:`, constraints, err?.name, err?.message);
+          if (err?.name === "NotAllowedError" || err?.name === "PermissionDeniedError") {
+            throw err;
+          }
+        }
       }
     }
     throw lastError || new Error("Failed to access camera.");
@@ -72,6 +108,34 @@ const getCameraStream = async () => {
   }
 
   throw new Error("getUserMedia is not supported on this browser.");
+};
+
+// Dual-source model loader: local /models with CDN fallback
+const loadFaceApiModels = async () => {
+  if (
+    faceapi.nets.tinyFaceDetector.isLoaded &&
+    faceapi.nets.faceLandmark68Net.isLoaded &&
+    faceapi.nets.faceRecognitionNet.isLoaded
+  ) {
+    return true;
+  }
+
+  try {
+    await Promise.all([
+      faceapi.nets.tinyFaceDetector.loadFromUri("/models"),
+      faceapi.nets.faceLandmark68Net.loadFromUri("/models"),
+      faceapi.nets.faceRecognitionNet.loadFromUri("/models")
+    ]);
+    return true;
+  } catch (localErr) {
+    console.warn("Local models load notice, falling back to CDN:", localErr);
+    await Promise.all([
+      faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_CDN_URL),
+      faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_CDN_URL),
+      faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_CDN_URL)
+    ]);
+    return true;
+  }
 };
 
 function FaceScanner({
@@ -99,6 +163,7 @@ function FaceScanner({
   // Status: "idle" | "loading_models" | "loading_camera" | "scanning" | "liveness_check" | "spoof" | "verified" | "mismatch" | "no_face" | "unregistered" | "error"
   const [status, setStatus] = useState("loading_camera");
   const [cameraActive, setCameraActive] = useState(false);
+  const [facingMode, setFacingMode] = useState("user");
   const [modelsLoaded, setModelsLoaded] = useState(false);
   const [feedback, setFeedback] = useState("Starting camera & loading AI recognition models...");
   const [confidence, setConfidence] = useState(0);
@@ -128,7 +193,8 @@ function FaceScanner({
   }, []);
 
   // 1. Initialize Camera and AI Models
-  const initCameraAndModels = useCallback(async () => {
+  const initCameraAndModels = useCallback(async (targetFacingMode) => {
+    const activeFacing = targetFacingMode || facingMode || "user";
     setCameraError("");
     setStatus("loading_camera");
     setFeedback("Initializing camera and biometric models...");
@@ -140,7 +206,7 @@ function FaceScanner({
         streamRef.current = null;
       }
 
-      const stream = await getCameraStream();
+      const stream = await getCameraStream(activeFacing);
       streamRef.current = stream;
 
       if (videoRef.current) {
@@ -149,27 +215,34 @@ function FaceScanner({
         videoRef.current.setAttribute("playsinline", "true");
         videoRef.current.setAttribute("muted", "true");
 
-        videoRef.current.onloadedmetadata = () => {
-          videoRef.current
-            .play()
-            .then(() => {
-              setCameraActive(true);
-            })
-            .catch((e) => {
-              console.warn("Video play promise error:", e);
-              setCameraActive(true);
-            });
-        };
+        try {
+          await videoRef.current.play();
+          setCameraActive(true);
+        } catch (playErr) {
+          console.warn("Video play error:", playErr);
+          setCameraActive(true);
+        }
       }
     } catch (camErr) {
       console.error("Camera access error:", camErr);
-      setCameraError(
-        camErr.message.includes("INSECURE_CONTEXT")
-          ? "Camera requires HTTPS. Please open via HTTPS or localhost."
-          : "Could not access webcam. Please check browser camera permissions."
-      );
+      const isDenied = camErr.name === "NotAllowedError" || camErr.name === "PermissionDeniedError";
+      const isInUse = camErr.name === "NotReadableError" || camErr.name === "TrackStartError";
+
+      if (isDenied) {
+        setCameraError("Camera permission denied. Please allow camera access in your browser / app settings.");
+      } else if (isInUse) {
+        setCameraError("Camera is in use by another feature. Retrying connection...");
+        // Auto retry once after brief delay
+        setTimeout(() => {
+          initCameraAndModels(activeFacing);
+        }, 600);
+      } else if (camErr.message?.includes("INSECURE_CONTEXT")) {
+        setCameraError("Camera requires HTTPS. Please open via HTTPS or localhost.");
+      } else {
+        setCameraError("Could not access webcam. Please check camera permissions and tap Retry.");
+      }
       setStatus("error");
-      setFeedback("Camera permission denied or camera unavailable.");
+      setFeedback("Camera connection unavailable.");
       return;
     }
 
@@ -178,11 +251,7 @@ function FaceScanner({
       setStatus("loading_models");
       setFeedback("Loading facial neural network models...");
 
-      await Promise.all([
-        faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_CDN_URL),
-        faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_CDN_URL),
-        faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_CDN_URL)
-      ]);
+      await loadFaceApiModels();
 
       setModelsLoaded(true);
       setStatus("scanning");
@@ -192,7 +261,13 @@ function FaceScanner({
       setStatus("error");
       setFeedback("Failed to load facial recognition models.");
     }
-  }, []);
+  }, [facingMode]);
+
+  const toggleCameraFacing = async () => {
+    const nextMode = facingMode === "user" ? "environment" : "user";
+    setFacingMode(nextMode);
+    await initCameraAndModels(nextMode);
+  };
 
   useEffect(() => {
     initCameraAndModels();
@@ -206,6 +281,7 @@ function FaceScanner({
         streamRef.current.getTracks().forEach((t) => t.stop());
         streamRef.current = null;
       }
+      releaseAllMediaTracks();
     };
   }, [initCameraAndModels]);
 
@@ -599,19 +675,43 @@ function FaceScanner({
           </div>
         )}
 
-        {/* Status Pill */}
-        <div className={`scanner-status-pill ${status === "liveness_check" ? "liveness" : status === "spoof" ? "spoof" : status}`}>
-          {status === "verified" && <><FaCheckCircle /> Verified Live</>}
-          {status === "liveness_check" && <><FaEye className="fa-spin" /> Blink Required</>}
-          {status === "spoof" && <><FaTimesCircle /> Spoof Detected</>}
-          {status === "mismatch" && <><FaTimesCircle /> Mismatch</>}
-          {status === "no_face" && <><FaCamera /> Looking for Face</>}
-          {status === "scanning" && <><FaSpinner className="fa-spin" /> Camera Active</>}
-          {status === "loading_models" && <><FaSpinner className="fa-spin" /> Loading AI</>}
-          {status === "loading_camera" && <><FaSpinner className="fa-spin" /> Starting Camera</>}
-          {status === "unregistered" && <><FaExclamationTriangle /> Unregistered Face</>}
-          {status === "error" && <><FaExclamationTriangle /> Camera Error</>}
-          {status === "idle" && <><FaShieldAlt /> Standby</>}
+        {/* Actions & Status */}
+        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+          <button
+            type="button"
+            onClick={toggleCameraFacing}
+            title="Switch Camera (Front / Rear)"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "5px",
+              padding: "5px 10px",
+              borderRadius: "8px",
+              background: "var(--surface-soft, #f1f5f9)",
+              border: "1px solid var(--border, #cbd5e1)",
+              color: "var(--text-main, #334155)",
+              fontSize: "0.75rem",
+              fontWeight: 700,
+              cursor: "pointer"
+            }}
+          >
+            <FaSyncAlt /> {facingMode === "user" ? "Front Cam" : "Rear Cam"}
+          </button>
+
+          {/* Status Pill */}
+          <div className={`scanner-status-pill ${status === "liveness_check" ? "liveness" : status === "spoof" ? "spoof" : status}`}>
+            {status === "verified" && <><FaCheckCircle /> Verified Live</>}
+            {status === "liveness_check" && <><FaEye className="fa-spin" /> Blink Required</>}
+            {status === "spoof" && <><FaTimesCircle /> Spoof Detected</>}
+            {status === "mismatch" && <><FaTimesCircle /> Mismatch</>}
+            {status === "no_face" && <><FaCamera /> Looking for Face</>}
+            {status === "scanning" && <><FaSpinner className="fa-spin" /> Camera Active</>}
+            {status === "loading_models" && <><FaSpinner className="fa-spin" /> Loading AI</>}
+            {status === "loading_camera" && <><FaSpinner className="fa-spin" /> Starting Camera</>}
+            {status === "unregistered" && <><FaExclamationTriangle /> Unregistered Face</>}
+            {status === "error" && <><FaExclamationTriangle /> Camera Error</>}
+            {status === "idle" && <><FaShieldAlt /> Standby</>}
+          </div>
         </div>
       </div>
 
