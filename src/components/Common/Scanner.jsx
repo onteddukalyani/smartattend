@@ -170,7 +170,9 @@ function QrScannerApp() {
             if (remaining <= 0) {
                 if (sessionTimerRef.current) clearInterval(sessionTimerRef.current);
                 console.log('[Kiosk] 3-minute session completed. Automatically unlocking Kiosk mode...');
-                Kiosk.stopKiosk().catch(() => {});
+                try { localStorage.removeItem('smartattend_kiosk_session_state'); } catch (_) {}
+                Kiosk.stopKioskMode().catch(() => {});
+                Kiosk.clearAttendanceRestrictions().catch(() => {});
                 navigate('/student', { replace: true });
             }
         };
@@ -182,6 +184,56 @@ function QrScannerApp() {
             if (sessionTimerRef.current) clearInterval(sessionTimerRef.current);
         };
     }, [sessionStartAt, kioskEndsAt, scanState, navigate]);
+
+    // Session state persistence across app crash / restarts
+    useEffect(() => {
+        if (activeSessionId && kioskEndsAt > Date.now()) {
+            try {
+                localStorage.setItem('smartattend_kiosk_session_state', JSON.stringify({
+                    sessionId: activeSessionId,
+                    sessionStartAt,
+                    kioskEndsAt,
+                    scanState,
+                    activeQr2Token,
+                    submissionDetails,
+                    rollNo: loggedInRollNo
+                }));
+            } catch (e) {
+                console.warn('LocalStorage save notice:', e);
+            }
+        } else if (scanState === 'IDLE' || (kioskEndsAt && Date.now() >= kioskEndsAt)) {
+            try {
+                localStorage.removeItem('smartattend_kiosk_session_state');
+            } catch (_) {}
+        }
+    }, [activeSessionId, sessionStartAt, kioskEndsAt, scanState, activeQr2Token, submissionDetails, loggedInRollNo]);
+
+    // Resume session on mount if app was closed/restarted within active 3-minute session
+    useEffect(() => {
+        try {
+            const raw = localStorage.getItem('smartattend_kiosk_session_state');
+            if (raw) {
+                const parsed = JSON.parse(raw);
+                if (parsed && parsed.sessionId && parsed.kioskEndsAt > Date.now()) {
+                    console.log('[Kiosk] Resuming active attendance session after app launch/restart:', parsed);
+                    setActiveSessionId(parsed.sessionId);
+                    setSessionStartAt(parsed.sessionStartAt);
+                    setKioskEndsAt(parsed.kioskEndsAt);
+                    if (parsed.activeQr2Token) setActiveQr2Token(parsed.activeQr2Token);
+                    if (parsed.submissionDetails) setSubmissionDetails(parsed.submissionDetails);
+                    setScanState(parsed.scanState || 'KIOSK_WAITING_QR2');
+
+                    // Re-enforce native kiosk & DevicePolicyManager restrictions
+                    Kiosk.startKioskMode().catch(() => {});
+                    Kiosk.setAttendanceRestrictions().catch(() => {});
+                } else {
+                    localStorage.removeItem('smartattend_kiosk_session_state');
+                }
+            }
+        } catch (e) {
+            console.warn('Notice restoring session:', e);
+        }
+    }, []);
 
     // Intercept hardware/software back button on Android
     useEffect(() => {
@@ -293,7 +345,9 @@ function QrScannerApp() {
             // If lecturer ends the session in real-time
             if (data.status === 'CLOSED' || data.phase === 'CLOSED' || data.isClosed === true) {
                 console.log('[Kiosk] Session marked as CLOSED by Lecturer. Automatically unlocking Kiosk mode...');
-                Kiosk.stopKiosk().catch(() => {});
+                try { localStorage.removeItem('smartattend_kiosk_session_state'); } catch (_) {}
+                Kiosk.stopKioskMode().catch(() => {});
+                Kiosk.clearAttendanceRestrictions().catch(() => {});
                 navigate('/student', { replace: true });
             }
         });
@@ -363,10 +417,11 @@ function QrScannerApp() {
             setSessionStartAt(result.sessionStartAt || Date.now());
             setKioskEndsAt(result.kioskEndsAt || (Date.now() + 180000));
 
-            // Start Android Lock Task Mode & Web Supervision
+            // Start Android Lock Task Mode, Web Supervision & Device Policy Restrictions
             try {
                 console.log('[Kiosk] Activating Native Android Lock Task / Supervised Kiosk mode for Student...');
-                await Kiosk.startKiosk();
+                await Kiosk.startKioskMode();
+                await Kiosk.setAttendanceRestrictions();
             } catch (kioskErr) {
                 console.warn('[Kiosk] Notice starting kiosk mode:', kioskErr);
             }

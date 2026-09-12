@@ -6,6 +6,7 @@ import android.app.admin.DevicePolicyManager;
 import android.content.ComponentName;
 import android.content.Context;
 import android.os.Build;
+import android.os.UserManager;
 import android.util.Log;
 import android.view.View;
 import android.view.Window;
@@ -22,13 +23,9 @@ import com.getcapacitor.annotation.CapacitorPlugin;
 /**
  * Native Android Capacitor Kiosk / Lock Task Plugin for SmartAttend
  * 
- * Manages zero-escape Android Lock Task mode for supervised attendance sessions:
- * - FLAG_SECURE: Prevents screenshots, screen recordings, and recents switcher thumbnails.
- * - IMMERSIVE STICKY: Hides status bar & navigation drawer to prevent app switching.
- * - On Device Owner / MDM managed devices: Uses DevicePolicyManager to whitelist lock task with zero confirmation prompts.
- * - On unmanaged consumer devices: Activates standard Android screen pinning gracefully with aggressive anti-tamper hooks.
- * - Screen Wake: Adds FLAG_KEEP_SCREEN_ON so student devices remain awake throughout the session.
- * - CAMERA SAFETY: Camera hardware remains 100% active for QR scanning & Biometric verification.
+ * Supports both:
+ * 1. Dedicated Enterprise Device Owner / DevicePolicyManager mode (zero-prompt, un-escapable Lock Task, hardware restrictions).
+ * 2. Unmanaged consumer mode (Screen pinning, sticky immersive fullscreen, FLAG_SECURE, and continuous foreground watchdog).
  */
 @CapacitorPlugin(name = "KioskPlugin")
 public class KioskPlugin extends Plugin {
@@ -36,7 +33,125 @@ public class KioskPlugin extends Plugin {
     public static volatile boolean isKioskEnforced = false;
 
     @PluginMethod
+    public void startKioskMode(PluginCall call) {
+        startKioskInternal(call);
+    }
+
+    @PluginMethod
     public void startKiosk(PluginCall call) {
+        startKioskInternal(call);
+    }
+
+    @PluginMethod
+    public void stopKioskMode(PluginCall call) {
+        stopKioskInternal(call);
+    }
+
+    @PluginMethod
+    public void stopKiosk(PluginCall call) {
+        stopKioskInternal(call);
+    }
+
+    @PluginMethod
+    public void setAttendanceRestrictions(PluginCall call) {
+        Activity activity = getActivity();
+        if (activity == null) {
+            call.reject("Activity is null");
+            return;
+        }
+
+        try {
+            activity.runOnUiThread(() -> {
+                try {
+                    DevicePolicyManager dpm = (DevicePolicyManager) activity.getSystemService(Context.DEVICE_POLICY_SERVICE);
+                    ComponentName adminComponent = new ComponentName(activity, AdminReceiver.class);
+                    String pkg = activity.getPackageName();
+                    boolean isDeviceOwner = (dpm != null && dpm.isDeviceOwnerApp(pkg));
+
+                    if (isDeviceOwner) {
+                        // 1. Whitelist SmartAttend for silent Lock Task mode
+                        dpm.setLockTaskPackages(adminComponent, new String[]{ pkg });
+
+                        // 2. Disable system status/notifications/home/recents in lock task mode
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                            dpm.setLockTaskFeatures(adminComponent, DevicePolicyManager.LOCK_TASK_FEATURE_NONE);
+                        }
+
+                        // 3. Apply device restrictions to restrict unauthorized app/system access
+                        dpm.addUserRestriction(adminComponent, UserManager.DISALLOW_SAFE_BOOT);
+                        dpm.addUserRestriction(adminComponent, UserManager.DISALLOW_FACTORY_RESET);
+                        dpm.addUserRestriction(adminComponent, UserManager.DISALLOW_ADD_USER);
+                        dpm.addUserRestriction(adminComponent, UserManager.DISALLOW_MOUNT_PHYSICAL_MEDIA);
+                        dpm.addUserRestriction(adminComponent, UserManager.DISALLOW_APPS_CONTROL);
+                        dpm.addUserRestriction(adminComponent, UserManager.DISALLOW_SYSTEM_ERROR_DIALOGS);
+
+                        // Disable lockscreen / keyguard during attendance
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                            dpm.setKeyguardDisabled(adminComponent, true);
+                        }
+                    }
+
+                    JSObject ret = new JSObject();
+                    ret.put("success", true);
+                    ret.put("isDeviceOwner", isDeviceOwner);
+                    ret.put("message", isDeviceOwner ? "Device Owner restrictions applied" : "Standard kiosk restrictions applied");
+                    call.resolve(ret);
+                } catch (Exception e) {
+                    Log.e(TAG, "Exception setting attendance restrictions: " + e.getMessage(), e);
+                    call.reject("Failed to set attendance restrictions: " + e.getMessage());
+                }
+            });
+        } catch (Exception e) {
+            Log.e(TAG, "Error: " + e.getMessage(), e);
+            call.reject("Error setting attendance restrictions: " + e.getMessage());
+        }
+    }
+
+    @PluginMethod
+    public void clearAttendanceRestrictions(PluginCall call) {
+        Activity activity = getActivity();
+        if (activity == null) {
+            call.reject("Activity is null");
+            return;
+        }
+
+        try {
+            activity.runOnUiThread(() -> {
+                try {
+                    DevicePolicyManager dpm = (DevicePolicyManager) activity.getSystemService(Context.DEVICE_POLICY_SERVICE);
+                    ComponentName adminComponent = new ComponentName(activity, AdminReceiver.class);
+                    String pkg = activity.getPackageName();
+                    boolean isDeviceOwner = (dpm != null && dpm.isDeviceOwnerApp(pkg));
+
+                    if (isDeviceOwner) {
+                        dpm.clearUserRestriction(adminComponent, UserManager.DISALLOW_SAFE_BOOT);
+                        dpm.clearUserRestriction(adminComponent, UserManager.DISALLOW_FACTORY_RESET);
+                        dpm.clearUserRestriction(adminComponent, UserManager.DISALLOW_ADD_USER);
+                        dpm.clearUserRestriction(adminComponent, UserManager.DISALLOW_MOUNT_PHYSICAL_MEDIA);
+                        dpm.clearUserRestriction(adminComponent, UserManager.DISALLOW_APPS_CONTROL);
+                        dpm.clearUserRestriction(adminComponent, UserManager.DISALLOW_SYSTEM_ERROR_DIALOGS);
+
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                            dpm.setKeyguardDisabled(adminComponent, false);
+                        }
+                    }
+
+                    JSObject ret = new JSObject();
+                    ret.put("success", true);
+                    ret.put("message", "Attendance restrictions cleared successfully");
+                    call.resolve(ret);
+                } catch (Exception e) {
+                    Log.e(TAG, "Exception clearing attendance restrictions: " + e.getMessage(), e);
+                    call.reject("Failed to clear attendance restrictions: " + e.getMessage());
+                }
+            });
+        } catch (Exception e) {
+            Log.e(TAG, "Error: " + e.getMessage(), e);
+            call.reject("Error clearing attendance restrictions: " + e.getMessage());
+        }
+    }
+
+    private void startKioskInternal(PluginCall call) {
         Activity activity = getActivity();
         if (activity == null) {
             call.reject("Activity is null");
@@ -53,8 +168,12 @@ public class KioskPlugin extends Plugin {
                         ((MainActivity) activity).startKioskWatchdog();
                     }
 
+                    DevicePolicyManager dpm = (DevicePolicyManager) activity.getSystemService(Context.DEVICE_POLICY_SERVICE);
+                    boolean isDeviceOwner = (dpm != null && dpm.isDeviceOwnerApp(activity.getPackageName()));
+
                     JSObject ret = new JSObject();
                     ret.put("active", true);
+                    ret.put("isDeviceOwner", isDeviceOwner);
                     ret.put("flagSecure", true);
                     ret.put("message", "Zero-escape Kiosk Mode started successfully");
                     call.resolve(ret);
@@ -73,8 +192,7 @@ public class KioskPlugin extends Plugin {
         }
     }
 
-    @PluginMethod
-    public void stopKiosk(PluginCall call) {
+    private void stopKioskInternal(PluginCall call) {
         Activity activity = getActivity();
         if (activity == null) {
             call.reject("Activity is null");
@@ -90,16 +208,37 @@ public class KioskPlugin extends Plugin {
                         ((MainActivity) activity).stopKioskWatchdog();
                     }
 
-                    // Clear keep screen awake flag & clear screenshot block
+                    // 1. Clear DevicePolicyManager restrictions
+                    try {
+                        DevicePolicyManager dpm = (DevicePolicyManager) activity.getSystemService(Context.DEVICE_POLICY_SERVICE);
+                        ComponentName adminComponent = new ComponentName(activity, AdminReceiver.class);
+                        String pkg = activity.getPackageName();
+                        if (dpm != null && dpm.isDeviceOwnerApp(pkg)) {
+                            dpm.clearUserRestriction(adminComponent, UserManager.DISALLOW_SAFE_BOOT);
+                            dpm.clearUserRestriction(adminComponent, UserManager.DISALLOW_FACTORY_RESET);
+                            dpm.clearUserRestriction(adminComponent, UserManager.DISALLOW_ADD_USER);
+                            dpm.clearUserRestriction(adminComponent, UserManager.DISALLOW_MOUNT_PHYSICAL_MEDIA);
+                            dpm.clearUserRestriction(adminComponent, UserManager.DISALLOW_APPS_CONTROL);
+                            dpm.clearUserRestriction(adminComponent, UserManager.DISALLOW_SYSTEM_ERROR_DIALOGS);
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                                dpm.setKeyguardDisabled(adminComponent, false);
+                            }
+                        }
+                    } catch (Exception e) {
+                        Log.w(TAG, "Notice clearing DPM restrictions: " + e.getMessage());
+                    }
+
+                    // 2. Clear keep screen awake flag & clear screenshot block
                     activity.getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
                     activity.getWindow().clearFlags(WindowManager.LayoutParams.FLAG_SECURE);
                     activity.getWindow().clearFlags(WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD);
                     activity.getWindow().clearFlags(WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED);
                     activity.getWindow().clearFlags(WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON);
 
-                    // Restore system UI
+                    // 3. Restore system UI
                     clearImmersiveMode(activity);
 
+                    // 4. Exit Android Lock Task mode
                     ActivityManager am = (ActivityManager) activity.getSystemService(Context.ACTIVITY_SERVICE);
                     boolean isLocked = true;
 
@@ -175,8 +314,8 @@ public class KioskPlugin extends Plugin {
     }
 
     /**
-     * Static helper to forcefully re-assert Kiosk locks, screen wake, secure flag,
-     * immersive sticky fullscreen, and lock task mode whenever focus or gesture events occur.
+     * Forcefully re-asserts Kiosk locks, screen wake, secure flag,
+     * immersive sticky fullscreen, DevicePolicyManager restrictions, and lock task mode.
      */
     public static void reEnforceKiosk(Activity activity) {
         if (activity == null || !isKioskEnforced) return;
@@ -199,7 +338,7 @@ public class KioskPlugin extends Plugin {
                     // 4. Apply sticky immersive fullscreen
                     applyImmersiveMode(activity);
 
-                    // 5. If Device Owner is provisioned, whitelist package in DevicePolicyManager
+                    // 5. If Device Owner is provisioned, whitelist package & set restrictions
                     try {
                         DevicePolicyManager dpm = (DevicePolicyManager) activity.getSystemService(Context.DEVICE_POLICY_SERVICE);
                         ComponentName adminComponent = new ComponentName(activity, AdminReceiver.class);
@@ -208,6 +347,15 @@ public class KioskPlugin extends Plugin {
                             dpm.setLockTaskPackages(adminComponent, new String[]{ pkg });
                             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                                 dpm.setLockTaskFeatures(adminComponent, DevicePolicyManager.LOCK_TASK_FEATURE_NONE);
+                            }
+                            dpm.addUserRestriction(adminComponent, UserManager.DISALLOW_SAFE_BOOT);
+                            dpm.addUserRestriction(adminComponent, UserManager.DISALLOW_FACTORY_RESET);
+                            dpm.addUserRestriction(adminComponent, UserManager.DISALLOW_ADD_USER);
+                            dpm.addUserRestriction(adminComponent, UserManager.DISALLOW_MOUNT_PHYSICAL_MEDIA);
+                            dpm.addUserRestriction(adminComponent, UserManager.DISALLOW_APPS_CONTROL);
+                            dpm.addUserRestriction(adminComponent, UserManager.DISALLOW_SYSTEM_ERROR_DIALOGS);
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                                dpm.setKeyguardDisabled(adminComponent, true);
                             }
                         }
                     } catch (Exception dpmErr) {

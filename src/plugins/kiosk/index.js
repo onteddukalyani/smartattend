@@ -7,6 +7,18 @@ let webWakeLock = null;
  */
 const NativeKioskPlugin = registerPlugin('KioskPlugin', {
   web: {
+    startKioskMode: async () => {
+      return NativeKioskPlugin.startKiosk();
+    },
+    stopKioskMode: async () => {
+      return NativeKioskPlugin.stopKiosk();
+    },
+    setAttendanceRestrictions: async () => {
+      return { success: true, isWebFallback: true, message: 'Web attendance restrictions active' };
+    },
+    clearAttendanceRestrictions: async () => {
+      return { success: true, isWebFallback: true, message: 'Web attendance restrictions cleared' };
+    },
     startKiosk: async () => {
       console.log('[KioskPlugin Web] Starting web supervised session');
       
@@ -29,7 +41,6 @@ const NativeKioskPlugin = registerPlugin('KioskPlugin', {
             await document.documentElement.requestFullscreen();
           }
         } catch (e) {
-          // Normal if called from async promise without direct touch gesture
           console.warn('[Kiosk Web] Fullscreen notice (requires direct user tap):', e.message);
         }
       }
@@ -64,20 +75,20 @@ const NativeKioskPlugin = registerPlugin('KioskPlugin', {
 });
 
 /**
- * Universal Kiosk Controller Interface for SmartAttend
+ * Universal Kiosk & Device Management Controller Interface for SmartAttend
  */
 export const Kiosk = {
   /**
    * Start native Android Lock Task / Supervised Kiosk mode
    */
-  async startKiosk() {
+  async startKioskMode() {
     try {
       const isNative = Capacitor.isNativePlatform();
       console.log(`[Kiosk] Starting kiosk mode (isNative: ${isNative}, platform: ${Capacitor.getPlatform()})`);
-      const result = await NativeKioskPlugin.startKiosk();
+      const result = await NativeKioskPlugin.startKioskMode();
       return result;
     } catch (err) {
-      console.warn('[Kiosk] startKiosk notice:', err);
+      console.warn('[Kiosk] startKioskMode notice:', err);
       return { active: false, error: err.message || String(err), fallback: true };
     }
   },
@@ -85,15 +96,55 @@ export const Kiosk = {
   /**
    * Exit native Android Lock Task mode
    */
-  async stopKiosk() {
+  async stopKioskMode() {
     try {
       console.log('[Kiosk] Stopping kiosk mode');
-      const result = await NativeKioskPlugin.stopKiosk();
+      const result = await NativeKioskPlugin.stopKioskMode();
       return result;
     } catch (err) {
-      console.warn('[Kiosk] stopKiosk notice:', err);
+      console.warn('[Kiosk] stopKioskMode notice:', err);
       return { active: false, error: err.message || String(err) };
     }
+  },
+
+  /**
+   * Apply Device Policy Manager & Hardware Attendance Restrictions
+   */
+  async setAttendanceRestrictions() {
+    try {
+      const result = await NativeKioskPlugin.setAttendanceRestrictions();
+      return result;
+    } catch (err) {
+      console.warn('[Kiosk] setAttendanceRestrictions notice:', err);
+      return { success: false, error: err.message || String(err) };
+    }
+  },
+
+  /**
+   * Clear Device Policy Manager Restrictions
+   */
+  async clearAttendanceRestrictions() {
+    try {
+      const result = await NativeKioskPlugin.clearAttendanceRestrictions();
+      return result;
+    } catch (err) {
+      console.warn('[Kiosk] clearAttendanceRestrictions notice:', err);
+      return { success: false, error: err.message || String(err) };
+    }
+  },
+
+  /**
+   * Backward-compatible start alias
+   */
+  async startKiosk() {
+    return this.startKioskMode();
+  },
+
+  /**
+   * Backward-compatible stop alias
+   */
+  async stopKiosk() {
+    return this.stopKioskMode();
   },
 
   /**
