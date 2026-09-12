@@ -13,6 +13,7 @@ import com.getcapacitor.BridgeActivity;
 
 public class MainActivity extends BridgeActivity {
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
+    private volatile boolean isActivityForeground = true;
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -44,6 +45,7 @@ public class MainActivity extends BridgeActivity {
         super.onUserLeaveHint();
         if (KioskPlugin.isKioskEnforced) {
             // User attempted to press Home or perform swipe gesture to leave the app
+            isActivityForeground = false;
             bringToFront();
             KioskPlugin.reEnforceKiosk(this);
         }
@@ -63,16 +65,13 @@ public class MainActivity extends BridgeActivity {
         public void run() {
             if (KioskPlugin.isKioskEnforced) {
                 try {
-                    android.app.ActivityManager am = (android.app.ActivityManager) getSystemService(android.content.Context.ACTIVITY_SERVICE);
-                    if (am != null && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
-                        int lockState = am.getLockTaskModeState();
-                        if (lockState == android.app.ActivityManager.LOCK_TASK_MODE_NONE) {
-                            bringToFront();
-                            KioskPlugin.reEnforceKiosk(MainActivity.this);
-                        }
+                    // Only bring to front if activity has lost focus or gone into background
+                    if (!isActivityForeground || !hasWindowFocus()) {
+                        bringToFront();
+                        KioskPlugin.reEnforceKiosk(MainActivity.this);
                     }
                 } catch (Exception ignored) {}
-                mainHandler.postDelayed(this, 350);
+                mainHandler.postDelayed(this, 1000);
             }
         }
     };
@@ -80,6 +79,7 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
+        isActivityForeground = hasFocus;
         if (KioskPlugin.isKioskEnforced) {
             if (!hasFocus) {
                 // User pulled down notification shade or triggered screen unpin gesture
@@ -89,20 +89,11 @@ public class MainActivity extends BridgeActivity {
                 } catch (Exception ignored) {}
 
                 mainHandler.postDelayed(() -> {
-                    if (KioskPlugin.isKioskEnforced) {
+                    if (KioskPlugin.isKioskEnforced && (!isActivityForeground || !hasWindowFocus())) {
                         bringToFront();
                         KioskPlugin.reEnforceKiosk(this);
                     }
-                }, 50);
-
-                mainHandler.postDelayed(() -> {
-                    if (KioskPlugin.isKioskEnforced) {
-                        bringToFront();
-                        KioskPlugin.reEnforceKiosk(this);
-                    }
-                }, 200);
-            } else {
-                KioskPlugin.reEnforceKiosk(this);
+                }, 150);
             }
         }
     }
@@ -125,6 +116,7 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onStop() {
         super.onStop();
+        isActivityForeground = false;
         if (KioskPlugin.isKioskEnforced) {
             bringToFront();
         }
@@ -133,6 +125,7 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onPause() {
         super.onPause();
+        isActivityForeground = false;
         if (KioskPlugin.isKioskEnforced) {
             bringToFront();
         }
@@ -141,6 +134,7 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onResume() {
         super.onResume();
+        isActivityForeground = true;
         if (KioskPlugin.isKioskEnforced) {
             KioskPlugin.reEnforceKiosk(this);
         }

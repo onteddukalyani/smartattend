@@ -144,7 +144,9 @@ export async function authorizeStudentQR1(sessionId, qr1Token, studentProfileOve
   const qr1ExpiresAt = session?.qr1ExpiresAt || (session?.sessionStartAt ? session.sessionStartAt + 60000 : now + 60000);
   const kioskEndsAt = session?.kioskEndsAt || (now + 180000);
 
-  if (session && now > qr1ExpiresAt) {
+  // Allow QR 1 authorization if session is explicitly in PHASE_1 or within clock-skew grace window (15s)
+  const isPhase1Active = session?.phase === "PHASE_1" || (!session?.phase && now <= (qr1ExpiresAt + 15000));
+  if (session && !isPhase1Active && now > (qr1ExpiresAt + 15000)) {
     throw new Error("❌ QR 1 has expired! The 60-second check-in window is closed.");
   }
 
@@ -261,7 +263,7 @@ export async function validateStudentQR2(sessionId, qr2Token) {
   }
 
   const now = Date.now();
-  if (session && now > (session.kioskEndsAt || session.expiresAt || 0)) {
+  if (session && now > ((session.kioskEndsAt || session.expiresAt || 0) + 15000)) {
     throw new Error("❌ Attendance session has closed. 3-minute deadline elapsed.");
   }
 
@@ -371,7 +373,7 @@ export async function submitVerifiedAttendance(sessionId, qr2Token, biometricDat
   }
 
   const now = Date.now();
-  if (session && now > (session.kioskEndsAt || session.expiresAt || 0)) {
+  if (session && now > ((session.kioskEndsAt || session.expiresAt || 0) + 15000)) {
     throw new Error("❌ Attendance session closed.");
   }
 

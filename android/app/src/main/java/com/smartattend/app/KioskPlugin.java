@@ -363,13 +363,16 @@ public class KioskPlugin extends Plugin {
                     }
 
                     // 6. Android Lock Task Mode (Screen Pinning / Dedicated Kiosk)
-                    ActivityManager am = (ActivityManager) activity.getSystemService(Context.ACTIVITY_SERVICE);
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && am != null) {
-                        int currentLockMode = am.getLockTaskModeState();
-                        if (currentLockMode == ActivityManager.LOCK_TASK_MODE_NONE && isKioskEnforced) {
-                            Log.i(TAG, "Re-asserting Lock Task mode...");
-                            activity.startLockTask();
+                    try {
+                        ActivityManager am = (ActivityManager) activity.getSystemService(Context.ACTIVITY_SERVICE);
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && am != null) {
+                            int currentLockMode = am.getLockTaskModeState();
+                            if (currentLockMode == ActivityManager.LOCK_TASK_MODE_NONE && isKioskEnforced) {
+                                activity.startLockTask();
+                            }
                         }
+                    } catch (Exception lockErr) {
+                        Log.w(TAG, "Notice asserting Lock Task mode: " + lockErr.getMessage());
                     }
                 } catch (Exception e) {
                     Log.w(TAG, "reEnforceKiosk internal error: " + e.getMessage());

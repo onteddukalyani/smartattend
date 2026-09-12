@@ -29,7 +29,7 @@ import {
 } from '../../services/sessionAuthService';
 import { db } from '../../firebase';
 import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
-import { isGenericName } from '../../utils/studentDataHelper';
+import { isGenericName, normalizeDescriptor } from '../../utils/studentDataHelper';
 import FaceScanner, { releaseAllMediaTracks } from '../Lecturer/pages/FaceScanner';
 
 /**
@@ -140,8 +140,9 @@ function QrScannerApp() {
             for (const docData of candidateDocs) {
                 if (docData.name && !isGenericName(docData.name, targetRoll)) merged.name = docData.name;
                 if (docData.fullName && !isGenericName(docData.fullName, targetRoll)) merged.fullName = docData.fullName;
-                if (Array.isArray(docData.faceDescriptor) && docData.faceDescriptor.length === 128) {
-                    merged.faceDescriptor = docData.faceDescriptor;
+                const desc = normalizeDescriptor(docData.faceDescriptor) || normalizeDescriptor(docData.descriptor);
+                if (desc && Array.isArray(desc) && desc.length === 128) {
+                    merged.faceDescriptor = desc;
                     merged.faceRegistered = true;
                 }
                 if (docData.photoURL) merged.photoURL = docData.photoURL;
