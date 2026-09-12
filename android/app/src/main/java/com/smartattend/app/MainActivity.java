@@ -24,4 +24,13 @@ public class MainActivity extends BridgeActivity {
             }, 100);
         }
     }
+
+    @Override
+    public void onBackPressed() {
+        if (KioskPlugin.isKioskEnforced) {
+            // Block hardware/software back button escaping during active attendance kiosk session
+            return;
+        }
+        super.onBackPressed();
+    }
 }

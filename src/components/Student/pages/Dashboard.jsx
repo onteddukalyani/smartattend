@@ -292,6 +292,7 @@ export default function StudentDashboard() {
                 return;
             }
 
+            // Purely update face registration details (never overwrite existing student profile details)
             const updatePayload = {
                 faceDescriptor: cleanVector,
                 photoURL: enrollData.photoURL || fetchedStudentData?.photoURL || profile?.photoURL || "",

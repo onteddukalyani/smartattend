@@ -206,6 +206,7 @@ const StudentDetailModal = ({ student, onClose, onUpdate }) => {
         return;
       }
 
+      // Purely update face registration details (never overwrite existing student profile details)
       const updateData = {
         faceDescriptor: cleanVector,
         photoURL: enrolledBiometric.photoURL || currentStudent.photoURL || "",

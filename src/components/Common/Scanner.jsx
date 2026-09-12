@@ -3,6 +3,7 @@ import { Scanner } from '@yudiel/react-qr-scanner';
 import jsQR from 'jsqr';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Capacitor } from '@capacitor/core';
+import { App as CapacitorApp } from '@capacitor/app';
 import {
     FaArrowLeft,
     FaCheckCircle,
@@ -187,6 +188,29 @@ function QrScannerApp() {
             Kiosk.stopKiosk().catch(() => {});
         };
     }, []);
+
+    // Intercept hardware/software back button on Android
+    useEffect(() => {
+        let backListener = null;
+        if (isNativeApp) {
+            CapacitorApp.addListener('backButton', () => {
+                const isSessionActive = scanState === 'KIOSK_WAITING_QR2' || scanState === 'BIOMETRIC_SCAN' || scanState === 'ATTENDANCE_SUCCESS';
+                if (isSessionActive) {
+                    console.log('[Kiosk] Back navigation blocked during active attendance kiosk session.');
+                } else {
+                    navigate('/student', { replace: true });
+                }
+            }).then((handle) => {
+                backListener = handle;
+            });
+        }
+
+        return () => {
+            if (backListener && typeof backListener.remove === 'function') {
+                backListener.remove();
+            }
+        };
+    }, [scanState, isNativeApp, navigate]);
 
     // Web Guardian Supervision: Monitor tab switches or leaving app during active session
     useEffect(() => {
