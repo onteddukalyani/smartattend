@@ -165,11 +165,9 @@ function QrScannerApp() {
             // When fixed 3-minute deadline ends (T = 180s)
             if (remaining <= 0) {
                 if (sessionTimerRef.current) clearInterval(sessionTimerRef.current);
-                console.log('[Kiosk] 3-minute session completed. Releasing Kiosk mode...');
+                console.log('[Kiosk] 3-minute session completed. Automatically unlocking Kiosk mode...');
                 Kiosk.stopKiosk().catch(() => {});
-                if (scanState === 'ATTENDANCE_SUCCESS') {
-                    navigate('/student', { replace: true });
-                }
+                navigate('/student', { replace: true });
             }
         };
 
@@ -298,12 +296,13 @@ function QrScannerApp() {
             }
             // If lecturer ends the session in real-time
             if (data.status === 'CLOSED' || data.phase === 'CLOSED' || data.isClosed === true) {
-                console.log('[Kiosk] Session marked as CLOSED by Lecturer. Releasing Kiosk mode...');
+                console.log('[Kiosk] Session marked as CLOSED by Lecturer. Automatically unlocking Kiosk mode...');
                 Kiosk.stopKiosk().catch(() => {});
+                navigate('/student', { replace: true });
             }
         });
         return () => unsub();
-    }, [activeSessionId, sessionStartAt, kioskEndsAt]);
+    }, [activeSessionId, sessionStartAt, kioskEndsAt, navigate]);
 
     // Parse Scanned String / URL
     const parseScannedPayload = (raw) => {
@@ -655,38 +654,18 @@ function QrScannerApp() {
                     border: '1.5px solid rgba(99, 102, 241, 0.3)',
                     borderRadius: '16px',
                     padding: '16px',
-                    marginBottom: '20px'
+                    marginBottom: '10px'
                 }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', color: '#6366f1', fontWeight: 800, fontSize: '0.92rem', marginBottom: '6px' }}>
                         <FaShieldAlt /> Supervised Kiosk Mode Active
                     </div>
-                    <div style={{ fontSize: '1.6rem', fontWeight: 800, color: '#4338ca', marginBottom: '4px' }}>
+                    <div style={{ fontSize: '1.75rem', fontWeight: 800, color: '#4338ca', marginBottom: '4px' }}>
                         {formatMmSs(sessionRemaining)}
                     </div>
-                    <p style={{ margin: 0, fontSize: '0.82rem', color: '#64748b' }}>
-                        Device is pinned until the 3-minute session ends. Screen will automatically unlock when the timer hits 0:00.
+                    <p style={{ margin: 0, fontSize: '0.84rem', color: '#64748b' }}>
+                        Device is locked in Supervised Kiosk Mode. It will automatically unlock and return to your dashboard when the session reaches 0:00.
                     </p>
                 </div>
-
-                {sessionRemaining <= 0 && (
-                    <button
-                        type="button"
-                        onClick={() => navigate('/student', { replace: true })}
-                        style={{
-                            width: '100%',
-                            padding: '14px',
-                            borderRadius: '14px',
-                            background: '#6366f1',
-                            color: '#ffffff',
-                            border: 'none',
-                            fontWeight: 800,
-                            fontSize: '1rem',
-                            cursor: 'pointer'
-                        }}
-                    >
-                        Return to Student Dashboard <FaArrowRight style={{ marginLeft: '8px' }} />
-                    </button>
-                )}
             </div>
         );
     }
