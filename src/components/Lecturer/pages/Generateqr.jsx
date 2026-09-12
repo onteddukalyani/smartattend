@@ -4,7 +4,7 @@ import { QRCodeCanvas } from "qrcode.react";
 import { collection, getDocs } from "firebase/firestore";
 import { db } from "../../../firebase";
 import { createAttendanceSession } from "./CreateSession";
-import { transitionSessionToPhase2, subscribeToSession, subscribeToAuthorizations } from "../../../services/sessionAuthService";
+import { transitionSessionToPhase2, subscribeToSession, subscribeToAuthorizations, closeAttendanceSession } from "../../../services/sessionAuthService";
 import { useAuth } from "../../authcontext";
 import { isCourseAssignedToLecturer } from "./LecturerCourses";
 import {
@@ -129,6 +129,9 @@ function GenerateQR() {
             } else {
                 setPhase("CLOSED");
                 if (timerRef.current) clearInterval(timerRef.current);
+                if (sessionId) {
+                    closeAttendanceSession(sessionId).catch(() => {});
+                }
             }
         };
 
@@ -236,8 +239,11 @@ function GenerateQR() {
         });
     };
 
-    const handleResetSession = () => {
+    const handleResetSession = async () => {
         if (window.confirm("Start a new attendance session? Current session will be closed.")) {
+            if (sessionId) {
+                await closeAttendanceSession(sessionId).catch(() => {});
+            }
             setSessionId("");
             setPhase("NONE");
             setQr1Token("");

@@ -164,6 +164,7 @@ function QrScannerApp() {
             // When fixed 3-minute deadline ends (T = 180s)
             if (remaining <= 0) {
                 if (sessionTimerRef.current) clearInterval(sessionTimerRef.current);
+                console.log('[Kiosk] 3-minute session completed. Releasing Kiosk mode...');
                 Kiosk.stopKiosk().catch(() => {});
                 if (scanState === 'ATTENDANCE_SUCCESS') {
                     navigate('/student', { replace: true });
@@ -182,6 +183,7 @@ function QrScannerApp() {
     // Cleanup Kiosk lock when component unmounts
     useEffect(() => {
         return () => {
+            // Only unlock if session is not actively waiting or finished
             Kiosk.stopKiosk().catch(() => {});
         };
     }, []);
@@ -219,15 +221,28 @@ function QrScannerApp() {
         };
     }, [scanState, isNativeApp]);
 
-    // Mobile Web App Detection
+    // Mobile Web App Auto-Launch (If opened via phone camera or Chrome)
     useEffect(() => {
         if (typeof window !== 'undefined' && !isNativeApp) {
             const isAndroid = /Android/i.test(navigator.userAgent);
+            const session = searchParams.get('session');
             if (isAndroid) {
                 setShowAppBanner(true);
+                if (session) {
+                    const qr1 = searchParams.get('qr1Token') || '';
+                    const qr2 = searchParams.get('qr2Token') || '';
+                    const phase = searchParams.get('phase') || '';
+                    const currentUrl = window.location.href;
+                    const intentUrl = `intent://student/mark-attendance?session=${encodeURIComponent(session)}&qr1Token=${encodeURIComponent(qr1)}&qr2Token=${encodeURIComponent(qr2)}&phase=${encodeURIComponent(phase)}#Intent;scheme=smartattend;package=com.smartattend.app;S.browser_fallback_url=${encodeURIComponent(currentUrl)};end`;
+                    try {
+                        window.location.href = intentUrl;
+                    } catch (e) {
+                        console.warn('[AutoLaunch] Intent redirect error:', e);
+                    }
+                }
             }
         }
-    }, [isNativeApp]);
+    }, [isNativeApp, searchParams]);
 
     const handleOpenInSmartAttendApp = () => {
         const currentUrl = window.location.href;
@@ -256,6 +271,11 @@ function QrScannerApp() {
             if (data.kioskEndsAt && !kioskEndsAt) {
                 const endMs = typeof data.kioskEndsAt.toMillis === 'function' ? data.kioskEndsAt.toMillis() : data.kioskEndsAt;
                 setKioskEndsAt(endMs);
+            }
+            // If lecturer ends the session in real-time
+            if (data.status === 'CLOSED' || data.phase === 'CLOSED' || data.isClosed === true) {
+                console.log('[Kiosk] Session marked as CLOSED by Lecturer. Releasing Kiosk mode...');
+                Kiosk.stopKiosk().catch(() => {});
             }
         });
         return () => unsub();

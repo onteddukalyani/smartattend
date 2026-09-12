@@ -455,3 +455,22 @@ export function subscribeToAuthorizations(sessionId, onUpdate) {
     console.warn("Authorizations subscription warning:", err);
   });
 }
+
+/**
+ * Lecturer: Manually close attendance session and release all student kiosks
+ */
+export async function closeAttendanceSession(sessionId) {
+  if (!sessionId) return;
+  try {
+    const sessionRef = doc(db, "attendance_sessions", sessionId);
+    await updateDoc(sessionRef, {
+      status: "CLOSED",
+      phase: "CLOSED",
+      active: false,
+      closedAt: Date.now()
+    });
+  } catch (err) {
+    console.warn("Error closing session:", err);
+  }
+}
+

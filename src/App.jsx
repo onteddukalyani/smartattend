@@ -45,41 +45,67 @@ function App() {
   useEffect(() => {
     let listenerHandle = null;
 
-    if (Capacitor.isNativePlatform()) {
-      listenerHandle = CapacitorApp.addListener("appUrlOpen", (event) => {
-        try {
-          console.log("[DeepLink] App opened with URL:", event.url);
-          if (!event.url) return;
+    const handleDeepLink = (rawUrl) => {
+      try {
+        if (!rawUrl) return;
+        console.log("[DeepLink] Processing incoming URL:", rawUrl);
 
-          let targetPath = "/student/mark-attendance";
-          let searchStr = "";
+        let targetPath = "/student/mark-attendance";
+        let searchStr = "";
 
-          if (event.url.startsWith("smartattend://")) {
-            const rawPart = event.url.replace("smartattend://", "");
-            const parts = rawPart.split("?");
-            targetPath = parts[0] ? `/${parts[0].replace(/^\//, "")}` : "/student/mark-attendance";
-            if (!targetPath.startsWith("/student/mark-attendance") && !targetPath.startsWith("/scanqr")) {
-              targetPath = "/student/mark-attendance";
-            }
-            searchStr = parts[1] ? `?${parts[1]}` : "";
-          } else {
-            const parsed = new URL(event.url);
-            targetPath = parsed.pathname || "/student/mark-attendance";
-            searchStr = parsed.search || "";
+        if (rawUrl.startsWith("smartattend://")) {
+          const rawPart = rawUrl.replace("smartattend://", "");
+          const parts = rawPart.split("?");
+          targetPath = parts[0] ? `/${parts[0].replace(/^\//, "")}` : "/student/mark-attendance";
+          if (!targetPath.startsWith("/student/mark-attendance") && !targetPath.startsWith("/scanqr")) {
+            targetPath = "/student/mark-attendance";
           }
-
-          const fullRoute = `${targetPath}${searchStr}`;
-          console.log("[DeepLink] Routing to:", fullRoute);
-
-          if (!user) {
-            sessionStorage.setItem("smartattend_redirect_after_login", fullRoute);
-            navigate("/login", { replace: true });
-          } else {
-            navigate(fullRoute, { replace: true });
-          }
-        } catch (err) {
-          console.warn("[DeepLink] Error parsing deep link URL:", err);
+          searchStr = parts[1] ? `?${parts[1]}` : "";
+        } else if (rawUrl.startsWith("intent://")) {
+          // Parse Android Intent URI
+          const match = rawUrl.match(/intent:\/\/(.*?)(#Intent|\?|$)/);
+          const path = match ? match[1] : "student/mark-attendance";
+          targetPath = `/${path.replace(/^\//, "")}`;
+          const qMatch = rawUrl.match(/\?(.*?)(#Intent|$)/);
+          searchStr = qMatch ? `?${qMatch[1]}` : "";
+        } else {
+          const parsed = new URL(rawUrl);
+          targetPath = parsed.pathname || "/student/mark-attendance";
+          searchStr = parsed.search || "";
         }
+
+        const fullRoute = `${targetPath}${searchStr}`;
+        console.log("[DeepLink] Routing to:", fullRoute);
+
+        if (!user) {
+          sessionStorage.setItem("smartattend_redirect_after_login", fullRoute);
+          navigate("/login", { replace: true });
+        } else {
+          navigate(fullRoute, { replace: true });
+        }
+      } catch (err) {
+        console.warn("[DeepLink] Error parsing deep link URL:", err);
+      }
+    };
+
+    if (Capacitor.isNativePlatform()) {
+      // Check cold-start launch URL
+      CapacitorApp.getLaunchUrl()
+        .then((launchUrl) => {
+          if (launchUrl && launchUrl.url) {
+            console.log("[DeepLink] Cold start launch URL:", launchUrl.url);
+            handleDeepLink(launchUrl.url);
+          }
+        })
+        .catch((err) => console.warn("[DeepLink] getLaunchUrl notice:", err));
+
+      // Listen for warm-start app URL events
+      CapacitorApp.addListener("appUrlOpen", (event) => {
+        if (event && event.url) {
+          handleDeepLink(event.url);
+        }
+      }).then((handle) => {
+        listenerHandle = handle;
       });
     }
 
