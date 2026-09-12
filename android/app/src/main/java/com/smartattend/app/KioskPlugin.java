@@ -2,6 +2,8 @@ package com.smartattend.app;
 
 import android.app.Activity;
 import android.app.ActivityManager;
+import android.app.admin.DevicePolicyManager;
+import android.content.ComponentName;
 import android.content.Context;
 import android.os.Build;
 import android.util.Log;
@@ -23,8 +25,8 @@ import com.getcapacitor.annotation.CapacitorPlugin;
  * Manages zero-escape Android Lock Task mode for supervised attendance sessions:
  * - FLAG_SECURE: Prevents screenshots, screen recordings, and recents switcher thumbnails.
  * - IMMERSIVE STICKY: Hides status bar & navigation drawer to prevent app switching.
- * - On MDM / Device Owner managed devices: Enforces true zero-escape dedicated Lock Task.
- * - On unmanaged consumer devices: Activates standard Android screen pinning gracefully.
+ * - On Device Owner / MDM managed devices: Uses DevicePolicyManager to whitelist lock task with zero confirmation prompts.
+ * - On unmanaged consumer devices: Activates standard Android screen pinning gracefully with aggressive anti-tamper hooks.
  * - Screen Wake: Adds FLAG_KEEP_SCREEN_ON so student devices remain awake throughout the session.
  * - CAMERA SAFETY: Camera hardware remains 100% active for QR scanning & Biometric verification.
  */
@@ -134,6 +136,7 @@ public class KioskPlugin extends Plugin {
 
         try {
             ActivityManager am = (ActivityManager) activity.getSystemService(Context.ACTIVITY_SERVICE);
+            DevicePolicyManager dpm = (DevicePolicyManager) activity.getSystemService(Context.DEVICE_POLICY_SERVICE);
             boolean isLocked = false;
             int lockMode = 0;
 
@@ -142,10 +145,16 @@ public class KioskPlugin extends Plugin {
                 isLocked = (lockMode != ActivityManager.LOCK_TASK_MODE_NONE);
             }
 
+            boolean isDeviceOwner = false;
+            if (dpm != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR2) {
+                isDeviceOwner = dpm.isDeviceOwnerApp(activity.getPackageName());
+            }
+
             JSObject ret = new JSObject();
             ret.put("active", isLocked || isKioskEnforced);
             ret.put("mode", lockMode); // 0 = NONE, 1 = LOCKED (Device Owner MDM), 2 = PINNED (Standard screen pinning)
-            ret.put("isManagedKiosk", lockMode == 1);
+            ret.put("isManagedKiosk", lockMode == 1 || isDeviceOwner);
+            ret.put("isDeviceOwner", isDeviceOwner);
             ret.put("isPinned", lockMode == 2);
             call.resolve(ret);
         } catch (Exception e) {
@@ -182,7 +191,22 @@ public class KioskPlugin extends Plugin {
                     // 4. Apply sticky immersive fullscreen
                     applyImmersiveMode(activity);
 
-                    // 5. Android Lock Task Mode (Screen Pinning / Dedicated Kiosk)
+                    // 5. If Device Owner is provisioned, whitelist package in DevicePolicyManager
+                    try {
+                        DevicePolicyManager dpm = (DevicePolicyManager) activity.getSystemService(Context.DEVICE_POLICY_SERVICE);
+                        ComponentName adminComponent = new ComponentName(activity, AdminReceiver.class);
+                        String pkg = activity.getPackageName();
+                        if (dpm != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP && dpm.isDeviceOwnerApp(pkg)) {
+                            dpm.setLockTaskPackages(adminComponent, new String[]{ pkg });
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                                dpm.setLockTaskFeatures(adminComponent, DevicePolicyManager.LOCK_TASK_FEATURE_NONE);
+                            }
+                        }
+                    } catch (Exception dpmErr) {
+                        Log.w(TAG, "DevicePolicyManager setup notice: " + dpmErr.getMessage());
+                    }
+
+                    // 6. Android Lock Task Mode (Screen Pinning / Dedicated Kiosk)
                     ActivityManager am = (ActivityManager) activity.getSystemService(Context.ACTIVITY_SERVICE);
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && am != null) {
                         int currentLockMode = am.getLockTaskModeState();
@@ -242,3 +266,4 @@ public class KioskPlugin extends Plugin {
         }
     }
 }
+
