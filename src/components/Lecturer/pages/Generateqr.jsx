@@ -503,7 +503,7 @@ function GenerateQR() {
                                 }}>
                                     <div style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "0.84rem", color: "#334155" }}>
                                         <FaLock style={{ color: "#6366f1" }} />
-                                        <span>Lecturer Emergency PIN: <strong style={{ color: "#4338ca", letterSpacing: "1px", fontSize: "0.95rem" }}>{sessionPin || "1234"}</strong></span>
+                                        <span>Lecturer Release Code: <strong style={{ color: "#4338ca", letterSpacing: "1px", fontSize: "0.95rem" }}>{sessionPin || "1234"}</strong></span>
                                     </div>
                                     <button
                                         type="button"
@@ -524,7 +524,7 @@ function GenerateQR() {
                                             cursor: "pointer"
                                         }}
                                     >
-                                        🛑 End Session &amp; Release All Kiosks
+                                        🛑 End Session &amp; Release All Students
                                     </button>
                                 </div>
                             )}

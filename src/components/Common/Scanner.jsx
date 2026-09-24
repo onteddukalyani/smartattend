@@ -857,83 +857,7 @@ function QrScannerApp() {
     };
 
     // =========================================================================
-    // UI GUARD: DEVICE OWNER PROVISIONING REQUIRED (Native Android App Only)
-    // =========================================================================
-    if (isNativeApp && deviceOwnerStatus.checked && !deviceOwnerStatus.isDeviceOwner) {
-        return (
-            <div style={{
-                maxWidth: '540px',
-                margin: '30px auto',
-                padding: '30px 22px',
-                background: 'var(--surface, #ffffff)',
-                borderRadius: '24px',
-                border: '2px solid #f59e0b',
-                boxShadow: '0 20px 45px -15px rgba(245, 158, 11, 0.25)',
-                color: 'var(--text-main, #0f172a)',
-                textAlign: 'center'
-            }}>
-                <div style={{
-                    width: '68px',
-                    height: '68px',
-                    borderRadius: '50%',
-                    background: '#fef3c7',
-                    color: '#d97706',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    margin: '0 auto 16px',
-                    fontSize: '34px'
-                }}>
-                    <FaShieldAlt />
-                </div>
-                <h2 style={{ fontSize: '1.45rem', fontWeight: 800, margin: '0 0 8px 0', color: '#92400e' }}>
-                    Device Owner Provisioning Required
-                </h2>
-                <p style={{ color: '#64748b', fontSize: '0.88rem', margin: '0 0 16px 0', lineHeight: 1.5 }}>
-                    SmartAttend requires dedicated <strong>Android Device Owner (Lock Task) Kiosk Mode</strong> to guarantee zero-escape classroom attendance.
-                </p>
-
-                <div style={{
-                    background: '#0f172a',
-                    color: '#f8fafc',
-                    padding: '14px 16px',
-                    borderRadius: '14px',
-                    textAlign: 'left',
-                    fontFamily: 'monospace',
-                    fontSize: '0.82rem',
-                    lineHeight: 1.5,
-                    marginBottom: '18px',
-                    overflowX: 'auto'
-                }}>
-                    <div style={{ color: '#94a3b8', fontSize: '0.75rem', marginBottom: '6px' }}>Run via ADB on test device / emulator:</div>
-                    <code style={{ color: '#38bdf8' }}>adb shell dpm set-device-owner com.smartattend.app/.AdminReceiver</code>
-                </div>
-
-                <button
-                    type="button"
-                    onClick={checkDeviceProvisioning}
-                    style={{
-                        padding: '12px 24px',
-                        borderRadius: '12px',
-                        background: '#f59e0b',
-                        color: '#ffffff',
-                        border: 'none',
-                        fontWeight: 800,
-                        fontSize: '0.92rem',
-                        cursor: 'pointer',
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '8px'
-                    }}
-                >
-                    <FaSyncAlt /> Re-check Device Status
-                </button>
-            </div>
-        );
-    }
-
-    // =========================================================================
-    // UI VIEW 1: ATTENDANCE SUBMITTED (Holds Kiosk Mode until Lecturer Release)
+    // UI VIEW 1: ATTENDANCE SUBMITTED (Attendance Lock Active until Lecturer Release)
     // =========================================================================
     if (scanState === 'ATTENDANCE_SUCCESS') {
         return (
@@ -967,8 +891,8 @@ function QrScannerApp() {
                     <FaCheckCircle />
                 </div>
 
-                <h2 style={{ fontSize: '1.55rem', fontWeight: 800, margin: '0 0 6px 0', color: '#15803d' }}>
-                    Attendance Marked Successfully!
+                <h2 style={{ fontSize: '1.45rem', fontWeight: 800, margin: '0 0 6px 0', color: '#15803d' }}>
+                    Attendance Submitted — Waiting for Lecturer Release
                 </h2>
                 <p style={{ color: 'var(--text-muted, #64748b)', fontSize: '0.9rem', margin: '0 0 20px 0' }}>
                     Your biometric attendance is verified and securely registered.
@@ -1001,7 +925,7 @@ function QrScannerApp() {
                     </div>
                 </div>
 
-                {/* Supervised Lock Task Countdown (Locked until session completion) */}
+                {/* Attendance Lock Status & Countdown (Locked until session completion / lecturer release) */}
                 <div style={{
                     background: 'rgba(99, 102, 241, 0.08)',
                     border: '1.5px solid rgba(99, 102, 241, 0.3)',
@@ -1010,13 +934,13 @@ function QrScannerApp() {
                     marginTop: '12px'
                 }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', color: '#6366f1', fontWeight: 800, fontSize: '0.92rem', marginBottom: '8px' }}>
-                        <FaShieldAlt /> Device Locked in Supervised Kiosk Mode
+                        <FaLock /> Attendance Lock Mode Active
                     </div>
                     <div style={{ fontSize: '1.85rem', fontWeight: 800, color: '#4338ca', marginBottom: '6px' }}>
                         ⏱️ {formatMmSs(sessionRemaining)}
                     </div>
                     <p style={{ margin: 0, fontSize: '0.84rem', color: '#64748b', lineHeight: 1.45, marginBottom: '14px' }}>
-                        Attendance is verified. Your phone remains <strong>locked in Kiosk mode</strong> until your lecturer ends the session from the Lecturer Dashboard, or until released with the Lecturer Emergency PIN.
+                        Attendance is verified. SmartAttend remains locked in <strong>Attendance Lock Mode</strong> until your lecturer ends the attendance session or authorizes release using the Lecturer Release Code.
                     </p>
 
                     <button
@@ -1036,7 +960,7 @@ function QrScannerApp() {
                             cursor: 'pointer'
                         }}
                     >
-                        <FaLock style={{ color: '#6366f1' }} /> Lecturer Emergency Release
+                        <FaLock style={{ color: '#6366f1' }} /> Enter Lecturer Release Code
                     </button>
                 </div>
             </div>
@@ -1094,7 +1018,7 @@ function QrScannerApp() {
                     marginBottom: '20px'
                 }}>
                     <div style={{ color: '#991b1b', fontSize: '0.85rem', lineHeight: 1.5 }}>
-                        <strong>🔒 Device Locked:</strong> This device will remain locked in Kiosk mode. Please hand your phone to your course lecturer to unlock it using their Lecturer Security PIN.
+                        <strong>🔒 Attendance Lock Active:</strong> This device remains in Attendance Lock Mode. Hand your phone to your course lecturer to authorize release using the Lecturer Release Code.
                     </div>
                 </div>
 
@@ -1116,7 +1040,7 @@ function QrScannerApp() {
                         boxShadow: '0 4px 14px rgba(220, 38, 38, 0.35)'
                     }}
                 >
-                    <FaLock /> Lecturer Emergency Release
+                    <FaLock /> Enter Lecturer Release Code
                 </button>
             </div>
         );
@@ -1323,7 +1247,7 @@ function QrScannerApp() {
                     marginBottom: '16px'
                 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 800, fontSize: '0.85rem' }}>
-                        <FaShieldAlt /> {isNativeApp ? 'Android Kiosk Mode Active' : 'Supervised Session Active'}
+                        <FaLock /> Attendance Lock Mode Active
                     </div>
                     <button
                         type="button"
@@ -1342,7 +1266,7 @@ function QrScannerApp() {
                             cursor: 'pointer'
                         }}
                     >
-                        <FaLock /> Lecturer Exit
+                        <FaLock /> Lecturer Release
                     </button>
                 </div>
 
@@ -1363,7 +1287,7 @@ function QrScannerApp() {
                 </div>
 
                 <h2 style={{ margin: '0 0 6px 0', fontSize: '1.35rem', fontWeight: 800 }}>
-                    Phase 1 Check-In Complete!
+                    Attendance Session Verified
                 </h2>
                 <p style={{ margin: '0 0 16px 0', color: 'var(--text-muted, #64748b)', fontSize: '0.86rem' }}>
                     You are <strong>AUTHORIZED</strong> for this session ({loggedInRollNo} · {loggedInName}).
@@ -1423,7 +1347,7 @@ function QrScannerApp() {
                             cursor: 'pointer'
                         }}
                     >
-                        <FaLock style={{ color: '#6366f1' }} /> Lecturer Emergency Release
+                        <FaLock style={{ color: '#6366f1' }} /> Enter Lecturer Release Code
                     </button>
                 </div>
 

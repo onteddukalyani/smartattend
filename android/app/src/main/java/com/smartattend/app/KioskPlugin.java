@@ -210,25 +210,27 @@ public class KioskPlugin extends Plugin {
                     DevicePolicyManager dpm = (DevicePolicyManager) activity.getSystemService(Context.DEVICE_POLICY_SERVICE);
                     boolean isDeviceOwner = (dpm != null && dpm.isDeviceOwnerApp(activity.getPackageName()));
 
-                    // Start Android OS Lock Task Mode (enforces OS-level Home & Overview button lock)
-                    try {
-                        ActivityManager am = (ActivityManager) activity.getSystemService(Context.ACTIVITY_SERVICE);
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && am != null) {
-                            if (am.getLockTaskModeState() == ActivityManager.LOCK_TASK_MODE_NONE) {
+                    // Start Android OS Lock Task Mode (only if provisioned as Device Owner on managed hardware)
+                    if (isDeviceOwner) {
+                        try {
+                            ActivityManager am = (ActivityManager) activity.getSystemService(Context.ACTIVITY_SERVICE);
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && am != null) {
+                                if (am.getLockTaskModeState() == ActivityManager.LOCK_TASK_MODE_NONE) {
+                                    activity.startLockTask();
+                                }
+                            } else {
                                 activity.startLockTask();
                             }
-                        } else {
-                            activity.startLockTask();
+                        } catch (Exception lockErr) {
+                            Log.w(TAG, "startLockTask notice: " + lockErr.getMessage());
                         }
-                    } catch (Exception lockErr) {
-                        Log.w(TAG, "startLockTask notice: " + lockErr.getMessage());
                     }
 
                     JSObject ret = new JSObject();
                     ret.put("active", true);
                     ret.put("isDeviceOwner", isDeviceOwner);
                     ret.put("flagSecure", true);
-                    ret.put("message", "Zero-escape Kiosk Mode started successfully");
+                    ret.put("message", isDeviceOwner ? "Managed Kiosk Mode active" : "Attendance Lock Mode active");
                     call.resolve(ret);
                 } catch (Exception e) {
                     Log.e(TAG, "Exception starting Lock Task: " + e.getMessage(), e);

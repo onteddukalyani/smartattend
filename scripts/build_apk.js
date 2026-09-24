@@ -48,8 +48,12 @@ try {
   }
 
   const gradlewCmd = process.platform === 'win32' ? '.\\gradlew.bat' : './gradlew';
+  try {
+    execSync(`${gradlewCmd} --stop`, { cwd: androidDir, stdio: 'ignore' });
+  } catch (_) {}
+
   console.log('\n🔨 Step 3/3: Compiling Android APK...');
-  execSync(`${gradlewCmd} assembleDebug --no-daemon --no-build-cache`, { cwd: androidDir, stdio: 'inherit' });
+  execSync(`${gradlewCmd} clean assembleDebug --no-daemon --no-build-cache`, { cwd: androidDir, stdio: 'inherit' });
 
   // 4. Copy to Root
   if (fs.existsSync(srcApk)) {
