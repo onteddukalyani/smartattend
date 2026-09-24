@@ -1,11 +1,15 @@
 package com.smartattend.app;
 
 import android.Manifest;
+import android.app.PendingIntent;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.provider.Settings;
 import android.view.KeyEvent;
 import android.webkit.WebView;
 import androidx.core.app.ActivityCompat;
@@ -13,11 +17,22 @@ import androidx.core.content.ContextCompat;
 import com.getcapacitor.BridgeActivity;
 
 public class MainActivity extends BridgeActivity {
+    private static MainActivity sInstance;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private boolean isReordering = false;
+    private boolean isPaused = false;
+
+    public static MainActivity getInstance() {
+        return sInstance;
+    }
+
+    public boolean isActivityPaused() {
+        return isPaused;
+    }
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
+        sInstance = this;
         registerPlugin(KioskPlugin.class);
         super.onCreate(savedInstanceState);
 
@@ -32,7 +47,7 @@ public class MainActivity extends BridgeActivity {
         }
     }
 
-    private void bringToFront() {
+    public void bringToFront() {
         if (!KioskPlugin.isKioskEnforced || isReordering) return;
         isReordering = true;
         mainHandler.post(() -> {
@@ -45,17 +60,28 @@ public class MainActivity extends BridgeActivity {
             try {
                 Intent intent = new Intent(MainActivity.this, MainActivity.class);
                 intent.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT | Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_NEW_TASK);
-                startActivity(intent);
+                
+                int flags = PendingIntent.FLAG_UPDATE_CURRENT;
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    flags |= PendingIntent.FLAG_IMMUTABLE;
+                }
+                
+                PendingIntent pi = PendingIntent.getActivity(MainActivity.this, 0, intent, flags);
+                try {
+                    pi.send();
+                } catch (Exception e) {
+                    startActivity(intent);
+                }
             } catch (Exception ignored) {}
             
-            mainHandler.postDelayed(() -> isReordering = false, 200);
+            mainHandler.postDelayed(() -> isReordering = false, 150);
         });
     }
 
     @Override
     public void onBackPressed() {
         if (KioskPlugin.isKioskEnforced) {
-            // Block back navigation during active attendance kiosk session
+            // Block hardware/software back navigation during active attendance kiosk session
             return;
         }
         super.onBackPressed();
@@ -71,6 +97,7 @@ public class MainActivity extends BridgeActivity {
 
     @Override
     public void onPause() {
+        isPaused = true;
         super.onPause();
         if (KioskPlugin.isKioskEnforced) {
             bringToFront();
@@ -85,7 +112,8 @@ public class MainActivity extends BridgeActivity {
                 keyCode == KeyEvent.KEYCODE_APP_SWITCH ||
                 keyCode == KeyEvent.KEYCODE_HOME ||
                 keyCode == KeyEvent.KEYCODE_VOLUME_UP ||
-                keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) {
+                keyCode == KeyEvent.KEYCODE_VOLUME_DOWN ||
+                keyCode == KeyEvent.KEYCODE_POWER) {
                 return true; // Block hardware keys during active kiosk session
             }
         }
@@ -106,9 +134,18 @@ public class MainActivity extends BridgeActivity {
 
     @Override
     public void onResume() {
+        isPaused = false;
         super.onResume();
         if (KioskPlugin.isKioskEnforced) {
             KioskPlugin.reEnforceKiosk(this);
         }
+    }
+
+    @Override
+    public void onDestroy() {
+        if (sInstance == this) {
+            sInstance = null;
+        }
+        super.onDestroy();
     }
 }

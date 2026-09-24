@@ -1,10 +1,13 @@
 package com.smartattend.app;
 
+import android.accessibilityservice.AccessibilityServiceInfo;
 import android.app.Activity;
 import android.app.ActivityManager;
 import android.app.admin.DevicePolicyManager;
 import android.content.ComponentName;
 import android.content.Context;
+import android.content.Intent;
+import android.net.Uri;
 import android.os.Build;
 import android.os.UserManager;
 import android.provider.Settings;
@@ -12,6 +15,8 @@ import android.util.Log;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
+import android.view.accessibility.AccessibilityManager;
+import androidx.core.content.ContextCompat;
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
@@ -20,13 +25,14 @@ import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
+import java.util.List;
 
 /**
  * Native Android Capacitor Kiosk / Lock Task Plugin for SmartAttend
  * 
  * Supports both:
  * 1. Dedicated Enterprise Device Owner / DevicePolicyManager mode (zero-prompt, un-escapable Lock Task, hardware restrictions).
- * 2. Unmanaged consumer mode (Screen pinning, sticky immersive fullscreen, FLAG_SECURE, and continuous foreground watchdog).
+ * 2. Unmanaged personal mode (Screen pinning, high-priority KioskWatchdogService, Accessibility Guardian, System Alert Overlay, sticky immersive fullscreen, FLAG_SECURE).
  */
 @CapacitorPlugin(name = "KioskPlugin")
 public class KioskPlugin extends Plugin {
@@ -68,6 +74,124 @@ public class KioskPlugin extends Plugin {
         ret.put("manufacturer", Build.MANUFACTURER);
         ret.put("sdkVersion", Build.VERSION.SDK_INT);
         ret.put("isDeviceOwner", isOwner);
+        call.resolve(ret);
+    }
+
+    @PluginMethod
+    public void canDrawOverlays(PluginCall call) {
+        Activity activity = getActivity();
+        if (activity == null) {
+            call.reject("Activity is null");
+            return;
+        }
+        boolean canDraw = true;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            canDraw = Settings.canDrawOverlays(activity);
+        }
+        JSObject ret = new JSObject();
+        ret.put("canDrawOverlays", canDraw);
+        call.resolve(ret);
+    }
+
+    @PluginMethod
+    public void requestOverlayPermission(PluginCall call) {
+        Activity activity = getActivity();
+        if (activity == null) {
+            call.reject("Activity is null");
+            return;
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            if (!Settings.canDrawOverlays(activity)) {
+                Intent intent = new Intent(
+                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:" + activity.getPackageName())
+                );
+                activity.startActivity(intent);
+            }
+        }
+        JSObject ret = new JSObject();
+        ret.put("requested", true);
+        call.resolve(ret);
+    }
+
+    @PluginMethod
+    public void isAccessibilityServiceEnabled(PluginCall call) {
+        Activity activity = getActivity();
+        if (activity == null) {
+            call.reject("Activity is null");
+            return;
+        }
+        boolean isEnabled = false;
+        try {
+            AccessibilityManager am = (AccessibilityManager) activity.getSystemService(Context.ACCESSIBILITY_SERVICE);
+            if (am != null) {
+                List<AccessibilityServiceInfo> enabledServices = am.getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_ALL_MASK);
+                String expected = activity.getPackageName() + "/" + SmartAttendAccessibilityService.class.getName();
+                for (AccessibilityServiceInfo info : enabledServices) {
+                    if (info.getId() != null && info.getId().contains(activity.getPackageName())) {
+                        isEnabled = true;
+                        break;
+                    }
+                }
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Accessibility check notice: " + e.getMessage());
+        }
+        JSObject ret = new JSObject();
+        ret.put("isEnabled", isEnabled || SmartAttendAccessibilityService.isRunning());
+        call.resolve(ret);
+    }
+
+    @PluginMethod
+    public void requestAccessibilityPermission(PluginCall call) {
+        Activity activity = getActivity();
+        if (activity == null) {
+            call.reject("Activity is null");
+            return;
+        }
+        try {
+            Intent intent = new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS);
+            activity.startActivity(intent);
+        } catch (Exception e) {
+            Log.w(TAG, "Accessibility intent error: " + e.getMessage());
+        }
+        JSObject ret = new JSObject();
+        ret.put("requested", true);
+        call.resolve(ret);
+    }
+
+    @PluginMethod
+    public void getSecurityDiagnostics(PluginCall call) {
+        Activity activity = getActivity();
+        if (activity == null) {
+            call.reject("Activity is null");
+            return;
+        }
+
+        DevicePolicyManager dpm = (DevicePolicyManager) activity.getSystemService(Context.DEVICE_POLICY_SERVICE);
+        String pkg = activity.getPackageName();
+        boolean isOwner = (dpm != null && dpm.isDeviceOwnerApp(pkg));
+
+        boolean canOverlay = true;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            canOverlay = Settings.canDrawOverlays(activity);
+        }
+
+        boolean a11yActive = SmartAttendAccessibilityService.isRunning();
+
+        ActivityManager am = (ActivityManager) activity.getSystemService(Context.ACTIVITY_SERVICE);
+        int lockTaskMode = 0;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && am != null) {
+            lockTaskMode = am.getLockTaskModeState();
+        }
+
+        JSObject ret = new JSObject();
+        ret.put("isDeviceOwner", isOwner);
+        ret.put("canDrawOverlays", canOverlay);
+        ret.put("isAccessibilityActive", a11yActive);
+        ret.put("isKioskEnforced", isKioskEnforced);
+        ret.put("lockTaskModeState", lockTaskMode); // 0=NONE, 1=LOCKED (MDM), 2=PINNED (Screen Pin)
+        ret.put("securityLevel", isOwner ? "HARDWARE_MDM_LOCK" : (canOverlay ? "ANTI_ESCAPE_OVERLAY_WATCHDOG" : "BASIC_SUPERVISION"));
         call.resolve(ret);
     }
 
@@ -205,12 +329,58 @@ public class KioskPlugin extends Plugin {
             activity.runOnUiThread(() -> {
                 try {
                     isKioskEnforced = true;
+                    
+                    // 1. Start Watchdog Foreground Service
+                    try {
+                        Intent serviceIntent = new Intent(activity, KioskWatchdogService.class);
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                            ContextCompat.startForegroundService(activity, serviceIntent);
+                        } else {
+                            activity.startService(serviceIntent);
+                        }
+                    } catch (Exception svcErr) {
+                        Log.w(TAG, "Watchdog service start notice: " + svcErr.getMessage());
+                    }
+
+                    // 2. Start Overlay Service if permission is granted
+                    try {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && Settings.canDrawOverlays(activity)) {
+                            Intent overlayIntent = new Intent(activity, KioskOverlayService.class);
+                            overlayIntent.setAction("SHOW_BLOCKING_OVERLAY");
+                            activity.startService(overlayIntent);
+                        }
+                    } catch (Exception overlayErr) {
+                        Log.w(TAG, "Overlay service start notice: " + overlayErr.getMessage());
+                    }
+
+                    // 3. Re-enforce locks, screen wake, secure flags
                     reEnforceKiosk(activity);
 
                     DevicePolicyManager dpm = (DevicePolicyManager) activity.getSystemService(Context.DEVICE_POLICY_SERVICE);
-                    boolean isDeviceOwner = (dpm != null && dpm.isDeviceOwnerApp(activity.getPackageName()));
+                    ComponentName adminComponent = new ComponentName(activity, AdminReceiver.class);
+                    String pkg = activity.getPackageName();
+                    boolean isDeviceOwner = (dpm != null && dpm.isDeviceOwnerApp(pkg));
 
-                    // Start Android OS Lock Task Mode (locks Home, Overview, and Notifications)
+                    if (isDeviceOwner) {
+                        try {
+                            dpm.setLockTaskPackages(adminComponent, new String[]{ pkg });
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                                dpm.setLockTaskFeatures(adminComponent, DevicePolicyManager.LOCK_TASK_FEATURE_NONE);
+                            }
+                            dpm.addUserRestriction(adminComponent, UserManager.DISALLOW_SAFE_BOOT);
+                            dpm.addUserRestriction(adminComponent, UserManager.DISALLOW_APPS_CONTROL);
+                            dpm.addUserRestriction(adminComponent, UserManager.DISALLOW_SYSTEM_ERROR_DIALOGS);
+                            dpm.addUserRestriction(adminComponent, UserManager.DISALLOW_FACTORY_RESET);
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                                dpm.setKeyguardDisabled(adminComponent, true);
+                                dpm.setStatusBarDisabled(adminComponent, true);
+                            }
+                        } catch (Exception dpmErr) {
+                            Log.w(TAG, "DPM config notice: " + dpmErr.getMessage());
+                        }
+                    }
+
+                    // 4. Start Android OS Lock Task Mode (locks Home, Overview, and Notifications)
                     try {
                         ActivityManager am = (ActivityManager) activity.getSystemService(Context.ACTIVITY_SERVICE);
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && am != null) {
@@ -228,7 +398,7 @@ public class KioskPlugin extends Plugin {
                     ret.put("active", true);
                     ret.put("isDeviceOwner", isDeviceOwner);
                     ret.put("flagSecure", true);
-                    ret.put("message", isDeviceOwner ? "Managed Kiosk Mode active" : "Lock Task active");
+                    ret.put("message", isDeviceOwner ? "Managed Kiosk Mode active (Hardware Locked)" : "Kiosk Lock Task active (Guardian Protected)");
                     call.resolve(ret);
                 } catch (Exception e) {
                     Log.e(TAG, "Exception starting Lock Task: " + e.getMessage(), e);
@@ -257,7 +427,24 @@ public class KioskPlugin extends Plugin {
                 try {
                     isKioskEnforced = false;
 
-                    // 1. Clear DevicePolicyManager restrictions
+                    // 1. Stop Watchdog Foreground Service
+                    try {
+                        Intent serviceIntent = new Intent(activity, KioskWatchdogService.class);
+                        activity.stopService(serviceIntent);
+                    } catch (Exception svcErr) {
+                        Log.w(TAG, "Stop service notice: " + svcErr.getMessage());
+                    }
+
+                    // 2. Stop Overlay Service
+                    try {
+                        Intent overlayIntent = new Intent(activity, KioskOverlayService.class);
+                        overlayIntent.setAction("HIDE_BLOCKING_OVERLAY");
+                        activity.stopService(overlayIntent);
+                    } catch (Exception overlayErr) {
+                        Log.w(TAG, "Stop overlay notice: " + overlayErr.getMessage());
+                    }
+
+                    // 3. Clear DevicePolicyManager restrictions
                     try {
                         DevicePolicyManager dpm = (DevicePolicyManager) activity.getSystemService(Context.DEVICE_POLICY_SERVICE);
                         ComponentName adminComponent = new ComponentName(activity, AdminReceiver.class);
@@ -279,17 +466,20 @@ public class KioskPlugin extends Plugin {
                         Log.w(TAG, "Notice clearing DPM restrictions: " + e.getMessage());
                     }
 
-                    // 2. Clear keep screen awake flag & clear screenshot block
-                    activity.getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-                    activity.getWindow().clearFlags(WindowManager.LayoutParams.FLAG_SECURE);
-                    activity.getWindow().clearFlags(WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD);
-                    activity.getWindow().clearFlags(WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED);
-                    activity.getWindow().clearFlags(WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON);
+                    // 4. Clear keep screen awake flag & clear screenshot block
+                    Window window = activity.getWindow();
+                    if (window != null) {
+                        window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+                        window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE);
+                        window.clearFlags(WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD);
+                        window.clearFlags(WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED);
+                        window.clearFlags(WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON);
+                    }
 
-                    // 3. Restore system UI
+                    // 5. Restore system UI
                     clearImmersiveMode(activity);
 
-                    // 4. Exit Android Lock Task mode
+                    // 6. Exit Android Lock Task mode
                     ActivityManager am = (ActivityManager) activity.getSystemService(Context.ACTIVITY_SERVICE);
                     boolean isLocked = true;
 
@@ -480,4 +670,3 @@ public class KioskPlugin extends Plugin {
         }
     }
 }
-

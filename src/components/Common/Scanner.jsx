@@ -101,12 +101,15 @@ function QrScannerApp() {
     const [pinVerificationError, setPinVerificationError] = useState('');
     const [isVerifyingPin, setIsVerifyingPin] = useState(false);
 
-    // Check Device Owner status on launch
+    // Check Device Owner & Anti-Escape Overlay status on launch
+    const [overlayStatus, setOverlayStatus] = useState({ checked: false, canDraw: true });
     const checkDeviceProvisioning = useCallback(async () => {
         if (isNativeApp) {
             try {
                 const ownerRes = await Kiosk.isDeviceOwner();
                 const identRes = await Kiosk.getDeviceIdentity();
+                const overlayRes = await Kiosk.canDrawOverlays();
+                setOverlayStatus({ checked: true, canDraw: Boolean(overlayRes?.canDrawOverlays) });
                 setDeviceIdentity(identRes);
                 setDeviceOwnerStatus({
                     checked: true,
@@ -115,6 +118,7 @@ function QrScannerApp() {
                 });
             } catch (e) {
                 setDeviceOwnerStatus({ checked: true, isDeviceOwner: false, isWeb: false });
+                setOverlayStatus({ checked: true, canDraw: false });
             }
         } else {
             setDeviceOwnerStatus({ checked: true, isDeviceOwner: false, isWeb: true });
@@ -1575,6 +1579,49 @@ function QrScannerApp() {
                 }}>
                     <FaUserCheck style={{ color: '#6366f1' }} />
                     <span>Logged in as: <strong>{loggedInRollNo}</strong> ({loggedInName})</span>
+                </div>
+            )}
+
+            {/* Native Anti-Escape Guardian Status / Overlay Permission Prompt */}
+            {isNativeApp && !deviceOwnerStatus.isDeviceOwner && overlayStatus.checked && !overlayStatus.canDraw && (
+                <div style={{
+                    marginBottom: '16px',
+                    padding: '12px 14px',
+                    borderRadius: '14px',
+                    background: '#fffbeb',
+                    border: '1.5px solid #fde68a',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: '10px',
+                    textAlign: 'left'
+                }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <FaShieldAlt style={{ color: '#d97706', fontSize: '1.1rem', flexShrink: 0 }} />
+                        <div style={{ fontSize: '0.8rem', color: '#92400e', lineHeight: 1.35 }}>
+                            <strong>Anti-Escape Guardian:</strong> Tap to enable overlay permission to lock SmartAttend.
+                        </div>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={async () => {
+                            await Kiosk.requestOverlayPermission();
+                            setTimeout(checkDeviceProvisioning, 2000);
+                        }}
+                        style={{
+                            padding: '6px 12px',
+                            borderRadius: '8px',
+                            background: '#d97706',
+                            color: '#ffffff',
+                            border: 'none',
+                            fontSize: '0.75rem',
+                            fontWeight: 800,
+                            cursor: 'pointer',
+                            flexShrink: 0
+                        }}
+                    >
+                        Enable
+                    </button>
                 </div>
             )}
 

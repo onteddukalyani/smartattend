@@ -19,6 +19,29 @@ const NativeKioskPlugin = registerPlugin('KioskPlugin', {
     clearAttendanceRestrictions: async () => {
       return { success: true, isWebFallback: true, message: 'Web attendance restrictions cleared' };
     },
+    canDrawOverlays: async () => {
+      return { canDrawOverlays: false, isWebFallback: true };
+    },
+    requestOverlayPermission: async () => {
+      return { requested: false, isWebFallback: true };
+    },
+    isAccessibilityServiceEnabled: async () => {
+      return { isEnabled: false, isWebFallback: true };
+    },
+    requestAccessibilityPermission: async () => {
+      return { requested: false, isWebFallback: true };
+    },
+    getSecurityDiagnostics: async () => {
+      return {
+        isDeviceOwner: false,
+        canDrawOverlays: false,
+        isAccessibilityActive: false,
+        isKioskEnforced: false,
+        lockTaskModeState: 0,
+        securityLevel: 'WEB_BROWSER',
+        isWebFallback: true
+      };
+    },
     startKiosk: async () => {
       console.log('[KioskPlugin Web] Starting web supervised session');
       
@@ -191,6 +214,81 @@ export const Kiosk = {
     } catch (err) {
       console.warn('[Kiosk] getDeviceIdentity notice:', err);
       return { deviceId: 'UNKNOWN_DEVICE', error: err.message || String(err), isDeviceOwner: false };
+    }
+  },
+
+  /**
+   * Check if SYSTEM_ALERT_WINDOW (Display over other apps) permission is granted
+   */
+  async canDrawOverlays() {
+    try {
+      const isNative = Capacitor.isNativePlatform();
+      if (!isNative) return { canDrawOverlays: false, isWebFallback: true };
+      const result = await NativeKioskPlugin.canDrawOverlays();
+      return result || { canDrawOverlays: false };
+    } catch (err) {
+      return { canDrawOverlays: false, error: err.message };
+    }
+  },
+
+  /**
+   * Open system settings for user to grant Display over other apps permission
+   */
+  async requestOverlayPermission() {
+    try {
+      const isNative = Capacitor.isNativePlatform();
+      if (!isNative) return { requested: false };
+      return await NativeKioskPlugin.requestOverlayPermission();
+    } catch (err) {
+      return { requested: false, error: err.message };
+    }
+  },
+
+  /**
+   * Check if Accessibility Guardian service is enabled
+   */
+  async isAccessibilityServiceEnabled() {
+    try {
+      const isNative = Capacitor.isNativePlatform();
+      if (!isNative) return { isEnabled: false };
+      return await NativeKioskPlugin.isAccessibilityServiceEnabled();
+    } catch (err) {
+      return { isEnabled: false, error: err.message };
+    }
+  },
+
+  /**
+   * Open system Accessibility Settings
+   */
+  async requestAccessibilityPermission() {
+    try {
+      const isNative = Capacitor.isNativePlatform();
+      if (!isNative) return { requested: false };
+      return await NativeKioskPlugin.requestAccessibilityPermission();
+    } catch (err) {
+      return { requested: false, error: err.message };
+    }
+  },
+
+  /**
+   * Get full security and kiosk diagnostic telemetry
+   */
+  async getSecurityDiagnostics() {
+    try {
+      const isNative = Capacitor.isNativePlatform();
+      if (!isNative) {
+        return {
+          isDeviceOwner: false,
+          canDrawOverlays: false,
+          isAccessibilityActive: false,
+          isKioskEnforced: false,
+          lockTaskModeState: 0,
+          securityLevel: 'WEB_BROWSER'
+        };
+      }
+      return await NativeKioskPlugin.getSecurityDiagnostics();
+    } catch (err) {
+      return { isDeviceOwner: false, error: err.message };
     }
   },
 

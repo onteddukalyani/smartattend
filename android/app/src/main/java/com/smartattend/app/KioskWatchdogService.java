@@ -1,0 +1,218 @@
+package com.smartattend.app;
+
+import android.app.ActivityManager;
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
+import android.app.Service;
+import android.content.Context;
+import android.content.Intent;
+import android.os.Build;
+import android.os.Handler;
+import android.os.IBinder;
+import android.os.Looper;
+import android.provider.Settings;
+import android.util.Log;
+import androidx.core.app.NotificationCompat;
+import java.lang.reflect.Method;
+
+/**
+ * High-Priority Foreground Watchdog Service for SmartAttend Kiosk Lock Mode.
+ * 
+ * Guarantees that while an attendance session is active (isKioskEnforced == true):
+ * 1. SmartAttend MainActivity is immediately pulled back to full-screen foreground via multiple vectors:
+ *    - FullScreenIntent High-Priority Alarm/Call Notification (bypasses Android 10-15 BAL restrictions)
+ *    - SmartAttendAccessibilityService window transition interception
+ *    - KioskOverlayService blocking system overlay
+ * 2. System notification shades and dialogs are continuously closed.
+ * 3. Android Lock Task / Pinning mode is re-asserted if dropped.
+ */
+public class KioskWatchdogService extends Service {
+    private static final String TAG = "SmartAttendWatchdog";
+    private static final String CHANNEL_ID = "smartattend_kiosk_guard_channel";
+    private static final int NOTIFICATION_ID = 9999;
+    
+    private final Handler handler = new Handler(Looper.getMainLooper());
+    private boolean isRunning = false;
+
+    private final Runnable watchdogTask = new Runnable() {
+        @Override
+        public void run() {
+            if (!KioskPlugin.isKioskEnforced) {
+                stopSelf();
+                return;
+            }
+
+            try {
+                enforceForeground();
+                collapseSystemShades();
+            } catch (Exception e) {
+                Log.w(TAG, "Watchdog loop notice: " + e.getMessage());
+            }
+
+            if (isRunning) {
+                handler.postDelayed(this, 150); // High frequency check
+            }
+        }
+    };
+
+    @Override
+    public void onCreate() {
+        super.onCreate();
+        createNotificationChannel();
+        startForegroundServiceNotification();
+        isRunning = true;
+        handler.post(watchdogTask);
+    }
+
+    @Override
+    public int onStartCommand(Intent intent, int flags, int startId) {
+        startForegroundServiceNotification();
+        if (!isRunning) {
+            isRunning = true;
+            handler.post(watchdogTask);
+        }
+        return START_STICKY;
+    }
+
+    private void createNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            NotificationChannel channel = new NotificationChannel(
+                CHANNEL_ID,
+                "SmartAttend Kiosk Security Guardian",
+                NotificationManager.IMPORTANCE_HIGH
+            );
+            channel.setDescription("Maintains locked attendance session integrity");
+            channel.setShowBadge(false);
+            channel.setSound(null, null);
+            channel.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
+            NotificationManager manager = getSystemService(NotificationManager.class);
+            if (manager != null) {
+                manager.createNotificationChannel(channel);
+            }
+        }
+    }
+
+    private void startForegroundServiceNotification() {
+        Intent notificationIntent = new Intent(this, MainActivity.class);
+        notificationIntent.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT | Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_NEW_TASK);
+        
+        int flags = PendingIntent.FLAG_UPDATE_CURRENT;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            flags |= PendingIntent.FLAG_IMMUTABLE;
+        }
+
+        PendingIntent pendingIntent = PendingIntent.getActivity(this, 0, notificationIntent, flags);
+
+        Notification notification = new NotificationCompat.Builder(this, CHANNEL_ID)
+            .setContentTitle("SmartAttend Session Lock Active")
+            .setContentText("Attendance session is supervised and locked in Kiosk Mode")
+            .setSmallIcon(android.R.drawable.ic_lock_lock)
+            .setContentIntent(pendingIntent)
+            .setFullScreenIntent(pendingIntent, true) // High priority full-screen trigger
+            .setOngoing(true)
+            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .build();
+
+        startForeground(NOTIFICATION_ID, notification);
+    }
+
+    private void enforceForeground() {
+        if (!KioskPlugin.isKioskEnforced) return;
+
+        try {
+            MainActivity activity = MainActivity.getInstance();
+            boolean isPausedOrLostFocus = false;
+
+            if (activity != null) {
+                isPausedOrLostFocus = (!activity.hasWindowFocus() || activity.isActivityPaused());
+            } else {
+                isPausedOrLostFocus = true;
+            }
+
+            if (isPausedOrLostFocus) {
+                // 1. Trigger Accessibility Service relaunch if running
+                if (SmartAttendAccessibilityService.isRunning()) {
+                    SmartAttendAccessibilityService.getInstance().relaunchMainActivity();
+                }
+
+                // 2. Trigger System Alert Overlay if permission granted
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && Settings.canDrawOverlays(this)) {
+                    if (KioskOverlayService.getInstance() != null) {
+                        KioskOverlayService.getInstance().showOverlay();
+                    } else {
+                        Intent overlayIntent = new Intent(this, KioskOverlayService.class);
+                        overlayIntent.setAction("SHOW_BLOCKING_OVERLAY");
+                        startService(overlayIntent);
+                    }
+                }
+
+                // 3. Launch MainActivity via PendingIntent / FullScreenIntent
+                Intent launchIntent = new Intent(this, MainActivity.class);
+                launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK 
+                    | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT 
+                    | Intent.FLAG_ACTIVITY_SINGLE_TOP
+                    | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                
+                int pendingFlags = PendingIntent.FLAG_UPDATE_CURRENT;
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    pendingFlags |= PendingIntent.FLAG_IMMUTABLE;
+                }
+                
+                PendingIntent pi = PendingIntent.getActivity(this, 0, launchIntent, pendingFlags);
+                try {
+                    pi.send();
+                } catch (Exception e) {
+                    try {
+                        startActivity(launchIntent);
+                    } catch (Exception ignored) {}
+                }
+
+                // 4. If MainActivity exists, call bringToFront()
+                if (activity != null) {
+                    activity.bringToFront();
+                }
+            } else {
+                // MainActivity is focused, ensure overlay is dismissed
+                if (KioskOverlayService.getInstance() != null) {
+                    KioskOverlayService.getInstance().hideOverlay();
+                }
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "enforceForeground error: " + e.getMessage());
+        }
+    }
+
+    private void collapseSystemShades() {
+        try {
+            // Close system dialogs / notification pulls
+            Intent closeDialogs = new Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS);
+            sendBroadcast(closeDialogs);
+        } catch (Exception ignored) {}
+
+        try {
+            Object statusBarService = getSystemService("statusbar");
+            if (statusBarService != null) {
+                Class<?> statusBarManager = Class.forName("android.app.StatusBarManager");
+                Method collapse = statusBarManager.getMethod("collapsePanels");
+                collapse.invoke(statusBarService);
+            }
+        } catch (Exception ignored) {}
+    }
+
+    @Override
+    public void onDestroy() {
+        isRunning = false;
+        handler.removeCallbacks(watchdogTask);
+        stopForeground(true);
+        super.onDestroy();
+    }
+
+    @Override
+    public IBinder onBind(Intent intent) {
+        return null;
+    }
+}
