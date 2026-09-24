@@ -22,3 +22,11 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Android / APK Builds
+*.apk
+*.aab
+*.dex
+public/*.apk
+dist/*.apk
+android/app/build/

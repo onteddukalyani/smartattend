@@ -28,6 +28,7 @@ import {
     validateStudentQR2,
     submitVerifiedAttendance,
     subscribeToSession,
+    subscribeToStudentAuthorization,
     recordSessionViolation,
     verifyLecturerEmergencyPin
 } from '../../services/sessionAuthService';
@@ -435,6 +436,26 @@ function QrScannerApp() {
         return () => unsub();
     }, [activeSessionId, sessionStartAt, kioskEndsAt, navigate]);
 
+    // Subscribe to Individual Student Authorization for Remote Release by Lecturer
+    useEffect(() => {
+        if (!activeSessionId) return;
+        const studentIdentifier = user?.uid || loggedInRollNo;
+        if (!studentIdentifier) return;
+
+        const unsubAuth = subscribeToStudentAuthorization(activeSessionId, studentIdentifier, (authData) => {
+            if (authData && (authData.released === true || authData.status === 'RELEASED')) {
+                console.log('[Kiosk] Individual device release authorized by Lecturer. Unlocking Kiosk mode...');
+                try { localStorage.removeItem('smartattend_kiosk_session_state'); } catch (_) {}
+                releaseAllMediaTracks();
+                Kiosk.stopKioskMode().catch(() => {});
+                Kiosk.clearAttendanceRestrictions().catch(() => {});
+                navigate('/student', { replace: true });
+            }
+        });
+
+        return () => unsubAuth();
+    }, [activeSessionId, user?.uid, loggedInRollNo, navigate]);
+
     // Parse Scanned String / URL
     const parseScannedPayload = (raw) => {
         if (!raw) return null;
@@ -767,10 +788,10 @@ function QrScannerApp() {
                         <FaLock />
                     </div>
                     <h3 style={{ margin: '0 0 6px', fontSize: '1.25rem', fontWeight: 800 }}>
-                        Lecturer Emergency Release
+                        Lecturer Session PIN Unlock
                     </h3>
                     <p style={{ margin: '0 0 16px', fontSize: '0.84rem', color: '#64748b', lineHeight: 1.4 }}>
-                        Enter the Lecturer Session Release Code to immediately authorize release from Kiosk Lock Task mode.
+                        Enter the 6-digit Session PIN displayed on the Lecturer Dashboard to unlock this device from Kiosk mode.
                     </p>
 
                     <form onSubmit={handleLecturerPinUnlock}>
@@ -779,7 +800,7 @@ function QrScannerApp() {
                             maxLength={6}
                             value={lecturerPinInput}
                             onChange={(e) => setLecturerPinInput(e.target.value)}
-                            placeholder="Enter 6-digit Release Code"
+                            placeholder="Enter 6-digit Session PIN"
                             autoFocus
                             style={{
                                 width: '100%',
@@ -940,7 +961,7 @@ function QrScannerApp() {
                         ⏱️ {formatMmSs(sessionRemaining)}
                     </div>
                     <p style={{ margin: 0, fontSize: '0.84rem', color: '#64748b', lineHeight: 1.45, marginBottom: '14px' }}>
-                        Attendance is verified. SmartAttend remains locked in <strong>Attendance Lock Mode</strong> until your lecturer ends the attendance session or authorizes release using the Lecturer Release Code.
+                        Attendance is verified. SmartAttend remains locked in <strong>Attendance Lock Mode</strong> until your lecturer ends the attendance session or enters the 6-digit Session PIN.
                     </p>
 
                     <button
@@ -960,7 +981,7 @@ function QrScannerApp() {
                             cursor: 'pointer'
                         }}
                     >
-                        <FaLock style={{ color: '#6366f1' }} /> Enter Lecturer Release Code
+                        <FaLock style={{ color: '#6366f1' }} /> Enter Lecturer Session PIN
                     </button>
                 </div>
             </div>

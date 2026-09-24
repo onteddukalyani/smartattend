@@ -64,7 +64,7 @@ export async function initiateSession(sessionParams) {
   const lecturerEmail = (currentUser?.email || lecturerInfo?.email || "").toLowerCase().trim();
   const lecturerName = lecturerInfo?.name || currentUser?.displayName || (lecturerEmail ? lecturerEmail.split("@")[0] : "Lecturer");
 
-  const rawPin = sessionParams.lecturerPin || Math.floor(1000 + Math.random() * 9000).toString();
+  const rawPin = sessionParams.lecturerPin || sessionParams.sessionPin || Math.floor(100000 + Math.random() * 900000).toString();
   const lecturerPinHash = await sha256(rawPin.trim());
 
   const sessionDoc = {
@@ -75,14 +75,13 @@ export async function initiateSession(sessionParams) {
     roomNo: roomNo,
     batch: batch || "2025",
     phase: "PHASE_1",
+    status: "ACTIVE",
     active: true,
     ownerId: currentUser ? currentUser.uid : "",
     ownerEmail: lecturerEmail,
     lecturerName: lecturerName,
     lecturerEmail: lecturerEmail,
     lecturerDepartment: lecturerInfo?.department || "CSE",
-    lecturerPin: rawPin,
-    lecturerPinHash: lecturerPinHash,
     sessionStartAt: nowMs,
     qr1ExpiresAt: qr1ExpiresMs,
     qr2StartsAt: qr2StartsMs,
@@ -91,12 +90,24 @@ export async function initiateSession(sessionParams) {
     createdAt: nowMs,
     authorizedCount: 0,
     attendanceCount: 0,
-    attendees: [],
-    qr1Token: qr1Token,
-    qr2Token: qr2Token
+    attendees: []
   };
 
-  await setDoc(doc(db, "attendance_sessions", sessionId), sessionDoc);
+  const securityDoc = {
+    qr1TokenHash: qr1TokenHash,
+    qr2TokenHash: qr2TokenHash,
+    lecturerReleaseCodeHash: lecturerPinHash,
+    sessionPinHash: lecturerPinHash,
+    sessionStartAt: nowMs,
+    qr1ExpiresAt: qr1ExpiresMs,
+    qr2StartsAt: qr2StartsMs,
+    kioskEndsAt: kioskEndsMs
+  };
+
+  await Promise.all([
+    setDoc(doc(db, "attendance_sessions", sessionId), sessionDoc),
+    setDoc(doc(db, "attendance_sessions", sessionId, "security", "tokens"), securityDoc)
+  ]);
 
   return {
     success: true,
@@ -108,7 +119,10 @@ export async function initiateSession(sessionParams) {
     qr2StartsAt: qr2StartsMs,
     kioskEndsAt: kioskEndsMs,
     phase: "PHASE_1",
-    lecturerPin: rawPin
+    status: "ACTIVE",
+    sessionPin: rawPin,
+    lecturerPin: rawPin,
+    lecturerReleaseCode: rawPin
   };
 }
 
@@ -619,6 +633,63 @@ export async function verifyLecturerEmergencyPin(sessionId, inputPin, deviceId =
   }
 
   throw new Error("Invalid Lecturer Release Code. Unlock authorization rejected.");
+}
+
+/**
+ * Lecturer: Release an individual student's device from Kiosk Lock Task mode remotely.
+ * Invokes trusted Cloud Function 'releaseIndividualDevice' to enforce lecturer ownership.
+ */
+export async function releaseIndividualStudentDevice(sessionId, studentUid, rollNo) {
+  if (!sessionId || (!studentUid && !rollNo)) {
+    throw new Error("Session ID and student identifier are required to release device.");
+  }
+
+  try {
+    const fn = httpsCallable(functions, "releaseIndividualDevice");
+    const result = await fn({ sessionId, studentUid, rollNo });
+    return result?.data || { success: true };
+  } catch (err) {
+    console.warn("Cloud Function releaseIndividualDevice notice (using direct Firestore update):", err.message);
+    try {
+      const targetDocId = studentUid || rollNo;
+      const authRef = doc(db, "attendance_sessions", sessionId, "authorizations", targetDocId);
+      await updateDoc(authRef, {
+        released: true,
+        releasedAt: Date.now(),
+        status: "RELEASED"
+      });
+
+      if (rollNo && studentUid && rollNo !== studentUid) {
+        const rollRef = doc(db, "attendance_sessions", sessionId, "authorizations", rollNo);
+        await updateDoc(rollRef, {
+          released: true,
+          releasedAt: Date.now(),
+          status: "RELEASED"
+        }).catch(() => {});
+      }
+
+      return { success: true, status: "RELEASED" };
+    } catch (dbErr) {
+      console.error("Failed to release individual device in Firestore:", dbErr);
+      throw new Error(dbErr.message || "Failed to release device.");
+    }
+  }
+}
+
+/**
+ * Student: Real-time listener for student's individual authorization record.
+ * Listens for remote unlock/release commands from the lecturer dashboard.
+ */
+export function subscribeToStudentAuthorization(sessionId, studentUid, onUpdate) {
+  if (!sessionId || !studentUid) return () => {};
+  const docRef = doc(db, "attendance_sessions", sessionId, "authorizations", studentUid);
+  return onSnapshot(docRef, (snap) => {
+    if (snap.exists()) {
+      onUpdate({ id: snap.id, ...snap.data() });
+    }
+  }, (err) => {
+    console.warn("Student authorization subscription notice:", err);
+  });
 }
 
 

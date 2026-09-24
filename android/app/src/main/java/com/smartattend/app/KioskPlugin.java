@@ -210,27 +210,25 @@ public class KioskPlugin extends Plugin {
                     DevicePolicyManager dpm = (DevicePolicyManager) activity.getSystemService(Context.DEVICE_POLICY_SERVICE);
                     boolean isDeviceOwner = (dpm != null && dpm.isDeviceOwnerApp(activity.getPackageName()));
 
-                    // Start Android OS Lock Task Mode (only if provisioned as Device Owner on managed hardware)
-                    if (isDeviceOwner) {
-                        try {
-                            ActivityManager am = (ActivityManager) activity.getSystemService(Context.ACTIVITY_SERVICE);
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && am != null) {
-                                if (am.getLockTaskModeState() == ActivityManager.LOCK_TASK_MODE_NONE) {
-                                    activity.startLockTask();
-                                }
-                            } else {
+                    // Start Android OS Lock Task Mode (locks Home, Overview, and Notifications)
+                    try {
+                        ActivityManager am = (ActivityManager) activity.getSystemService(Context.ACTIVITY_SERVICE);
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && am != null) {
+                            if (am.getLockTaskModeState() == ActivityManager.LOCK_TASK_MODE_NONE) {
                                 activity.startLockTask();
                             }
-                        } catch (Exception lockErr) {
-                            Log.w(TAG, "startLockTask notice: " + lockErr.getMessage());
+                        } else {
+                            activity.startLockTask();
                         }
+                    } catch (Exception lockErr) {
+                        Log.w(TAG, "startLockTask notice: " + lockErr.getMessage());
                     }
 
                     JSObject ret = new JSObject();
                     ret.put("active", true);
                     ret.put("isDeviceOwner", isDeviceOwner);
                     ret.put("flagSecure", true);
-                    ret.put("message", isDeviceOwner ? "Managed Kiosk Mode active" : "Attendance Lock Mode active");
+                    ret.put("message", isDeviceOwner ? "Managed Kiosk Mode active" : "Lock Task active");
                     call.resolve(ret);
                 } catch (Exception e) {
                     Log.e(TAG, "Exception starting Lock Task: " + e.getMessage(), e);
@@ -417,16 +415,16 @@ public class KioskPlugin extends Plugin {
                         Log.w(TAG, "DevicePolicyManager setup notice: " + dpmErr.getMessage());
                     }
 
-                    // 6. Android Lock Task Mode (Only re-assert silently if provisioned as Device Owner)
+                    // 6. Android Lock Task Mode (re-assert if not already locked)
                     try {
-                        DevicePolicyManager dpm = (DevicePolicyManager) activity.getSystemService(Context.DEVICE_POLICY_SERVICE);
-                        boolean isDeviceOwner = (dpm != null && dpm.isDeviceOwnerApp(activity.getPackageName()));
                         ActivityManager am = (ActivityManager) activity.getSystemService(Context.ACTIVITY_SERVICE);
-                        if (isDeviceOwner && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && am != null) {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && am != null) {
                             int currentLockMode = am.getLockTaskModeState();
                             if (currentLockMode == ActivityManager.LOCK_TASK_MODE_NONE && isKioskEnforced) {
                                 activity.startLockTask();
                             }
+                        } else if (isKioskEnforced) {
+                            activity.startLockTask();
                         }
                     } catch (Exception lockErr) {
                         Log.w(TAG, "Notice asserting Lock Task mode: " + lockErr.getMessage());

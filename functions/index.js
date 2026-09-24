@@ -154,6 +154,7 @@ exports.initiateAttendanceSession = onCall(async (request) => {
     qr1TokenHash: qr1TokenHash,
     qr2TokenHash: qr2TokenHash,
     lecturerReleaseCodeHash: lecturerReleaseCodeHash,
+    sessionPinHash: lecturerReleaseCodeHash,
     sessionStartAt: Timestamp.fromMillis(sessionStartMs),
     qr1ExpiresAt: Timestamp.fromMillis(qr1ExpiresMs),
     qr2StartsAt: Timestamp.fromMillis(qr2StartsMs),
@@ -176,6 +177,8 @@ exports.initiateAttendanceSession = onCall(async (request) => {
     kioskEndsAt: kioskEndsMs,
     phase: "PHASE_1",
     status: "ACTIVE",
+    sessionPin: rawReleaseCode,
+    lecturerPin: rawReleaseCode,
     lecturerReleaseCode: rawReleaseCode
   };
 });
@@ -550,9 +553,10 @@ exports.verifyLecturerReleaseCode = onCall(async (request) => {
     throw new HttpsError("unauthenticated", "Authentication required to request kiosk release.");
   }
 
-  const { sessionId, releaseCode, deviceId } = request.data || {};
-  if (!sessionId || !releaseCode) {
-    throw new HttpsError("invalid-argument", "Session ID and Lecturer Release Code are required.");
+  const { sessionId, releaseCode, sessionPin, pin, deviceId } = request.data || {};
+  const inputPin = releaseCode || sessionPin || pin;
+  if (!sessionId || !inputPin) {
+    throw new HttpsError("invalid-argument", "Session ID and Session PIN are required.");
   }
 
   const sessionRef = db.collection("attendance_sessions").doc(sessionId);
@@ -566,10 +570,11 @@ exports.verifyLecturerReleaseCode = onCall(async (request) => {
   }
 
   const security = securitySnap.data();
-  const inputHash = hashToken(String(releaseCode).trim());
+  const inputHash = hashToken(String(inputPin).trim());
+  const expectedHash = security.lecturerReleaseCodeHash || security.sessionPinHash;
 
-  if (inputHash !== security.lecturerReleaseCodeHash) {
-    throw new HttpsError("permission-denied", "❌ Invalid Lecturer Release Code. Device remains locked in Kiosk mode.");
+  if (inputHash !== expectedHash) {
+    throw new HttpsError("permission-denied", "❌ Invalid Session PIN. Device remains locked in Kiosk mode.");
   }
 
   const releaseToken = crypto.randomBytes(16).toString("hex");
@@ -637,3 +642,65 @@ exports.endAttendanceSession = onCall(async (request) => {
     message: "Attendance session closed successfully. All student kiosks released."
   };
 });
+
+/**
+ * 8. RELEASE INDIVIDUAL DEVICE (Lecturer Only)
+ * Remotely unlocks a specific student's device from Kiosk Lock Task mode without closing the whole session.
+ * Enforces that only the session owner (lecturer) can authorize the device release.
+ */
+exports.releaseIndividualDevice = onCall(async (request) => {
+  if (!request.auth || !request.auth.uid) {
+    throw new HttpsError("unauthenticated", "Authentication required to release device.");
+  }
+
+  const { sessionId, studentUid, rollNo } = request.data || {};
+  if (!sessionId || (!studentUid && !rollNo)) {
+    throw new HttpsError("invalid-argument", "Session ID and student identifier are required.");
+  }
+
+  const sessionRef = db.collection("attendance_sessions").doc(sessionId);
+  const sessionSnap = await sessionRef.get();
+
+  if (!sessionSnap.exists) {
+    throw new HttpsError("not-found", "Attendance session not found.");
+  }
+
+  const session = sessionSnap.data();
+  if (session.ownerId !== request.auth.uid) {
+    throw new HttpsError("permission-denied", "Only the owning lecturer can release student devices.");
+  }
+
+  const targetDocId = studentUid || rollNo;
+  const authRef = sessionRef.collection("authorizations").doc(targetDocId);
+  const authSnap = await authRef.get();
+
+  if (authSnap.exists) {
+    await authRef.update({
+      released: true,
+      releasedAt: FieldValue.serverTimestamp(),
+      releasedBy: request.auth.uid,
+      status: "RELEASED"
+    });
+  }
+
+  if (rollNo && studentUid && rollNo !== studentUid) {
+    try {
+      const rollAuthRef = sessionRef.collection("authorizations").doc(rollNo);
+      await rollAuthRef.update({
+        released: true,
+        releasedAt: FieldValue.serverTimestamp(),
+        releasedBy: request.auth.uid,
+        status: "RELEASED"
+      });
+    } catch (e) {}
+  }
+
+  return {
+    success: true,
+    sessionId: sessionId,
+    studentUid: targetDocId,
+    status: "RELEASED",
+    message: "Individual device release authorized by lecturer."
+  };
+});
+

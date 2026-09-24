@@ -4,7 +4,13 @@ import { QRCodeCanvas } from "qrcode.react";
 import { collection, getDocs } from "firebase/firestore";
 import { db } from "../../../firebase";
 import { createAttendanceSession } from "./CreateSession";
-import { transitionSessionToPhase2, subscribeToSession, subscribeToAuthorizations, closeAttendanceSession } from "../../../services/sessionAuthService";
+import {
+    transitionSessionToPhase2,
+    subscribeToSession,
+    subscribeToAuthorizations,
+    closeAttendanceSession,
+    releaseIndividualStudentDevice
+} from "../../../services/sessionAuthService";
 import { useAuth } from "../../authcontext";
 import { isCourseAssignedToLecturer } from "./LecturerCourses";
 import {
@@ -23,6 +29,9 @@ import {
     FaShieldAlt,
     FaExclamationTriangle,
     FaLock,
+    FaUnlock,
+    FaMobileAlt,
+    FaSpinner,
     FaUserCheck,
     FaCheckDouble
 } from "react-icons/fa";
@@ -53,6 +62,7 @@ function GenerateQR() {
 
     const [sessionData, setSessionData] = useState(null);
     const [authorizedStudents, setAuthorizedStudents] = useState([]);
+    const [releasingStudentId, setReleasingStudentId] = useState(null);
 
     // UI State
     const [isGenerating, setIsGenerating] = useState(false);
@@ -204,7 +214,9 @@ function GenerateQR() {
             const result = await createAttendanceSession(classCode, courseCode.trim(), roomNo.trim(), finalBatch, lecturerInfo);
 
             setSessionId(result.sessionId);
-            if (result.lecturerPin) setSessionPin(result.lecturerPin);
+            if (result.sessionPin || result.lecturerPin || result.lecturerReleaseCode) {
+                setSessionPin(result.sessionPin || result.lecturerPin || result.lecturerReleaseCode);
+            }
             setQr1Token(result.qr1Token);
             setQr2Token(result.qr2Token);
             setSessionStartAt(result.sessionStartAt);
@@ -234,6 +246,27 @@ function GenerateQR() {
             setPhase("PHASE_2");
         } finally {
             setIsTransitioning(false);
+        }
+    };
+
+    // 6. Release Individual Student Device Remotely from Kiosk Lock Task Mode
+    const handleReleaseIndividualStudent = async (student) => {
+        const studentId = student.studentUid || student.id || student.rollNo;
+        const rollNo = student.rollNo || studentId;
+        const studentName = student.studentName || rollNo;
+
+        if (!window.confirm(`Are you sure you want to release ${studentName} (${rollNo}) from Kiosk Lock Task mode immediately?`)) {
+            return;
+        }
+
+        setReleasingStudentId(studentId);
+        try {
+            await releaseIndividualStudentDevice(sessionId, student.studentUid || student.id, rollNo);
+        } catch (err) {
+            console.error("Error releasing student device:", err);
+            alert("❌ Failed to release device: " + (err.message || err));
+        } finally {
+            setReleasingStudentId(null);
         }
     };
 
@@ -501,9 +534,10 @@ function GenerateQR() {
                                     flexWrap: "wrap",
                                     gap: "8px"
                                 }}>
-                                    <div style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "0.84rem", color: "#334155" }}>
+                                    <div style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "0.86rem", color: "#334155" }}>
                                         <FaLock style={{ color: "#6366f1" }} />
-                                        <span>Lecturer Release Code: <strong style={{ color: "#4338ca", letterSpacing: "1px", fontSize: "0.95rem" }}>{sessionPin || "1234"}</strong></span>
+                                        <span>Session PIN: <strong style={{ color: "#4338ca", letterSpacing: "2px", fontSize: "1.05rem", fontWeight: 800 }}>{sessionPin || "------"}</strong></span>
+                                        <span style={{ fontSize: "0.74rem", color: "#64748b", marginLeft: "4px" }}>(Unlocks all student devices)</span>
                                     </div>
                                     <button
                                         type="button"
@@ -738,6 +772,211 @@ function GenerateQR() {
                     )}
                 </section>
             </div>
+
+            {/* 3. Connected Devices & Authorized Kiosks Management */}
+            {sessionId && (
+                <section style={{
+                    marginTop: "30px",
+                    padding: "24px",
+                    background: "var(--surface, #ffffff)",
+                    borderRadius: "20px",
+                    border: "1.5px solid var(--border, #e2e8f0)",
+                    boxShadow: "0 10px 30px -10px rgba(0,0,0,0.08)"
+                }}>
+                    <div style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        flexWrap: "wrap",
+                        gap: "12px",
+                        marginBottom: "18px",
+                        paddingBottom: "14px",
+                        borderBottom: "1px solid var(--border, #e2e8f0)"
+                    }}>
+                        <div>
+                            <h3 style={{ margin: "0 0 4px", fontSize: "1.25rem", fontWeight: 800, color: "var(--text-main, #0f172a)", display: "flex", alignItems: "center", gap: "8px" }}>
+                                <FaMobileAlt style={{ color: "#6366f1" }} /> Connected Devices &amp; Kiosk Status
+                            </h3>
+                            <p style={{ margin: 0, fontSize: "0.86rem", color: "var(--text-muted, #64748b)" }}>
+                                Real-time list of students checked in via QR1 with active Android Lock Task Mode.
+                            </p>
+                        </div>
+
+                        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                            <span style={{
+                                padding: "6px 14px",
+                                borderRadius: "999px",
+                                background: "rgba(99, 102, 241, 0.12)",
+                                color: "#4338ca",
+                                fontWeight: 800,
+                                fontSize: "0.85rem"
+                            }}>
+                                📱 {authorizedStudents.length} Connected Devices
+                            </span>
+                            <span style={{
+                                padding: "6px 14px",
+                                borderRadius: "999px",
+                                background: "rgba(16, 185, 129, 0.12)",
+                                color: "#047857",
+                                fontWeight: 800,
+                                fontSize: "0.85rem"
+                            }}>
+                                ✅ {sessionData?.attendanceCount || 0} Attendance Verified
+                            </span>
+                        </div>
+                    </div>
+
+                    {authorizedStudents.length === 0 ? (
+                        <div style={{
+                            padding: "30px 20px",
+                            textAlign: "center",
+                            background: "var(--surface-soft, #f8fafc)",
+                            borderRadius: "14px",
+                            color: "var(--text-muted, #64748b)",
+                            fontSize: "0.9rem"
+                        }}>
+                            <FaClock style={{ fontSize: "1.8rem", color: "#94a3b8", marginBottom: "8px", display: "block", margin: "0 auto 8px" }} />
+                            Waiting for students to scan QR1 and enter Kiosk Lock Task Mode...
+                        </div>
+                    ) : (
+                        <div style={{ overflowX: "auto" }}>
+                            <table style={{
+                                width: "100%",
+                                borderCollapse: "collapse",
+                                textAlign: "left",
+                                fontSize: "0.88rem"
+                            }}>
+                                <thead>
+                                    <tr style={{
+                                        background: "var(--surface-soft, #f1f5f9)",
+                                        color: "var(--text-main, #334155)",
+                                        borderBottom: "2px solid var(--border, #cbd5e1)"
+                                    }}>
+                                        <th style={{ padding: "12px 14px", fontWeight: 800 }}>Roll Number</th>
+                                        <th style={{ padding: "12px 14px", fontWeight: 800 }}>Student Name</th>
+                                        <th style={{ padding: "12px 14px", fontWeight: 800 }}>Kiosk / MDM Status</th>
+                                        <th style={{ padding: "12px 14px", fontWeight: 800 }}>Attendance</th>
+                                        <th style={{ padding: "12px 14px", fontWeight: 800, textAlign: "right" }}>Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {authorizedStudents.map((student) => {
+                                        const studentId = student.studentUid || student.id || student.rollNo;
+                                        const isReleased = student.released === true || student.status === "RELEASED" || phase === "CLOSED";
+                                        const isAttended = sessionData?.attendees?.some((a) => (a.rollNo || "").toUpperCase() === (student.rollNo || "").toUpperCase()) || false;
+                                        const isBusy = releasingStudentId === studentId;
+
+                                        return (
+                                            <tr key={student.id || student.rollNo} style={{
+                                                borderBottom: "1px solid var(--border, #e2e8f0)",
+                                                background: isReleased ? "rgba(241, 245, 249, 0.5)" : "transparent"
+                                            }}>
+                                                <td style={{ padding: "12px 14px", fontWeight: 800, color: "var(--text-main, #0f172a)" }}>
+                                                    {student.rollNo}
+                                                </td>
+                                                <td style={{ padding: "12px 14px", color: "var(--text-main, #334155)" }}>
+                                                    {student.studentName || student.fullName || student.rollNo}
+                                                </td>
+                                                <td style={{ padding: "12px 14px" }}>
+                                                    {isReleased ? (
+                                                        <span style={{
+                                                            display: "inline-flex",
+                                                            alignItems: "center",
+                                                            gap: "4px",
+                                                            padding: "4px 10px",
+                                                            borderRadius: "999px",
+                                                            background: "#f1f5f9",
+                                                            color: "#64748b",
+                                                            fontWeight: 700,
+                                                            fontSize: "0.78rem"
+                                                        }}>
+                                                            <FaUnlock style={{ color: "#10b981" }} /> Device Released
+                                                        </span>
+                                                    ) : (
+                                                        <span style={{
+                                                            display: "inline-flex",
+                                                            alignItems: "center",
+                                                            gap: "4px",
+                                                            padding: "4px 10px",
+                                                            borderRadius: "999px",
+                                                            background: "rgba(99, 102, 241, 0.12)",
+                                                            color: "#4338ca",
+                                                            fontWeight: 700,
+                                                            fontSize: "0.78rem"
+                                                        }}>
+                                                            <FaLock style={{ color: "#6366f1" }} /> Locked in Kiosk
+                                                        </span>
+                                                    )}
+                                                </td>
+                                                <td style={{ padding: "12px 14px" }}>
+                                                    {isAttended ? (
+                                                        <span style={{
+                                                            display: "inline-flex",
+                                                            alignItems: "center",
+                                                            gap: "4px",
+                                                            padding: "4px 10px",
+                                                            borderRadius: "999px",
+                                                            background: "#dcfce7",
+                                                            color: "#15803d",
+                                                            fontWeight: 800,
+                                                            fontSize: "0.78rem"
+                                                        }}>
+                                                            <FaCheckCircle /> Verified (100%)
+                                                        </span>
+                                                    ) : (
+                                                        <span style={{
+                                                            display: "inline-flex",
+                                                            alignItems: "center",
+                                                            gap: "4px",
+                                                            padding: "4px 10px",
+                                                            borderRadius: "999px",
+                                                            background: "#fef3c7",
+                                                            color: "#b45309",
+                                                            fontWeight: 700,
+                                                            fontSize: "0.78rem"
+                                                        }}>
+                                                            <FaClock /> Pending QR2
+                                                        </span>
+                                                    )}
+                                                </td>
+                                                <td style={{ padding: "12px 14px", textAlign: "right" }}>
+                                                    <button
+                                                        type="button"
+                                                        disabled={isReleased || isBusy}
+                                                        onClick={() => handleReleaseIndividualStudent(student)}
+                                                        style={{
+                                                            padding: "6px 12px",
+                                                            borderRadius: "8px",
+                                                            background: isReleased ? "#f1f5f9" : "linear-gradient(135deg, #6366f1 0%, #4338ca 100%)",
+                                                            border: isReleased ? "1px solid #cbd5e1" : "none",
+                                                            color: isReleased ? "#94a3b8" : "#ffffff",
+                                                            fontWeight: 800,
+                                                            fontSize: "0.78rem",
+                                                            cursor: isReleased ? "not-allowed" : "pointer",
+                                                            display: "inline-flex",
+                                                            alignItems: "center",
+                                                            gap: "5px",
+                                                            boxShadow: isReleased ? "none" : "0 2px 8px rgba(99, 102, 241, 0.3)"
+                                                        }}
+                                                    >
+                                                        {isBusy ? (
+                                                            <FaSpinner className="fa-spin" />
+                                                        ) : isReleased ? (
+                                                            <>Unlocked</>
+                                                        ) : (
+                                                            <><FaUnlock /> Release Device</>
+                                                        )}
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
+                </section>
+            )}
         </div>
     );
 }
