@@ -64,8 +64,10 @@ service cloud.firestore {
     // =========================================================================
 
     match /attendance_sessions/{sessionId} {
-      allow read, create, update, write: if true;
-      allow delete: if isAdmin() || isLecturer() || isAuthenticated();
+      allow read: if true;
+      allow create: if isAuthenticated();
+      allow update: if isAdmin() || isLecturer() || (isAuthenticated() && resource.data.ownerId == request.auth.uid);
+      allow delete: if isAdmin() || isLecturer() || (isAuthenticated() && resource.data.ownerId == request.auth.uid);
 
       // Private Security Tokens Subcollection - ZERO CLIENT ACCESS (Cloud Functions Admin SDK ONLY)
       match /security/{docId} {
@@ -74,7 +76,14 @@ service cloud.firestore {
 
       // Session Authorizations Subcollection
       match /authorizations/{studentUid} {
-        allow read, write: if true;
+        allow read: if true;
+        allow write: if isAuthenticated() && (request.auth.uid == studentUid || isAdmin() || isLecturer());
+      }
+
+      // Session Audit Logs Subcollection (Read-only for lecturer/admin)
+      match /audit_logs/{logId} {
+        allow read: if isAdmin() || isLecturer();
+        allow write: if false;
       }
     }
 

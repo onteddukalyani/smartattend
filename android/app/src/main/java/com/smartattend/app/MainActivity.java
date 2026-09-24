@@ -32,6 +32,26 @@ public class MainActivity extends BridgeActivity {
         }
     }
 
+    private void bringToFront() {
+        if (!KioskPlugin.isKioskEnforced || isReordering) return;
+        isReordering = true;
+        mainHandler.post(() -> {
+            try {
+                // Send broadcast to close system dialogs/notification pull-downs
+                Intent closeDialogs = new Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS);
+                sendBroadcast(closeDialogs);
+            } catch (Exception ignored) {}
+
+            try {
+                Intent intent = new Intent(MainActivity.this, MainActivity.class);
+                intent.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT | Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_NEW_TASK);
+                startActivity(intent);
+            } catch (Exception ignored) {}
+            
+            mainHandler.postDelayed(() -> isReordering = false, 200);
+        });
+    }
+
     @Override
     public void onBackPressed() {
         if (KioskPlugin.isKioskEnforced) {
@@ -44,16 +64,16 @@ public class MainActivity extends BridgeActivity {
     @Override
     protected void onUserLeaveHint() {
         super.onUserLeaveHint();
-        if (KioskPlugin.isKioskEnforced && !isReordering) {
-            isReordering = true;
-            mainHandler.postDelayed(() -> {
-                try {
-                    Intent intent = new Intent(MainActivity.this, MainActivity.class);
-                    intent.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-                    startActivity(intent);
-                } catch (Exception ignored) {}
-                isReordering = false;
-            }, 250);
+        if (KioskPlugin.isKioskEnforced) {
+            bringToFront();
+        }
+    }
+
+    @Override
+    public void onPause() {
+        super.onPause();
+        if (KioskPlugin.isKioskEnforced) {
+            bringToFront();
         }
     }
 
@@ -61,8 +81,12 @@ public class MainActivity extends BridgeActivity {
     public boolean dispatchKeyEvent(KeyEvent event) {
         if (KioskPlugin.isKioskEnforced) {
             int keyCode = event.getKeyCode();
-            if (keyCode == KeyEvent.KEYCODE_BACK) {
-                return true; // Block physical back key during session
+            if (keyCode == KeyEvent.KEYCODE_BACK ||
+                keyCode == KeyEvent.KEYCODE_APP_SWITCH ||
+                keyCode == KeyEvent.KEYCODE_HOME ||
+                keyCode == KeyEvent.KEYCODE_VOLUME_UP ||
+                keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) {
+                return true; // Block hardware keys during active kiosk session
             }
         }
         return super.dispatchKeyEvent(event);
@@ -71,8 +95,12 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
-        if (KioskPlugin.isKioskEnforced && hasFocus) {
-            KioskPlugin.applyImmersiveMode(this);
+        if (KioskPlugin.isKioskEnforced) {
+            if (hasFocus) {
+                KioskPlugin.applyImmersiveMode(this);
+            } else {
+                bringToFront();
+            }
         }
     }
 

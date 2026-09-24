@@ -7,6 +7,7 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.os.Build;
 import android.os.UserManager;
+import android.provider.Settings;
 import android.util.Log;
 import android.view.View;
 import android.view.Window;
@@ -31,6 +32,44 @@ import com.getcapacitor.annotation.CapacitorPlugin;
 public class KioskPlugin extends Plugin {
     private static final String TAG = "SmartAttendKiosk";
     public static volatile boolean isKioskEnforced = false;
+
+    @PluginMethod
+    public void isDeviceOwner(PluginCall call) {
+        Activity activity = getActivity();
+        if (activity == null) {
+            call.reject("Activity is null");
+            return;
+        }
+        DevicePolicyManager dpm = (DevicePolicyManager) activity.getSystemService(Context.DEVICE_POLICY_SERVICE);
+        String pkg = activity.getPackageName();
+        boolean isOwner = (dpm != null && dpm.isDeviceOwnerApp(pkg));
+        
+        JSObject ret = new JSObject();
+        ret.put("isDeviceOwner", isOwner);
+        ret.put("packageName", pkg);
+        call.resolve(ret);
+    }
+
+    @PluginMethod
+    public void getDeviceIdentity(PluginCall call) {
+        Activity activity = getActivity();
+        if (activity == null) {
+            call.reject("Activity is null");
+            return;
+        }
+        String androidId = Settings.Secure.getString(activity.getContentResolver(), Settings.Secure.ANDROID_ID);
+        DevicePolicyManager dpm = (DevicePolicyManager) activity.getSystemService(Context.DEVICE_POLICY_SERVICE);
+        String pkg = activity.getPackageName();
+        boolean isOwner = (dpm != null && dpm.isDeviceOwnerApp(pkg));
+
+        JSObject ret = new JSObject();
+        ret.put("deviceId", (androidId != null && !androidId.isEmpty()) ? androidId : "DEVICE_" + Build.MODEL);
+        ret.put("model", Build.MODEL);
+        ret.put("manufacturer", Build.MANUFACTURER);
+        ret.put("sdkVersion", Build.VERSION.SDK_INT);
+        ret.put("isDeviceOwner", isOwner);
+        call.resolve(ret);
+    }
 
     @PluginMethod
     public void startKioskMode(PluginCall call) {

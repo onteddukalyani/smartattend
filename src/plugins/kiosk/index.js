@@ -161,6 +161,40 @@ export const Kiosk = {
   },
 
   /**
+   * Check if the application is provisioned as Android Device Owner
+   */
+  async isDeviceOwner() {
+    try {
+      const isNative = Capacitor.isNativePlatform();
+      if (!isNative) {
+        return { isDeviceOwner: false, isWebFallback: true };
+      }
+      const result = await NativeKioskPlugin.isDeviceOwner();
+      return result || { isDeviceOwner: false };
+    } catch (err) {
+      console.warn('[Kiosk] isDeviceOwner notice:', err);
+      return { isDeviceOwner: false, error: err.message || String(err) };
+    }
+  },
+
+  /**
+   * Get unique Android device hardware / installation identity
+   */
+  async getDeviceIdentity() {
+    try {
+      const isNative = Capacitor.isNativePlatform();
+      if (!isNative) {
+        return { deviceId: 'WEB_CLIENT_' + (navigator.userAgent || '').slice(0, 20), isWebFallback: true, isDeviceOwner: false };
+      }
+      const result = await NativeKioskPlugin.getDeviceIdentity();
+      return result || { deviceId: 'UNKNOWN_DEVICE', isDeviceOwner: false };
+    } catch (err) {
+      console.warn('[Kiosk] getDeviceIdentity notice:', err);
+      return { deviceId: 'UNKNOWN_DEVICE', error: err.message || String(err), isDeviceOwner: false };
+    }
+  },
+
+  /**
    * Request manual fullscreen on user button tap
    */
   async requestFullscreen() {

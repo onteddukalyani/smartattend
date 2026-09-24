@@ -570,59 +570,55 @@ export async function recordSessionViolation(sessionId, studentUid, rollNo, reas
 
 /**
  * Lecturer: Manually close attendance session and release all student kiosks
+ * Invokes trusted Cloud Function 'endAttendanceSession' to enforce lecturer ownership.
  */
 export async function closeAttendanceSession(sessionId) {
-  if (!sessionId) return;
+  if (!sessionId) return { success: false, error: "Session ID required" };
   try {
-    const sessionRef = doc(db, "attendance_sessions", sessionId);
-    await updateDoc(sessionRef, {
-      status: "CLOSED",
-      phase: "CLOSED",
-      active: false,
-      closedAt: Date.now()
-    });
+    const fn = httpsCallable(functions, "endAttendanceSession");
+    const result = await fn({ sessionId });
+    return result?.data || { success: true };
   } catch (err) {
-    console.warn("Error closing session:", err);
+    console.warn("Cloud function endAttendanceSession fallback notice:", err.message);
+    // Direct Firestore update fallback if functions not running locally (protected by Security Rules)
+    try {
+      const sessionRef = doc(db, "attendance_sessions", sessionId);
+      await updateDoc(sessionRef, {
+        status: "CLOSED",
+        phase: "CLOSED",
+        active: false,
+        closedAt: Date.now()
+      });
+      return { success: true, status: "CLOSED" };
+    } catch (dbErr) {
+      console.error("Failed to close session:", dbErr);
+      throw new Error(dbErr.message || "Failed to close attendance session.");
+    }
   }
 }
 
 /**
- * Lecturer Emergency Unlock: Validate Lecturer PIN server-side/in-Firestore to release a student device from Kiosk mode
+ * Lecturer Emergency Unlock: Validate Lecturer Release Code server-side via trusted Cloud Function.
+ * Zero release codes or hashes are ever sent to or read by the student device.
  */
-export async function verifyLecturerEmergencyPin(sessionId, inputPin) {
+export async function verifyLecturerEmergencyPin(sessionId, inputPin, deviceId = null) {
   if (!inputPin) {
-    throw new Error("Lecturer PIN is required.");
+    throw new Error("Lecturer Release Code is required.");
   }
   const cleanPin = String(inputPin).trim();
-  const inputHash = await sha256(cleanPin);
 
-  let session = null;
-  if (sessionId) {
-    try {
-      const sessionRef = doc(db, "attendance_sessions", sessionId);
-      const snap = await getDoc(sessionRef);
-      if (snap.exists()) {
-        session = snap.data();
-      }
-    } catch (e) {
-      console.warn("Session read notice for PIN verification:", e);
+  try {
+    const fn = httpsCallable(functions, "verifyLecturerReleaseCode");
+    const result = await fn({ sessionId, releaseCode: cleanPin, deviceId });
+    if (result?.data?.releaseAuthorized) {
+      return result.data;
     }
+  } catch (cloudErr) {
+    console.warn("Cloud Function verifyLecturerReleaseCode error:", cloudErr.message);
+    throw new Error(cloudErr.message || "Invalid Lecturer Release Code. Device remains locked.");
   }
 
-  // Check matching hashed PIN in Firestore or master override PIN
-  const isMatch = (session?.lecturerPinHash && session.lecturerPinHash === inputHash) ||
-                  (session?.lecturerPin && String(session.lecturerPin).trim() === cleanPin) ||
-                  cleanPin === "1234" ||
-                  cleanPin === "9999";
-
-  if (!isMatch) {
-    throw new Error("Invalid Lecturer Security PIN. Unlock authorization rejected.");
-  }
-
-  return {
-    success: true,
-    message: "Lecturer PIN verified. Device unlocked."
-  };
+  throw new Error("Invalid Lecturer Release Code. Unlock authorization rejected.");
 }
 
 

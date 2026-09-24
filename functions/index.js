@@ -107,6 +107,11 @@ exports.initiateAttendanceSession = onCall(async (request) => {
   const qr2Token = crypto.randomBytes(20).toString("hex");
   const qr2TokenHash = hashToken(qr2Token);
 
+  const rawReleaseCode = (request.data && (request.data.lecturerReleaseCode || request.data.lecturerPin))
+    ? String(request.data.lecturerReleaseCode || request.data.lecturerPin).trim()
+    : Math.floor(100000 + Math.random() * 900000).toString();
+  const lecturerReleaseCodeHash = hashToken(rawReleaseCode);
+
   const cleanCourse = courseCode.toUpperCase().replace(/[^A-Z0-9_-]/g, "");
   const cleanClass = classCode !== courseCode ? `_${classCode.toUpperCase().replace(/[^A-Z0-9_-]/g, "")}` : "";
   const randomSuffix = Math.floor(1000 + Math.random() * 9000);
@@ -117,7 +122,7 @@ exports.initiateAttendanceSession = onCall(async (request) => {
 
   const sessionRef = db.collection("attendance_sessions").doc(sessionId);
 
-  // Public Session Document (authoritative timestamps, zero token hashes exposed)
+  // Public Session Document (Zero release codes or sensitive token hashes exposed to clients)
   const sessionDoc = {
     id: sessionId,
     sessionId: sessionId,
@@ -126,6 +131,7 @@ exports.initiateAttendanceSession = onCall(async (request) => {
     roomNo: roomNo,
     batch: batch || "2025",
     phase: "PHASE_1",
+    status: "ACTIVE",
     active: true,
     ownerId: request.auth.uid,
     ownerEmail: lecturerEmail,
@@ -143,10 +149,11 @@ exports.initiateAttendanceSession = onCall(async (request) => {
     attendees: []
   };
 
-  // Private Security Document (Only Cloud Functions Admin SDK can read/write)
+  // Private Security Document (Only Cloud Functions Admin SDK can read/write; zero client access)
   const securityDoc = {
     qr1TokenHash: qr1TokenHash,
     qr2TokenHash: qr2TokenHash,
+    lecturerReleaseCodeHash: lecturerReleaseCodeHash,
     sessionStartAt: Timestamp.fromMillis(sessionStartMs),
     qr1ExpiresAt: Timestamp.fromMillis(qr1ExpiresMs),
     qr2StartsAt: Timestamp.fromMillis(qr2StartsMs),
@@ -167,7 +174,9 @@ exports.initiateAttendanceSession = onCall(async (request) => {
     qr1ExpiresAt: qr1ExpiresMs,
     qr2StartsAt: qr2StartsMs,
     kioskEndsAt: kioskEndsMs,
-    phase: "PHASE_1"
+    phase: "PHASE_1",
+    status: "ACTIVE",
+    lecturerReleaseCode: rawReleaseCode
   };
 });
 
@@ -181,7 +190,7 @@ exports.authorizeQR1 = onCall(async (request) => {
     throw new HttpsError("unauthenticated", "Authentication required. Please log in to SmartAttend.");
   }
 
-  const { sessionId, qr1Token } = request.data || {};
+  const { sessionId, qr1Token, deviceId, isDeviceOwner } = request.data || {};
   if (!sessionId || !qr1Token) {
     throw new HttpsError("invalid-argument", "Session ID and QR 1 token are required.");
   }
@@ -203,7 +212,7 @@ exports.authorizeQR1 = onCall(async (request) => {
   const security = securitySnap.data();
 
   // 1. Validate session active
-  if (session.active === false) {
+  if (session.active === false || session.status === "CLOSED") {
     throw new HttpsError("failed-precondition", "This attendance session has already ended.");
   }
 
@@ -247,7 +256,7 @@ exports.authorizeQR1 = onCall(async (request) => {
   // 6. Atomic transaction: create authorization & increment count
   await db.runTransaction(async (transaction) => {
     const freshSessionSnap = await transaction.get(sessionRef);
-    if (!freshSessionSnap.exists || freshSessionSnap.data().active === false) {
+    if (!freshSessionSnap.exists || freshSessionSnap.data().active === false || freshSessionSnap.data().status === "CLOSED") {
       throw new HttpsError("failed-precondition", "Session ended during authorization.");
     }
 
@@ -256,6 +265,8 @@ exports.authorizeQR1 = onCall(async (request) => {
       studentEmail: studentProfile.email,
       rollNo: studentProfile.rollNo,
       studentName: studentProfile.name,
+      deviceId: deviceId || "UNKNOWN_DEVICE",
+      isDeviceOwner: Boolean(isDeviceOwner),
       status: "SESSION_AUTHORIZED",
       authorizedAt: FieldValue.serverTimestamp(),
       sessionId: sessionId,
@@ -526,5 +537,103 @@ exports.submitAttendance = onCall(async (request) => {
     studentName: authData.studentName,
     submittedAt: Date.now(),
     kioskEndsAt: kioskEndsAtMs
+  };
+});
+
+/**
+ * 6. VERIFY LECTURER RELEASE CODE (On-Device Emergency Unlock)
+ * Server-side trusted verification of the Lecturer Release Code.
+ * Compares hashed input against private /security/tokens without exposing the hash to the client.
+ */
+exports.verifyLecturerReleaseCode = onCall(async (request) => {
+  if (!request.auth || !request.auth.uid) {
+    throw new HttpsError("unauthenticated", "Authentication required to request kiosk release.");
+  }
+
+  const { sessionId, releaseCode, deviceId } = request.data || {};
+  if (!sessionId || !releaseCode) {
+    throw new HttpsError("invalid-argument", "Session ID and Lecturer Release Code are required.");
+  }
+
+  const sessionRef = db.collection("attendance_sessions").doc(sessionId);
+  const [sessionSnap, securitySnap] = await Promise.all([
+    sessionRef.get(),
+    sessionRef.collection("security").doc("tokens").get()
+  ]);
+
+  if (!sessionSnap.exists || !securitySnap.exists) {
+    throw new HttpsError("not-found", "Attendance session or security tokens not found.");
+  }
+
+  const security = securitySnap.data();
+  const inputHash = hashToken(String(releaseCode).trim());
+
+  if (inputHash !== security.lecturerReleaseCodeHash) {
+    throw new HttpsError("permission-denied", "❌ Invalid Lecturer Release Code. Device remains locked in Kiosk mode.");
+  }
+
+  const releaseToken = crypto.randomBytes(16).toString("hex");
+  const expiresAt = Date.now() + 30000; // 30-second short-lived authorization token
+
+  // Audit log of emergency release
+  try {
+    await sessionRef.collection("audit_logs").add({
+      event: "LECTURER_EMERGENCY_RELEASE",
+      studentUid: request.auth.uid,
+      deviceId: deviceId || "UNKNOWN",
+      timestamp: FieldValue.serverTimestamp()
+    });
+  } catch (e) { }
+
+  return {
+    success: true,
+    releaseAuthorized: true,
+    sessionId: sessionId,
+    releaseToken: releaseToken,
+    expiresAt: expiresAt,
+    message: "Lecturer emergency release code verified. Device release authorized."
+  };
+});
+
+/**
+ * 7. END ATTENDANCE SESSION (Lecturer Only)
+ * Closes the session and releases all active student kiosks.
+ * Enforces that only the session owner (lecturer) can close the session.
+ */
+exports.endAttendanceSession = onCall(async (request) => {
+  if (!request.auth || !request.auth.uid) {
+    throw new HttpsError("unauthenticated", "Authentication required to end session.");
+  }
+
+  const { sessionId } = request.data || {};
+  if (!sessionId) {
+    throw new HttpsError("invalid-argument", "Session ID is required.");
+  }
+
+  const sessionRef = db.collection("attendance_sessions").doc(sessionId);
+  const sessionSnap = await sessionRef.get();
+
+  if (!sessionSnap.exists) {
+    throw new HttpsError("not-found", "Attendance session not found.");
+  }
+
+  const session = sessionSnap.data();
+  if (session.ownerId !== request.auth.uid) {
+    throw new HttpsError("permission-denied", "Only the owning lecturer can end this attendance session.");
+  }
+
+  await sessionRef.update({
+    active: false,
+    status: "CLOSED",
+    phase: "CLOSED",
+    closedAt: FieldValue.serverTimestamp(),
+    closedBy: request.auth.uid
+  });
+
+  return {
+    success: true,
+    sessionId: sessionId,
+    status: "CLOSED",
+    message: "Attendance session closed successfully. All student kiosks released."
   };
 });

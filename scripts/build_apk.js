@@ -17,11 +17,18 @@ try {
   console.log('📦 Step 1/3: Building Web Assets (vite build)...');
   execSync('npm run build', { cwd: rootDir, stdio: 'inherit' });
 
+  // Clean stale assets and build directories to avoid Windows file lock & snapshot issues
+  const stalePublicAssets = path.join(androidDir, 'app', 'src', 'main', 'assets', 'public');
+  if (fs.existsSync(stalePublicAssets)) {
+    try {
+      fs.rmSync(stalePublicAssets, { recursive: true, force: true });
+    } catch (e) {}
+  }
+
   // 2. Sync Capacitor
   console.log('\n🔄 Step 2/3: Syncing Capacitor Android Assets...');
   execSync('npx cap sync android', { cwd: rootDir, stdio: 'inherit' });
 
-  // Clean stale build directories to avoid Windows file lock & snapshot issues
   const cleanDirs = [
     path.join(rootDir, 'node_modules', '@capacitor', 'android', 'capacitor', 'build'),
     path.join(rootDir, 'node_modules', '@capacitor', 'android', 'build'),

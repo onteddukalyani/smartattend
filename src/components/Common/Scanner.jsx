@@ -55,8 +55,10 @@ function QrScannerApp() {
     const isNativeApp = Capacitor.isNativePlatform();
     const [showAppBanner, setShowAppBanner] = useState(false);
     const [dismissedAppBanner, setDismissedAppBanner] = useState(false);
+    const [deviceOwnerStatus, setDeviceOwnerStatus] = useState({ checked: false, isDeviceOwner: true, isWeb: false });
+    const [deviceIdentity, setDeviceIdentity] = useState(null);
 
-    // Current State: 'IDLE' | 'AUTHORIZING_QR1' | 'KIOSK_WAITING_QR2' | 'VALIDATING_QR2' | 'BIOMETRIC_SCAN' | 'ATTENDANCE_SUCCESS'
+    // Current State: 'IDLE' | 'AUTHORIZING_QR1' | 'KIOSK_WAITING_QR2' | 'VALIDATING_QR2' | 'BIOMETRIC_SCAN' | 'ATTENDANCE_SUCCESS' | 'DISQUALIFIED'
     const [scanState, setScanState] = useState('IDLE');
 
     // Web Guardian Supervision State
@@ -98,10 +100,34 @@ function QrScannerApp() {
     const [pinVerificationError, setPinVerificationError] = useState('');
     const [isVerifyingPin, setIsVerifyingPin] = useState(false);
 
+    // Check Device Owner status on launch
+    const checkDeviceProvisioning = useCallback(async () => {
+        if (isNativeApp) {
+            try {
+                const ownerRes = await Kiosk.isDeviceOwner();
+                const identRes = await Kiosk.getDeviceIdentity();
+                setDeviceIdentity(identRes);
+                setDeviceOwnerStatus({
+                    checked: true,
+                    isDeviceOwner: Boolean(ownerRes?.isDeviceOwner),
+                    isWeb: false
+                });
+            } catch (e) {
+                setDeviceOwnerStatus({ checked: true, isDeviceOwner: false, isWeb: false });
+            }
+        } else {
+            setDeviceOwnerStatus({ checked: true, isDeviceOwner: false, isWeb: true });
+        }
+    }, [isNativeApp]);
+
+    useEffect(() => {
+        checkDeviceProvisioning();
+    }, [checkDeviceProvisioning]);
+
     const handleLecturerPinUnlock = async (e) => {
         if (e && typeof e.preventDefault === 'function') e.preventDefault();
         if (!lecturerPinInput.trim()) {
-            setPinVerificationError('Please enter the 4-digit Lecturer Security PIN.');
+            setPinVerificationError('Please enter the Lecturer Release Code.');
             return;
         }
 
@@ -109,8 +135,8 @@ function QrScannerApp() {
         setPinVerificationError('');
 
         try {
-            await verifyLecturerEmergencyPin(activeSessionId, lecturerPinInput.trim());
-            console.log('[Kiosk] Lecturer Security PIN verified. Releasing device from Kiosk mode...');
+            await verifyLecturerEmergencyPin(activeSessionId, lecturerPinInput.trim(), deviceIdentity?.deviceId);
+            console.log('[Kiosk] Lecturer Release Code verified via Cloud Function. Releasing device from Kiosk mode...');
             try { localStorage.removeItem('smartattend_kiosk_session_state'); } catch (_) {}
             releaseAllMediaTracks();
             await Kiosk.stopKioskMode().catch(() => {});
@@ -118,8 +144,8 @@ function QrScannerApp() {
             setShowPinModal(false);
             navigate('/student', { replace: true });
         } catch (err) {
-            console.error('PIN verification error:', err);
-            setPinVerificationError(err.message || 'Invalid Lecturer PIN. Device remains locked in Kiosk mode.');
+            console.error('Release code verification error:', err);
+            setPinVerificationError(err.message || 'Invalid Lecturer Release Code. Device remains locked in Kiosk mode.');
         } finally {
             setIsVerifyingPin(false);
         }
@@ -193,7 +219,7 @@ function QrScannerApp() {
         }
     }, [loggedInRollNo, loggedInName, user]);
 
-    // Authoritative 3-Minute Session Countdown Timer
+    // Authoritative Session Countdown Timer (Does NOT auto-exit without Lecturer authorization)
     useEffect(() => {
         if (!sessionStartAt || !kioskEndsAt) return;
 
@@ -204,16 +230,8 @@ function QrScannerApp() {
             setElapsedSeconds(elapsed);
             setSessionRemaining(remaining);
 
-            // When fixed 3-minute deadline ends (T = 180s)
-            if (remaining <= 0) {
-                if (sessionTimerRef.current) clearInterval(sessionTimerRef.current);
-                console.log('[Kiosk] 3-minute session completed. Automatically unlocking Kiosk mode...');
-                try { localStorage.removeItem('smartattend_kiosk_session_state'); } catch (_) {}
-                releaseAllMediaTracks();
-                Kiosk.stopKioskMode().catch(() => {});
-                Kiosk.clearAttendanceRestrictions().catch(() => {});
-                navigate('/student', { replace: true });
-            }
+            // Note: When timer reaches 0, we do NOT automatically unlock.
+            // Kiosk mode remains strictly enforced until the lecturer ends the session or enters the Lecturer PIN.
         };
 
         updateClock();
@@ -222,7 +240,7 @@ function QrScannerApp() {
         return () => {
             if (sessionTimerRef.current) clearInterval(sessionTimerRef.current);
         };
-    }, [sessionStartAt, kioskEndsAt, scanState, navigate]);
+    }, [sessionStartAt, kioskEndsAt]);
 
     // Session state persistence across app crash / restarts
     useEffect(() => {
@@ -317,14 +335,13 @@ function QrScannerApp() {
                 const nextCount = prev + 1;
                 if (nextCount >= 2) {
                     console.error('[Kiosk Guardian] Max violations exceeded. Disqualifying attendance session.');
-                    try { localStorage.removeItem('smartattend_kiosk_session_state'); } catch (_) {}
                     try { localStorage.removeItem(`smartattend_qr1_auth_${activeSessionId}`); } catch (_) {}
                     try { sessionStorage.removeItem(`smartattend_qr1_auth_${activeSessionId}`); } catch (_) {}
                     releaseAllMediaTracks();
-                    Kiosk.stopKioskMode().catch(() => {});
-                    Kiosk.clearAttendanceRestrictions().catch(() => {});
-                    setErrorMessage('❌ Attendance Disqualified: App switching / leaving the app was detected. Proxy attempts and sharing QR codes are strictly prohibited and have been logged.');
-                    setScanState('IDLE');
+                    // Keep Kiosk locked to prevent student from escaping!
+                    Kiosk.startKioskMode().catch(() => {});
+                    setErrorMessage('❌ Attendance Disqualified: App switching / leaving the app was detected. Device remains locked in Kiosk mode until Lecturer unlocks.');
+                    setScanState('DISQUALIFIED');
                     setSupervisionViolation(false);
                 } else {
                     setSupervisionViolation(true);
@@ -472,7 +489,9 @@ function QrScannerApp() {
             const studentProfileOverride = {
                 rollNo: loggedInRollNo,
                 name: loggedInName,
-                email: user.email || ''
+                email: user.email || '',
+                deviceId: deviceIdentity?.deviceId || null,
+                isDeviceOwner: deviceOwnerStatus.isDeviceOwner
             };
 
             const result = await authorizeStudentQR1(sessionId, qr1Token, studentProfileOverride);
@@ -483,9 +502,9 @@ function QrScannerApp() {
 
             // Start Android Lock Task Mode, Web Supervision & Device Policy Restrictions
             try {
-                console.log('[Kiosk] Activating Native Android Lock Task / Supervised Kiosk mode for Student...');
-                await Kiosk.startKioskMode();
+                console.log('[Kiosk] Activating Native Android Lock Task / Dedicated Kiosk mode for Student...');
                 await Kiosk.setAttendanceRestrictions();
+                await Kiosk.startKioskMode();
             } catch (kioskErr) {
                 console.warn('[Kiosk] Notice starting kiosk mode:', kioskErr);
             }
@@ -748,10 +767,10 @@ function QrScannerApp() {
                         <FaLock />
                     </div>
                     <h3 style={{ margin: '0 0 6px', fontSize: '1.25rem', fontWeight: 800 }}>
-                        Lecturer Emergency Unlock
+                        Lecturer Emergency Release
                     </h3>
                     <p style={{ margin: '0 0 16px', fontSize: '0.84rem', color: '#64748b', lineHeight: 1.4 }}>
-                        Enter the Lecturer Session Security PIN to immediately unlock this student device and end Kiosk mode.
+                        Enter the Lecturer Session Release Code to immediately authorize release from Kiosk Lock Task mode.
                     </p>
 
                     <form onSubmit={handleLecturerPinUnlock}>
@@ -760,7 +779,7 @@ function QrScannerApp() {
                             maxLength={6}
                             value={lecturerPinInput}
                             onChange={(e) => setLecturerPinInput(e.target.value)}
-                            placeholder="Enter 4-digit Lecturer PIN"
+                            placeholder="Enter 6-digit Release Code"
                             autoFocus
                             style={{
                                 width: '100%',
@@ -828,7 +847,7 @@ function QrScannerApp() {
                                     boxShadow: '0 4px 14px rgba(99, 102, 241, 0.4)'
                                 }}
                             >
-                                {isVerifyingPin ? <FaSpinner className="fa-spin" /> : 'Authorize Unlock'}
+                                {isVerifyingPin ? <FaSpinner className="fa-spin" /> : 'Authorize Release'}
                             </button>
                         </div>
                     </form>
@@ -838,7 +857,83 @@ function QrScannerApp() {
     };
 
     // =========================================================================
-    // UI VIEW 1: ATTENDANCE SUBMITTED (Holds Kiosk Mode until T = 180s)
+    // UI GUARD: DEVICE OWNER PROVISIONING REQUIRED (Native Android App Only)
+    // =========================================================================
+    if (isNativeApp && deviceOwnerStatus.checked && !deviceOwnerStatus.isDeviceOwner) {
+        return (
+            <div style={{
+                maxWidth: '540px',
+                margin: '30px auto',
+                padding: '30px 22px',
+                background: 'var(--surface, #ffffff)',
+                borderRadius: '24px',
+                border: '2px solid #f59e0b',
+                boxShadow: '0 20px 45px -15px rgba(245, 158, 11, 0.25)',
+                color: 'var(--text-main, #0f172a)',
+                textAlign: 'center'
+            }}>
+                <div style={{
+                    width: '68px',
+                    height: '68px',
+                    borderRadius: '50%',
+                    background: '#fef3c7',
+                    color: '#d97706',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    margin: '0 auto 16px',
+                    fontSize: '34px'
+                }}>
+                    <FaShieldAlt />
+                </div>
+                <h2 style={{ fontSize: '1.45rem', fontWeight: 800, margin: '0 0 8px 0', color: '#92400e' }}>
+                    Device Owner Provisioning Required
+                </h2>
+                <p style={{ color: '#64748b', fontSize: '0.88rem', margin: '0 0 16px 0', lineHeight: 1.5 }}>
+                    SmartAttend requires dedicated <strong>Android Device Owner (Lock Task) Kiosk Mode</strong> to guarantee zero-escape classroom attendance.
+                </p>
+
+                <div style={{
+                    background: '#0f172a',
+                    color: '#f8fafc',
+                    padding: '14px 16px',
+                    borderRadius: '14px',
+                    textAlign: 'left',
+                    fontFamily: 'monospace',
+                    fontSize: '0.82rem',
+                    lineHeight: 1.5,
+                    marginBottom: '18px',
+                    overflowX: 'auto'
+                }}>
+                    <div style={{ color: '#94a3b8', fontSize: '0.75rem', marginBottom: '6px' }}>Run via ADB on test device / emulator:</div>
+                    <code style={{ color: '#38bdf8' }}>adb shell dpm set-device-owner com.smartattend.app/.AdminReceiver</code>
+                </div>
+
+                <button
+                    type="button"
+                    onClick={checkDeviceProvisioning}
+                    style={{
+                        padding: '12px 24px',
+                        borderRadius: '12px',
+                        background: '#f59e0b',
+                        color: '#ffffff',
+                        border: 'none',
+                        fontWeight: 800,
+                        fontSize: '0.92rem',
+                        cursor: 'pointer',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '8px'
+                    }}
+                >
+                    <FaSyncAlt /> Re-check Device Status
+                </button>
+            </div>
+        );
+    }
+
+    // =========================================================================
+    // UI VIEW 1: ATTENDANCE SUBMITTED (Holds Kiosk Mode until Lecturer Release)
     // =========================================================================
     if (scanState === 'ATTENDANCE_SUCCESS') {
         return (
@@ -921,7 +1016,7 @@ function QrScannerApp() {
                         ⏱️ {formatMmSs(sessionRemaining)}
                     </div>
                     <p style={{ margin: 0, fontSize: '0.84rem', color: '#64748b', lineHeight: 1.45, marginBottom: '14px' }}>
-                        Attendance is verified. Your phone will <strong>automatically unlock and return to the dashboard</strong> once your lecturer finishes the session or when the timer reaches 0:00.
+                        Attendance is verified. Your phone remains <strong>locked in Kiosk mode</strong> until your lecturer ends the session from the Lecturer Dashboard, or until released with the Lecturer Emergency PIN.
                     </p>
 
                     <button
@@ -949,6 +1044,85 @@ function QrScannerApp() {
     }
 
     // =========================================================================
+    // UI VIEW 1.5: DISQUALIFIED LOCKED SCREEN (App switching detected, locked until Lecturer PIN)
+    // =========================================================================
+    if (scanState === 'DISQUALIFIED') {
+        return (
+            <div style={{
+                maxWidth: '540px',
+                margin: '30px auto',
+                padding: '30px 22px',
+                background: 'var(--surface, #ffffff)',
+                borderRadius: '24px',
+                border: '2px solid #ef4444',
+                boxShadow: '0 25px 50px -12px rgba(239, 68, 68, 0.25)',
+                color: 'var(--text-main, #0f172a)',
+                textAlign: 'center',
+                position: 'relative'
+            }}>
+                {renderLecturerPinModal()}
+
+                <div style={{
+                    width: '72px',
+                    height: '72px',
+                    borderRadius: '50%',
+                    background: '#fee2e2',
+                    color: '#dc2626',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    margin: '0 auto 16px',
+                    fontSize: '38px',
+                    boxShadow: '0 8px 20px rgba(220, 38, 38, 0.25)'
+                }}>
+                    <FaExclamationTriangle />
+                </div>
+
+                <h2 style={{ fontSize: '1.5rem', fontWeight: 800, margin: '0 0 6px 0', color: '#dc2626' }}>
+                    Attendance Disqualified
+                </h2>
+                <p style={{ color: 'var(--text-muted, #64748b)', fontSize: '0.9rem', margin: '0 0 20px 0', lineHeight: 1.5 }}>
+                    App switching or minimizing was detected during active attendance supervision.
+                </p>
+
+                <div style={{
+                    background: '#fef2f2',
+                    border: '1.5px solid #fecaca',
+                    borderRadius: '16px',
+                    padding: '16px 18px',
+                    textAlign: 'left',
+                    marginBottom: '20px'
+                }}>
+                    <div style={{ color: '#991b1b', fontSize: '0.85rem', lineHeight: 1.5 }}>
+                        <strong>🔒 Device Locked:</strong> This device will remain locked in Kiosk mode. Please hand your phone to your course lecturer to unlock it using their Lecturer Security PIN.
+                    </div>
+                </div>
+
+                <button
+                    type="button"
+                    onClick={() => setShowPinModal(true)}
+                    style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        padding: '12px 20px',
+                        borderRadius: '12px',
+                        background: '#dc2626',
+                        color: '#ffffff',
+                        border: 'none',
+                        fontSize: '0.9rem',
+                        fontWeight: 800,
+                        cursor: 'pointer',
+                        boxShadow: '0 4px 14px rgba(220, 38, 38, 0.35)'
+                    }}
+                >
+                    <FaLock /> Lecturer Emergency Release
+                </button>
+            </div>
+        );
+    }
+
+    // =========================================================================
     // UI VIEW 2: LIVE BIOMETRIC FACE SCANNER (Triggered by Phase 2 QR 2)
     // =========================================================================
     if (scanState === 'BIOMETRIC_SCAN') {
@@ -962,8 +1136,11 @@ function QrScannerApp() {
                 border: '1.5px solid var(--border, #e2e8f0)',
                 boxShadow: '0 20px 45px -20px rgba(0, 0, 0, 0.15)',
                 color: 'var(--text-main, #0f172a)',
-                textAlign: 'center'
+                textAlign: 'center',
+                position: 'relative'
             }}>
+                {renderLecturerPinModal()}
+
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
                     <div style={{
                         display: 'inline-flex',
@@ -979,9 +1156,23 @@ function QrScannerApp() {
                         <FaCheckCircle /> Phase 2: Biometric Verification
                     </div>
 
-                    <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#6366f1' }}>
-                        ⏱️ {formatMmSs(sessionRemaining)} / 3:00
-                    </div>
+                    <button
+                        type="button"
+                        onClick={() => setShowPinModal(true)}
+                        style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            background: 'transparent',
+                            border: 'none',
+                            color: '#6366f1',
+                            fontSize: '0.78rem',
+                            fontWeight: 700,
+                            cursor: 'pointer'
+                        }}
+                    >
+                        <FaLock /> Lecturer Exit
+                    </button>
                 </div>
 
                 <h2 style={{ margin: '0 0 6px 0', fontSize: '1.4rem', fontWeight: 800 }}>
@@ -1037,6 +1228,8 @@ function QrScannerApp() {
                 textAlign: 'center',
                 position: 'relative'
             }}>
+                {renderLecturerPinModal()}
+
                 {/* Web Guardian Violation Overlay */}
                 {supervisionViolation && (
                     <div style={{
@@ -1130,11 +1323,27 @@ function QrScannerApp() {
                     marginBottom: '16px'
                 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 800, fontSize: '0.85rem' }}>
-                        <FaShieldAlt /> {isNativeApp ? 'Android Kiosk Mode Active (App Locked)' : 'Supervised Session Active'}
+                        <FaShieldAlt /> {isNativeApp ? 'Android Kiosk Mode Active' : 'Supervised Session Active'}
                     </div>
-                    <div style={{ fontWeight: 800, fontSize: '0.95rem' }}>
-                        ⏱️ {formatMmSs(sessionRemaining)} / 3:00
-                    </div>
+                    <button
+                        type="button"
+                        onClick={() => setShowPinModal(true)}
+                        style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            background: 'rgba(255, 255, 255, 0.18)',
+                            border: '1px solid rgba(255, 255, 255, 0.3)',
+                            borderRadius: '8px',
+                            padding: '4px 10px',
+                            color: '#ffffff',
+                            fontSize: '0.75rem',
+                            fontWeight: 700,
+                            cursor: 'pointer'
+                        }}
+                    >
+                        <FaLock /> Lecturer Exit
+                    </button>
                 </div>
 
                 {/* Success Icon */}
@@ -1194,6 +1403,28 @@ function QrScannerApp() {
                         sound={false}
                         components={{ audio: false }}
                     />
+                </div>
+
+                <div style={{ marginTop: '14px', textAlign: 'center' }}>
+                    <button
+                        type="button"
+                        onClick={() => setShowPinModal(true)}
+                        style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            padding: '8px 14px',
+                            borderRadius: '10px',
+                            background: 'var(--surface-soft, #f8fafc)',
+                            border: '1px solid var(--border, #cbd5e1)',
+                            color: '#475569',
+                            fontSize: '0.8rem',
+                            fontWeight: 700,
+                            cursor: 'pointer'
+                        }}
+                    >
+                        <FaLock style={{ color: '#6366f1' }} /> Lecturer Emergency Release
+                    </button>
                 </div>
 
                 {errorMessage && (
