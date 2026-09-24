@@ -1410,78 +1410,70 @@ function QrScannerApp() {
             color: 'var(--text-main, #0f172a)',
             textAlign: 'center'
         }}>
-            {/* Smart App vs Website Banner for Mobile Web Browsers */}
-            {showAppBanner && !dismissedAppBanner && (
+            {/* Smart App Requirement for Mobile Web Browsers */}
+            {!isNativeApp && (
                 <div style={{
-                    marginBottom: '18px',
-                    padding: '12px 14px',
-                    borderRadius: '14px',
+                    marginBottom: '20px',
+                    padding: '16px',
+                    borderRadius: '16px',
                     background: 'linear-gradient(135deg, #1e1b4b 0%, #312e81 100%)',
                     color: '#ffffff',
-                    border: '1px solid #4338ca',
+                    border: '1.5px solid #6366f1',
                     textAlign: 'left',
-                    boxShadow: '0 4px 14px rgba(49, 46, 129, 0.3)'
+                    boxShadow: '0 8px 24px rgba(49, 46, 129, 0.4)'
                 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 800, fontSize: '0.88rem' }}>
-                            <FaMobileAlt style={{ color: '#a5b4fc' }} /> SmartAttend App
-                        </div>
-                        <button
-                            type="button"
-                            onClick={() => setDismissedAppBanner(true)}
-                            style={{
-                                background: 'transparent',
-                                border: 'none',
-                                color: '#94a3b8',
-                                cursor: 'pointer',
-                                fontSize: '0.8rem',
-                                padding: '2px 6px'
-                            }}
-                        >
-                            ✕
-                        </button>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 800, fontSize: '0.95rem', marginBottom: '6px' }}>
+                        <FaLock style={{ color: '#a5b4fc' }} /> Hardware Lock Required
                     </div>
-                    <p style={{ margin: '0 0 10px 0', fontSize: '0.8rem', color: '#e0e7ff', lineHeight: 1.35 }}>
-                        Have the SmartAttend Android App? Open directly in app for seamless Kiosk Lock Task mode.
+                    <p style={{ margin: '0 0 14px 0', fontSize: '0.84rem', color: '#e0e7ff', lineHeight: 1.4 }}>
+                        This attendance session uses <strong>Lecturer Kiosk Lock Mode</strong>. To lock your device and prevent exiting without a PIN, open this session in the <strong>SmartAttend Android App</strong>.
                     </p>
-                    <div style={{ display: 'flex', gap: '8px' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                         <button
                             type="button"
                             onClick={handleOpenInSmartAttendApp}
                             style={{
-                                flex: 1,
-                                padding: '8px 12px',
-                                borderRadius: '10px',
+                                width: '100%',
+                                padding: '11px 16px',
+                                borderRadius: '12px',
                                 background: '#6366f1',
                                 color: '#ffffff',
                                 border: 'none',
                                 fontWeight: 800,
-                                fontSize: '0.82rem',
+                                fontSize: '0.9rem',
                                 cursor: 'pointer',
                                 display: 'flex',
                                 alignItems: 'center',
                                 justifyContent: 'center',
-                                gap: '6px'
+                                gap: '8px',
+                                boxShadow: '0 4px 14px rgba(99, 102, 241, 0.4)'
                             }}
                         >
-                            <FaExternalLinkAlt style={{ fontSize: '0.75rem' }} /> Open in App
+                            <FaExternalLinkAlt /> Open in SmartAttend App
                         </button>
-                        <button
-                            type="button"
-                            onClick={() => setDismissedAppBanner(true)}
+                        <a
+                            href="http://10.0.10.251:8080/SmartAttend-debug.apk"
+                            target="_blank"
+                            rel="noopener noreferrer"
                             style={{
-                                padding: '8px 12px',
-                                borderRadius: '10px',
+                                width: '100%',
+                                padding: '9px 16px',
+                                borderRadius: '12px',
                                 background: 'rgba(255, 255, 255, 0.12)',
                                 color: '#ffffff',
-                                border: 'none',
+                                border: '1px solid rgba(255, 255, 255, 0.25)',
                                 fontWeight: 700,
                                 fontSize: '0.82rem',
-                                cursor: 'pointer'
+                                textDecoration: 'none',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: '6px',
+                                textAlign: 'center'
                             }}
                         >
-                            Stay on Web
-                        </button>
+                            <FaMobileAlt /> Download SmartAttend Android APK
+                        </a>
                     </div>
                 </div>
             )}
