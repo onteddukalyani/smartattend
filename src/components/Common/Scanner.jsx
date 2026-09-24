@@ -957,8 +957,6 @@ function QrScannerApp() {
                 textAlign: 'center',
                 position: 'relative'
             }}>
-                {renderLecturerPinModal()}
-
                 <div style={{
                     width: '72px',
                     height: '72px',
@@ -975,11 +973,11 @@ function QrScannerApp() {
                     <FaCheckCircle />
                 </div>
 
-                <h2 style={{ fontSize: '1.5rem', fontWeight: 800, margin: '0 0 6px 0', color: '#15803d' }}>
-                    Attendance Submitted
+                <h2 style={{ fontSize: '1.45rem', fontWeight: 800, margin: '0 0 6px 0', color: '#15803d' }}>
+                    Attendance Submitted — Waiting for Lecturer Release
                 </h2>
-                <p style={{ color: '#4338ca', fontSize: '0.98rem', fontWeight: 700, margin: '0 0 20px 0' }}>
-                    Waiting for Lecturer Release
+                <p style={{ color: '#4338ca', fontSize: '0.92rem', fontWeight: 700, margin: '0 0 18px 0' }}>
+                    🔒 Android Enterprise Lock Task Mode Active
                 </p>
 
                 {/* Details Box */}
@@ -987,66 +985,135 @@ function QrScannerApp() {
                     background: 'var(--surface-soft, #f8fafc)',
                     border: '1.5px solid var(--border, #e2e8f0)',
                     borderRadius: '16px',
-                    padding: '16px 18px',
+                    padding: '14px 18px',
                     textAlign: 'left',
-                    marginBottom: '20px'
+                    marginBottom: '18px'
                 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid #e2e8f0' }}>
-                        <span style={{ color: '#64748b', fontSize: '0.85rem' }}>Roll Number:</span>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderBottom: '1px solid #e2e8f0' }}>
+                        <span style={{ color: '#64748b', fontSize: '0.84rem' }}>Roll Number:</span>
                         <strong style={{ fontWeight: 800 }}>{submissionDetails?.rollNo || loggedInRollNo}</strong>
                     </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid #e2e8f0' }}>
-                        <span style={{ color: '#64748b', fontSize: '0.85rem' }}>Student Name:</span>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderBottom: '1px solid #e2e8f0' }}>
+                        <span style={{ color: '#64748b', fontSize: '0.84rem' }}>Student Name:</span>
                         <strong style={{ fontWeight: 800 }}>{submissionDetails?.studentName || loggedInName}</strong>
                     </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid #e2e8f0' }}>
-                        <span style={{ color: '#64748b', fontSize: '0.85rem' }}>Class / Room:</span>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderBottom: '1px solid #e2e8f0' }}>
+                        <span style={{ color: '#64748b', fontSize: '0.84rem' }}>Class / Room:</span>
                         <strong style={{ fontWeight: 800 }}>{submissionDetails?.courseCode} · Room {submissionDetails?.roomNo}</strong>
                     </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0' }}>
-                        <span style={{ color: '#64748b', fontSize: '0.85rem' }}>Biometric Verification:</span>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0' }}>
+                        <span style={{ color: '#64748b', fontSize: '0.84rem' }}>Biometric Verification:</span>
                         <strong style={{ color: '#15803d', fontWeight: 800 }}>✅ PASSED (100% Match)</strong>
                     </div>
                 </div>
 
-                {/* Android Enterprise Lock Task Mode Status & Real-Time Auto-Release Countdown */}
+                {/* Student Enters Lecturer's Announced 6-Digit Session PIN */}
                 <div style={{
-                    background: 'rgba(99, 102, 241, 0.08)',
-                    border: '1.5px solid rgba(99, 102, 241, 0.35)',
-                    borderRadius: '16px',
-                    padding: '20px 16px',
-                    marginTop: '12px'
+                    background: 'rgba(99, 102, 241, 0.06)',
+                    border: '1.5px solid rgba(99, 102, 241, 0.3)',
+                    borderRadius: '18px',
+                    padding: '20px 18px',
+                    marginBottom: '16px',
+                    textAlign: 'center'
                 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', color: '#4338ca', fontWeight: 800, fontSize: '0.92rem', marginBottom: '8px' }}>
-                        <FaLock /> Android Lock Task Mode Active
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', color: '#4338ca', fontWeight: 800, fontSize: '0.95rem', marginBottom: '4px' }}>
+                        <FaLock /> Enter Session PIN to Unlock
                     </div>
-                    <div style={{ fontSize: '1.9rem', fontWeight: 800, color: '#4338ca', marginBottom: '6px', letterSpacing: '1px' }}>
-                        Auto Release in {formatMmSs(autoReleaseRemaining)}
-                    </div>
-                    <p style={{ margin: 0, fontSize: '0.84rem', color: '#64748b', lineHeight: 1.45, marginBottom: '16px' }}>
-                        Device remains locked in Lock Task Mode. It can exit when the lecturer enters the Session PIN, releases devices remotely, or automatically in <strong>{formatMmSs(autoReleaseRemaining)}</strong>.
+                    <p style={{ margin: '0 0 14px 0', fontSize: '0.83rem', color: '#64748b' }}>
+                        Enter the 6-digit Session PIN announced by your lecturer to exit Kiosk mode.
                     </p>
 
-                    <button
-                        type="button"
-                        onClick={() => setShowPinModal(true)}
-                        style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '6px',
-                            padding: '10px 18px',
-                            borderRadius: '10px',
-                            background: '#ffffff',
-                            border: '1.5px solid #cbd5e1',
-                            color: '#334155',
-                            fontSize: '0.84rem',
-                            fontWeight: 700,
-                            cursor: 'pointer',
-                            boxShadow: '0 2px 6px rgba(0,0,0,0.06)'
-                        }}
-                    >
-                        <FaLock style={{ color: '#6366f1' }} /> Enter Lecturer Session PIN
-                    </button>
+                    <form onSubmit={handleLecturerPinUnlock} style={{ maxWidth: '320px', margin: '0 auto' }}>
+                        <input
+                            type="password"
+                            inputMode="numeric"
+                            pattern="[0-9]*"
+                            maxLength={6}
+                            value={lecturerPinInput}
+                            onChange={(e) => {
+                                setLecturerPinInput(e.target.value.replace(/\D/g, ''));
+                                if (pinVerificationError) setPinVerificationError('');
+                            }}
+                            placeholder="6-Digit PIN"
+                            autoFocus
+                            style={{
+                                width: '100%',
+                                padding: '12px 16px',
+                                borderRadius: '12px',
+                                border: pinVerificationError ? '2px solid #ef4444' : '2px solid #6366f1',
+                                fontSize: '1.35rem',
+                                letterSpacing: '8px',
+                                textAlign: 'center',
+                                fontWeight: 800,
+                                marginBottom: '10px',
+                                outline: 'none',
+                                background: '#ffffff',
+                                color: '#0f172a',
+                                boxShadow: '0 2px 8px rgba(99, 102, 241, 0.15)'
+                            }}
+                        />
+
+                        {pinVerificationError && (
+                            <div style={{
+                                padding: '8px 12px',
+                                borderRadius: '8px',
+                                background: '#fee2e2',
+                                border: '1px solid #fca5a5',
+                                color: '#b91c1c',
+                                fontSize: '0.82rem',
+                                fontWeight: 700,
+                                marginBottom: '10px',
+                                textAlign: 'center'
+                            }}>
+                                {pinVerificationError}
+                            </div>
+                        )}
+
+                        <button
+                            type="submit"
+                            disabled={isVerifyingPin || !lecturerPinInput.trim()}
+                            style={{
+                                width: '100%',
+                                padding: '12px 18px',
+                                borderRadius: '12px',
+                                background: 'linear-gradient(135deg, #6366f1 0%, #4338ca 100%)',
+                                border: 'none',
+                                color: '#ffffff',
+                                fontWeight: 800,
+                                fontSize: '0.95rem',
+                                cursor: isVerifyingPin || !lecturerPinInput.trim() ? 'not-allowed' : 'pointer',
+                                boxShadow: '0 4px 14px rgba(99, 102, 241, 0.4)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: '8px'
+                            }}
+                        >
+                            {isVerifyingPin ? (
+                                <><FaSpinner className="fa-spin" /> Verifying PIN...</>
+                            ) : (
+                                <><FaLock /> Unlock Device</>
+                            )}
+                        </button>
+                    </form>
+                </div>
+
+                {/* 5-Minute Fail-Safe Live Countdown */}
+                <div style={{
+                    background: 'var(--surface-soft, #f8fafc)',
+                    border: '1px solid var(--border, #e2e8f0)',
+                    borderRadius: '14px',
+                    padding: '14px 16px'
+                }}>
+                    <div style={{ fontSize: '0.78rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px' }}>
+                        Automatic Fail-Safe Release
+                    </div>
+                    <div style={{ fontSize: '1.75rem', fontWeight: 800, color: '#4338ca', letterSpacing: '1px' }}>
+                        Auto Release in {formatMmSs(autoReleaseRemaining)}
+                    </div>
+                    <p style={{ margin: '4px 0 0 0', fontSize: '0.78rem', color: '#94a3b8' }}>
+                        If the lecturer does not announce the PIN, this device will automatically exit Kiosk mode in {formatMmSs(autoReleaseRemaining)}. Manual PIN release cancels the timer.
+                    </p>
                 </div>
             </div>
         );

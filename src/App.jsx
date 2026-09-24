@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React, { useEffect, lazy, Suspense } from "react";
 import {
   Routes,
   Route,
@@ -7,35 +7,54 @@ import {
 } from "react-router-dom";
 import { App as CapacitorApp } from "@capacitor/app";
 import { Capacitor } from "@capacitor/core";
-
-import Login from "./components/login";
-import AdminDashboard from "./components/Admin/AdminDashboard";
-import QrScannerApp from "./components/Common/Scanner";
-import Settings from "./components/Common/Settings";
-
-// Lecturer imports
-import LecturerDashboard from "./components/Lecturer/LecturerDashboard";
-import LecturerDashboardView from "./components/Lecturer/pages/Dashboard";
-import LecturerPage from "./components/Lecturer/pages/Generateqr";
-import StudentForm from "./components/Lecturer/pages/StudentForm";
-import AttendanceData from "./components/Lecturer/pages/AttendanceData";
-import FaceScanner from "./components/Lecturer/pages/FaceScanner";
-import ClassesData, { SessionAttendanceData } from "./components/Lecturer/pages/SessionData";
-import ActiveSessions from "./components/Lecturer/pages/ActiveSessions";
-import StudentsList from "./components/Lecturer/pages/StudentsList";
-import LecturerCourses from "./components/Lecturer/pages/LecturerCourses";
-import AddStudent from "./components/Admin/pages/AddStudent";
-
-// Student imports
-import StudentDashboard from "./components/Student/StudentDashboard";
-import StudentDashboardView from "./components/Student/pages/Dashboard";
-import Statistics from "./components/Student/pages/Statistics";
-import StudentCourses from "./components/Student/pages/StudentCourses";
-
+import { FaGraduationCap, FaSpinner } from "react-icons/fa";
 import ProtectedRoute from "./components/ProtectedRoute";
 import { useAuth } from "./components/authcontext";
-import { FaGraduationCap } from "react-icons/fa";
 import "./App.css";
+
+// Lazy-loaded components for instant initial page loads and code splitting
+const Login = lazy(() => import("./components/login"));
+const AdminDashboard = lazy(() => import("./components/Admin/AdminDashboard"));
+const QrScannerApp = lazy(() => import("./components/Common/Scanner"));
+const Settings = lazy(() => import("./components/Common/Settings"));
+
+// Lecturer lazy imports
+const LecturerDashboard = lazy(() => import("./components/Lecturer/LecturerDashboard"));
+const LecturerDashboardView = lazy(() => import("./components/Lecturer/pages/Dashboard"));
+const LecturerPage = lazy(() => import("./components/Lecturer/pages/Generateqr"));
+const StudentForm = lazy(() => import("./components/Lecturer/pages/StudentForm"));
+const AttendanceData = lazy(() => import("./components/Lecturer/pages/AttendanceData"));
+const FaceScanner = lazy(() => import("./components/Lecturer/pages/FaceScanner"));
+const ClassesData = lazy(() => import("./components/Lecturer/pages/SessionData"));
+const SessionAttendanceData = lazy(() =>
+  import("./components/Lecturer/pages/SessionData").then((m) => ({ default: m.SessionAttendanceData }))
+);
+const ActiveSessions = lazy(() => import("./components/Lecturer/pages/ActiveSessions"));
+const StudentsList = lazy(() => import("./components/Lecturer/pages/StudentsList"));
+const LecturerCourses = lazy(() => import("./components/Lecturer/pages/LecturerCourses"));
+const AddStudent = lazy(() => import("./components/Admin/pages/AddStudent"));
+
+// Student lazy imports
+const StudentDashboard = lazy(() => import("./components/Student/StudentDashboard"));
+const StudentDashboardView = lazy(() => import("./components/Student/pages/Dashboard"));
+const Statistics = lazy(() => import("./components/Student/pages/Statistics"));
+const StudentCourses = lazy(() => import("./components/Student/pages/StudentCourses"));
+
+const PageLoadingFallback = () => (
+  <div style={{
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: "60vh",
+    gap: "12px",
+    color: "var(--accent, #6366f1)"
+  }}>
+    <FaSpinner className="fa-spin" style={{ fontSize: "2rem" }} />
+    <span style={{ fontSize: "0.9rem", fontWeight: 700, color: "var(--text-muted, #64748b)" }}>Loading page...</span>
+  </div>
+);
+
 
 function App() {
   const navigate = useNavigate();
@@ -155,27 +174,29 @@ function App() {
    */
   if (!user) {
     return (
-      <Routes>
-        <Route
-          path="/student-form"
-          element={<StudentForm />}
-        />
+      <Suspense fallback={<PageLoadingFallback />}>
+        <Routes>
+          <Route
+            path="/student-form"
+            element={<StudentForm />}
+          />
 
-        <Route
-          path="/login"
-          element={<Login />}
-        />
+          <Route
+            path="/login"
+            element={<Login />}
+          />
 
-        <Route
-          path="*"
-          element={
-            <Navigate
-              to="/login"
-              replace
-            />
-          }
-        />
-      </Routes>
+          <Route
+            path="*"
+            element={
+              <Navigate
+                to="/login"
+                replace
+              />
+            }
+          />
+        </Routes>
+      </Suspense>
     );
   }
 
@@ -184,17 +205,143 @@ function App() {
    */
   if (!profile) {
     return (
+      <Suspense fallback={<PageLoadingFallback />}>
+        <Routes>
+          <Route
+            path="/student-form"
+            element={<StudentForm />}
+          />
+
+          <Route
+            path="/login"
+            element={<Login />}
+          />
+
+          <Route
+            path="*"
+            element={
+              <Navigate
+                to="/login"
+                replace
+              />
+            }
+          />
+        </Routes>
+      </Suspense>
+    );
+  }
+
+  /*
+   * ADMIN
+   */
+  if (profile.role === "admin") {
+    return (
+      <Suspense fallback={<PageLoadingFallback />}>
+        <Routes>
+          <Route
+            path="/student-form"
+            element={<StudentForm />}
+          />
+
+          <Route
+            path="/admin/*"
+            element={
+              <ProtectedRoute allowedRole="admin">
+                <AdminDashboard />
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="*"
+            element={
+              <Navigate
+                to="/admin"
+                replace
+              />
+            }
+          />
+        </Routes>
+      </Suspense>
+    );
+  }
+
+  /*
+   * LECTURER
+   */
+  if (profile.role === "lecturer") {
+    return (
+      <Suspense fallback={<PageLoadingFallback />}>
+        <Routes>
+          <Route path="/student-form" element={<StudentForm />} />
+          <Route
+            path="/lecturer"
+            element={
+              <ProtectedRoute allowedRole="lecturer">
+                <LecturerDashboard />
+              </ProtectedRoute>
+            }
+          >
+            <Route index element={<LecturerDashboardView />} />
+            <Route path="lecturerpage" element={<LecturerPage />} />
+            <Route path="student-form" element={<StudentForm />} />
+            <Route path="settings" element={<Settings />} />
+            <Route path="attendance-data" element={<AttendanceData />} />
+            <Route path="facedetection" element={<FaceScanner />} />
+            <Route path="attendance-sessions" element={<ClassesData />} />
+            <Route path="attendance-sessions/:sessionId" element={<SessionAttendanceData />} />
+            <Route path="attendance-sessions/*" element={<SessionAttendanceData />} />
+            <Route path="classes" element={<ClassesData />} />
+            <Route path="classes/:sessionId" element={<SessionAttendanceData />} />
+            <Route path="classes/*" element={<SessionAttendanceData />} />
+            <Route path="active-sessions" element={<ActiveSessions />} />
+            <Route path="students" element={<StudentsList />} />
+            <Route path="students/add" element={<AddStudent />} />
+            <Route path="students/bulk" element={<AddStudent />} />
+            <Route path="add-student" element={<AddStudent />} />
+            <Route path="courses" element={<LecturerCourses />} />
+            <Route path="scanqr" element={<QrScannerApp />} />
+          </Route>
+          <Route path="*" element={<Navigate to="/lecturer" replace />} />
+        </Routes>
+      </Suspense>
+    );
+  }
+
+  /*
+   * STUDENT
+   */
+  if (profile.role === "student") {
+    return (
+      <Suspense fallback={<PageLoadingFallback />}>
+        <Routes>
+          <Route path="/student-form" element={<StudentForm />} />
+          <Route
+            path="/student"
+            element={
+              <ProtectedRoute allowedRole="student">
+                <StudentDashboard />
+              </ProtectedRoute>
+            }
+          >
+            <Route index element={<StudentDashboardView />} />
+            <Route path="courses" element={<StudentCourses />} />
+            <Route path="mark-attendance" element={<QrScannerApp />} />
+            <Route path="statistics" element={<Statistics />} />
+            <Route path="settings" element={<Settings />} />
+          </Route>
+          <Route path="*" element={<Navigate to="/student" replace />} />
+        </Routes>
+      </Suspense>
+    );
+  }
+
+  /*
+   * Unknown role
+   */
+  return (
+    <Suspense fallback={<PageLoadingFallback />}>
       <Routes>
-        <Route
-          path="/student-form"
-          element={<StudentForm />}
-        />
-
-        <Route
-          path="/login"
-          element={<Login />}
-        />
-
         <Route
           path="*"
           element={
@@ -205,124 +352,8 @@ function App() {
           }
         />
       </Routes>
-    );
-  }
-
-  /*
-   * ADMIN
-   */
-  if (profile.role === "admin") {
-    return (
-      <Routes>
-        <Route
-          path="/student-form"
-          element={<StudentForm />}
-        />
-
-        <Route
-          path="/admin/*"
-          element={
-            <ProtectedRoute allowedRole="admin">
-              <AdminDashboard />
-            </ProtectedRoute>
-          }
-        />
-
-        <Route
-          path="*"
-          element={
-            <Navigate
-              to="/admin"
-              replace
-            />
-          }
-        />
-      </Routes>
-    );
-  }
-
-  /*
-   * LECTURER
-   */
-  if (profile.role === "lecturer") {
-    return (
-      <Routes>
-        <Route path="/student-form" element={<StudentForm />} />
-        <Route
-          path="/lecturer"
-          element={
-            <ProtectedRoute allowedRole="lecturer">
-              <LecturerDashboard />
-            </ProtectedRoute>
-          }
-        >
-          <Route index element={<LecturerDashboardView />} />
-          <Route path="lecturerpage" element={<LecturerPage />} />
-          <Route path="student-form" element={<StudentForm />} />
-          <Route path="settings" element={<Settings />} />
-          <Route path="attendance-data" element={<AttendanceData />} />
-          <Route path="facedetection" element={<FaceScanner />} />
-          <Route path="attendance-sessions" element={<ClassesData />} />
-          <Route path="attendance-sessions/:sessionId" element={<SessionAttendanceData />} />
-          <Route path="attendance-sessions/*" element={<SessionAttendanceData />} />
-          <Route path="classes" element={<ClassesData />} />
-          <Route path="classes/:sessionId" element={<SessionAttendanceData />} />
-          <Route path="classes/*" element={<SessionAttendanceData />} />
-          <Route path="active-sessions" element={<ActiveSessions />} />
-          <Route path="students" element={<StudentsList />} />
-          <Route path="students/add" element={<AddStudent />} />
-          <Route path="students/bulk" element={<AddStudent />} />
-          <Route path="add-student" element={<AddStudent />} />
-          <Route path="courses" element={<LecturerCourses />} />
-          <Route path="scanqr" element={<QrScannerApp />} />
-        </Route>
-        <Route path="*" element={<Navigate to="/lecturer" replace />} />
-      </Routes>
-    );
-  }
-
-  /*
-   * STUDENT
-   */
-  if (profile.role === "student") {
-    return (
-      <Routes>
-        <Route path="/student-form" element={<StudentForm />} />
-        <Route
-          path="/student"
-          element={
-            <ProtectedRoute allowedRole="student">
-              <StudentDashboard />
-            </ProtectedRoute>
-          }
-        >
-          <Route index element={<StudentDashboardView />} />
-          <Route path="courses" element={<StudentCourses />} />
-          <Route path="mark-attendance" element={<QrScannerApp />} />
-          <Route path="statistics" element={<Statistics />} />
-          <Route path="settings" element={<Settings />} />
-        </Route>
-        <Route path="*" element={<Navigate to="/student" replace />} />
-      </Routes>
-    );
-  }
-
-  /*
-   * Unknown role
-   */
-  return (
-    <Routes>
-      <Route
-        path="*"
-        element={
-          <Navigate
-            to="/login"
-            replace
-          />
-        }
-      />
-    </Routes>
+    </Suspense>
   );
 }
 
-export default App;
+export default App;

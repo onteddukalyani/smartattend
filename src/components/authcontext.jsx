@@ -34,73 +34,28 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
 
   // =========================================================
-  // LOOKUP REGISTERED USER IN FIRESTORE (READ-ONLY VERIFICATION)
+  // LOOKUP REGISTERED USER IN FIRESTORE (PARALLELIZED READ-ONLY)
   // =========================================================
 
   const lookupUserInSystem = async (email) => {
     if (!email) return null;
     const cleanEmail = email.toLowerCase().trim();
-    const prefix = cleanEmail.split("@")[0].toLowerCase().trim(); // Before @
+    const prefix = cleanEmail.split("@")[0].toLowerCase().trim();
     const rollFromEmail = prefix.toUpperCase();
 
     try {
-      // Candidate result
-      let matchedResult = null;
-
-      // 1. Check admins collection by prefix
-      const adminPrefixSnap = await getDoc(doc(db, "admins", prefix)).catch(() => ({ exists: () => false }));
-      if (adminPrefixSnap.exists()) {
-        const d = adminPrefixSnap.data();
-        matchedResult = { id: adminPrefixSnap.id, ...d, email: d.email || cleanEmail, role: "admin" };
-      } else {
-        // 2. Check admins collection by email doc ID
-        const adminEmailSnap = await getDoc(doc(db, "admins", cleanEmail)).catch(() => ({ exists: () => false }));
-        if (adminEmailSnap.exists()) {
-          const d = adminEmailSnap.data();
-          matchedResult = { id: adminEmailSnap.id, ...d, email: cleanEmail, role: "admin" };
-        }
-      }
-
-      if (!matchedResult) {
-        // 3. Query admins collection by email field
-        const adminQuery = query(collection(db, "admins"), where("email", "==", cleanEmail));
-        const adminQuerySnap = await getDocs(adminQuery).catch(() => ({ empty: true }));
-        if (!adminQuerySnap.empty) {
-          const d = adminQuerySnap.docs[0].data();
-          matchedResult = { id: adminQuerySnap.docs[0].id, ...d, email: cleanEmail, role: "admin" };
-        }
-      }
-
-      if (matchedResult) return matchedResult;
-
-      // 4. Check lecturers collection by prefix
-      const lectPrefixSnap = await getDoc(doc(db, "lecturers", prefix)).catch(() => ({ exists: () => false }));
-      if (lectPrefixSnap.exists()) {
-        const d = lectPrefixSnap.data();
-        matchedResult = { id: lectPrefixSnap.id, ...d, email: d.email || cleanEmail, role: "lecturer" };
-      } else {
-        // 5. Check lecturers collection by email doc ID
-        const lectEmailSnap = await getDoc(doc(db, "lecturers", cleanEmail)).catch(() => ({ exists: () => false }));
-        if (lectEmailSnap.exists()) {
-          const d = lectEmailSnap.data();
-          matchedResult = { id: lectEmailSnap.id, ...d, email: cleanEmail, role: "lecturer" };
-        }
-      }
-
-      if (!matchedResult) {
-        // 6. Query lecturers collection by email field
-        const lectQuery = query(collection(db, "lecturers"), where("email", "==", cleanEmail));
-        const lectQuerySnap = await getDocs(lectQuery).catch(() => ({ empty: true }));
-        if (!lectQuerySnap.empty) {
-          const d = lectQuerySnap.docs[0].data();
-          matchedResult = { id: lectQuerySnap.docs[0].id, ...d, email: cleanEmail, role: "lecturer" };
-        }
-      }
-
-      if (matchedResult) return matchedResult;
-
-      // 7. Check student records across students, users, and authorizedUsers simultaneously
-      const [studentRollSnap, studentPrefixSnap, studentEmailDocSnap, userRollSnap, userPrefixSnap, authPrefixSnap, authEmailSnap] = await Promise.all([
+      // 1. Run all primary direct lookups in parallel for maximum speed
+      const [
+        adminPrefixSnap, adminEmailSnap,
+        lectPrefixSnap, lectEmailSnap,
+        studentRollSnap, studentPrefixSnap, studentEmailDocSnap,
+        userRollSnap, userPrefixSnap,
+        authPrefixSnap, authEmailSnap
+      ] = await Promise.all([
+        getDoc(doc(db, "admins", prefix)).catch(() => ({ exists: () => false })),
+        getDoc(doc(db, "admins", cleanEmail)).catch(() => ({ exists: () => false })),
+        getDoc(doc(db, "lecturers", prefix)).catch(() => ({ exists: () => false })),
+        getDoc(doc(db, "lecturers", cleanEmail)).catch(() => ({ exists: () => false })),
         getDoc(doc(db, "students", rollFromEmail)).catch(() => ({ exists: () => false })),
         prefix !== rollFromEmail.toLowerCase() ? getDoc(doc(db, "students", prefix)).catch(() => ({ exists: () => false })) : Promise.resolve({ exists: () => false }),
         getDoc(doc(db, "students", cleanEmail)).catch(() => ({ exists: () => false })),
@@ -110,6 +65,27 @@ export const AuthProvider = ({ children }) => {
         getDoc(doc(db, "authorizedUsers", cleanEmail)).catch(() => ({ exists: () => false }))
       ]);
 
+      // Check Admin
+      if (adminPrefixSnap.exists()) {
+        const d = adminPrefixSnap.data();
+        return { id: adminPrefixSnap.id, ...d, email: d.email || cleanEmail, role: "admin" };
+      }
+      if (adminEmailSnap.exists()) {
+        const d = adminEmailSnap.data();
+        return { id: adminEmailSnap.id, ...d, email: cleanEmail, role: "admin" };
+      }
+
+      // Check Lecturer
+      if (lectPrefixSnap.exists()) {
+        const d = lectPrefixSnap.data();
+        return { id: lectPrefixSnap.id, ...d, email: d.email || cleanEmail, role: "lecturer" };
+      }
+      if (lectEmailSnap.exists()) {
+        const d = lectEmailSnap.data();
+        return { id: lectEmailSnap.id, ...d, email: cleanEmail, role: "lecturer" };
+      }
+
+      // Check Student direct docs
       const candidateDocs = [
         authEmailSnap.exists() ? authEmailSnap.data() : null,
         authPrefixSnap.exists() ? authPrefixSnap.data() : null,
@@ -156,13 +132,25 @@ export const AuthProvider = ({ children }) => {
         };
       }
 
-      // 8. Query by email / rollNo fields as fallback
-      const [qStudentEmail, qStudentRoll, qUserEmail, qAuthEmail] = await Promise.all([
+      // 2. Query fallback in parallel
+      const [adminQuerySnap, lectQuerySnap, qStudentEmail, qStudentRoll, qUserEmail, qAuthEmail] = await Promise.all([
+        getDocs(query(collection(db, "admins"), where("email", "==", cleanEmail))).catch(() => ({ empty: true })),
+        getDocs(query(collection(db, "lecturers"), where("email", "==", cleanEmail))).catch(() => ({ empty: true })),
         getDocs(query(collection(db, "students"), where("email", "==", cleanEmail))).catch(() => ({ empty: true })),
         getDocs(query(collection(db, "students"), where("rollNo", "==", rollFromEmail))).catch(() => ({ empty: true })),
         getDocs(query(collection(db, "users"), where("email", "==", cleanEmail))).catch(() => ({ empty: true })),
         getDocs(query(collection(db, "authorizedUsers"), where("email", "==", cleanEmail))).catch(() => ({ empty: true }))
       ]);
+
+      if (!adminQuerySnap.empty) {
+        const d = adminQuerySnap.docs[0].data();
+        return { id: adminQuerySnap.docs[0].id, ...d, email: cleanEmail, role: "admin" };
+      }
+
+      if (!lectQuerySnap.empty) {
+        const d = lectQuerySnap.docs[0].data();
+        return { id: lectQuerySnap.docs[0].id, ...d, email: cleanEmail, role: "lecturer" };
+      }
 
       const fieldDocs = [
         !qAuthEmail.empty ? qAuthEmail.docs[0].data() : null,
@@ -207,7 +195,6 @@ export const AuthProvider = ({ children }) => {
         };
       }
 
-      // Not found anywhere in admins, lecturers, students, authorizedUsers, or users -> NOT REGISTERED
       return null;
     } catch (err) {
       console.error("Error looking up user in system:", err);
@@ -285,7 +272,7 @@ export const AuthProvider = ({ children }) => {
   };
 
   // =========================================================
-  // ON AUTH STATE CHANGED (STRICT READ-ONLY: ZERO DATABASE WRITES)
+  // ON AUTH STATE CHANGED (FAST PROFILE CACHE + BACKGROUND REFRESH)
   // =========================================================
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(
@@ -295,31 +282,57 @@ export const AuthProvider = ({ children }) => {
           if (!currentUser || !currentUser.email) {
             setUser(null);
             setProfile(null);
+            setLoading(false);
             return;
           }
 
+          // 1. Try to load cached profile from localStorage for instantaneous 0ms page load
+          const cacheKey = `smartattend-cached-profile-${currentUser.uid}`;
+          let hasHydrated = false;
+          try {
+            const cached = localStorage.getItem(cacheKey);
+            if (cached) {
+              const parsed = JSON.parse(cached);
+              if (parsed && parsed.email?.toLowerCase() === currentUser.email?.toLowerCase()) {
+                setUser(currentUser);
+                setProfile(parsed);
+                setLoading(false);
+                hasHydrated = true;
+              }
+            }
+          } catch (e) {}
+
+          // 2. Perform fresh parallel lookup in Firestore
           const registeredUser = await lookupUserInSystem(currentUser.email);
 
           if (!registeredUser) {
             console.warn("Unregistered user attempted access on session restore:", currentUser.email);
+            try { localStorage.removeItem(cacheKey); } catch (_) {}
             await firebaseLogoutUser();
             setUser(null);
             setProfile(null);
+            setLoading(false);
             return;
           }
 
           // If account is deactivated or unapproved, deny access
           if (registeredUser.status === "disabled" || registeredUser.approved === false) {
             console.warn("Deactivated or unapproved user attempted access:", currentUser.email);
+            try { localStorage.removeItem(cacheKey); } catch (_) {}
             await firebaseLogoutUser();
             setUser(null);
             setProfile(null);
+            setLoading(false);
             return;
           }
 
           const enrichedProfile = buildEnrichedProfile(registeredUser, currentUser);
 
-          // Grant access without modifying or writing to the database
+          // Update cache with fresh data
+          try {
+            localStorage.setItem(cacheKey, JSON.stringify(enrichedProfile));
+          } catch (_) {}
+
           setUser(currentUser);
           setProfile(enrichedProfile);
 
@@ -335,6 +348,7 @@ export const AuthProvider = ({ children }) => {
 
     return () => unsubscribe();
   }, []);
+
 
   // =========================================================
   // GOOGLE LOGIN (STRICT READ-ONLY: ONLY PRE-REGISTERED USERS ALLOWED, ZERO WRITES)
