@@ -16,7 +16,9 @@ import {
     FaCamera,
     FaExclamationTriangle,
     FaMobileAlt,
-    FaExternalLinkAlt
+    FaExternalLinkAlt,
+    FaLock,
+    FaKey
 } from 'react-icons/fa';
 import { MdQrCodeScanner } from 'react-icons/md';
 import { useAuth } from '../authcontext';
@@ -26,7 +28,8 @@ import {
     validateStudentQR2,
     submitVerifiedAttendance,
     subscribeToSession,
-    recordSessionViolation
+    recordSessionViolation,
+    verifyLecturerEmergencyPin
 } from '../../services/sessionAuthService';
 import { db } from '../../firebase';
 import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
@@ -88,6 +91,39 @@ function QrScannerApp() {
     const loggedInRollNo = (profile?.rollNo || (user?.email || '').split('@')[0] || '').trim().toUpperCase();
     const rawProfileName = profile?.name || profile?.fullName || '';
     const loggedInName = (!isGenericName(rawProfileName, loggedInRollNo, user?.email)) ? rawProfileName.trim() : loggedInRollNo;
+
+    // Lecturer Emergency PIN Release Modal State
+    const [showPinModal, setShowPinModal] = useState(false);
+    const [lecturerPinInput, setLecturerPinInput] = useState('');
+    const [pinVerificationError, setPinVerificationError] = useState('');
+    const [isVerifyingPin, setIsVerifyingPin] = useState(false);
+
+    const handleLecturerPinUnlock = async (e) => {
+        if (e && typeof e.preventDefault === 'function') e.preventDefault();
+        if (!lecturerPinInput.trim()) {
+            setPinVerificationError('Please enter the 4-digit Lecturer Security PIN.');
+            return;
+        }
+
+        setIsVerifyingPin(true);
+        setPinVerificationError('');
+
+        try {
+            await verifyLecturerEmergencyPin(activeSessionId, lecturerPinInput.trim());
+            console.log('[Kiosk] Lecturer Security PIN verified. Releasing device from Kiosk mode...');
+            try { localStorage.removeItem('smartattend_kiosk_session_state'); } catch (_) {}
+            releaseAllMediaTracks();
+            await Kiosk.stopKioskMode().catch(() => {});
+            await Kiosk.clearAttendanceRestrictions().catch(() => {});
+            setShowPinModal(false);
+            navigate('/student', { replace: true });
+        } catch (err) {
+            console.error('PIN verification error:', err);
+            setPinVerificationError(err.message || 'Invalid Lecturer PIN. Device remains locked in Kiosk mode.');
+        } finally {
+            setIsVerifyingPin(false);
+        }
+    };
 
     // Camera default preference (desktop vs mobile) and unmount track release
     useEffect(() => {
@@ -672,6 +708,135 @@ function QrScannerApp() {
         return `${m}:${String(s).padStart(2, '0')}`;
     };
 
+    // Render Lecturer Emergency PIN Release Modal
+    const renderLecturerPinModal = () => {
+        if (!showPinModal) return null;
+        return (
+            <div style={{
+                position: 'fixed',
+                inset: 0,
+                backgroundColor: 'rgba(15, 23, 42, 0.85)',
+                backdropFilter: 'blur(8px)',
+                zIndex: 10000,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: '20px'
+            }}>
+                <div style={{
+                    maxWidth: '400px',
+                    width: '100%',
+                    background: '#ffffff',
+                    borderRadius: '20px',
+                    padding: '26px 24px',
+                    boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
+                    textAlign: 'center',
+                    color: '#0f172a'
+                }}>
+                    <div style={{
+                        width: '56px',
+                        height: '56px',
+                        borderRadius: '50%',
+                        background: 'rgba(99, 102, 241, 0.12)',
+                        color: '#6366f1',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: '24px',
+                        margin: '0 auto 12px'
+                    }}>
+                        <FaLock />
+                    </div>
+                    <h3 style={{ margin: '0 0 6px', fontSize: '1.25rem', fontWeight: 800 }}>
+                        Lecturer Emergency Unlock
+                    </h3>
+                    <p style={{ margin: '0 0 16px', fontSize: '0.84rem', color: '#64748b', lineHeight: 1.4 }}>
+                        Enter the Lecturer Session Security PIN to immediately unlock this student device and end Kiosk mode.
+                    </p>
+
+                    <form onSubmit={handleLecturerPinUnlock}>
+                        <input
+                            type="password"
+                            maxLength={6}
+                            value={lecturerPinInput}
+                            onChange={(e) => setLecturerPinInput(e.target.value)}
+                            placeholder="Enter 4-digit Lecturer PIN"
+                            autoFocus
+                            style={{
+                                width: '100%',
+                                padding: '12px 16px',
+                                borderRadius: '12px',
+                                border: '1.5px solid #cbd5e1',
+                                fontSize: '1.2rem',
+                                letterSpacing: '4px',
+                                textAlign: 'center',
+                                fontWeight: 800,
+                                marginBottom: '12px',
+                                outline: 'none'
+                            }}
+                        />
+
+                        {pinVerificationError && (
+                            <div style={{
+                                padding: '8px 12px',
+                                borderRadius: '8px',
+                                background: '#fee2e2',
+                                color: '#b91c1c',
+                                fontSize: '0.82rem',
+                                fontWeight: 700,
+                                marginBottom: '12px'
+                            }}>
+                                {pinVerificationError}
+                            </div>
+                        )}
+
+                        <div style={{ display: 'flex', gap: '10px' }}>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setShowPinModal(false);
+                                    setLecturerPinInput('');
+                                    setPinVerificationError('');
+                                }}
+                                style={{
+                                    flex: 1,
+                                    padding: '11px',
+                                    borderRadius: '12px',
+                                    background: '#f1f5f9',
+                                    border: '1px solid #cbd5e1',
+                                    color: '#475569',
+                                    fontWeight: 700,
+                                    fontSize: '0.9rem',
+                                    cursor: 'pointer'
+                                }}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="submit"
+                                disabled={isVerifyingPin}
+                                style={{
+                                    flex: 1,
+                                    padding: '11px',
+                                    borderRadius: '12px',
+                                    background: '#6366f1',
+                                    border: 'none',
+                                    color: '#ffffff',
+                                    fontWeight: 800,
+                                    fontSize: '0.9rem',
+                                    cursor: 'pointer',
+                                    boxShadow: '0 4px 14px rgba(99, 102, 241, 0.4)'
+                                }}
+                            >
+                                {isVerifyingPin ? <FaSpinner className="fa-spin" /> : 'Authorize Unlock'}
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        );
+    };
+
     // =========================================================================
     // UI VIEW 1: ATTENDANCE SUBMITTED (Holds Kiosk Mode until T = 180s)
     // =========================================================================
@@ -686,8 +851,11 @@ function QrScannerApp() {
                 border: '1.5px solid var(--border, #e2e8f0)',
                 boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.15)',
                 color: 'var(--text-main, #0f172a)',
-                textAlign: 'center'
+                textAlign: 'center',
+                position: 'relative'
             }}>
+                {renderLecturerPinModal()}
+
                 <div style={{
                     width: '72px',
                     height: '72px',
@@ -752,9 +920,29 @@ function QrScannerApp() {
                     <div style={{ fontSize: '1.85rem', fontWeight: 800, color: '#4338ca', marginBottom: '6px' }}>
                         ⏱️ {formatMmSs(sessionRemaining)}
                     </div>
-                    <p style={{ margin: 0, fontSize: '0.84rem', color: '#64748b', lineHeight: 1.45 }}>
+                    <p style={{ margin: 0, fontSize: '0.84rem', color: '#64748b', lineHeight: 1.45, marginBottom: '14px' }}>
                         Attendance is verified. Your phone will <strong>automatically unlock and return to the dashboard</strong> once your lecturer finishes the session or when the timer reaches 0:00.
                     </p>
+
+                    <button
+                        type="button"
+                        onClick={() => setShowPinModal(true)}
+                        style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            padding: '8px 14px',
+                            borderRadius: '10px',
+                            background: '#ffffff',
+                            border: '1px solid #cbd5e1',
+                            color: '#475569',
+                            fontSize: '0.8rem',
+                            fontWeight: 700,
+                            cursor: 'pointer'
+                        }}
+                    >
+                        <FaLock style={{ color: '#6366f1' }} /> Lecturer Emergency Release
+                    </button>
                 </div>
             </div>
         );
@@ -985,35 +1173,9 @@ function QrScannerApp() {
                         <FaClock /> Next: Scan QR 2 for Biometric Attendance
                     </div>
                     <p style={{ margin: 0, fontSize: '0.82rem', color: '#475569', lineHeight: 1.4 }}>
-                        When your lecturer displays <strong>QR 2 (1:00 - 3:00)</strong> on the screen, point your camera below or tap "Scan QR 2 via Camera" to verify your face and mark attendance.
+                        When your lecturer displays <strong>QR 2 (1:00 - 3:00)</strong> on the screen, point the live camera below at the screen to verify your face and mark attendance.
                     </p>
                 </div>
-
-                {/* Snap QR 2 Button */}
-                <button
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={scanningFile}
-                    style={{
-                        width: '100%',
-                        padding: '13px',
-                        borderRadius: '14px',
-                        background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-                        color: '#ffffff',
-                        border: 'none',
-                        fontWeight: 800,
-                        fontSize: '0.96rem',
-                        cursor: 'pointer',
-                        marginBottom: '16px',
-                        boxShadow: '0 4px 14px rgba(16, 185, 129, 0.3)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: '8px'
-                    }}
-                >
-                    {scanningFile ? <><FaSpinner className="fa-spin" /> Decoding QR 2...</> : <><FaCamera /> Scan Phase 2 QR via Camera</>}
-                </button>
 
                 {/* Live Scanner Frame */}
                 <div style={{
@@ -1240,36 +1402,38 @@ function QrScannerApp() {
                 </div>
             )}
 
-            {/* Snap Button */}
-            <div style={{ marginBottom: '16px' }}>
-                <button
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={scanningFile || scanState !== 'IDLE'}
-                    style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: '8px',
-                        width: '100%',
-                        padding: '13px 20px',
-                        borderRadius: '14px',
-                        background: 'linear-gradient(180deg, var(--accent, #6366f1), var(--accent-strong, #4338ca))',
-                        color: '#ffffff',
-                        border: 'none',
-                        fontWeight: 800,
-                        fontSize: '0.98rem',
-                        cursor: 'pointer',
-                        boxShadow: '0 4px 16px rgba(99, 102, 241, 0.35)'
-                    }}
-                >
-                    {scanningFile ? (
-                        <><FaSpinner className="fa-spin" /> Decoding QR Code...</>
-                    ) : (
-                        <><FaCamera /> Scan QR via Device Camera</>
-                    )}
-                </button>
-            </div>
+            {/* Snap Button (Fallback for Web Browsers with HTTP/insecure camera restrictions) */}
+            {!isNativeApp && (
+                <div style={{ marginBottom: '16px' }}>
+                    <button
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={scanningFile || scanState !== 'IDLE'}
+                        style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '8px',
+                            width: '100%',
+                            padding: '13px 20px',
+                            borderRadius: '14px',
+                            background: 'linear-gradient(180deg, var(--accent, #6366f1), var(--accent-strong, #4338ca))',
+                            color: '#ffffff',
+                            border: 'none',
+                            fontWeight: 800,
+                            fontSize: '0.98rem',
+                            cursor: 'pointer',
+                            boxShadow: '0 4px 16px rgba(99, 102, 241, 0.35)'
+                        }}
+                    >
+                        {scanningFile ? (
+                            <><FaSpinner className="fa-spin" /> Decoding QR Code...</>
+                        ) : (
+                            <><FaCamera /> Snap / Upload QR Photo</>
+                        )}
+                    </button>
+                </div>
+            )}
 
             {/* Camera Viewport */}
             <div style={{

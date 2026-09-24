@@ -40,8 +40,9 @@ function GenerateQR() {
     const [batch, setBatch] = useState(searchParams.get("batch") || "2025");
     const [availableCourses, setAvailableCourses] = useState([]);
 
-    // Authoritative 2-Phase Session State (0:00 -> 1:00 -> 2:00)
+    // Authoritative 2-Phase Session State (0:00 -> 1:00 -> 3:00)
     const [sessionId, setSessionId] = useState("");
+    const [sessionPin, setSessionPin] = useState("");
     const [phase, setPhase] = useState("NONE"); // "NONE" | "PHASE_1" | "PHASE_2" | "CLOSED"
     const [qr1Token, setQr1Token] = useState("");
     const [qr2Token, setQr2Token] = useState("");
@@ -98,6 +99,20 @@ function GenerateQR() {
 
         const unsubSession = subscribeToSession(sessionId, (data) => {
             setSessionData(data);
+            if (data.lecturerPin) {
+                setSessionPin(data.lecturerPin);
+            }
+            if (data.phase === "PHASE_2" || data.phase === "CLOSED") {
+                setPhase(data.phase);
+            }
+            if (data.qr1ExpiresAt) {
+                const exp = typeof data.qr1ExpiresAt.toMillis === 'function' ? data.qr1ExpiresAt.toMillis() : data.qr1ExpiresAt;
+                setQr1ExpiresAt(exp);
+            }
+            if (data.kioskEndsAt) {
+                const end = typeof data.kioskEndsAt.toMillis === 'function' ? data.kioskEndsAt.toMillis() : data.kioskEndsAt;
+                setKioskEndsAt(end);
+            }
         });
 
         const unsubAuths = subscribeToAuthorizations(sessionId, (authList) => {
@@ -110,7 +125,7 @@ function GenerateQR() {
         };
     }, [sessionId]);
 
-    // 3. Authoritative Session Timeline Engine (0:00 to 2:00)
+    // 3. Authoritative Session Timeline Engine (0:00 to 3:00)
     useEffect(() => {
         if (!sessionStartAt || !kioskEndsAt) {
             if (timerRef.current) clearInterval(timerRef.current);
@@ -122,16 +137,16 @@ function GenerateQR() {
             const elapsed = Math.floor((now - sessionStartAt) / 1000);
             setElapsedSeconds(elapsed);
 
-            if (now < qr1ExpiresAt) {
-                setPhase("PHASE_1");
-            } else if (now >= qr1ExpiresAt && now < kioskEndsAt) {
-                setPhase("PHASE_2");
-            } else {
+            if (now >= kioskEndsAt) {
                 setPhase("CLOSED");
                 if (timerRef.current) clearInterval(timerRef.current);
                 if (sessionId) {
                     closeAttendanceSession(sessionId).catch(() => {});
                 }
+            } else if (phase === "PHASE_2" || sessionData?.phase === "PHASE_2" || now >= qr1ExpiresAt) {
+                setPhase("PHASE_2");
+            } else {
+                setPhase("PHASE_1");
             }
         };
 
@@ -141,7 +156,7 @@ function GenerateQR() {
         return () => {
             if (timerRef.current) clearInterval(timerRef.current);
         };
-    }, [sessionStartAt, qr1ExpiresAt, kioskEndsAt]);
+    }, [sessionStartAt, qr1ExpiresAt, kioskEndsAt, phase, sessionData?.phase]);
 
     const handleSelectCourse = (code) => {
         setCourseCode(code);
@@ -164,7 +179,7 @@ function GenerateQR() {
         }
     };
 
-    // 4. Start 2-Minute Authoritative Session
+    // 4. Start 3-Minute Authoritative Session
     const handleGenerateSession = async () => {
         if (!classCode || !roomNo.trim()) {
             alert("Please select a class and enter room number.");
@@ -189,6 +204,7 @@ function GenerateQR() {
             const result = await createAttendanceSession(classCode, courseCode.trim(), roomNo.trim(), finalBatch, lecturerInfo);
 
             setSessionId(result.sessionId);
+            if (result.lecturerPin) setSessionPin(result.lecturerPin);
             setQr1Token(result.qr1Token);
             setQr2Token(result.qr2Token);
             setSessionStartAt(result.sessionStartAt);
@@ -209,8 +225,10 @@ function GenerateQR() {
         if (!sessionId) return;
         setIsTransitioning(true);
         try {
-            await transitionSessionToPhase2(sessionId);
+            const now = Date.now();
+            setQr1ExpiresAt(now);
             setPhase("PHASE_2");
+            await transitionSessionToPhase2(sessionId);
         } catch (error) {
             console.warn("Notice transitioning early:", error);
             setPhase("PHASE_2");
@@ -467,6 +485,49 @@ function GenerateQR() {
                                     </span>
                                 </div>
                             </div>
+
+                            {/* Lecturer Security PIN & Kiosk Remote Controller Bar */}
+                            {phase !== "CLOSED" && (
+                                <div style={{
+                                    width: "100%",
+                                    marginBottom: "16px",
+                                    padding: "10px 14px",
+                                    borderRadius: "12px",
+                                    background: "rgba(99, 102, 241, 0.08)",
+                                    border: "1px dashed #6366f1",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "space-between",
+                                    flexWrap: "wrap",
+                                    gap: "8px"
+                                }}>
+                                    <div style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "0.84rem", color: "#334155" }}>
+                                        <FaLock style={{ color: "#6366f1" }} />
+                                        <span>Lecturer Emergency PIN: <strong style={{ color: "#4338ca", letterSpacing: "1px", fontSize: "0.95rem" }}>{sessionPin || "1234"}</strong></span>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={async () => {
+                                            if (window.confirm("End attendance session immediately and release all student devices from Kiosk mode?")) {
+                                                await closeAttendanceSession(sessionId);
+                                                setPhase("CLOSED");
+                                            }
+                                        }}
+                                        style={{
+                                            padding: "6px 12px",
+                                            borderRadius: "8px",
+                                            background: "#fee2e2",
+                                            border: "1px solid #fca5a5",
+                                            color: "#b91c1c",
+                                            fontSize: "0.78rem",
+                                            fontWeight: 800,
+                                            cursor: "pointer"
+                                        }}
+                                    >
+                                        🛑 End Session &amp; Release All Kiosks
+                                    </button>
+                                </div>
+                            )}
 
                             {/* Session Header */}
                             <div className="qr-result-heading">
