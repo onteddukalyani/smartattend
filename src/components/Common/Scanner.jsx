@@ -25,7 +25,8 @@ import {
     authorizeStudentQR1,
     validateStudentQR2,
     submitVerifiedAttendance,
-    subscribeToSession
+    subscribeToSession,
+    recordSessionViolation
 } from '../../services/sessionAuthService';
 import { db } from '../../firebase';
 import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
@@ -172,6 +173,7 @@ function QrScannerApp() {
                 if (sessionTimerRef.current) clearInterval(sessionTimerRef.current);
                 console.log('[Kiosk] 3-minute session completed. Automatically unlocking Kiosk mode...');
                 try { localStorage.removeItem('smartattend_kiosk_session_state'); } catch (_) {}
+                releaseAllMediaTracks();
                 Kiosk.stopKioskMode().catch(() => {});
                 Kiosk.clearAttendanceRestrictions().catch(() => {});
                 navigate('/student', { replace: true });
@@ -261,25 +263,49 @@ function QrScannerApp() {
 
     // Web Guardian Supervision: Monitor tab switches or leaving app during active session
     useEffect(() => {
-        const isSessionActive = scanState === 'KIOSK_WAITING_QR2' || scanState === 'BIOMETRIC_SCAN' || scanState === 'ATTENDANCE_SUCCESS';
+        const isSessionActive = scanState === 'KIOSK_WAITING_QR2' || scanState === 'BIOMETRIC_SCAN';
         if (!isSessionActive) {
             setSupervisionViolation(false);
             return;
         }
 
+        const handleViolationTrigger = (source) => {
+            console.warn(`[Kiosk Guardian] Tab switch or App minimize detected via ${source}!`);
+            
+            // Record violation event to Firestore audit trail
+            if (activeSessionId) {
+                recordSessionViolation(activeSessionId, user?.uid, loggedInRollNo, `APP_LEAVE_${source}`);
+            }
+
+            setViolationCount((prev) => {
+                const nextCount = prev + 1;
+                if (nextCount >= 2) {
+                    console.error('[Kiosk Guardian] Max violations exceeded. Disqualifying attendance session.');
+                    try { localStorage.removeItem('smartattend_kiosk_session_state'); } catch (_) {}
+                    try { localStorage.removeItem(`smartattend_qr1_auth_${activeSessionId}`); } catch (_) {}
+                    try { sessionStorage.removeItem(`smartattend_qr1_auth_${activeSessionId}`); } catch (_) {}
+                    releaseAllMediaTracks();
+                    Kiosk.stopKioskMode().catch(() => {});
+                    Kiosk.clearAttendanceRestrictions().catch(() => {});
+                    setErrorMessage('❌ Attendance Disqualified: App switching / leaving the app was detected. Proxy attempts and sharing QR codes are strictly prohibited and have been logged.');
+                    setScanState('IDLE');
+                    setSupervisionViolation(false);
+                } else {
+                    setSupervisionViolation(true);
+                }
+                return nextCount;
+            });
+        };
+
         const handleVisibilityChange = () => {
             if (document.hidden || document.visibilityState === 'hidden') {
-                console.warn('[Kiosk Guardian] Tab switch or App minimize detected!');
-                setSupervisionViolation(true);
-                setViolationCount((c) => c + 1);
+                handleViolationTrigger('VISIBILITY_CHANGE');
             }
         };
 
         const handleBlur = () => {
             if (!isNativeApp) {
-                console.warn('[Kiosk Guardian] Window blur detected!');
-                setSupervisionViolation(true);
-                setViolationCount((c) => c + 1);
+                handleViolationTrigger('WINDOW_BLUR');
             }
         };
 
@@ -290,7 +316,7 @@ function QrScannerApp() {
             document.removeEventListener('visibilitychange', handleVisibilityChange);
             window.removeEventListener('blur', handleBlur);
         };
-    }, [scanState, isNativeApp]);
+    }, [scanState, isNativeApp, activeSessionId, user, loggedInRollNo]);
 
     // Mobile Web App Auto-Launch (If opened via phone camera or Chrome)
     useEffect(() => {
@@ -347,6 +373,7 @@ function QrScannerApp() {
             if (data.status === 'CLOSED' || data.phase === 'CLOSED' || data.isClosed === true) {
                 console.log('[Kiosk] Session marked as CLOSED by Lecturer. Automatically unlocking Kiosk mode...');
                 try { localStorage.removeItem('smartattend_kiosk_session_state'); } catch (_) {}
+                releaseAllMediaTracks();
                 Kiosk.stopKioskMode().catch(() => {});
                 Kiosk.clearAttendanceRestrictions().catch(() => {});
                 navigate('/student', { replace: true });
@@ -711,22 +738,22 @@ function QrScannerApp() {
                     </div>
                 </div>
 
-                {/* Supervised Lock Task Countdown (Fixed T = 180s deadline) */}
+                {/* Supervised Lock Task Countdown (Locked until session completion) */}
                 <div style={{
                     background: 'rgba(99, 102, 241, 0.08)',
                     border: '1.5px solid rgba(99, 102, 241, 0.3)',
                     borderRadius: '16px',
-                    padding: '16px',
-                    marginBottom: '10px'
+                    padding: '18px 16px',
+                    marginTop: '12px'
                 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', color: '#6366f1', fontWeight: 800, fontSize: '0.92rem', marginBottom: '6px' }}>
-                        <FaShieldAlt /> Supervised Kiosk Mode Active
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', color: '#6366f1', fontWeight: 800, fontSize: '0.92rem', marginBottom: '8px' }}>
+                        <FaShieldAlt /> Device Locked in Supervised Kiosk Mode
                     </div>
-                    <div style={{ fontSize: '1.75rem', fontWeight: 800, color: '#4338ca', marginBottom: '4px' }}>
-                        {formatMmSs(sessionRemaining)}
+                    <div style={{ fontSize: '1.85rem', fontWeight: 800, color: '#4338ca', marginBottom: '6px' }}>
+                        ⏱️ {formatMmSs(sessionRemaining)}
                     </div>
-                    <p style={{ margin: 0, fontSize: '0.84rem', color: '#64748b' }}>
-                        Device is locked in Supervised Kiosk Mode. It will automatically unlock and return to your dashboard when the session reaches 0:00.
+                    <p style={{ margin: 0, fontSize: '0.84rem', color: '#64748b', lineHeight: 1.45 }}>
+                        Attendance is verified. Your phone will <strong>automatically unlock and return to the dashboard</strong> once your lecturer finishes the session or when the timer reaches 0:00.
                     </p>
                 </div>
             </div>
@@ -851,24 +878,28 @@ function QrScannerApp() {
                         }}>
                             <FaExclamationTriangle />
                         </div>
-                        <h2 style={{ fontSize: '1.6rem', fontWeight: 800, margin: '0 0 10px 0', color: '#f87171' }}>
-                            Supervision Alert!
+                        <h2 style={{ fontSize: '1.5rem', fontWeight: 800, margin: '0 0 10px 0', color: '#f87171' }}>
+                            Security Supervision Alert!
                         </h2>
-                        <p style={{ maxWidth: '420px', fontSize: '0.95rem', color: '#cbd5e1', lineHeight: 1.5, marginBottom: '20px' }}>
-                            You switched tabs or left SmartAttend during an active attendance session ({loggedInRollNo}).
-                            App switching is strictly prohibited to prevent proxy attendance.
+                        <p style={{ maxWidth: '440px', fontSize: '0.9rem', color: '#cbd5e1', lineHeight: 1.5, marginBottom: '16px' }}>
+                            App switching or minimization detected for student <strong>{loggedInRollNo}</strong>.
+                            Leaving SmartAttend or sharing QR codes is strictly prohibited.
                         </p>
                         <div style={{
-                            padding: '10px 18px',
+                            padding: '12px 16px',
                             borderRadius: '12px',
-                            background: 'rgba(239, 68, 68, 0.2)',
+                            background: 'rgba(239, 68, 68, 0.15)',
                             border: '1px solid rgba(239, 68, 68, 0.4)',
                             color: '#fca5a5',
-                            fontSize: '0.85rem',
-                            fontWeight: 700,
-                            marginBottom: '24px'
+                            fontSize: '0.82rem',
+                            lineHeight: 1.45,
+                            marginBottom: '20px',
+                            textAlign: 'left'
                         }}>
-                            Violations Logged: {violationCount} · Time Remaining: {formatMmSs(sessionRemaining)}
+                            <div style={{ fontWeight: 800, marginBottom: '4px', color: '#f87171' }}>⚠️ Anti-Proxy Protection Active:</div>
+                            • Violations Count: <strong>{violationCount} / 2</strong> (Next violation disqualifies attendance)<br />
+                            • Phase 2 requires live 3D Facial Biometrics matching {loggedInRollNo}'s record.<br />
+                            • Session Time Remaining: <strong>{formatMmSs(sessionRemaining)}</strong>
                         </div>
                         <button
                             type="button"

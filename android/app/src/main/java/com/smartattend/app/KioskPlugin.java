@@ -84,10 +84,12 @@ public class KioskPlugin extends Plugin {
                         dpm.addUserRestriction(adminComponent, UserManager.DISALLOW_MOUNT_PHYSICAL_MEDIA);
                         dpm.addUserRestriction(adminComponent, UserManager.DISALLOW_APPS_CONTROL);
                         dpm.addUserRestriction(adminComponent, UserManager.DISALLOW_SYSTEM_ERROR_DIALOGS);
+                        dpm.addUserRestriction(adminComponent, UserManager.DISALLOW_USB_FILE_TRANSFER);
 
-                        // Disable lockscreen / keyguard during attendance
+                        // Disable lockscreen / keyguard & status bar pull-down during attendance
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                             dpm.setKeyguardDisabled(adminComponent, true);
+                            dpm.setStatusBarDisabled(adminComponent, true);
                         }
                     }
 
@@ -130,9 +132,11 @@ public class KioskPlugin extends Plugin {
                         dpm.clearUserRestriction(adminComponent, UserManager.DISALLOW_MOUNT_PHYSICAL_MEDIA);
                         dpm.clearUserRestriction(adminComponent, UserManager.DISALLOW_APPS_CONTROL);
                         dpm.clearUserRestriction(adminComponent, UserManager.DISALLOW_SYSTEM_ERROR_DIALOGS);
+                        dpm.clearUserRestriction(adminComponent, UserManager.DISALLOW_USB_FILE_TRANSFER);
 
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                             dpm.setKeyguardDisabled(adminComponent, false);
+                            dpm.setStatusBarDisabled(adminComponent, false);
                         }
                     }
 
@@ -164,12 +168,22 @@ public class KioskPlugin extends Plugin {
                     isKioskEnforced = true;
                     reEnforceKiosk(activity);
 
-                    if (activity instanceof MainActivity) {
-                        ((MainActivity) activity).startKioskWatchdog();
-                    }
-
                     DevicePolicyManager dpm = (DevicePolicyManager) activity.getSystemService(Context.DEVICE_POLICY_SERVICE);
                     boolean isDeviceOwner = (dpm != null && dpm.isDeviceOwnerApp(activity.getPackageName()));
+
+                    // Start Android OS Lock Task Mode (enforces OS-level Home & Overview button lock)
+                    try {
+                        ActivityManager am = (ActivityManager) activity.getSystemService(Context.ACTIVITY_SERVICE);
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && am != null) {
+                            if (am.getLockTaskModeState() == ActivityManager.LOCK_TASK_MODE_NONE) {
+                                activity.startLockTask();
+                            }
+                        } else {
+                            activity.startLockTask();
+                        }
+                    } catch (Exception lockErr) {
+                        Log.w(TAG, "startLockTask notice: " + lockErr.getMessage());
+                    }
 
                     JSObject ret = new JSObject();
                     ret.put("active", true);
@@ -204,10 +218,6 @@ public class KioskPlugin extends Plugin {
                 try {
                     isKioskEnforced = false;
 
-                    if (activity instanceof MainActivity) {
-                        ((MainActivity) activity).stopKioskWatchdog();
-                    }
-
                     // 1. Clear DevicePolicyManager restrictions
                     try {
                         DevicePolicyManager dpm = (DevicePolicyManager) activity.getSystemService(Context.DEVICE_POLICY_SERVICE);
@@ -220,8 +230,10 @@ public class KioskPlugin extends Plugin {
                             dpm.clearUserRestriction(adminComponent, UserManager.DISALLOW_MOUNT_PHYSICAL_MEDIA);
                             dpm.clearUserRestriction(adminComponent, UserManager.DISALLOW_APPS_CONTROL);
                             dpm.clearUserRestriction(adminComponent, UserManager.DISALLOW_SYSTEM_ERROR_DIALOGS);
+                            dpm.clearUserRestriction(adminComponent, UserManager.DISALLOW_USB_FILE_TRANSFER);
                             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                                 dpm.setKeyguardDisabled(adminComponent, false);
+                                dpm.setStatusBarDisabled(adminComponent, false);
                             }
                         }
                     } catch (Exception e) {
@@ -354,18 +366,22 @@ public class KioskPlugin extends Plugin {
                             dpm.addUserRestriction(adminComponent, UserManager.DISALLOW_MOUNT_PHYSICAL_MEDIA);
                             dpm.addUserRestriction(adminComponent, UserManager.DISALLOW_APPS_CONTROL);
                             dpm.addUserRestriction(adminComponent, UserManager.DISALLOW_SYSTEM_ERROR_DIALOGS);
+                            dpm.addUserRestriction(adminComponent, UserManager.DISALLOW_USB_FILE_TRANSFER);
                             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                                 dpm.setKeyguardDisabled(adminComponent, true);
+                                dpm.setStatusBarDisabled(adminComponent, true);
                             }
                         }
                     } catch (Exception dpmErr) {
                         Log.w(TAG, "DevicePolicyManager setup notice: " + dpmErr.getMessage());
                     }
 
-                    // 6. Android Lock Task Mode (Screen Pinning / Dedicated Kiosk)
+                    // 6. Android Lock Task Mode (Only re-assert silently if provisioned as Device Owner)
                     try {
+                        DevicePolicyManager dpm = (DevicePolicyManager) activity.getSystemService(Context.DEVICE_POLICY_SERVICE);
+                        boolean isDeviceOwner = (dpm != null && dpm.isDeviceOwnerApp(activity.getPackageName()));
                         ActivityManager am = (ActivityManager) activity.getSystemService(Context.ACTIVITY_SERVICE);
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && am != null) {
+                        if (isDeviceOwner && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && am != null) {
                             int currentLockMode = am.getLockTaskModeState();
                             if (currentLockMode == ActivityManager.LOCK_TASK_MODE_NONE && isKioskEnforced) {
                                 activity.startLockTask();

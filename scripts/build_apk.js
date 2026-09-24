@@ -24,6 +24,9 @@ try {
   // Clean stale build directories to avoid Windows file lock & snapshot issues
   const cleanDirs = [
     path.join(rootDir, 'node_modules', '@capacitor', 'android', 'capacitor', 'build'),
+    path.join(rootDir, 'node_modules', '@capacitor', 'android', 'build'),
+    path.join(rootDir, 'node_modules', '@capacitor', 'app', 'android', 'build'),
+    path.join(rootDir, 'node_modules', '@capacitor-firebase', 'authentication', 'android', 'build'),
     path.join(androidDir, 'app', 'build'),
     path.join(androidDir, 'capacitor-cordova-android-plugins', 'build')
   ];

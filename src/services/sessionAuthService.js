@@ -529,6 +529,35 @@ export function subscribeToAuthorizations(sessionId, onUpdate) {
 }
 
 /**
+ * Student / Supervisor: Record a supervision violation (e.g. app switch / backgrounding)
+ */
+export async function recordSessionViolation(sessionId, studentUid, rollNo, reason = "APP_SWITCH_DETECTED") {
+  if (!sessionId) return;
+  try {
+    const violationPayload = {
+      timestamp: Date.now(),
+      reason: reason
+    };
+
+    if (studentUid) {
+      const authRef = doc(db, "attendance_sessions", sessionId, "authorizations", studentUid);
+      await updateDoc(authRef, {
+        violations: arrayUnion(violationPayload)
+      }).catch(() => {});
+    }
+
+    if (rollNo && rollNo !== studentUid) {
+      const authRollRef = doc(db, "attendance_sessions", sessionId, "authorizations", rollNo);
+      await updateDoc(authRollRef, {
+        violations: arrayUnion(violationPayload)
+      }).catch(() => {});
+    }
+  } catch (err) {
+    console.warn("Notice recording session violation:", err);
+  }
+}
+
+/**
  * Lecturer: Manually close attendance session and release all student kiosks
  */
 export async function closeAttendanceSession(sessionId) {
