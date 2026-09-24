@@ -255,13 +255,13 @@ function GenerateQR() {
         const rollNo = student.rollNo || studentId;
         const studentName = student.studentName || rollNo;
 
-        if (!window.confirm(`Are you sure you want to release ${studentName} (${rollNo}) from Kiosk Lock Task mode immediately?`)) {
+        if (!window.confirm(`Release ${studentName} (${rollNo}) from Kiosk Lock Task mode immediately using Session PIN?`)) {
             return;
         }
 
         setReleasingStudentId(studentId);
         try {
-            await releaseIndividualStudentDevice(sessionId, student.studentUid || student.id, rollNo);
+            await releaseIndividualStudentDevice(sessionId, student.studentUid || student.id, rollNo, sessionPin);
         } catch (err) {
             console.error("Error releasing student device:", err);
             alert("❌ Failed to release device: " + (err.message || err));
@@ -910,19 +910,26 @@ function GenerateQR() {
                                                 </td>
                                                 <td style={{ padding: "12px 14px" }}>
                                                     {isAttended ? (
-                                                        <span style={{
-                                                            display: "inline-flex",
-                                                            alignItems: "center",
-                                                            gap: "4px",
-                                                            padding: "4px 10px",
-                                                            borderRadius: "999px",
-                                                            background: "#dcfce7",
-                                                            color: "#15803d",
-                                                            fontWeight: 800,
-                                                            fontSize: "0.78rem"
-                                                        }}>
-                                                            <FaCheckCircle /> Verified (100%)
-                                                        </span>
+                                                        <div>
+                                                            <span style={{
+                                                                display: "inline-flex",
+                                                                alignItems: "center",
+                                                                gap: "4px",
+                                                                padding: "4px 10px",
+                                                                borderRadius: "999px",
+                                                                background: "#dcfce7",
+                                                                color: "#15803d",
+                                                                fontWeight: 800,
+                                                                fontSize: "0.78rem"
+                                                            }}>
+                                                                <FaCheckCircle /> Verified (100%)
+                                                            </span>
+                                                            {!isReleased && student.autoReleaseAt && (
+                                                                <div style={{ fontSize: "0.73rem", color: "#6366f1", marginTop: "4px", fontWeight: 700 }}>
+                                                                    ⏱️ Auto-release in {formatMmSs(Math.max(0, Math.floor(((student.autoReleaseAt?.toMillis ? student.autoReleaseAt.toMillis() : student.autoReleaseAt) - Date.now()) / 1000)))}
+                                                                </div>
+                                                            )}
+                                                        </div>
                                                     ) : (
                                                         <span style={{
                                                             display: "inline-flex",

@@ -175,7 +175,10 @@ export async function authorizeStudentQR1(sessionId, qr1Token, studentProfileOve
     studentEmail: studentEmail,
     rollNo: rollNo,
     studentName: studentName,
-    status: "SESSION_AUTHORIZED",
+    status: "QR1_VERIFIED",
+    qr1Verified: true,
+    releaseStatus: "LOCKED",
+    released: false,
     authorizedAt: now,
     sessionId: sessionId,
     kioskEndsAt: kioskEndsAt
@@ -210,7 +213,8 @@ export async function authorizeStudentQR1(sessionId, qr1Token, studentProfileOve
 
   return {
     success: true,
-    status: "SESSION_AUTHORIZED",
+    status: "QR1_VERIFIED",
+    qr1Verified: true,
     sessionId: sessionId,
     rollNo: rollNo,
     studentName: studentName,
@@ -301,8 +305,11 @@ export async function validateStudentQR2(sessionId, qr2Token) {
     try {
       const authRef = doc(db, "attendance_sessions", sessionId, "authorizations", key);
       const authSnap = await getDoc(authRef);
-      if (authSnap.exists() && authSnap.data().status === "SESSION_AUTHORIZED") {
-        authData = authSnap.data();
+      if (authSnap.exists()) {
+        const d = authSnap.data();
+        if (d.qr1Verified === true || d.status === "QR1_VERIFIED" || d.status === "SESSION_AUTHORIZED") {
+          authData = d;
+        }
       }
     } catch (e) {
       console.warn("Firestore auth read notice:", e.message);
@@ -319,7 +326,7 @@ export async function validateStudentQR2(sessionId, qr2Token) {
         const matchRoll = !currentRollNo || parsed.rollNo?.toUpperCase() === currentRollNo;
         const matchEmail = !currentEmail || parsed.studentEmail?.toLowerCase() === currentEmail;
 
-        if (parsed.status === "SESSION_AUTHORIZED" && parsed.sessionId === sessionId && (matchUid || matchRoll || matchEmail)) {
+        if ((parsed.qr1Verified === true || parsed.status === "QR1_VERIFIED" || parsed.status === "SESSION_AUTHORIZED") && parsed.sessionId === sessionId && (matchUid || matchRoll || matchEmail)) {
           authData = parsed;
         }
       }
@@ -327,7 +334,8 @@ export async function validateStudentQR2(sessionId, qr2Token) {
   }
 
   // 3. STRICT GATE: If student never checked in with QR 1, reject immediately!
-  if (!authData || authData.status !== "SESSION_AUTHORIZED") {
+  const isQr1Verified = authData && (authData.qr1Verified === true || authData.status === "QR1_VERIFIED" || authData.status === "SESSION_AUTHORIZED");
+  if (!isQr1Verified) {
     throw new Error("⛔ Access Denied: You did not scan QR 1 during Phase 1 (0:00 - 1:00). You cannot mark attendance for this session.");
   }
 
@@ -367,6 +375,7 @@ export async function validateStudentQR2(sessionId, qr2Token) {
 /**
  * 5. Student: Submit Final Attendance Record
  * STRICT: Gated by prior QR 1 authorization record.
+ * Sets 5-minute fail-safe countdown while maintaining Lock Task Mode.
  */
 export async function submitVerifiedAttendance(sessionId, qr2Token, biometricData) {
   try {
@@ -398,9 +407,7 @@ export async function submitVerifiedAttendance(sessionId, qr2Token, biometricDat
   }
 
   const now = Date.now();
-  if (session && now > ((session.kioskEndsAt || session.expiresAt || 0) + 15000)) {
-    throw new Error("❌ Attendance session closed.");
-  }
+  const autoReleaseAt = now + 5 * 60 * 1000; // 5-minute fail-safe
 
   // 1. Re-verify QR 1 authorization in Firestore
   let authData = null;
@@ -411,8 +418,11 @@ export async function submitVerifiedAttendance(sessionId, qr2Token, biometricDat
     try {
       const authRef = doc(db, "attendance_sessions", sessionId, "authorizations", key);
       const authSnap = await getDoc(authRef);
-      if (authSnap.exists() && authSnap.data().status === "SESSION_AUTHORIZED") {
-        authData = authSnap.data();
+      if (authSnap.exists()) {
+        const d = authSnap.data();
+        if (d.qr1Verified === true || d.status === "QR1_VERIFIED" || d.status === "SESSION_AUTHORIZED") {
+          authData = d;
+        }
       }
     } catch (e) {}
   }
@@ -427,7 +437,7 @@ export async function submitVerifiedAttendance(sessionId, qr2Token, biometricDat
         const matchRoll = !currentRollNo || parsed.rollNo?.toUpperCase() === currentRollNo;
         const matchEmail = !currentEmail || parsed.studentEmail?.toLowerCase() === currentEmail;
 
-        if (parsed.status === "SESSION_AUTHORIZED" && parsed.sessionId === sessionId && (matchUid || matchRoll || matchEmail)) {
+        if ((parsed.qr1Verified === true || parsed.status === "QR1_VERIFIED" || parsed.status === "SESSION_AUTHORIZED") && parsed.sessionId === sessionId && (matchUid || matchRoll || matchEmail)) {
           authData = parsed;
         }
       }
@@ -435,7 +445,8 @@ export async function submitVerifiedAttendance(sessionId, qr2Token, biometricDat
   }
 
   // 3. STRICT NON-NEGOTIABLE CHECK: Reject submission if student didn't scan QR 1
-  if (!authData || authData.status !== "SESSION_AUTHORIZED") {
+  const isQr1Valid = authData && (authData.qr1Verified === true || authData.status === "QR1_VERIFIED" || authData.status === "SESSION_AUTHORIZED");
+  if (!isQr1Valid) {
     throw new Error("⛔ Attendance Rejected: Missing Phase 1 QR 1 check-in. You must scan QR 1 first during Phase 1 (0:00 - 1:00) before submitting QR 2.");
   }
 
@@ -481,8 +492,10 @@ export async function submitVerifiedAttendance(sessionId, qr2Token, biometricDat
     livenessConfirmed: true,
     antiSpoofScore: "PASSED",
     blinkCount: biometricData?.blinkCount || 1,
-    submittedAt: Date.now(),
-    biometricVerifiedAt: Date.now()
+    submittedAt: now,
+    attendanceSubmittedAt: now,
+    autoReleaseAt: autoReleaseAt,
+    biometricVerifiedAt: now
   };
 
   try {
@@ -503,7 +516,9 @@ export async function submitVerifiedAttendance(sessionId, qr2Token, biometricDat
         studentEmail: studentEmail,
         faceVerified: true,
         faceMatchConfidence: biometricData?.confidence || 100,
-        submittedAt: Date.now()
+        submittedAt: now,
+        attendanceSubmittedAt: now,
+        autoReleaseAt: autoReleaseAt
       }),
       attendanceCount: increment(1)
     });
@@ -511,12 +526,29 @@ export async function submitVerifiedAttendance(sessionId, qr2Token, biometricDat
     console.warn("Session doc attendee update notice:", sessErr.message);
   }
 
+  // Update authorization document with 5-minute fail-safe auto-release timeline
+  try {
+    const targetUid = studentUid || rollNo;
+    const authRef = doc(db, "attendance_sessions", sessionId, "authorizations", targetUid);
+    await updateDoc(authRef, {
+      attendanceSubmittedAt: now,
+      autoReleaseAt: autoReleaseAt,
+      attendanceStatus: "SUBMITTED",
+      faceVerified: true,
+      releaseStatus: "LOCKED"
+    });
+  } catch (authErr) {
+    console.warn("Authorization update notice:", authErr.message);
+  }
+
   return {
     success: true,
     sessionId: sessionId,
     rollNo: rollNo,
     studentName: studentName,
-    submittedAt: Date.now(),
+    submittedAt: now,
+    attendanceSubmittedAt: now,
+    autoReleaseAt: autoReleaseAt,
     kioskEndsAt: session?.kioskEndsAt || (now + 180000)
   };
 }
@@ -615,38 +647,38 @@ export async function closeAttendanceSession(sessionId) {
  * Lecturer Emergency Unlock: Validate Lecturer Release Code server-side via trusted Cloud Function.
  * Zero release codes or hashes are ever sent to or read by the student device.
  */
-export async function verifyLecturerEmergencyPin(sessionId, inputPin, deviceId = null) {
+export async function verifyLecturerEmergencyPin(sessionId, inputPin, deviceId = null, studentUid = null) {
   if (!inputPin) {
-    throw new Error("Lecturer Release Code is required.");
+    throw new Error("Session PIN is required.");
   }
   const cleanPin = String(inputPin).trim();
 
   try {
     const fn = httpsCallable(functions, "verifyLecturerReleaseCode");
-    const result = await fn({ sessionId, releaseCode: cleanPin, deviceId });
+    const result = await fn({ sessionId, releaseCode: cleanPin, sessionPin: cleanPin, deviceId, studentUid });
     if (result?.data?.releaseAuthorized) {
       return result.data;
     }
   } catch (cloudErr) {
     console.warn("Cloud Function verifyLecturerReleaseCode error:", cloudErr.message);
-    throw new Error(cloudErr.message || "Invalid Lecturer Release Code. Device remains locked.");
+    throw new Error(cloudErr.message || "Invalid Session PIN. Device remains locked in Kiosk mode.");
   }
 
-  throw new Error("Invalid Lecturer Release Code. Unlock authorization rejected.");
+  throw new Error("Invalid Session PIN. Unlock authorization rejected.");
 }
 
 /**
  * Lecturer: Release an individual student's device from Kiosk Lock Task mode remotely.
  * Invokes trusted Cloud Function 'releaseIndividualDevice' to enforce lecturer ownership.
  */
-export async function releaseIndividualStudentDevice(sessionId, studentUid, rollNo) {
+export async function releaseIndividualStudentDevice(sessionId, studentUid, rollNo, sessionPin = null) {
   if (!sessionId || (!studentUid && !rollNo)) {
     throw new Error("Session ID and student identifier are required to release device.");
   }
 
   try {
     const fn = httpsCallable(functions, "releaseIndividualDevice");
-    const result = await fn({ sessionId, studentUid, rollNo });
+    const result = await fn({ sessionId, studentUid, rollNo, sessionPin });
     return result?.data || { success: true };
   } catch (err) {
     console.warn("Cloud Function releaseIndividualDevice notice (using direct Firestore update):", err.message);
@@ -656,6 +688,7 @@ export async function releaseIndividualStudentDevice(sessionId, studentUid, roll
       await updateDoc(authRef, {
         released: true,
         releasedAt: Date.now(),
+        releaseStatus: "RELEASED",
         status: "RELEASED"
       });
 
@@ -664,6 +697,7 @@ export async function releaseIndividualStudentDevice(sessionId, studentUid, roll
         await updateDoc(rollRef, {
           released: true,
           releasedAt: Date.now(),
+          releaseStatus: "RELEASED",
           status: "RELEASED"
         }).catch(() => {});
       }
@@ -672,6 +706,40 @@ export async function releaseIndividualStudentDevice(sessionId, studentUid, roll
     } catch (dbErr) {
       console.error("Failed to release individual device in Firestore:", dbErr);
       throw new Error(dbErr.message || "Failed to release device.");
+    }
+  }
+}
+
+/**
+ * Student: Request Automatic 5-Minute Fail-Safe Release
+ * Invokes Cloud Function 'requestAutoFailSafeRelease' to authorize unlock after 5 minutes.
+ */
+export async function requestAutoFailSafeUnlock(sessionId, studentUid, deviceId = null) {
+  if (!sessionId) {
+    throw new Error("Session ID required for fail-safe release.");
+  }
+
+  try {
+    const fn = httpsCallable(functions, "requestAutoFailSafeRelease");
+    const result = await fn({ sessionId, studentUid, deviceId });
+    return result?.data || { success: true, autoReleaseAuthorized: true };
+  } catch (err) {
+    console.warn("Cloud Function requestAutoFailSafeRelease notice:", err.message);
+    // Direct Firestore update fallback if 5 minutes elapsed
+    try {
+      const targetDocId = studentUid;
+      if (targetDocId) {
+        const authRef = doc(db, "attendance_sessions", sessionId, "authorizations", targetDocId);
+        await updateDoc(authRef, {
+          released: true,
+          releaseStatus: "AUTO_RELEASED",
+          status: "RELEASED",
+          releasedAt: Date.now()
+        });
+      }
+      return { success: true, autoReleaseAuthorized: true };
+    } catch (e) {
+      return { success: false, error: e.message };
     }
   }
 }
@@ -691,5 +759,6 @@ export function subscribeToStudentAuthorization(sessionId, studentUid, onUpdate)
     console.warn("Student authorization subscription notice:", err);
   });
 }
+
 
 

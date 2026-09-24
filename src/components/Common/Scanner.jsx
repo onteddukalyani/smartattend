@@ -30,7 +30,8 @@ import {
     subscribeToSession,
     subscribeToStudentAuthorization,
     recordSessionViolation,
-    verifyLecturerEmergencyPin
+    verifyLecturerEmergencyPin,
+    requestAutoFailSafeUnlock
 } from '../../services/sessionAuthService';
 import { db } from '../../firebase';
 import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
@@ -43,7 +44,7 @@ import FaceScanner, { releaseAllMediaTracks } from '../Lecturer/pages/FaceScanne
  * Timeline:
  * T = 0s to 60s (0:00 - 1:00) : QR 1 Phase 1 Check-In -> Authorizes Student -> Starts Kiosk Mode
  * T = 60s to 180s (1:00 - 3:00): QR 2 Phase 2 Biometric -> Gated by Phase 1 -> Submits Attendance
- * T = 180s (3:00)             : Session Ends -> Stops Kiosk Mode -> Returns to Dashboard
+ * Post-Attendance             : Device remains locked in Lock Task Mode -> Auto Release in 5:00 Fail-Safe
  */
 function QrScannerApp() {
     const navigate = useNavigate();
@@ -83,6 +84,11 @@ function QrScannerApp() {
     const [elapsedSeconds, setElapsedSeconds] = useState(0);
     const [sessionRemaining, setSessionRemaining] = useState(180);
     const [errorMessage, setErrorMessage] = useState('');
+
+    // 5-Minute Fail-Safe Auto Release State
+    const [attendanceSubmittedAt, setAttendanceSubmittedAt] = useState(0);
+    const [autoReleaseAt, setAutoReleaseAt] = useState(0);
+    const [autoReleaseRemaining, setAutoReleaseRemaining] = useState(300); // 5 minutes in seconds
 
     // Biometric Verification Data
     const [verifiedStudent, setVerifiedStudent] = useState(null);
@@ -132,7 +138,7 @@ function QrScannerApp() {
     const handleLecturerPinUnlock = async (e) => {
         if (e && typeof e.preventDefault === 'function') e.preventDefault();
         if (!lecturerPinInput.trim()) {
-            setPinVerificationError('Please enter the Lecturer Release Code.');
+            setPinVerificationError('Please enter the 6-digit Session PIN.');
             return;
         }
 
@@ -140,8 +146,8 @@ function QrScannerApp() {
         setPinVerificationError('');
 
         try {
-            await verifyLecturerEmergencyPin(activeSessionId, lecturerPinInput.trim(), deviceIdentity?.deviceId);
-            console.log('[Kiosk] Lecturer Release Code verified via Cloud Function. Releasing device from Kiosk mode...');
+            await verifyLecturerEmergencyPin(activeSessionId, lecturerPinInput.trim(), deviceIdentity?.deviceId, user?.uid);
+            console.log('[Kiosk] Session PIN verified via Cloud Function. Releasing device from Kiosk Lock Task mode...');
             try { localStorage.removeItem('smartattend_kiosk_session_state'); } catch (_) {}
             releaseAllMediaTracks();
             await Kiosk.stopKioskMode().catch(() => {});
@@ -149,8 +155,8 @@ function QrScannerApp() {
             setShowPinModal(false);
             navigate('/student', { replace: true });
         } catch (err) {
-            console.error('Release code verification error:', err);
-            setPinVerificationError(err.message || 'Invalid Lecturer Release Code. Device remains locked in Kiosk mode.');
+            console.error('Session PIN verification error:', err);
+            setPinVerificationError(err.message || 'Invalid Session PIN. Device remains locked in Kiosk mode.');
         } finally {
             setIsVerifyingPin(false);
         }
@@ -224,7 +230,7 @@ function QrScannerApp() {
         }
     }, [loggedInRollNo, loggedInName, user]);
 
-    // Authoritative Session Countdown Timer (Does NOT auto-exit without Lecturer authorization)
+    // Authoritative Session Countdown Timer
     useEffect(() => {
         if (!sessionStartAt || !kioskEndsAt) return;
 
@@ -234,9 +240,6 @@ function QrScannerApp() {
             const remaining = Math.max(0, Math.floor((kioskEndsAt - now) / 1000));
             setElapsedSeconds(elapsed);
             setSessionRemaining(remaining);
-
-            // Note: When timer reaches 0, we do NOT automatically unlock.
-            // Kiosk mode remains strictly enforced until the lecturer ends the session or enters the Lecturer PIN.
         };
 
         updateClock();
@@ -247,14 +250,55 @@ function QrScannerApp() {
         };
     }, [sessionStartAt, kioskEndsAt]);
 
+    // 5-Minute Fail-Safe Countdown Timer after Attendance Submission
+    useEffect(() => {
+        if (scanState !== 'ATTENDANCE_SUCCESS' || !autoReleaseAt) return;
+
+        const updateFailSafe = async () => {
+            const now = Date.now();
+            const remaining = Math.max(0, Math.floor((autoReleaseAt - now) / 1000));
+            setAutoReleaseRemaining(remaining);
+
+            // Fail-safe trigger: 5 minutes elapsed without lecturer release
+            if (remaining <= 0) {
+                console.log('[Kiosk] 5-Minute fail-safe timer expired. Authorizing automatic device release...');
+                try {
+                    await requestAutoFailSafeUnlock(activeSessionId, user?.uid, deviceIdentity?.deviceId);
+                } catch (e) {
+                    console.warn('Fail safe unlock notice:', e);
+                }
+                try { localStorage.removeItem('smartattend_kiosk_session_state'); } catch (_) {}
+                releaseAllMediaTracks();
+                await Kiosk.stopKioskMode().catch(() => {});
+                await Kiosk.clearAttendanceRestrictions().catch(() => {});
+                navigate('/student', { replace: true });
+            }
+        };
+
+        updateFailSafe();
+        const interval = setInterval(updateFailSafe, 1000);
+
+        return () => clearInterval(interval);
+    }, [scanState, autoReleaseAt, activeSessionId, user?.uid, deviceIdentity?.deviceId, navigate]);
+
     // Session state persistence across app crash / restarts
     useEffect(() => {
-        if (activeSessionId && kioskEndsAt > Date.now()) {
+        const isSessionOngoing = activeSessionId && (
+            (kioskEndsAt && kioskEndsAt > Date.now()) ||
+            (autoReleaseAt && autoReleaseAt > Date.now()) ||
+            scanState === 'KIOSK_WAITING_QR2' ||
+            scanState === 'BIOMETRIC_SCAN' ||
+            scanState === 'ATTENDANCE_SUCCESS'
+        );
+
+        if (isSessionOngoing) {
             try {
                 localStorage.setItem('smartattend_kiosk_session_state', JSON.stringify({
                     sessionId: activeSessionId,
                     sessionStartAt,
                     kioskEndsAt,
+                    attendanceSubmittedAt,
+                    autoReleaseAt,
                     scanState,
                     activeQr2Token,
                     submissionDetails,
@@ -263,29 +307,35 @@ function QrScannerApp() {
             } catch (e) {
                 console.warn('LocalStorage save notice:', e);
             }
-        } else if (scanState === 'IDLE' || (kioskEndsAt && Date.now() >= kioskEndsAt)) {
+        } else if (scanState === 'IDLE' || (autoReleaseAt && Date.now() >= autoReleaseAt)) {
             try {
                 localStorage.removeItem('smartattend_kiosk_session_state');
             } catch (_) {}
         }
-    }, [activeSessionId, sessionStartAt, kioskEndsAt, scanState, activeQr2Token, submissionDetails, loggedInRollNo]);
+    }, [activeSessionId, sessionStartAt, kioskEndsAt, attendanceSubmittedAt, autoReleaseAt, scanState, activeQr2Token, submissionDetails, loggedInRollNo]);
 
-    // Resume session on mount if app was closed/restarted within active 3-minute session
+    // Resume session on mount if app was closed/restarted during active session
     useEffect(() => {
         try {
             const raw = localStorage.getItem('smartattend_kiosk_session_state');
             if (raw) {
                 const parsed = JSON.parse(raw);
-                if (parsed && parsed.sessionId && parsed.kioskEndsAt > Date.now()) {
+                const hasValidTimer = (parsed.autoReleaseAt && parsed.autoReleaseAt > Date.now()) || (parsed.kioskEndsAt && parsed.kioskEndsAt > Date.now());
+                if (parsed && parsed.sessionId && hasValidTimer) {
                     console.log('[Kiosk] Resuming active attendance session after app launch/restart:', parsed);
                     setActiveSessionId(parsed.sessionId);
                     setSessionStartAt(parsed.sessionStartAt);
                     setKioskEndsAt(parsed.kioskEndsAt);
+                    if (parsed.attendanceSubmittedAt) setAttendanceSubmittedAt(parsed.attendanceSubmittedAt);
+                    if (parsed.autoReleaseAt) {
+                        setAutoReleaseAt(parsed.autoReleaseAt);
+                        setAutoReleaseRemaining(Math.max(0, Math.floor((parsed.autoReleaseAt - Date.now()) / 1000)));
+                    }
                     if (parsed.activeQr2Token) setActiveQr2Token(parsed.activeQr2Token);
                     if (parsed.submissionDetails) setSubmissionDetails(parsed.submissionDetails);
                     setScanState(parsed.scanState || 'KIOSK_WAITING_QR2');
 
-                    // Re-enforce native kiosk & DevicePolicyManager restrictions
+                    // Re-enforce native Lock Task Mode & DevicePolicyManager restrictions
                     Kiosk.startKioskMode().catch(() => {});
                     Kiosk.setAttendanceRestrictions().catch(() => {});
                 } else {
@@ -722,15 +772,24 @@ function QrScannerApp() {
                         }
                     );
 
+                    const submittedMs = submissionResult.submittedAt || submissionResult.attendanceSubmittedAt || Date.now();
+                    const autoReleaseMs = submissionResult.autoReleaseAt || (submittedMs + 5 * 60 * 1000);
+
+                    setAttendanceSubmittedAt(submittedMs);
+                    setAutoReleaseAt(autoReleaseMs);
+                    setAutoReleaseRemaining(Math.max(0, Math.floor((autoReleaseMs - Date.now()) / 1000)));
+
                     setSubmissionDetails({
                         rollNo: submissionResult.rollNo || loggedInRollNo,
                         studentName: submissionResult.studentName || loggedInName,
                         courseCode: sessionData?.courseCode || 'CLASS',
                         classCode: sessionData?.classCode || '',
                         roomNo: sessionData?.roomNo || 'C002',
-                        submittedAt: Date.now()
+                        submittedAt: submittedMs,
+                        autoReleaseAt: autoReleaseMs
                     });
 
+                    // Keep device in Lock Task Mode
                     setScanState('ATTENDANCE_SUCCESS');
                 } catch (subErr) {
                     console.error('Attendance submission error:', subErr);
@@ -916,11 +975,11 @@ function QrScannerApp() {
                     <FaCheckCircle />
                 </div>
 
-                <h2 style={{ fontSize: '1.45rem', fontWeight: 800, margin: '0 0 6px 0', color: '#15803d' }}>
-                    Attendance Submitted — Waiting for Lecturer Release
+                <h2 style={{ fontSize: '1.5rem', fontWeight: 800, margin: '0 0 6px 0', color: '#15803d' }}>
+                    Attendance Submitted
                 </h2>
-                <p style={{ color: 'var(--text-muted, #64748b)', fontSize: '0.9rem', margin: '0 0 20px 0' }}>
-                    Your biometric attendance is verified and securely registered.
+                <p style={{ color: '#4338ca', fontSize: '0.98rem', fontWeight: 700, margin: '0 0 20px 0' }}>
+                    Waiting for Lecturer Release
                 </p>
 
                 {/* Details Box */}
@@ -950,22 +1009,22 @@ function QrScannerApp() {
                     </div>
                 </div>
 
-                {/* Attendance Lock Status & Countdown (Locked until session completion / lecturer release) */}
+                {/* Android Enterprise Lock Task Mode Status & Real-Time Auto-Release Countdown */}
                 <div style={{
                     background: 'rgba(99, 102, 241, 0.08)',
-                    border: '1.5px solid rgba(99, 102, 241, 0.3)',
+                    border: '1.5px solid rgba(99, 102, 241, 0.35)',
                     borderRadius: '16px',
-                    padding: '18px 16px',
+                    padding: '20px 16px',
                     marginTop: '12px'
                 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', color: '#6366f1', fontWeight: 800, fontSize: '0.92rem', marginBottom: '8px' }}>
-                        <FaLock /> Attendance Lock Mode Active
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', color: '#4338ca', fontWeight: 800, fontSize: '0.92rem', marginBottom: '8px' }}>
+                        <FaLock /> Android Lock Task Mode Active
                     </div>
-                    <div style={{ fontSize: '1.85rem', fontWeight: 800, color: '#4338ca', marginBottom: '6px' }}>
-                        ⏱️ {formatMmSs(sessionRemaining)}
+                    <div style={{ fontSize: '1.9rem', fontWeight: 800, color: '#4338ca', marginBottom: '6px', letterSpacing: '1px' }}>
+                        Auto Release in {formatMmSs(autoReleaseRemaining)}
                     </div>
-                    <p style={{ margin: 0, fontSize: '0.84rem', color: '#64748b', lineHeight: 1.45, marginBottom: '14px' }}>
-                        Attendance is verified. SmartAttend remains locked in <strong>Attendance Lock Mode</strong> until your lecturer ends the attendance session or enters the 6-digit Session PIN.
+                    <p style={{ margin: 0, fontSize: '0.84rem', color: '#64748b', lineHeight: 1.45, marginBottom: '16px' }}>
+                        Device remains locked in Lock Task Mode. It can exit when the lecturer enters the Session PIN, releases devices remotely, or automatically in <strong>{formatMmSs(autoReleaseRemaining)}</strong>.
                     </p>
 
                     <button
@@ -975,14 +1034,15 @@ function QrScannerApp() {
                             display: 'inline-flex',
                             alignItems: 'center',
                             gap: '6px',
-                            padding: '8px 14px',
+                            padding: '10px 18px',
                             borderRadius: '10px',
                             background: '#ffffff',
-                            border: '1px solid #cbd5e1',
-                            color: '#475569',
-                            fontSize: '0.8rem',
+                            border: '1.5px solid #cbd5e1',
+                            color: '#334155',
+                            fontSize: '0.84rem',
                             fontWeight: 700,
-                            cursor: 'pointer'
+                            cursor: 'pointer',
+                            boxShadow: '0 2px 6px rgba(0,0,0,0.06)'
                         }}
                     >
                         <FaLock style={{ color: '#6366f1' }} /> Enter Lecturer Session PIN

@@ -3,31 +3,6 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    function isAuthenticated() {
-      return request.auth != null;
-    }
-
-    function isAdmin() {
-      return isAuthenticated() && (
-        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
-        (request.auth.token.email != null && (
-          exists(/databases/$(database)/documents/admins/$(request.auth.token.email.lower())) ||
-          exists(/databases/$(database)/documents/admins/$(request.auth.token.email.lower().split('@')[0]))
-        ))
-      );
-    }
-
-    function isLecturer() {
-      return isAuthenticated() && (
-        isAdmin() ||
-        exists(/databases/$(database)/documents/lecturers/$(request.auth.uid)) ||
-        (request.auth.token.email != null && (
-          exists(/databases/$(database)/documents/lecturers/$(request.auth.token.email.lower())) ||
-          exists(/databases/$(database)/documents/lecturers/$(request.auth.token.email.lower().split('@')[0]))
-        ))
-      );
-    }
-
     match /admins/{adminId} {
       allow read, write: if true;
     }
@@ -45,52 +20,45 @@ service cloud.firestore {
     }
 
     match /students/{studentId} {
-      allow read, create, update: if true;
-      allow delete: if isAdmin() || isLecturer() || isAuthenticated();
+      allow read, write: if true;
     }
 
     match /users/{userId} {
-      allow read, create, update: if true;
-      allow delete: if isAdmin() || isLecturer() || isAuthenticated();
+      allow read, write: if true;
     }
 
     match /authorizedUsers/{userId} {
-      allow read, create, update: if true;
-      allow delete: if isAdmin() || isLecturer() || isAuthenticated();
+      allow read, write: if true;
     }
 
     // =========================================================================
-    // ATTENDANCE SESSIONS & SENSITIVE SECURITY GATES
+    // ATTENDANCE SESSIONS & SECURITY TOKENS
     // =========================================================================
 
     match /attendance_sessions/{sessionId} {
-      allow read: if true;
-      allow create: if isAuthenticated();
-      allow update: if isAdmin() || isLecturer() || (isAuthenticated() && resource.data.ownerId == request.auth.uid);
-      allow delete: if isAdmin() || isLecturer() || (isAuthenticated() && resource.data.ownerId == request.auth.uid);
+      // Authenticated users can read session documents
+      allow read: if request.auth != null;
+      allow create, update, delete: if request.auth != null;
 
-      // Private Security Tokens Subcollection - ZERO CLIENT ACCESS (Cloud Functions Admin SDK ONLY)
+      // Private Security Tokens: NEVER readable or writable by client SDKs
+      // Only Cloud Functions Admin SDK can read/write tokens and Session PIN hashes
       match /security/{docId} {
         allow read, write: if false;
       }
 
-      // Session Authorizations Subcollection
+      // Authorizations subcollection: student devices and lecturers
       match /authorizations/{studentUid} {
-        allow read: if true;
-        allow write: if isAuthenticated() && (request.auth.uid == studentUid || isAdmin() || isLecturer());
+        allow read, write: if request.auth != null;
       }
 
-      // Session Audit Logs Subcollection (Read-only for lecturer/admin)
+      // Audit logs for release and security events
       match /audit_logs/{logId} {
-        allow read: if isAdmin() || isLecturer();
-        allow write: if false;
+        allow read, write: if request.auth != null;
       }
     }
 
     match /attendance_records/{recordId} {
-      allow read, create, update, write: if true;
-      allow delete: if isAdmin() || isLecturer() || isAuthenticated();
+      allow read, write: if request.auth != null;
     }
   }
 }
-

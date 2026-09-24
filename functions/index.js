@@ -270,7 +270,10 @@ exports.authorizeQR1 = onCall(async (request) => {
       studentName: studentProfile.name,
       deviceId: deviceId || "UNKNOWN_DEVICE",
       isDeviceOwner: Boolean(isDeviceOwner),
-      status: "SESSION_AUTHORIZED",
+      qr1Verified: true,
+      status: "QR1_VERIFIED",
+      releaseStatus: "LOCKED",
+      released: false,
       authorizedAt: FieldValue.serverTimestamp(),
       sessionId: sessionId,
       kioskEndsAt: security.kioskEndsAt
@@ -283,7 +286,8 @@ exports.authorizeQR1 = onCall(async (request) => {
 
   return {
     success: true,
-    status: "SESSION_AUTHORIZED",
+    status: "QR1_VERIFIED",
+    qr1Verified: true,
     sessionId: sessionId,
     rollNo: studentProfile.rollNo,
     studentName: studentProfile.name,
@@ -291,7 +295,7 @@ exports.authorizeQR1 = onCall(async (request) => {
     qr1ExpiresAt: qr1ExpiresAtMs,
     qr2StartsAt: security.qr2StartsAt ? security.qr2StartsAt.toMillis() : qr1ExpiresAtMs,
     kioskEndsAt: kioskEndsAtMs,
-    message: "Phase 1 Verified! Session authorization granted."
+    message: "QR1 Verified! Android Kiosk Lock Task Mode activated."
   };
 });
 
@@ -338,8 +342,8 @@ exports.transitionToPhase2 = onCall(async (request) => {
 /**
  * 4. VALIDATE QR 2 (Student Gate)
  * STRICT NON-NEGOTIABLE RULE:
- * 1. Must be within T = 60s–120s session window.
- * 2. Requires authenticated student to have existing SESSION_AUTHORIZED record from QR 1 for this exact session.
+ * 1. Must be within T = 60s–180s session window.
+ * 2. Requires authenticated student to have existing QR1_VERIFIED record from QR 1 for this exact session.
  * 3. Rejects with "Access denied. You must scan QR 1 first." if unauthorized.
  */
 exports.validateQR2 = onCall(async (request) => {
@@ -367,7 +371,7 @@ exports.validateQR2 = onCall(async (request) => {
   const security = securitySnap.data();
 
   // 1. Validate session active
-  if (session.active === false) {
+  if (session.active === false || session.status === "CLOSED") {
     throw new HttpsError("failed-precondition", "This attendance session has ended.");
   }
 
@@ -385,11 +389,12 @@ exports.validateQR2 = onCall(async (request) => {
     throw new HttpsError("permission-denied", "❌ Invalid QR 2 token.");
   }
 
-  // 4. STRICT CHECK: Must have SESSION_AUTHORIZED from QR 1 for this exact session
+  // 4. STRICT CHECK: Must have QR1_VERIFIED authorization from QR 1 for this exact session
   const authRef = sessionRef.collection("authorizations").doc(studentUid);
   const authSnap = await authRef.get();
 
-  if (!authSnap.exists || authSnap.data().status !== "SESSION_AUTHORIZED") {
+  const isQr1Valid = authSnap.exists && (authSnap.data().qr1Verified === true || authSnap.data().status === "QR1_VERIFIED" || authSnap.data().status === "SESSION_AUTHORIZED");
+  if (!isQr1Valid) {
     throw new HttpsError(
       "permission-denied",
       "⛔ Access denied. You must scan QR 1 first."
@@ -427,7 +432,8 @@ exports.validateQR2 = onCall(async (request) => {
 
 /**
  * 5. SUBMIT ATTENDANCE (Student Final Submission)
- * Re-validates QR 1 authorization, QR 2 token, biometric result, and enforces server deadline T = 120s.
+ * Re-validates QR 1 authorization, QR 2 token, biometric result, records 5-minute fail-safe auto-release timeline,
+ * and maintains Lock Task Mode on the student device.
  */
 exports.submitAttendance = onCall(async (request) => {
   if (!request.auth || !request.auth.uid) {
@@ -456,8 +462,8 @@ exports.submitAttendance = onCall(async (request) => {
   const serverNow = Date.now();
   const kioskEndsAtMs = security.kioskEndsAt ? security.kioskEndsAt.toMillis() : 0;
 
-  if (session.active === false || serverNow > kioskEndsAtMs) {
-    throw new HttpsError("failed-precondition", "Attendance session is closed (3-minute session elapsed).");
+  if (session.active === false || (kioskEndsAtMs && serverNow > (kioskEndsAtMs + 30000))) {
+    throw new HttpsError("failed-precondition", "Attendance session is closed.");
   }
 
   // 1. Re-validate QR 2 token
@@ -469,7 +475,8 @@ exports.submitAttendance = onCall(async (request) => {
   const authRef = sessionRef.collection("authorizations").doc(studentUid);
   const authSnap = await authRef.get();
 
-  if (!authSnap.exists || authSnap.data().status !== "SESSION_AUTHORIZED") {
+  const isQr1Valid = authSnap.exists && (authSnap.data().qr1Verified === true || authSnap.data().status === "QR1_VERIFIED" || authSnap.data().status === "SESSION_AUTHORIZED");
+  if (!isQr1Valid) {
     throw new HttpsError("permission-denied", "⛔ Access denied. You must scan QR 1 first.");
   }
 
@@ -482,7 +489,10 @@ exports.submitAttendance = onCall(async (request) => {
     throw new HttpsError("failed-precondition", "Live face biometric verification with anti-spoofing is required.");
   }
 
-  // 4. Atomic write with duplicate prevention
+  const submittedAtMs = Date.now();
+  const autoReleaseAtMs = submittedAtMs + 5 * 60 * 1000; // 5-Minute Automatic Fail-Safe Release
+
+  // 4. Atomic write with duplicate prevention & 5-minute fail-safe schedule
   await db.runTransaction(async (transaction) => {
     const existingRec = await transaction.get(db.collection("attendance_records").doc(recordId));
     if (existingRec.exists) {
@@ -512,11 +522,13 @@ exports.submitAttendance = onCall(async (request) => {
       antiSpoofScore: "PASSED",
       blinkCount: biometricData.blinkCount || 1,
       submittedAt: FieldValue.serverTimestamp(),
-      biometricVerifiedAt: FieldValue.serverTimestamp()
+      biometricVerifiedAt: FieldValue.serverTimestamp(),
+      autoReleaseAt: Timestamp.fromMillis(autoReleaseAtMs)
     };
 
     transaction.set(db.collection("attendance_records").doc(recordId), attendanceRecord);
 
+    // Update session attendees
     transaction.update(sessionRef, {
       attendees: FieldValue.arrayUnion({
         id: recordId,
@@ -527,25 +539,52 @@ exports.submitAttendance = onCall(async (request) => {
         studentEmail: authData.studentEmail,
         faceVerified: true,
         faceMatchConfidence: biometricData.confidence || 100,
-        submittedAt: Date.now()
+        submittedAt: submittedAtMs,
+        attendanceSubmittedAt: submittedAtMs,
+        autoReleaseAt: autoReleaseAtMs
       }),
       attendanceCount: FieldValue.increment(1)
     });
+
+    // Update authorization document with 5-minute fail-safe timeline
+    transaction.update(authRef, {
+      attendanceSubmittedAt: FieldValue.serverTimestamp(),
+      autoReleaseAt: Timestamp.fromMillis(autoReleaseAtMs),
+      attendanceStatus: "SUBMITTED",
+      faceVerified: true,
+      releaseStatus: "LOCKED"
+    });
   });
+
+  if (rollNo && rollNo !== studentUid) {
+    try {
+      const rollAuthRef = sessionRef.collection("authorizations").doc(rollNo);
+      await rollAuthRef.update({
+        attendanceSubmittedAt: FieldValue.serverTimestamp(),
+        autoReleaseAt: Timestamp.fromMillis(autoReleaseAtMs),
+        attendanceStatus: "SUBMITTED",
+        faceVerified: true,
+        releaseStatus: "LOCKED"
+      });
+    } catch (e) {}
+  }
 
   return {
     success: true,
     sessionId: sessionId,
     rollNo: rollNo,
     studentName: authData.studentName,
-    submittedAt: Date.now(),
-    kioskEndsAt: kioskEndsAtMs
+    submittedAt: submittedAtMs,
+    attendanceSubmittedAt: submittedAtMs,
+    autoReleaseAt: autoReleaseAtMs,
+    kioskEndsAt: kioskEndsAtMs,
+    message: "Attendance Submitted. Waiting for Lecturer Release (Lock Task Mode active)."
   };
 });
 
 /**
- * 6. VERIFY LECTURER RELEASE CODE (On-Device Emergency Unlock)
- * Server-side trusted verification of the Lecturer Release Code.
+ * 6. VERIFY LECTURER RELEASE CODE / SESSION PIN (On-Device Release)
+ * Server-side trusted verification of the 6-digit Session PIN.
  * Compares hashed input against private /security/tokens without exposing the hash to the client.
  */
 exports.verifyLecturerReleaseCode = onCall(async (request) => {
@@ -553,7 +592,7 @@ exports.verifyLecturerReleaseCode = onCall(async (request) => {
     throw new HttpsError("unauthenticated", "Authentication required to request kiosk release.");
   }
 
-  const { sessionId, releaseCode, sessionPin, pin, deviceId } = request.data || {};
+  const { sessionId, releaseCode, sessionPin, pin, deviceId, studentUid } = request.data || {};
   const inputPin = releaseCode || sessionPin || pin;
   if (!sessionId || !inputPin) {
     throw new HttpsError("invalid-argument", "Session ID and Session PIN are required.");
@@ -571,20 +610,35 @@ exports.verifyLecturerReleaseCode = onCall(async (request) => {
 
   const security = securitySnap.data();
   const inputHash = hashToken(String(inputPin).trim());
-  const expectedHash = security.lecturerReleaseCodeHash || security.sessionPinHash;
+  const expectedHash = security.sessionPinHash || security.lecturerReleaseCodeHash;
 
   if (inputHash !== expectedHash) {
     throw new HttpsError("permission-denied", "❌ Invalid Session PIN. Device remains locked in Kiosk mode.");
   }
 
-  const releaseToken = crypto.randomBytes(16).toString("hex");
-  const expiresAt = Date.now() + 30000; // 30-second short-lived authorization token
+  const targetUid = studentUid || request.auth.uid;
+  try {
+    const authRef = sessionRef.collection("authorizations").doc(targetUid);
+    const authSnap = await authRef.get();
+    if (authSnap.exists) {
+      await authRef.update({
+        released: true,
+        releaseStatus: "PIN_RELEASED",
+        releasedAt: FieldValue.serverTimestamp()
+      });
+    }
+  } catch (e) {
+    console.warn("Notice updating PIN release authorization:", e);
+  }
 
-  // Audit log of emergency release
+  const releaseToken = crypto.randomBytes(16).toString("hex");
+  const expiresAt = Date.now() + 30000;
+
+  // Audit log of PIN release
   try {
     await sessionRef.collection("audit_logs").add({
-      event: "LECTURER_EMERGENCY_RELEASE",
-      studentUid: request.auth.uid,
+      event: "SESSION_PIN_DEVICE_RELEASE",
+      studentUid: targetUid,
       deviceId: deviceId || "UNKNOWN",
       timestamp: FieldValue.serverTimestamp()
     });
@@ -594,15 +648,16 @@ exports.verifyLecturerReleaseCode = onCall(async (request) => {
     success: true,
     releaseAuthorized: true,
     sessionId: sessionId,
+    studentUid: targetUid,
     releaseToken: releaseToken,
     expiresAt: expiresAt,
-    message: "Lecturer emergency release code verified. Device release authorized."
+    message: "Session PIN verified successfully. Device release authorized."
   };
 });
 
 /**
- * 7. END ATTENDANCE SESSION (Lecturer Only)
- * Closes the session and releases all active student kiosks.
+ * 7. END ATTENDANCE SESSION (Release All Devices - Lecturer Only)
+ * Closes the session and releases all active student kiosks simultaneously.
  * Enforces that only the session owner (lecturer) can close the session.
  */
 exports.endAttendanceSession = onCall(async (request) => {
@@ -645,7 +700,7 @@ exports.endAttendanceSession = onCall(async (request) => {
 
 /**
  * 8. RELEASE INDIVIDUAL DEVICE (Lecturer Only)
- * Remotely unlocks a specific student's device from Kiosk Lock Task mode without closing the whole session.
+ * Remotely unlocks a specific student's device from Kiosk Lock Task mode using the Session PIN.
  * Enforces that only the session owner (lecturer) can authorize the device release.
  */
 exports.releaseIndividualDevice = onCall(async (request) => {
@@ -653,13 +708,16 @@ exports.releaseIndividualDevice = onCall(async (request) => {
     throw new HttpsError("unauthenticated", "Authentication required to release device.");
   }
 
-  const { sessionId, studentUid, rollNo } = request.data || {};
+  const { sessionId, studentUid, rollNo, sessionPin } = request.data || {};
   if (!sessionId || (!studentUid && !rollNo)) {
     throw new HttpsError("invalid-argument", "Session ID and student identifier are required.");
   }
 
   const sessionRef = db.collection("attendance_sessions").doc(sessionId);
-  const sessionSnap = await sessionRef.get();
+  const [sessionSnap, securitySnap] = await Promise.all([
+    sessionRef.get(),
+    sessionRef.collection("security").doc("tokens").get()
+  ]);
 
   if (!sessionSnap.exists) {
     throw new HttpsError("not-found", "Attendance session not found.");
@@ -668,6 +726,15 @@ exports.releaseIndividualDevice = onCall(async (request) => {
   const session = sessionSnap.data();
   if (session.ownerId !== request.auth.uid) {
     throw new HttpsError("permission-denied", "Only the owning lecturer can release student devices.");
+  }
+
+  // Optional Session PIN validation if provided
+  if (sessionPin && securitySnap.exists) {
+    const security = securitySnap.data();
+    const inputHash = hashToken(String(sessionPin).trim());
+    if (inputHash !== security.sessionPinHash && inputHash !== security.lecturerReleaseCodeHash) {
+      throw new HttpsError("permission-denied", "❌ Invalid Session PIN.");
+    }
   }
 
   const targetDocId = studentUid || rollNo;
@@ -679,6 +746,7 @@ exports.releaseIndividualDevice = onCall(async (request) => {
       released: true,
       releasedAt: FieldValue.serverTimestamp(),
       releasedBy: request.auth.uid,
+      releaseStatus: "RELEASED",
       status: "RELEASED"
     });
   }
@@ -690,6 +758,7 @@ exports.releaseIndividualDevice = onCall(async (request) => {
         released: true,
         releasedAt: FieldValue.serverTimestamp(),
         releasedBy: request.auth.uid,
+        releaseStatus: "RELEASED",
         status: "RELEASED"
       });
     } catch (e) {}
@@ -703,4 +772,61 @@ exports.releaseIndividualDevice = onCall(async (request) => {
     message: "Individual device release authorized by lecturer."
   };
 });
+
+/**
+ * 9. REQUEST AUTOMATIC 5-MINUTE FAIL-SAFE RELEASE (Student Device)
+ * Validates server-side that at least 5 minutes have elapsed since attendance submission.
+ * Authorizes the device to exit Lock Task Mode if the lecturer has not yet released it.
+ */
+exports.requestAutoFailSafeRelease = onCall(async (request) => {
+  if (!request.auth || !request.auth.uid) {
+    throw new HttpsError("unauthenticated", "Authentication required to request fail-safe release.");
+  }
+
+  const { sessionId, studentUid } = request.data || {};
+  if (!sessionId) {
+    throw new HttpsError("invalid-argument", "Session ID is required.");
+  }
+
+  const targetUid = studentUid || request.auth.uid;
+  const sessionRef = db.collection("attendance_sessions").doc(sessionId);
+  const authRef = sessionRef.collection("authorizations").doc(targetUid);
+  const authSnap = await authRef.get();
+
+  if (!authSnap.exists) {
+    throw new HttpsError("not-found", "Student session authorization not found.");
+  }
+
+  const authData = authSnap.data();
+  if (!authData.attendanceSubmittedAt) {
+    throw new HttpsError("failed-precondition", "Attendance must be submitted before fail-safe release can trigger.");
+  }
+
+  const submittedAtMs = authData.attendanceSubmittedAt.toMillis ? authData.attendanceSubmittedAt.toMillis() : (authData.attendanceSubmittedAt || 0);
+  const autoReleaseAtMs = authData.autoReleaseAt ? (authData.autoReleaseAt.toMillis ? authData.autoReleaseAt.toMillis() : authData.autoReleaseAt) : (submittedAtMs + 5 * 60 * 1000);
+  const serverNow = Date.now();
+
+  // Allow 5-second grace for network latency
+  if (serverNow < (autoReleaseAtMs - 5000)) {
+    const remainingSec = Math.ceil((autoReleaseAtMs - serverNow) / 1000);
+    throw new HttpsError("failed-precondition", `Fail-safe countdown active. Automatic release authorized in ${remainingSec} seconds.`);
+  }
+
+  await authRef.update({
+    released: true,
+    releaseStatus: "AUTO_RELEASED",
+    status: "RELEASED",
+    releasedAt: FieldValue.serverTimestamp()
+  });
+
+  return {
+    success: true,
+    autoReleaseAuthorized: true,
+    sessionId: sessionId,
+    studentUid: targetUid,
+    releaseStatus: "AUTO_RELEASED",
+    message: "5-Minute fail-safe countdown reached. Device release authorized."
+  };
+});
+
 
