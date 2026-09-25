@@ -4,6 +4,7 @@ import android.accessibilityservice.AccessibilityService;
 import android.accessibilityservice.AccessibilityServiceInfo;
 import android.content.Intent;
 import android.util.Log;
+import android.view.KeyEvent;
 import android.view.accessibility.AccessibilityEvent;
 
 /**
@@ -14,7 +15,7 @@ import android.view.accessibility.AccessibilityEvent;
  * 2. If any other application (launcher, settings, social media, split-screen) is brought to the foreground
  *    while an attendance session is active (KioskPlugin.isKioskEnforced == true),
  *    this service instantly re-launches SmartAttend MainActivity.
- * 3. Elevated system privileges allow it to bypass Android 10-15 Background Activity Launch restrictions.
+ * 3. Intercepts hardware & navigation keys (KEYCODE_APP_SWITCH, KEYCODE_HOME, etc.) to block app switching.
  */
 public class SmartAttendAccessibilityService extends AccessibilityService {
     private static final String TAG = "SmartAttendA11y";
@@ -37,9 +38,29 @@ public class SmartAttendAccessibilityService extends AccessibilityService {
         AccessibilityServiceInfo info = new AccessibilityServiceInfo();
         info.eventTypes = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED | AccessibilityEvent.TYPE_WINDOWS_CHANGED;
         info.feedbackType = AccessibilityServiceInfo.FEEDBACK_GENERIC;
-        info.flags = AccessibilityServiceInfo.FLAG_INCLUDE_NOT_IMPORTANT_VIEWS | AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS;
+        info.flags = AccessibilityServiceInfo.FLAG_INCLUDE_NOT_IMPORTANT_VIEWS 
+            | AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS 
+            | AccessibilityServiceInfo.FLAG_REQUEST_FILTER_KEY_EVENTS;
         info.notificationTimeout = 50;
         setServiceInfo(info);
+    }
+
+    @Override
+    protected boolean onKeyEvent(KeyEvent event) {
+        if (KioskPlugin.isKioskEnforced) {
+            int keyCode = event.getKeyCode();
+            // Block Recents / App Switcher, Home, and Back navigation across the entire OS
+            if (keyCode == KeyEvent.KEYCODE_APP_SWITCH 
+                || keyCode == KeyEvent.KEYCODE_HOME 
+                || keyCode == KeyEvent.KEYCODE_BACK
+                || keyCode == KeyEvent.KEYCODE_WINDOW
+                || keyCode == KeyEvent.KEYCODE_ALL_APPS) {
+                Log.d(TAG, "Blocked system navigation key: " + keyCode);
+                relaunchMainActivity();
+                return true; // Consume event completely
+            }
+        }
+        return super.onKeyEvent(event);
     }
 
     @Override

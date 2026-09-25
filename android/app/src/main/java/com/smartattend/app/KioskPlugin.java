@@ -419,6 +419,9 @@ public class KioskPlugin extends Plugin {
                             dpm.addUserRestriction(admin, UserManager.DISALLOW_APPS_CONTROL);
                             dpm.addUserRestriction(admin, UserManager.DISALLOW_FACTORY_RESET);
                             dpm.addUserRestriction(admin, UserManager.DISALLOW_SYSTEM_ERROR_DIALOGS);
+
+                            // Activate True Enterprise Lock Task Mode (100% OS level, 0 user popups)
+                            activity.startLockTask();
                         } catch (Exception e) {
                             Log.w(TAG, "Device Owner configuration notice: " + e.getMessage());
                         }
