@@ -557,6 +557,12 @@ function QrScannerApp() {
             return;
         }
 
+        // Strictly prevent re-scanning QR 1 if already checked in or waiting for QR 2
+        if (scanState === 'KIOSK_WAITING_QR2' || scanState === 'VALIDATING_QR2' || scanState === 'BIOMETRIC_SCAN' || scanState === 'ATTENDANCE_SUCCESS' || (activeSessionId && activeSessionId === sessionId)) {
+            console.log('[Scanner] QR 1 ignored: Student already authorized for Phase 1. Waiting for QR 2 release.');
+            return;
+        }
+
         setScanState('AUTHORIZING_QR1');
         setErrorMessage('');
 
@@ -591,7 +597,7 @@ function QrScannerApp() {
                 console.warn('Biometrics lookup notice:', bioErr);
             }
 
-            // Move to Kiosk Supervised Waiting state
+            // Move to Kiosk Supervised Waiting state (QR 1 is now permanently closed for this session)
             setScanState('KIOSK_WAITING_QR2');
         } catch (err) {
             console.error('Error authorizing QR 1:', err);
@@ -604,6 +610,11 @@ function QrScannerApp() {
     const handleProcessQR2 = async (sessionId, qr2Token) => {
         if (!user) {
             setErrorMessage('Please log in to submit attendance.');
+            return;
+        }
+
+        // Prevent redundant QR 2 validations if already scanning biometrics or submitted
+        if (scanState === 'VALIDATING_QR2' || scanState === 'BIOMETRIC_SCAN' || scanState === 'ATTENDANCE_SUCCESS') {
             return;
         }
 
@@ -652,18 +663,31 @@ function QrScannerApp() {
             return;
         }
 
-        // Detect QR 1 (Phase 1) vs QR 2 (Phase 2)
-        if (payload.qr2Token || payload.phase === '2' || payload.phase === 'PHASE_2') {
-            handleProcessQR2(payload.sessionId, payload.qr2Token);
-        } else if (payload.qr1Token || payload.phase === '1' || payload.phase === 'PHASE_1') {
-            handleProcessQR1(payload.sessionId, payload.qr1Token);
-        } else {
-            // Fallback: If in waiting state, treat as QR 2; otherwise treat as QR 1
-            if (scanState === 'KIOSK_WAITING_QR2') {
-                handleProcessQR2(payload.sessionId, payload.sessionId);
-            } else {
-                handleProcessQR1(payload.sessionId, payload.sessionId);
+        // 1. If student is already checked in (in Kiosk Mode waiting for QR 2):
+        // STRICTLY IGNORE any QR 1 scans until QR 2 is released by lecturer!
+        if (scanState === 'KIOSK_WAITING_QR2' || activeSessionId) {
+            const isQR2 = Boolean(payload.qr2Token || payload.phase === '2' || payload.phase === 'PHASE_2' || (sessionData?.phase === 'PHASE_2' && payload.sessionId === activeSessionId));
+            const isQR1 = Boolean(payload.qr1Token || payload.phase === '1' || payload.phase === 'PHASE_1');
+
+            if (isQR2) {
+                console.log('[Scanner] Phase 2 (QR 2) scanned successfully. Proceeding to biometrics...');
+                handleProcessQR2(payload.sessionId || activeSessionId, payload.qr2Token || payload.sessionId);
+            } else if (isQR1) {
+                // QR 1 is explicitly blocked from re-scanning!
+                console.log('[Scanner] QR 1 ignored. Student already completed Phase 1 check-in. Waiting for Lecturer to display QR 2.');
+            } else if (sessionData?.phase === 'PHASE_2') {
+                handleProcessQR2(payload.sessionId || activeSessionId, payload.qr2Token || payload.sessionId);
             }
+            return;
+        }
+
+        // 2. Initial state (student has not scanned QR 1 yet):
+        if (payload.qr1Token || payload.phase === '1' || payload.phase === 'PHASE_1') {
+            handleProcessQR1(payload.sessionId, payload.qr1Token);
+        } else if (payload.qr2Token || payload.phase === '2' || payload.phase === 'PHASE_2') {
+            handleProcessQR2(payload.sessionId, payload.qr2Token);
+        } else {
+            handleProcessQR1(payload.sessionId, payload.sessionId);
         }
     };
 
@@ -1471,6 +1495,30 @@ function QrScannerApp() {
                     position: 'relative',
                     minHeight: '220px'
                 }}>
+                    <div style={{
+                        position: 'absolute',
+                        top: '10px',
+                        left: '50%',
+                        transform: 'translateX(-50%)',
+                        zIndex: 10,
+                        padding: '6px 14px',
+                        borderRadius: '999px',
+                        background: 'rgba(15, 23, 42, 0.85)',
+                        border: '1px solid rgba(99, 102, 241, 0.5)',
+                        backdropFilter: 'blur(8px)',
+                        color: '#a5b4fc',
+                        fontSize: '0.75rem',
+                        fontWeight: 700,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        whiteSpace: 'nowrap',
+                        boxShadow: '0 4px 12px rgba(0, 0, 0, 0.4)'
+                    }}>
+                        <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', background: '#22c55e', boxShadow: '0 0 8px #22c55e' }}></span>
+                        Phase 1 Locked · Listening for QR 2
+                    </div>
+
                     <Scanner
                         key={`waiting-${retryKey}-${facingMode}`}
                         onScan={handleCameraScan}
