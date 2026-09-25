@@ -430,11 +430,13 @@ public class KioskPlugin extends Plugin {
                     // 4. Mark Kiosk as strictly enforced
                     isKioskEnforced = true;
 
-                    // 5. Start Android Lock Task Mode (True Lock Task if Device Owner; Screen Pinning if personal)
-                    try {
-                        activity.startLockTask();
-                    } catch (Exception lockErr) {
-                        Log.w(TAG, "startLockTask invocation notice: " + lockErr.getMessage());
+                    // 5. Start True Hardware Lock Task ONLY if provisioned as Device Owner (Zero OS prompt)
+                    if (isOwner) {
+                        try {
+                            activity.startLockTask();
+                        } catch (Exception lockErr) {
+                            Log.w(TAG, "startLockTask invocation notice: " + lockErr.getMessage());
+                        }
                     }
 
                     // 6. Launch High-Priority Foreground Watchdog Service
@@ -612,13 +614,18 @@ public class KioskPlugin extends Plugin {
 
                     applyImmersiveMode(activity);
 
-                    ActivityManager am = (ActivityManager) activity.getSystemService(Context.ACTIVITY_SERVICE);
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && am != null) {
-                        int lockMode = am.getLockTaskModeState();
-                        if (lockMode == ActivityManager.LOCK_TASK_MODE_NONE && isKioskEnforced) {
-                            try {
-                                activity.startLockTask();
-                            } catch (Exception ignored) {}
+                    DevicePolicyManager dpm = (DevicePolicyManager) activity.getSystemService(Context.DEVICE_POLICY_SERVICE);
+                    boolean isOwner = (dpm != null && dpm.isDeviceOwnerApp(activity.getPackageName()));
+
+                    if (isOwner) {
+                        ActivityManager am = (ActivityManager) activity.getSystemService(Context.ACTIVITY_SERVICE);
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && am != null) {
+                            int lockMode = am.getLockTaskModeState();
+                            if (lockMode == ActivityManager.LOCK_TASK_MODE_NONE && isKioskEnforced) {
+                                try {
+                                    activity.startLockTask();
+                                } catch (Exception ignored) {}
+                            }
                         }
                     }
                 } catch (Exception ignored) {}
