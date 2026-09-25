@@ -91,11 +91,17 @@ public class SmartAttendAccessibilityService extends AccessibilityService {
         if (!KioskPlugin.isKioskEnforced) return;
 
         try {
+            Intent closeDialogs = new Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS);
+            sendBroadcast(closeDialogs);
+        } catch (Exception ignored) {}
+
+        try {
             Intent intent = new Intent(this, MainActivity.class);
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK 
                 | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT 
                 | Intent.FLAG_ACTIVITY_SINGLE_TOP 
-                | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                | Intent.FLAG_ACTIVITY_CLEAR_TOP
+                | Intent.FLAG_ACTIVITY_NO_ANIMATION);
             startActivity(intent);
         } catch (Exception e) {
             Log.e(TAG, "Error relaunching MainActivity from Accessibility: " + e.getMessage());

@@ -33,7 +33,9 @@ import {
     FaMobileAlt,
     FaSpinner,
     FaUserCheck,
-    FaCheckDouble
+    FaCheckDouble,
+    FaEye,
+    FaEyeSlash
 } from "react-icons/fa";
 import "./Generateqr.css";
 
@@ -52,6 +54,7 @@ function GenerateQR() {
     // Authoritative 2-Phase Session State (0:00 -> 1:00 -> 3:00)
     const [sessionId, setSessionId] = useState("");
     const [sessionPin, setSessionPin] = useState("");
+    const [showPin, setShowPin] = useState(false);
     const [phase, setPhase] = useState("NONE"); // "NONE" | "PHASE_1" | "PHASE_2" | "CLOSED"
     const [qr1Token, setQr1Token] = useState("");
     const [qr2Token, setQr2Token] = useState("");
@@ -591,10 +594,44 @@ function GenerateQR() {
                                     flexWrap: "wrap",
                                     gap: "8px"
                                 }}>
-                                    <div style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "0.86rem", color: "#334155" }}>
+                                    <div style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "0.86rem", color: "#334155", flexWrap: "wrap" }}>
                                         <FaLock style={{ color: "#6366f1" }} />
-                                        <span>Session PIN: <strong style={{ color: "#4338ca", letterSpacing: "2px", fontSize: "1.05rem", fontWeight: 800 }}>{sessionPin || "------"}</strong></span>
-                                        <span style={{ fontSize: "0.74rem", color: "#64748b", marginLeft: "4px" }}>(Unlocks all student devices)</span>
+                                        <span>Session PIN:{" "}
+                                            <strong style={{ 
+                                                color: "#4338ca", 
+                                                letterSpacing: showPin ? "2px" : "3px", 
+                                                fontSize: "1.05rem", 
+                                                fontWeight: 800,
+                                                fontFamily: showPin ? "inherit" : "monospace"
+                                            }}>
+                                                {showPin ? (sessionPin || "------") : (sessionPin ? "••••••" : "------")}
+                                            </strong>
+                                        </span>
+                                        {sessionPin && (
+                                            <button
+                                                type="button"
+                                                onClick={() => setShowPin((prev) => !prev)}
+                                                title={showPin ? "Hide PIN" : "View PIN"}
+                                                style={{
+                                                    display: "inline-flex",
+                                                    alignItems: "center",
+                                                    gap: "4px",
+                                                    padding: "3px 8px",
+                                                    marginLeft: "4px",
+                                                    borderRadius: "6px",
+                                                    background: showPin ? "rgba(99, 102, 241, 0.15)" : "#e2e8f0",
+                                                    border: "1px solid " + (showPin ? "#6366f1" : "#cbd5e1"),
+                                                    color: showPin ? "#4338ca" : "#475569",
+                                                    fontSize: "0.75rem",
+                                                    fontWeight: 600,
+                                                    cursor: "pointer",
+                                                    transition: "all 0.2s ease"
+                                                }}
+                                            >
+                                                {showPin ? <><FaEyeSlash /> Hide PIN</> : <><FaEye /> View PIN</>}
+                                            </button>
+                                        )}
+                                        <span style={{ fontSize: "0.74rem", color: "#64748b", marginLeft: "4px" }}>(Unlocks student devices)</span>
                                     </div>
                                     <button
                                         type="button"

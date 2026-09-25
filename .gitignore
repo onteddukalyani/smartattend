@@ -23,10 +23,12 @@ dist-ssr
 *.sln
 *.sw?
 
-# Android / APK Builds
+# Android / APK Builds & Keystores
 *.apk
 *.aab
 *.dex
+*.jks
+*.keystore
 public/*.apk
 dist/*.apk
 android/app/build/

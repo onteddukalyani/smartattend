@@ -7,8 +7,8 @@ android {
         applicationId "com.smartattend.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 3
-        versionName "1.0.2"
+        versionCode 4
+        versionName "1.0.3"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -16,10 +16,30 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    signingConfigs {
+        release {
+            if (project.hasProperty('SMARTATTEND_RELEASE_STORE_FILE')) {
+                def keystorePath = SMARTATTEND_RELEASE_STORE_FILE
+                def keystoreFile = file(keystorePath)
+                if (!keystoreFile.exists()) {
+                    keystoreFile = new File(rootDir, keystorePath)
+                }
+                storeFile keystoreFile
+                storePassword project.findProperty('SMARTATTEND_RELEASE_STORE_PASSWORD') ?: ""
+                keyAlias project.findProperty('SMARTATTEND_RELEASE_KEY_ALIAS') ?: "smartattend"
+                keyPassword project.findProperty('SMARTATTEND_RELEASE_KEY_PASSWORD') ?: (project.findProperty('SMARTATTEND_RELEASE_STORE_PASSWORD') ?: "")
+                v1SigningEnabled true
+                v2SigningEnabled true
+            }
+        }
+    }
     buildTypes {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            if (project.hasProperty('SMARTATTEND_RELEASE_STORE_FILE')) {
+                signingConfig signingConfigs.release
+            }
         }
     }
 }
