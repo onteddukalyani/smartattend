@@ -481,6 +481,15 @@ function FaceScanner({
                 if (consecutiveMatchesRef.current >= 2) {
                   setStatus("verified");
                   setFeedback(`✅ Live Face Verified! Match Confidence: ${conf}% (${verifiedStudent.name}) • Liveness: PASS 🛡️`);
+                  // Halt animation loop and camera immediately to prevent WebView stutter / freezing
+                  if (animationRef.current) {
+                    cancelAnimationFrame(animationRef.current);
+                    animationRef.current = null;
+                  }
+                  if (streamRef.current) {
+                    streamRef.current.getTracks().forEach((t) => t.stop());
+                    streamRef.current = null;
+                  }
                   onVerificationChange({
                     verified: true,
                     confidence: conf,

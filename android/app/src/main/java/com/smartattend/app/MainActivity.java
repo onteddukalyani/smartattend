@@ -47,6 +47,31 @@ public class MainActivity extends BridgeActivity {
                 Manifest.permission.CAMERA
             }, 100);
         }
+
+        // On first app launch after install, prompt user to enable "Display over other apps"
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
+            android.content.SharedPreferences prefs = getSharedPreferences("smartattend_prefs", MODE_PRIVATE);
+            boolean alreadyPrompted = prefs.getBoolean("prompted_overlay_on_launch", false);
+            if (!alreadyPrompted) {
+                prefs.edit().putBoolean("prompted_overlay_on_launch", true).apply();
+                mainHandler.postDelayed(() -> {
+                    try {
+                        Intent intent = new Intent(
+                            Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                            Uri.parse("package:" + getPackageName())
+                        );
+                        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                        startActivity(intent);
+                    } catch (Exception e) {
+                        try {
+                            Intent fallback = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION);
+                            fallback.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                            startActivity(fallback);
+                        } catch (Exception ignored) {}
+                    }
+                }, 1200);
+            }
+        }
     }
 
     public void bringToFront() {

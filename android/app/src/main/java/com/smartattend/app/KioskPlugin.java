@@ -430,16 +430,7 @@ public class KioskPlugin extends Plugin {
                     // 4. Mark Kiosk as strictly enforced
                     isKioskEnforced = true;
 
-                    // 5. Start True Hardware Lock Task ONLY if provisioned as Device Owner (Zero OS prompt)
-                    if (isOwner) {
-                        try {
-                            activity.startLockTask();
-                        } catch (Exception lockErr) {
-                            Log.w(TAG, "startLockTask invocation notice: " + lockErr.getMessage());
-                        }
-                    }
-
-                    // 6. Launch High-Priority Foreground Watchdog Service
+                    // 5. Launch High-Priority Foreground Watchdog Service
                     try {
                         Intent watchdogIntent = new Intent(activity, KioskWatchdogService.class);
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -613,21 +604,6 @@ public class KioskPlugin extends Plugin {
                     }
 
                     applyImmersiveMode(activity);
-
-                    DevicePolicyManager dpm = (DevicePolicyManager) activity.getSystemService(Context.DEVICE_POLICY_SERVICE);
-                    boolean isOwner = (dpm != null && dpm.isDeviceOwnerApp(activity.getPackageName()));
-
-                    if (isOwner) {
-                        ActivityManager am = (ActivityManager) activity.getSystemService(Context.ACTIVITY_SERVICE);
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && am != null) {
-                            int lockMode = am.getLockTaskModeState();
-                            if (lockMode == ActivityManager.LOCK_TASK_MODE_NONE && isKioskEnforced) {
-                                try {
-                                    activity.startLockTask();
-                                } catch (Exception ignored) {}
-                            }
-                        }
-                    }
                 } catch (Exception ignored) {}
             });
         } catch (Exception ignored) {}

@@ -813,6 +813,7 @@ function QrScannerApp() {
             // Auto-submit verified attendance
             if (!submittingAttendance) {
                 setSubmittingAttendance(true);
+                releaseAllMediaTracks();
                 try {
                     const submissionResult = await submitVerifiedAttendance(
                         activeSessionId,
