@@ -306,6 +306,63 @@ function GenerateQR() {
             setAuthorizedStudents([]);
         }
     };
+    // Deduplicated list of students (guarantees no student/device is shown twice or more)
+    const uniqueStudentsList = useMemo(() => {
+        if (!authorizedStudents || !Array.isArray(authorizedStudents)) return [];
+        const map = new Map();
+
+        authorizedStudents.forEach((st) => {
+            const roll = (st.rollNo || st.studentUid || st.id || "").toUpperCase().trim();
+            if (!roll) return;
+
+            if (!map.has(roll)) {
+                map.set(roll, {
+                    ...st,
+                    rollNo: roll,
+                    studentName: st.studentName || st.fullName || roll,
+                    studentUid: st.studentUid || st.id || roll
+                });
+            } else {
+                const existing = map.get(roll);
+                map.set(roll, {
+                    ...existing,
+                    ...st,
+                    rollNo: roll,
+                    studentName: st.studentName || existing.studentName || roll,
+                    released: st.released === true || existing.released === true,
+                    status: st.status || existing.status
+                });
+            }
+        });
+
+        return Array.from(map.values()).sort((a, b) => (a.rollNo || "").localeCompare(b.rollNo || ""));
+    }, [authorizedStudents]);
+
+    // Live Metrics: Total scanned QR 1, Reached QR 2 (Attended), and Pending QR 2
+    const { totalScannedQR1, reachedQR2Count, pendingQR2Count } = useMemo(() => {
+        const attendeesSet = new Set(
+            (sessionData?.attendees || []).map((a) => (a.rollNo || a.studentUid || "").toUpperCase().trim())
+        );
+
+        let reachedQR2 = 0;
+        let pendingQR2 = 0;
+
+        uniqueStudentsList.forEach((st) => {
+            const roll = (st.rollNo || "").toUpperCase().trim();
+            const hasAttended = attendeesSet.has(roll) || st.status === "ATTENDED" || st.attended === true;
+            if (hasAttended) {
+                reachedQR2++;
+            } else {
+                pendingQR2++;
+            }
+        });
+
+        return {
+            totalScannedQR1: uniqueStudentsList.length,
+            reachedQR2Count: reachedQR2,
+            pendingQR2Count: pendingQR2
+        };
+    }, [uniqueStudentsList, sessionData?.attendees]);
 
     // Formatting helper for mm:ss
     const formatMmSs = (sec) => {
@@ -631,7 +688,7 @@ function GenerateQR() {
                                             <span>Students Checked In &amp; Locked in Kiosk:</span>
                                         </div>
                                         <strong style={{ fontSize: "1.25rem", color: "#6366f1" }}>
-                                            {authorizedStudents.length}
+                                            {totalScannedQR1}
                                         </strong>
                                     </div>
 
@@ -676,7 +733,7 @@ function GenerateQR() {
                                         fontWeight: 700,
                                         marginBottom: "12px"
                                     }}>
-                                        🔒 Phase 2 Active: Only {authorizedStudents.length} students who checked in during 0:00–1:00 can submit attendance.
+                                        🔒 Phase 2 Active: Only {totalScannedQR1} students who checked in during 0:00–1:00 can submit attendance.
                                     </div>
 
                                     <div style={{
@@ -694,7 +751,7 @@ function GenerateQR() {
                                             <span>Attendance Recorded:</span>
                                         </div>
                                         <strong style={{ fontSize: "1.25rem", color: "#10b981" }}>
-                                             {sessionData?.attendanceCount || 0} / {authorizedStudents.length}
+                                             {reachedQR2Count} / {totalScannedQR1}
                                         </strong>
                                     </div>
 
@@ -773,7 +830,7 @@ function GenerateQR() {
                 </section>
             </div>
 
-            {/* 3. Connected Devices & Authorized Kiosks Management */}
+            {/* 3. Live Attendance & QR 1 / QR 2 Status Dashboard */}
             {sessionId && (
                 <section style={{
                     marginTop: "30px",
@@ -789,54 +846,151 @@ function GenerateQR() {
                         justifyContent: "space-between",
                         flexWrap: "wrap",
                         gap: "12px",
-                        marginBottom: "18px",
-                        paddingBottom: "14px",
+                        marginBottom: "20px",
+                        paddingBottom: "16px",
                         borderBottom: "1px solid var(--border, #e2e8f0)"
                     }}>
                         <div>
                             <h3 style={{ margin: "0 0 4px", fontSize: "1.25rem", fontWeight: 800, color: "var(--text-main, #0f172a)", display: "flex", alignItems: "center", gap: "8px" }}>
-                                <FaMobileAlt style={{ color: "#6366f1" }} /> Connected Devices &amp; Kiosk Status
+                                <FaUsers style={{ color: "#6366f1" }} /> Live Attendance &amp; QR Tracking
                             </h3>
                             <p style={{ margin: 0, fontSize: "0.86rem", color: "var(--text-muted, #64748b)" }}>
-                                Real-time list of students checked in via QR1 with active Android Lock Task Mode.
+                                Real-time breakdown of students who scanned QR 1, reached QR 2, or are pending QR 2.
                             </p>
-                        </div>
-
-                        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                            <span style={{
-                                padding: "6px 14px",
-                                borderRadius: "999px",
-                                background: "rgba(99, 102, 241, 0.12)",
-                                color: "#4338ca",
-                                fontWeight: 800,
-                                fontSize: "0.85rem"
-                            }}>
-                                📱 {authorizedStudents.length} Connected Devices
-                            </span>
-                            <span style={{
-                                padding: "6px 14px",
-                                borderRadius: "999px",
-                                background: "rgba(16, 185, 129, 0.12)",
-                                color: "#047857",
-                                fontWeight: 800,
-                                fontSize: "0.85rem"
-                            }}>
-                                ✅ {sessionData?.attendanceCount || 0} Attendance Verified
-                            </span>
                         </div>
                     </div>
 
-                    {authorizedStudents.length === 0 ? (
+                    {/* 3-Metric Summary Cards */}
+                    <div style={{
+                        display: "grid",
+                        gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                        gap: "16px",
+                        marginBottom: "24px"
+                    }}>
+                        {/* Metric 1: Total Scanned QR 1 */}
                         <div style={{
-                            padding: "30px 20px",
+                            padding: "16px 20px",
+                            borderRadius: "16px",
+                            background: "linear-gradient(135deg, rgba(99, 102, 241, 0.08) 0%, rgba(99, 102, 241, 0.02) 100%)",
+                            border: "1.5px solid rgba(99, 102, 241, 0.25)",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "14px"
+                        }}>
+                            <div style={{
+                                width: "48px",
+                                height: "48px",
+                                borderRadius: "12px",
+                                background: "rgba(99, 102, 241, 0.15)",
+                                color: "#4f46e5",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                fontSize: "1.4rem",
+                                flexShrink: 0
+                            }}>
+                                <FaMobileAlt />
+                            </div>
+                            <div>
+                                <div style={{ fontSize: "0.78rem", fontWeight: 800, color: "#6366f1", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                                    Scanned QR 1 (Checked In)
+                                </div>
+                                <div style={{ fontSize: "1.75rem", fontWeight: 800, color: "#1e1b4b", lineHeight: 1.15 }}>
+                                    {totalScannedQR1}
+                                </div>
+                                <div style={{ fontSize: "0.75rem", color: "#64748b", marginTop: "2px" }}>
+                                    Unique devices locked in Kiosk
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Metric 2: Reached QR 2 (Attendance Completed) */}
+                        <div style={{
+                            padding: "16px 20px",
+                            borderRadius: "16px",
+                            background: "linear-gradient(135deg, rgba(16, 185, 129, 0.08) 0%, rgba(16, 185, 129, 0.02) 100%)",
+                            border: "1.5px solid rgba(16, 185, 129, 0.25)",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "14px"
+                        }}>
+                            <div style={{
+                                width: "48px",
+                                height: "48px",
+                                borderRadius: "12px",
+                                background: "rgba(16, 185, 129, 0.15)",
+                                color: "#059669",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                fontSize: "1.4rem",
+                                flexShrink: 0
+                            }}>
+                                <FaCheckCircle />
+                            </div>
+                            <div>
+                                <div style={{ fontSize: "0.78rem", fontWeight: 800, color: "#059669", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                                    Reached QR 2 (Attended)
+                                </div>
+                                <div style={{ fontSize: "1.75rem", fontWeight: 800, color: "#064e3b", lineHeight: 1.15 }}>
+                                    {reachedQR2Count}
+                                </div>
+                                <div style={{ fontSize: "0.75rem", color: "#64748b", marginTop: "2px" }}>
+                                    Biometrics verified (100%)
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Metric 3: Pending QR 2 (Haven't Scanned QR 2 Yet) */}
+                        <div style={{
+                            padding: "16px 20px",
+                            borderRadius: "16px",
+                            background: "linear-gradient(135deg, rgba(245, 158, 11, 0.08) 0%, rgba(245, 158, 11, 0.02) 100%)",
+                            border: "1.5px solid rgba(245, 158, 11, 0.25)",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "14px"
+                        }}>
+                            <div style={{
+                                width: "48px",
+                                height: "48px",
+                                borderRadius: "12px",
+                                background: "rgba(245, 158, 11, 0.15)",
+                                color: "#d97706",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                fontSize: "1.4rem",
+                                flexShrink: 0
+                            }}>
+                                <FaClock />
+                            </div>
+                            <div>
+                                <div style={{ fontSize: "0.78rem", fontWeight: 800, color: "#d97706", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                                    Pending QR 2 (Waiting)
+                                </div>
+                                <div style={{ fontSize: "1.75rem", fontWeight: 800, color: "#78350f", lineHeight: 1.15 }}>
+                                    {pendingQR2Count}
+                                </div>
+                                <div style={{ fontSize: "0.75rem", color: "#64748b", marginTop: "2px" }}>
+                                    Checked-in but didn't scan QR 2
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Deduplicated Student List Table */}
+                    {uniqueStudentsList.length === 0 ? (
+                        <div style={{
+                            padding: "32px 20px",
                             textAlign: "center",
                             background: "var(--surface-soft, #f8fafc)",
-                            borderRadius: "14px",
+                            borderRadius: "16px",
                             color: "var(--text-muted, #64748b)",
                             fontSize: "0.9rem"
                         }}>
-                            <FaClock style={{ fontSize: "1.8rem", color: "#94a3b8", marginBottom: "8px", display: "block", margin: "0 auto 8px" }} />
-                            Waiting for students to scan QR1 and enter Kiosk Lock Task Mode...
+                            <FaClock style={{ fontSize: "2rem", color: "#94a3b8", marginBottom: "8px", display: "block", margin: "0 auto 8px" }} />
+                            Waiting for students to scan QR 1 and check into this session...
                         </div>
                     ) : (
                         <div style={{ overflowX: "auto" }}>
@@ -854,29 +1008,85 @@ function GenerateQR() {
                                     }}>
                                         <th style={{ padding: "12px 14px", fontWeight: 800 }}>Roll Number</th>
                                         <th style={{ padding: "12px 14px", fontWeight: 800 }}>Student Name</th>
-                                        <th style={{ padding: "12px 14px", fontWeight: 800 }}>Kiosk / MDM Status</th>
-                                        <th style={{ padding: "12px 14px", fontWeight: 800 }}>Attendance</th>
+                                        <th style={{ padding: "12px 14px", fontWeight: 800 }}>Phase 1 (QR 1)</th>
+                                        <th style={{ padding: "12px 14px", fontWeight: 800 }}>Phase 2 (QR 2)</th>
+                                        <th style={{ padding: "12px 14px", fontWeight: 800 }}>Kiosk Mode</th>
                                         <th style={{ padding: "12px 14px", fontWeight: 800, textAlign: "right" }}>Action</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {authorizedStudents.map((student) => {
+                                    {uniqueStudentsList.map((student) => {
                                         const studentId = student.studentUid || student.id || student.rollNo;
                                         const isReleased = student.released === true || student.status === "RELEASED" || phase === "CLOSED";
-                                        const isAttended = sessionData?.attendees?.some((a) => (a.rollNo || "").toUpperCase() === (student.rollNo || "").toUpperCase()) || false;
+                                        const isAttended = sessionData?.attendees?.some((a) => (a.rollNo || "").toUpperCase() === (student.rollNo || "").toUpperCase()) || student.status === "ATTENDED" || student.attended === true;
                                         const isBusy = releasingStudentId === studentId;
 
                                         return (
-                                            <tr key={student.id || student.rollNo} style={{
+                                            <tr key={student.rollNo} style={{
                                                 borderBottom: "1px solid var(--border, #e2e8f0)",
                                                 background: isReleased ? "rgba(241, 245, 249, 0.5)" : "transparent"
                                             }}>
+                                                {/* Roll Number */}
                                                 <td style={{ padding: "12px 14px", fontWeight: 800, color: "var(--text-main, #0f172a)" }}>
                                                     {student.rollNo}
                                                 </td>
+
+                                                {/* Student Name */}
                                                 <td style={{ padding: "12px 14px", color: "var(--text-main, #334155)" }}>
                                                     {student.studentName || student.fullName || student.rollNo}
                                                 </td>
+
+                                                {/* Phase 1 QR 1 Status */}
+                                                <td style={{ padding: "12px 14px" }}>
+                                                    <span style={{
+                                                        display: "inline-flex",
+                                                        alignItems: "center",
+                                                        gap: "4px",
+                                                        padding: "4px 10px",
+                                                        borderRadius: "999px",
+                                                        background: "rgba(99, 102, 241, 0.1)",
+                                                        color: "#4338ca",
+                                                        fontWeight: 700,
+                                                        fontSize: "0.78rem"
+                                                    }}>
+                                                        <FaCheckCircle style={{ color: "#6366f1" }} /> Scanned
+                                                    </span>
+                                                </td>
+
+                                                {/* Phase 2 QR 2 Status */}
+                                                <td style={{ padding: "12px 14px" }}>
+                                                    {isAttended ? (
+                                                        <span style={{
+                                                            display: "inline-flex",
+                                                            alignItems: "center",
+                                                            gap: "4px",
+                                                            padding: "4px 10px",
+                                                            borderRadius: "999px",
+                                                            background: "#dcfce7",
+                                                            color: "#15803d",
+                                                            fontWeight: 800,
+                                                            fontSize: "0.78rem"
+                                                        }}>
+                                                            <FaCheckCircle /> Reached QR 2 (100%)
+                                                        </span>
+                                                    ) : (
+                                                        <span style={{
+                                                            display: "inline-flex",
+                                                            alignItems: "center",
+                                                            gap: "4px",
+                                                            padding: "4px 10px",
+                                                            borderRadius: "999px",
+                                                            background: "#fef3c7",
+                                                            color: "#b45309",
+                                                            fontWeight: 700,
+                                                            fontSize: "0.78rem"
+                                                        }}>
+                                                            <FaClock /> Pending QR 2
+                                                        </span>
+                                                    )}
+                                                </td>
+
+                                                {/* Kiosk Mode Status */}
                                                 <td style={{ padding: "12px 14px" }}>
                                                     {isReleased ? (
                                                         <span style={{
@@ -890,7 +1100,7 @@ function GenerateQR() {
                                                             fontWeight: 700,
                                                             fontSize: "0.78rem"
                                                         }}>
-                                                            <FaUnlock style={{ color: "#10b981" }} /> Device Released
+                                                            <FaUnlock style={{ color: "#10b981" }} /> Released
                                                         </span>
                                                     ) : (
                                                         <span style={{
@@ -904,48 +1114,12 @@ function GenerateQR() {
                                                             fontWeight: 700,
                                                             fontSize: "0.78rem"
                                                         }}>
-                                                            <FaLock style={{ color: "#6366f1" }} /> Locked in Kiosk
+                                                            <FaLock style={{ color: "#6366f1" }} /> Locked
                                                         </span>
                                                     )}
                                                 </td>
-                                                <td style={{ padding: "12px 14px" }}>
-                                                    {isAttended ? (
-                                                        <div>
-                                                            <span style={{
-                                                                display: "inline-flex",
-                                                                alignItems: "center",
-                                                                gap: "4px",
-                                                                padding: "4px 10px",
-                                                                borderRadius: "999px",
-                                                                background: "#dcfce7",
-                                                                color: "#15803d",
-                                                                fontWeight: 800,
-                                                                fontSize: "0.78rem"
-                                                            }}>
-                                                                <FaCheckCircle /> Verified (100%)
-                                                            </span>
-                                                            {!isReleased && student.autoReleaseAt && (
-                                                                <div style={{ fontSize: "0.73rem", color: "#6366f1", marginTop: "4px", fontWeight: 700 }}>
-                                                                    ⏱️ Auto-release in {formatMmSs(Math.max(0, Math.floor(((student.autoReleaseAt?.toMillis ? student.autoReleaseAt.toMillis() : student.autoReleaseAt) - Date.now()) / 1000)))}
-                                                                </div>
-                                                            )}
-                                                        </div>
-                                                    ) : (
-                                                        <span style={{
-                                                            display: "inline-flex",
-                                                            alignItems: "center",
-                                                            gap: "4px",
-                                                            padding: "4px 10px",
-                                                            borderRadius: "999px",
-                                                            background: "#fef3c7",
-                                                            color: "#b45309",
-                                                            fontWeight: 700,
-                                                            fontSize: "0.78rem"
-                                                        }}>
-                                                            <FaClock /> Pending QR2
-                                                        </span>
-                                                    )}
-                                                </td>
+
+                                                {/* Action */}
                                                 <td style={{ padding: "12px 14px", textAlign: "right" }}>
                                                     <button
                                                         type="button"
@@ -971,7 +1145,7 @@ function GenerateQR() {
                                                         ) : isReleased ? (
                                                             <>Unlocked</>
                                                         ) : (
-                                                            <><FaUnlock /> Release Device</>
+                                                            <><FaUnlock /> Release</>
                                                         )}
                                                     </button>
                                                 </td>
