@@ -14,6 +14,7 @@ import android.util.Log;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
+import androidx.core.content.ContextCompat;
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
@@ -24,10 +25,14 @@ import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 
 /**
- * True Android Enterprise Kiosk / Lock Task Plugin for SmartAttend.
+ * Enterprise & Supervised Kiosk / Lock Task Plugin for SmartAttend.
  * 
- * Enforces hardware-level dedicated Lock Task Mode via DevicePolicyManager (Device Owner).
- * Strictly rejects and blocks Screen Pinning fallback if the device is not provisioned as Device Owner.
+ * Supports two tiers of rock-solid enforcement:
+ * 1. Device Owner Mode (Android Enterprise Dedicated Device / COSU):
+ *    Hardware OS-level Lock Task Mode with all system keys, status bar, and unpinning disabled.
+ * 2. Personal BYOD Phone Mode (High-Security Supervised Guardian):
+ *    Screen Pinning + 150ms FullScreenIntent Alarm Watchdog + Touch Blocking System Overlay +
+ *    Accessibility Guardian window transition interception.
  */
 @CapacitorPlugin(name = "KioskPlugin")
 public class KioskPlugin extends Plugin {
@@ -87,6 +92,93 @@ public class KioskPlugin extends Plugin {
     }
 
     @PluginMethod
+    public void canDrawOverlays(PluginCall call) {
+        Activity activity = getActivity();
+        if (activity == null) {
+            JSObject ret = new JSObject();
+            ret.put("canDrawOverlays", false);
+            call.resolve(ret);
+            return;
+        }
+
+        boolean canDraw = true;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            canDraw = Settings.canDrawOverlays(activity);
+        }
+
+        JSObject ret = new JSObject();
+        ret.put("canDrawOverlays", canDraw);
+        call.resolve(ret);
+    }
+
+    @PluginMethod
+    public void requestOverlayPermission(PluginCall call) {
+        Activity activity = getActivity();
+        if (activity == null) {
+            JSObject ret = new JSObject();
+            ret.put("requested", false);
+            call.resolve(ret);
+            return;
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(activity)) {
+            try {
+                Intent intent = new Intent(
+                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:" + activity.getPackageName())
+                );
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                activity.startActivity(intent);
+                JSObject ret = new JSObject();
+                ret.put("requested", true);
+                call.resolve(ret);
+            } catch (Exception e) {
+                Intent fallbackIntent = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION);
+                fallbackIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                activity.startActivity(fallbackIntent);
+                JSObject ret = new JSObject();
+                ret.put("requested", true);
+                call.resolve(ret);
+            }
+        } else {
+            JSObject ret = new JSObject();
+            ret.put("requested", false);
+            ret.put("alreadyGranted", true);
+            call.resolve(ret);
+        }
+    }
+
+    @PluginMethod
+    public void isAccessibilityServiceEnabled(PluginCall call) {
+        boolean isRunning = SmartAttendAccessibilityService.isRunning();
+        JSObject ret = new JSObject();
+        ret.put("isEnabled", isRunning);
+        call.resolve(ret);
+    }
+
+    @PluginMethod
+    public void requestAccessibilityPermission(PluginCall call) {
+        Activity activity = getActivity();
+        if (activity == null) {
+            JSObject ret = new JSObject();
+            ret.put("requested", false);
+            call.resolve(ret);
+            return;
+        }
+
+        try {
+            Intent intent = new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS);
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            activity.startActivity(intent);
+            JSObject ret = new JSObject();
+            ret.put("requested", true);
+            call.resolve(ret);
+        } catch (Exception e) {
+            call.reject("Could not open accessibility settings: " + e.getMessage());
+        }
+    }
+
+    @PluginMethod
     public void getSecurityDiagnostics(PluginCall call) {
         Activity activity = getActivity();
         if (activity == null) {
@@ -104,11 +196,18 @@ public class KioskPlugin extends Plugin {
             lockTaskMode = am.getLockTaskModeState();
         }
 
+        boolean canOverlay = true;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            canOverlay = Settings.canDrawOverlays(activity);
+        }
+
         JSObject ret = new JSObject();
         ret.put("isDeviceOwner", isOwner);
         ret.put("isKioskEnforced", isKioskEnforced);
-        ret.put("lockTaskModeState", lockTaskMode); // 0 = NONE, 1 = LOCKED (Device Owner Lock Task), 2 = PINNED (Screen Pin)
-        ret.put("securityLevel", isOwner ? "DEVICE_OWNER_LOCK_TASK" : "UNENROLLED_PERSONAL_DEVICE");
+        ret.put("lockTaskModeState", lockTaskMode);
+        ret.put("canDrawOverlays", canOverlay);
+        ret.put("isAccessibilityActive", SmartAttendAccessibilityService.isRunning());
+        ret.put("securityLevel", isOwner ? "DEVICE_OWNER_LOCK_TASK" : "SUPERVISED_PERSONAL_DEVICE");
         call.resolve(ret);
     }
 
@@ -128,40 +227,32 @@ public class KioskPlugin extends Plugin {
                     String pkg = activity.getPackageName();
                     boolean isOwner = (dpm != null && dpm.isDeviceOwnerApp(pkg));
 
-                    if (!isOwner) {
-                        JSObject ret = new JSObject();
-                        ret.put("success", false);
-                        ret.put("isDeviceOwner", false);
-                        ret.put("error", "NOT_DEVICE_OWNER");
-                        ret.put("message", "Device is not provisioned as Device Owner.");
-                        call.resolve(ret);
-                        return;
+                    if (isOwner) {
+                        // 1. Whitelist SmartAttend package for dedicated Lock Task Mode
+                        dpm.setLockTaskPackages(admin, new String[]{ pkg });
+
+                        // 2. Disable system status, notifications, home, overview, and quick settings
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                            dpm.setLockTaskFeatures(admin, DevicePolicyManager.LOCK_TASK_FEATURE_NONE);
+                        }
+
+                        // 3. Disable status bar pull-down and keyguard
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                            dpm.setStatusBarDisabled(admin, true);
+                            dpm.setKeyguardDisabled(admin, true);
+                        }
+
+                        // 4. Add enterprise hardware restrictions
+                        dpm.addUserRestriction(admin, UserManager.DISALLOW_SAFE_BOOT);
+                        dpm.addUserRestriction(admin, UserManager.DISALLOW_APPS_CONTROL);
+                        dpm.addUserRestriction(admin, UserManager.DISALLOW_FACTORY_RESET);
+                        dpm.addUserRestriction(admin, UserManager.DISALLOW_SYSTEM_ERROR_DIALOGS);
                     }
-
-                    // 1. Whitelist SmartAttend package for dedicated Lock Task Mode
-                    dpm.setLockTaskPackages(admin, new String[]{ pkg });
-
-                    // 2. Disable system status, notifications, home, overview, and quick settings
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                        dpm.setLockTaskFeatures(admin, DevicePolicyManager.LOCK_TASK_FEATURE_NONE);
-                    }
-
-                    // 3. Disable status bar pull-down and keyguard
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                        dpm.setStatusBarDisabled(admin, true);
-                        dpm.setKeyguardDisabled(admin, true);
-                    }
-
-                    // 4. Add enterprise hardware restrictions
-                    dpm.addUserRestriction(admin, UserManager.DISALLOW_SAFE_BOOT);
-                    dpm.addUserRestriction(admin, UserManager.DISALLOW_APPS_CONTROL);
-                    dpm.addUserRestriction(admin, UserManager.DISALLOW_FACTORY_RESET);
-                    dpm.addUserRestriction(admin, UserManager.DISALLOW_SYSTEM_ERROR_DIALOGS);
 
                     JSObject ret = new JSObject();
                     ret.put("success", true);
-                    ret.put("isDeviceOwner", true);
-                    ret.put("message", "True Device Owner attendance restrictions applied.");
+                    ret.put("isDeviceOwner", isOwner);
+                    ret.put("message", isOwner ? "True Device Owner attendance restrictions applied." : "Supervised restrictions initialized.");
                     call.resolve(ret);
                 } catch (Exception e) {
                     Log.e(TAG, "Error applying attendance restrictions: " + e.getMessage(), e);
@@ -264,13 +355,13 @@ public class KioskPlugin extends Plugin {
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && am != null) {
                 lockMode = am.getLockTaskModeState();
-                isLocked = (lockMode == ActivityManager.LOCK_TASK_MODE_LOCKED);
+                isLocked = (lockMode != ActivityManager.LOCK_TASK_MODE_NONE);
             }
 
             boolean isOwner = (dpm != null && dpm.isDeviceOwnerApp(activity.getPackageName()));
 
             JSObject ret = new JSObject();
-            ret.put("active", isLocked || (isKioskEnforced && isOwner));
+            ret.put("active", isKioskEnforced || isLocked);
             ret.put("mode", lockMode); // 1 = LOCKED (Enterprise MDM), 2 = PINNED (Screen Pin), 0 = NONE
             ret.put("isManagedKiosk", lockMode == ActivityManager.LOCK_TASK_MODE_LOCKED || isOwner);
             ret.put("isDeviceOwner", isOwner);
@@ -297,20 +388,8 @@ public class KioskPlugin extends Plugin {
                     String pkg = activity.getPackageName();
                     ComponentName admin = new ComponentName(activity, AdminReceiver.class);
 
-                    // STRICT VERIFICATION: Verify Device Owner before entering kiosk
                     boolean isOwner = (dpm != null && dpm.isDeviceOwnerApp(pkg));
-                    Log.d("SmartAttend", "DeviceOwner=" + (dpm != null && dpm.isDeviceOwnerApp(pkg)));
-
-                    if (!isOwner) {
-                        Log.e(TAG, "Device is NOT enrolled as Device Owner! Aborting Lock Task to prevent Screen Pinning fallback.");
-                        JSObject ret = new JSObject();
-                        ret.put("active", false);
-                        ret.put("isDeviceOwner", false);
-                        ret.put("error", "NOT_DEVICE_OWNER");
-                        ret.put("message", "Device is not provisioned as a Device Owner. True Enterprise Lock Task Mode cannot be started.");
-                        call.resolve(ret);
-                        return;
-                    }
+                    Log.d(TAG, "Starting Kiosk Mode. DeviceOwner=" + isOwner);
 
                     // 1. Keep screen alive & block screenshots with FLAG_SECURE
                     Window window = activity.getWindow();
@@ -322,29 +401,65 @@ public class KioskPlugin extends Plugin {
                         window.addFlags(WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON);
                     }
 
-                    // 2. Configure Enterprise DevicePolicyManager settings
-                    dpm.setLockTaskPackages(admin, new String[]{ pkg });
+                    // 2. Configure Enterprise DevicePolicyManager settings if Device Owner
+                    if (isOwner) {
+                        try {
+                            dpm.setLockTaskPackages(admin, new String[]{ pkg });
 
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                        dpm.setLockTaskFeatures(admin, DevicePolicyManager.LOCK_TASK_FEATURE_NONE);
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                                dpm.setLockTaskFeatures(admin, DevicePolicyManager.LOCK_TASK_FEATURE_NONE);
+                            }
+
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                                dpm.setStatusBarDisabled(admin, true);
+                                dpm.setKeyguardDisabled(admin, true);
+                            }
+
+                            dpm.addUserRestriction(admin, UserManager.DISALLOW_SAFE_BOOT);
+                            dpm.addUserRestriction(admin, UserManager.DISALLOW_APPS_CONTROL);
+                            dpm.addUserRestriction(admin, UserManager.DISALLOW_FACTORY_RESET);
+                            dpm.addUserRestriction(admin, UserManager.DISALLOW_SYSTEM_ERROR_DIALOGS);
+                        } catch (Exception e) {
+                            Log.w(TAG, "Device Owner configuration notice: " + e.getMessage());
+                        }
                     }
-
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                        dpm.setStatusBarDisabled(admin, true);
-                        dpm.setKeyguardDisabled(admin, true);
-                    }
-
-                    dpm.addUserRestriction(admin, UserManager.DISALLOW_SAFE_BOOT);
-                    dpm.addUserRestriction(admin, UserManager.DISALLOW_APPS_CONTROL);
-                    dpm.addUserRestriction(admin, UserManager.DISALLOW_FACTORY_RESET);
-                    dpm.addUserRestriction(admin, UserManager.DISALLOW_SYSTEM_ERROR_DIALOGS);
 
                     // 3. Apply immersive sticky fullscreen
                     applyImmersiveMode(activity);
 
-                    // 4. Start TRUE Device Owner Lock Task Mode (Zero user prompt, inescapable)
+                    // 4. Mark Kiosk as strictly enforced
                     isKioskEnforced = true;
-                    activity.startLockTask();
+
+                    // 5. Start Android Lock Task Mode (True Lock Task if Device Owner; Screen Pinning if personal)
+                    try {
+                        activity.startLockTask();
+                    } catch (Exception lockErr) {
+                        Log.w(TAG, "startLockTask invocation notice: " + lockErr.getMessage());
+                    }
+
+                    // 6. Launch High-Priority Foreground Watchdog Service
+                    try {
+                        Intent watchdogIntent = new Intent(activity, KioskWatchdogService.class);
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                            activity.startForegroundService(watchdogIntent);
+                        } else {
+                            activity.startService(watchdogIntent);
+                        }
+                        Log.i(TAG, "KioskWatchdogService started successfully.");
+                    } catch (Exception srvErr) {
+                        Log.e(TAG, "Error starting KioskWatchdogService: " + srvErr.getMessage());
+                    }
+
+                    // 7. Launch KioskOverlayService if overlay permission granted
+                    try {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && Settings.canDrawOverlays(activity)) {
+                            Intent overlayIntent = new Intent(activity, KioskOverlayService.class);
+                            activity.startService(overlayIntent);
+                            Log.i(TAG, "KioskOverlayService initialized.");
+                        }
+                    } catch (Exception overlayErr) {
+                        Log.w(TAG, "Notice initializing KioskOverlayService: " + overlayErr.getMessage());
+                    }
 
                     ActivityManager am = (ActivityManager) activity.getSystemService(Context.ACTIVITY_SERVICE);
                     int lockTaskState = 0;
@@ -355,13 +470,15 @@ public class KioskPlugin extends Plugin {
 
                     JSObject ret = new JSObject();
                     ret.put("active", true);
-                    ret.put("isDeviceOwner", true);
+                    ret.put("isDeviceOwner", isOwner);
                     ret.put("lockTaskState", getLockTaskStateString(lockTaskState));
                     ret.put("flagSecure", true);
-                    ret.put("message", "True Device Owner Lock Task Mode activated successfully.");
+                    ret.put("message", isOwner 
+                        ? "True Device Owner Lock Task Mode activated successfully." 
+                        : "Supervised Kiosk Guard activated with Screen Pinning and High-Priority Watchdog.");
                     call.resolve(ret);
                 } catch (Exception e) {
-                    Log.e(TAG, "Exception starting Lock Task: " + e.getMessage(), e);
+                    Log.e(TAG, "Exception starting Kiosk: " + e.getMessage(), e);
                     JSObject ret = new JSObject();
                     ret.put("active", false);
                     ret.put("error", e.getMessage());
@@ -386,12 +503,33 @@ public class KioskPlugin extends Plugin {
                 try {
                     isKioskEnforced = false;
 
+                    // 1. Stop Foreground Watchdog Service
+                    try {
+                        Intent watchdogIntent = new Intent(activity, KioskWatchdogService.class);
+                        activity.stopService(watchdogIntent);
+                        Log.i(TAG, "KioskWatchdogService stopped.");
+                    } catch (Exception srvErr) {
+                        Log.w(TAG, "Notice stopping KioskWatchdogService: " + srvErr.getMessage());
+                    }
+
+                    // 2. Stop and Dismiss Kiosk Overlay Service
+                    try {
+                        if (KioskOverlayService.getInstance() != null) {
+                            KioskOverlayService.getInstance().hideOverlay();
+                        }
+                        Intent overlayIntent = new Intent(activity, KioskOverlayService.class);
+                        activity.stopService(overlayIntent);
+                        Log.i(TAG, "KioskOverlayService stopped.");
+                    } catch (Exception overlayErr) {
+                        Log.w(TAG, "Notice stopping KioskOverlayService: " + overlayErr.getMessage());
+                    }
+
                     DevicePolicyManager dpm = (DevicePolicyManager) activity.getSystemService(Context.DEVICE_POLICY_SERVICE);
                     ComponentName admin = new ComponentName(activity, AdminReceiver.class);
                     String pkg = activity.getPackageName();
                     boolean isOwner = (dpm != null && dpm.isDeviceOwnerApp(pkg));
 
-                    // 1. Restore status bar, keyguard, and user restrictions
+                    // 3. Restore status bar, keyguard, and user restrictions if Device Owner
                     if (isOwner) {
                         try {
                             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -408,7 +546,7 @@ public class KioskPlugin extends Plugin {
                         }
                     }
 
-                    // 2. Clear window flags
+                    // 4. Clear window flags
                     Window window = activity.getWindow();
                     if (window != null) {
                         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
@@ -418,10 +556,10 @@ public class KioskPlugin extends Plugin {
                         window.clearFlags(WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON);
                     }
 
-                    // 3. Restore system UI
+                    // 5. Restore system UI
                     clearImmersiveMode(activity);
 
-                    // 4. Exit Android Lock Task mode
+                    // 6. Exit Android Lock Task mode
                     try {
                         ActivityManager am = (ActivityManager) activity.getSystemService(Context.ACTIVITY_SERVICE);
                         boolean isLocked = true;
@@ -455,7 +593,7 @@ public class KioskPlugin extends Plugin {
     }
 
     /**
-     * Re-asserts Lock Task Mode & window flags if enforced.
+     * Re-asserts Lock Task Mode, window flags, and watchdog services if enforced.
      */
     public static void reEnforceKiosk(Activity activity) {
         if (activity == null || !isKioskEnforced) return;
@@ -463,12 +601,6 @@ public class KioskPlugin extends Plugin {
         try {
             activity.runOnUiThread(() -> {
                 try {
-                    DevicePolicyManager dpm = (DevicePolicyManager) activity.getSystemService(Context.DEVICE_POLICY_SERVICE);
-                    String pkg = activity.getPackageName();
-                    boolean isOwner = (dpm != null && dpm.isDeviceOwnerApp(pkg));
-
-                    if (!isOwner) return;
-
                     Window window = activity.getWindow();
                     if (window != null) {
                         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
@@ -484,7 +616,9 @@ public class KioskPlugin extends Plugin {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && am != null) {
                         int lockMode = am.getLockTaskModeState();
                         if (lockMode == ActivityManager.LOCK_TASK_MODE_NONE && isKioskEnforced) {
-                            activity.startLockTask();
+                            try {
+                                activity.startLockTask();
+                            } catch (Exception ignored) {}
                         }
                     }
                 } catch (Exception ignored) {}
