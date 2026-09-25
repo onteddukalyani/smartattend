@@ -71,65 +71,20 @@ public class KioskOverlayService extends Service {
 
     public void showOverlay() {
         if (!KioskPlugin.isKioskEnforced) return;
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
-            Log.w(TAG, "Cannot draw overlay: SYSTEM_ALERT_WINDOW permission not granted.");
-            return;
-        }
-
+        
         handler.post(() -> {
             try {
-                if (overlayView == null) {
-                    overlayView = createOverlayView();
-                }
-
-                if (!isOverlayShowing && overlayView != null && windowManager != null) {
-                    int layoutType;
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        layoutType = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY;
-                    } else {
-                        layoutType = WindowManager.LayoutParams.TYPE_PHONE;
-                    }
-
-                    WindowManager.LayoutParams params = new WindowManager.LayoutParams(
-                        WindowManager.LayoutParams.MATCH_PARENT,
-                        WindowManager.LayoutParams.MATCH_PARENT,
-                        layoutType,
-                        WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
-                            | WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
-                            | WindowManager.LayoutParams.FLAG_FULLSCREEN
-                            | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
-                            | WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON,
-                        PixelFormat.TRANSLUCENT
-                    );
-                    params.gravity = Gravity.CENTER;
-
-                    windowManager.addView(overlayView, params);
-                    isOverlayShowing = true;
-                    Log.i(TAG, "Blocking Kiosk Overlay displayed.");
-                }
-
-                // Immediately pull MainActivity to foreground
                 if (MainActivity.getInstance() != null) {
                     MainActivity.getInstance().bringToFront();
                 }
             } catch (Exception e) {
-                Log.e(TAG, "Error displaying overlay: " + e.getMessage());
+                Log.w(TAG, "Notice bringing MainActivity to front from overlay: " + e.getMessage());
             }
         });
     }
 
     public void hideOverlay() {
-        handler.post(() -> {
-            try {
-                if (isOverlayShowing && overlayView != null && windowManager != null) {
-                    windowManager.removeView(overlayView);
-                    isOverlayShowing = false;
-                    Log.i(TAG, "Blocking Kiosk Overlay removed.");
-                }
-            } catch (Exception e) {
-                Log.w(TAG, "Notice removing overlay: " + e.getMessage());
-            }
-        });
+        // No-op: MainActivity handles its own UI cleanly without flickering overlay views
     }
 
     private View createOverlayView() {

@@ -429,7 +429,7 @@ function QrScannerApp() {
         };
 
         const handleVisibilityChange = () => {
-            if (document.hidden || document.visibilityState === 'hidden') {
+            if (!isNativeApp && (document.hidden || document.visibilityState === 'hidden')) {
                 handleViolationTrigger('VISIBILITY_CHANGE');
             }
         };

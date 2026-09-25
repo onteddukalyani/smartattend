@@ -54,7 +54,7 @@ public class KioskWatchdogService extends Service {
             }
 
             if (isRunning) {
-                handler.postDelayed(this, 100); // Ultra-fast 100ms high-frequency guardian check
+                handler.postDelayed(this, 500); // Gentle 500ms check (smooth, zero UI stutter)
             }
         }
     };
@@ -127,32 +127,15 @@ public class KioskWatchdogService extends Service {
 
         try {
             MainActivity activity = MainActivity.getInstance();
-            boolean isPausedOrLostFocus = false;
+            boolean isPaused = (activity == null || activity.isActivityPaused());
 
-            if (activity != null) {
-                isPausedOrLostFocus = (!activity.hasWindowFocus() || activity.isActivityPaused());
-            } else {
-                isPausedOrLostFocus = true;
-            }
-
-            if (isPausedOrLostFocus) {
+            if (isPaused) {
                 // 1. Trigger Accessibility Service relaunch if running
                 if (SmartAttendAccessibilityService.isRunning()) {
                     SmartAttendAccessibilityService.getInstance().relaunchMainActivity();
                 }
 
-                // 2. Trigger System Alert Overlay if permission granted
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && Settings.canDrawOverlays(this)) {
-                    if (KioskOverlayService.getInstance() != null) {
-                        KioskOverlayService.getInstance().showOverlay();
-                    } else {
-                        Intent overlayIntent = new Intent(this, KioskOverlayService.class);
-                        overlayIntent.setAction("SHOW_BLOCKING_OVERLAY");
-                        startService(overlayIntent);
-                    }
-                }
-
-                // 3. Launch MainActivity via PendingIntent / FullScreenIntent with Android 14/15 BAL Bypass
+                // 2. Launch MainActivity via PendingIntent with Android 14/15 BAL Bypass
                 Intent launchIntent = new Intent(this, MainActivity.class);
                 launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK 
                     | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT 
@@ -187,14 +170,9 @@ public class KioskWatchdogService extends Service {
                     } catch (Exception ignored) {}
                 }
 
-                // 4. If MainActivity exists, call bringToFront()
+                // 3. If MainActivity exists, call bringToFront()
                 if (activity != null) {
                     activity.bringToFront();
-                }
-            } else {
-                // MainActivity is focused, ensure overlay is dismissed
-                if (KioskOverlayService.getInstance() != null) {
-                    KioskOverlayService.getInstance().hideOverlay();
                 }
             }
         } catch (Exception e) {

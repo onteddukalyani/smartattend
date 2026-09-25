@@ -115,7 +115,7 @@ public class MainActivity extends BridgeActivity {
                 }
             } catch (Exception ignored) {}
             
-            mainHandler.postDelayed(() -> isReordering = false, 150);
+            mainHandler.postDelayed(() -> isReordering = false, 400);
         });
     }
 
@@ -133,11 +133,6 @@ public class MainActivity extends BridgeActivity {
         super.onUserLeaveHint();
         if (KioskPlugin.isKioskEnforced) {
             bringToFront();
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && Settings.canDrawOverlays(this)) {
-                if (KioskOverlayService.getInstance() != null) {
-                    KioskOverlayService.getInstance().showOverlay();
-                }
-            }
         }
     }
 
@@ -147,11 +142,6 @@ public class MainActivity extends BridgeActivity {
         super.onPause();
         if (KioskPlugin.isKioskEnforced) {
             bringToFront();
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && Settings.canDrawOverlays(this)) {
-                if (KioskOverlayService.getInstance() != null) {
-                    KioskOverlayService.getInstance().showOverlay();
-                }
-            }
         }
     }
 
@@ -177,16 +167,8 @@ public class MainActivity extends BridgeActivity {
         if (KioskPlugin.isKioskEnforced) {
             if (hasFocus) {
                 KioskPlugin.applyImmersiveMode(this);
-                if (KioskOverlayService.getInstance() != null) {
-                    KioskOverlayService.getInstance().hideOverlay();
-                }
-            } else {
+            } else if (isPaused) {
                 bringToFront();
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && Settings.canDrawOverlays(this)) {
-                    if (KioskOverlayService.getInstance() != null) {
-                        KioskOverlayService.getInstance().showOverlay();
-                    }
-                }
             }
         }
     }
@@ -197,9 +179,6 @@ public class MainActivity extends BridgeActivity {
         super.onResume();
         if (KioskPlugin.isKioskEnforced) {
             KioskPlugin.reEnforceKiosk(this);
-            if (KioskOverlayService.getInstance() != null) {
-                KioskOverlayService.getInstance().hideOverlay();
-            }
         }
     }
 
