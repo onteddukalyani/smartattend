@@ -171,9 +171,22 @@ public class KioskOverlayService extends Service {
             if (MainActivity.getInstance() != null) {
                 MainActivity.getInstance().bringToFront();
             } else {
-                Intent intent = new Intent(this, MainActivity.class);
-                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
-                startActivity(intent);
+                try {
+                    Intent intent = new Intent(this, MainActivity.class);
+                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+                    android.os.Bundle options = null;
+                    if (Build.VERSION.SDK_INT >= 34) {
+                        try {
+                            android.app.ActivityOptions actOpts = android.app.ActivityOptions.makeBasic();
+                            java.lang.reflect.Method method = android.app.ActivityOptions.class.getMethod("setPendingIntentBackgroundActivityStartMode", int.class);
+                            method.invoke(actOpts, 1);
+                            options = actOpts.toBundle();
+                        } catch (Exception ignored) {}
+                    }
+                    startActivity(intent, options);
+                } catch (Exception e) {
+                    Log.e(TAG, "Error starting MainActivity from overlay: " + e.getMessage());
+                }
             }
             hideOverlay();
         });

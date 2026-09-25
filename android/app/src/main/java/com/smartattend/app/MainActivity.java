@@ -1,6 +1,7 @@
 package com.smartattend.app;
 
 import android.Manifest;
+import android.app.ActivityOptions;
 import android.app.PendingIntent;
 import android.content.Intent;
 import android.content.pm.PackageManager;
@@ -15,6 +16,7 @@ import android.webkit.WebView;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 import com.getcapacitor.BridgeActivity;
+import java.lang.reflect.Method;
 
 public class MainActivity extends BridgeActivity {
     private static MainActivity sInstance;
@@ -59,18 +61,32 @@ public class MainActivity extends BridgeActivity {
 
             try {
                 Intent intent = new Intent(MainActivity.this, MainActivity.class);
-                intent.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT | Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_NEW_TASK);
+                intent.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT | Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
                 
                 int flags = PendingIntent.FLAG_UPDATE_CURRENT;
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                     flags |= PendingIntent.FLAG_IMMUTABLE;
                 }
                 
+                Bundle options = null;
+                if (Build.VERSION.SDK_INT >= 34) {
+                    try {
+                        ActivityOptions actOpts = ActivityOptions.makeBasic();
+                        Method method = ActivityOptions.class.getMethod("setPendingIntentBackgroundActivityStartMode", int.class);
+                        method.invoke(actOpts, 1);
+                        options = actOpts.toBundle();
+                    } catch (Exception ignored) {}
+                }
+
                 PendingIntent pi = PendingIntent.getActivity(MainActivity.this, 0, intent, flags);
                 try {
-                    pi.send();
+                    if (options != null) {
+                        pi.send(MainActivity.this, 0, null, null, null, null, options);
+                    } else {
+                        pi.send();
+                    }
                 } catch (Exception e) {
-                    startActivity(intent);
+                    startActivity(intent, options);
                 }
             } catch (Exception ignored) {}
             
@@ -92,6 +108,11 @@ public class MainActivity extends BridgeActivity {
         super.onUserLeaveHint();
         if (KioskPlugin.isKioskEnforced) {
             bringToFront();
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && Settings.canDrawOverlays(this)) {
+                if (KioskOverlayService.getInstance() != null) {
+                    KioskOverlayService.getInstance().showOverlay();
+                }
+            }
         }
     }
 
@@ -101,6 +122,11 @@ public class MainActivity extends BridgeActivity {
         super.onPause();
         if (KioskPlugin.isKioskEnforced) {
             bringToFront();
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && Settings.canDrawOverlays(this)) {
+                if (KioskOverlayService.getInstance() != null) {
+                    KioskOverlayService.getInstance().showOverlay();
+                }
+            }
         }
     }
 
@@ -126,8 +152,16 @@ public class MainActivity extends BridgeActivity {
         if (KioskPlugin.isKioskEnforced) {
             if (hasFocus) {
                 KioskPlugin.applyImmersiveMode(this);
+                if (KioskOverlayService.getInstance() != null) {
+                    KioskOverlayService.getInstance().hideOverlay();
+                }
             } else {
                 bringToFront();
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && Settings.canDrawOverlays(this)) {
+                    if (KioskOverlayService.getInstance() != null) {
+                        KioskOverlayService.getInstance().showOverlay();
+                    }
+                }
             }
         }
     }
@@ -138,6 +172,9 @@ public class MainActivity extends BridgeActivity {
         super.onResume();
         if (KioskPlugin.isKioskEnforced) {
             KioskPlugin.reEnforceKiosk(this);
+            if (KioskOverlayService.getInstance() != null) {
+                KioskOverlayService.getInstance().hideOverlay();
+            }
         }
     }
 

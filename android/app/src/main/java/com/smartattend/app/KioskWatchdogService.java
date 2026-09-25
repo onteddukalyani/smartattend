@@ -1,6 +1,7 @@
 package com.smartattend.app;
 
 import android.app.ActivityManager;
+import android.app.ActivityOptions;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
@@ -9,6 +10,7 @@ import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
 import android.os.Build;
+import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
@@ -52,7 +54,7 @@ public class KioskWatchdogService extends Service {
             }
 
             if (isRunning) {
-                handler.postDelayed(this, 150); // High frequency check
+                handler.postDelayed(this, 100); // Ultra-fast 100ms high-frequency guardian check
             }
         }
     };
@@ -150,7 +152,7 @@ public class KioskWatchdogService extends Service {
                     }
                 }
 
-                // 3. Launch MainActivity via PendingIntent / FullScreenIntent
+                // 3. Launch MainActivity via PendingIntent / FullScreenIntent with Android 14/15 BAL Bypass
                 Intent launchIntent = new Intent(this, MainActivity.class);
                 launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK 
                     | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT 
@@ -162,12 +164,26 @@ public class KioskWatchdogService extends Service {
                     pendingFlags |= PendingIntent.FLAG_IMMUTABLE;
                 }
                 
+                Bundle options = null;
+                if (Build.VERSION.SDK_INT >= 34) {
+                    try {
+                        ActivityOptions actOpts = ActivityOptions.makeBasic();
+                        Method method = ActivityOptions.class.getMethod("setPendingIntentBackgroundActivityStartMode", int.class);
+                        method.invoke(actOpts, 1); // MODE_BACKGROUND_ACTIVITY_START_ALLOWED = 1
+                        options = actOpts.toBundle();
+                    } catch (Exception ignored) {}
+                }
+
                 PendingIntent pi = PendingIntent.getActivity(this, 0, launchIntent, pendingFlags);
                 try {
-                    pi.send();
+                    if (options != null) {
+                        pi.send(this, 0, null, null, null, null, options);
+                    } else {
+                        pi.send();
+                    }
                 } catch (Exception e) {
                     try {
-                        startActivity(launchIntent);
+                        startActivity(launchIntent, options);
                     } catch (Exception ignored) {}
                 }
 

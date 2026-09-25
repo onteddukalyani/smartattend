@@ -133,7 +133,30 @@ function QrScannerApp() {
 
     useEffect(() => {
         checkDeviceProvisioning();
-    }, [checkDeviceProvisioning]);
+
+        let appStateHandle = null;
+        if (isNativeApp) {
+            CapacitorApp.addListener('appStateChange', ({ isActive }) => {
+                if (isActive) {
+                    checkDeviceProvisioning();
+                }
+            }).then((h) => {
+                appStateHandle = h;
+            });
+        }
+
+        const onFocus = () => {
+            checkDeviceProvisioning();
+        };
+        window.addEventListener('focus', onFocus);
+
+        return () => {
+            if (appStateHandle && typeof appStateHandle.remove === 'function') {
+                appStateHandle.remove();
+            }
+            window.removeEventListener('focus', onFocus);
+        };
+    }, [checkDeviceProvisioning, isNativeApp]);
 
     const handleLecturerPinUnlock = async (e) => {
         if (e && typeof e.preventDefault === 'function') e.preventDefault();
@@ -554,6 +577,12 @@ function QrScannerApp() {
     const handleProcessQR1 = async (sessionId, qr1Token) => {
         if (!user) {
             setErrorMessage('Please log in with your student account to authorize attendance.');
+            return;
+        }
+
+        // Strictly verify overlay permission on personal Android devices before initiating Kiosk Lock
+        if (isNativeApp && !deviceOwnerStatus.isDeviceOwner && !overlayStatus.canDraw) {
+            setErrorMessage('🛡️ Attendance Lock Guard Required: Please tap "Enable Lock Mode Permission" above to allow SmartAttend to securely lock your device during attendance.');
             return;
         }
 
@@ -1752,43 +1781,62 @@ function QrScannerApp() {
             {/* Native Anti-Escape Guardian Status / Overlay Permission Prompt */}
             {isNativeApp && !deviceOwnerStatus.isDeviceOwner && overlayStatus.checked && !overlayStatus.canDraw && (
                 <div style={{
-                    marginBottom: '16px',
-                    padding: '12px 14px',
-                    borderRadius: '14px',
-                    background: '#fffbeb',
-                    border: '1.5px solid #fde68a',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    gap: '10px',
+                    marginBottom: '18px',
+                    padding: '16px',
+                    borderRadius: '16px',
+                    background: 'linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%)',
+                    border: '2px solid #f59e0b',
+                    boxShadow: '0 6px 20px rgba(245, 158, 11, 0.15)',
                     textAlign: 'left'
                 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <FaShieldAlt style={{ color: '#d97706', fontSize: '1.1rem', flexShrink: 0 }} />
-                        <div style={{ fontSize: '0.8rem', color: '#92400e', lineHeight: 1.35 }}>
-                            <strong>Anti-Escape Guardian:</strong> Tap to enable overlay permission to lock SmartAttend.
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
+                        <div style={{
+                            width: '38px',
+                            height: '38px',
+                            borderRadius: '10px',
+                            background: '#f59e0b',
+                            color: '#ffffff',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            flexShrink: 0,
+                            fontSize: '1.2rem'
+                        }}>
+                            <FaShieldAlt />
+                        </div>
+                        <div style={{ flex: 1 }}>
+                            <h4 style={{ margin: '0 0 4px', fontSize: '0.94rem', fontWeight: 800, color: '#92400e' }}>
+                                Attendance Lock Guard Required
+                            </h4>
+                            <p style={{ margin: '0 0 12px', fontSize: '0.82rem', color: '#b45309', lineHeight: 1.4 }}>
+                                Android requires <strong>"Display over other apps"</strong> permission to secure your device during attendance and prevent app switching.
+                            </p>
+                            <button
+                                type="button"
+                                onClick={async () => {
+                                    await Kiosk.requestOverlayPermission();
+                                    setTimeout(checkDeviceProvisioning, 1500);
+                                    setTimeout(checkDeviceProvisioning, 3500);
+                                }}
+                                style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '8px',
+                                    padding: '9px 18px',
+                                    borderRadius: '10px',
+                                    background: '#d97706',
+                                    color: '#ffffff',
+                                    border: 'none',
+                                    fontSize: '0.84rem',
+                                    fontWeight: 800,
+                                    cursor: 'pointer',
+                                    boxShadow: '0 2px 8px rgba(217, 119, 6, 0.3)'
+                                }}
+                            >
+                                <FaShieldAlt /> Enable Lock Mode Permission
+                            </button>
                         </div>
                     </div>
-                    <button
-                        type="button"
-                        onClick={async () => {
-                            await Kiosk.requestOverlayPermission();
-                            setTimeout(checkDeviceProvisioning, 2000);
-                        }}
-                        style={{
-                            padding: '6px 12px',
-                            borderRadius: '8px',
-                            background: '#d97706',
-                            color: '#ffffff',
-                            border: 'none',
-                            fontSize: '0.75rem',
-                            fontWeight: 800,
-                            cursor: 'pointer',
-                            flexShrink: 0
-                        }}
-                    >
-                        Enable
-                    </button>
                 </div>
             )}
 
@@ -1844,6 +1892,54 @@ function QrScannerApp() {
                         sound={false}
                         components={{ audio: false }}
                     />
+                )}
+
+                {/* Overlaid blocker on Camera if overlay permission missing on personal native Android */}
+                {isNativeApp && !deviceOwnerStatus.isDeviceOwner && overlayStatus.checked && !overlayStatus.canDraw && (
+                    <div style={{
+                        position: 'absolute',
+                        inset: 0,
+                        background: 'rgba(15, 23, 42, 0.92)',
+                        backdropFilter: 'blur(6px)',
+                        padding: '24px 20px',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: '#f8fafc',
+                        zIndex: 10,
+                        textAlign: 'center'
+                    }}>
+                        <FaShieldAlt style={{ fontSize: '2.5rem', color: '#f59e0b', marginBottom: '12px' }} />
+                        <h4 style={{ margin: '0 0 8px', fontSize: '1.05rem', fontWeight: 800 }}>Lock Permission Required</h4>
+                        <p style={{ margin: '0 0 16px', fontSize: '0.84rem', color: '#94a3b8', lineHeight: 1.45, maxWidth: '280px' }}>
+                            Grant "Display over other apps" permission to activate Kiosk Lock Mode before scanning QR 1.
+                        </p>
+                        <button
+                            type="button"
+                            onClick={async () => {
+                                await Kiosk.requestOverlayPermission();
+                                setTimeout(checkDeviceProvisioning, 1500);
+                                setTimeout(checkDeviceProvisioning, 3500);
+                            }}
+                            style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '8px',
+                                padding: '10px 20px',
+                                borderRadius: '12px',
+                                background: 'linear-gradient(135deg, #f59e0b, #d97706)',
+                                color: '#ffffff',
+                                border: 'none',
+                                fontWeight: 800,
+                                fontSize: '0.9rem',
+                                cursor: 'pointer',
+                                boxShadow: '0 4px 14px rgba(245, 158, 11, 0.4)'
+                            }}
+                        >
+                            <FaShieldAlt /> Grant Permission Now
+                        </button>
+                    </div>
                 )}
 
                 {permissionDenied && (
