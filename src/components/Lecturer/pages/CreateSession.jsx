@@ -1,71 +1,30 @@
-import { doc, setDoc } from "firebase/firestore";
-import { auth, db } from "../../../firebase";
+import { initiateSession } from "../../../services/sessionAuthService";
+import { auth } from "../../../firebase";
 
+/**
+ * Creates a new 2-Phase Attendance Session via Cloud Functions
+ * Returns session object with sessionId, secure qr1Token, and 60-second qr1ExpiresAt.
+ */
 export async function createAttendanceSession(classCode, courseCode, roomNo, batch = "", lecturerInfo = {}) {
-    const now = Date.now();
-    const expiresAt = now + 2 * 60 * 1000;
     const currentUser = auth.currentUser;
-
     const lecturerName = lecturerInfo?.name || currentUser?.displayName || (currentUser?.email ? currentUser.email.split("@")[0] : "Lecturer");
     const lecturerEmail = (lecturerInfo?.email || currentUser?.email || "").toLowerCase().trim();
     const rawDept = lecturerInfo?.department || lecturerInfo?.branch;
     const lecturerDept = (rawDept && String(rawDept).toLowerCase() !== "general") ? rawDept : "CSE";
-
-    // Build structured, human-readable session Document ID
-    // Example: CS201_2026-09-06_1030_kalyani_1234
-    const cleanCourse = (courseCode || classCode || "CLASS").toUpperCase().replace(/[^A-Z0-9_-]/g, "");
-    const cleanClass = classCode && classCode !== courseCode ? `_${classCode.toUpperCase().replace(/[^A-Z0-9_-]/g, "")}` : "";
-    const dateObj = new Date(now);
-    const year = dateObj.getFullYear();
-    const month = String(dateObj.getMonth() + 1).padStart(2, "0");
-    const day = String(dateObj.getDate()).padStart(2, "0");
-    const hours = String(dateObj.getHours()).padStart(2, "0");
-    const mins = String(dateObj.getMinutes()).padStart(2, "0");
-    const dateStr = `${year}-${month}-${day}`;
-    const timeStr = `${hours}${mins}`;
-    const lectPrefix = lecturerEmail ? `_${lecturerEmail.split("@")[0].replace(/[^a-zA-Z0-9_-]/g, "")}` : "";
-    const randomSuffix = Math.floor(1000 + Math.random() * 9000);
-
-    const sessionId = `${cleanCourse}${cleanClass}_${dateStr}_${timeStr}${lectPrefix}_${randomSuffix}`;
     const finalBatch = (batch && String(batch).trim() !== "" && batch !== "—") ? String(batch).trim() : "2025";
 
-    const sessionRef = doc(db, "attendance_sessions", sessionId);
-    await setDoc(sessionRef, {
+    const sessionParams = {
         classCode: classCode,
-        batch: finalBatch,
         courseCode: courseCode,
         roomNo: roomNo,
-        createdAt: now,
-        expiresAt: expiresAt,
-        active: true,
-        ownerId: currentUser ? currentUser.uid : "",
-        ownerEmail: lecturerEmail,
-        lecturerName: lecturerName,
-        lecturerEmail: lecturerEmail,
-        lecturerDepartment: lecturerDept
-    });
-
-    // Sync lecturer UID to authorizedUsers & users collections in background
-    if (currentUser?.uid && lecturerEmail) {
-        const prefix = lecturerEmail.split("@")[0].toLowerCase().trim();
-        const lectProfile = {
-            uid: currentUser.uid,
-            email: lecturerEmail,
+        batch: finalBatch,
+        lecturerInfo: {
             name: lecturerName,
-            department: lecturerDept,
-            role: "lecturer",
-            lastSessionCreated: now
-        };
-
-        setDoc(doc(db, "authorizedUsers", lecturerEmail), lectProfile, { merge: true }).catch(() => { });
-        if (prefix && prefix !== lecturerEmail) {
-            setDoc(doc(db, "authorizedUsers", prefix), lectProfile, { merge: true }).catch(() => { });
+            email: lecturerEmail,
+            department: lecturerDept
         }
-        setDoc(doc(db, "users", lecturerEmail), lectProfile, { merge: true }).catch(() => { });
-        if (prefix && prefix !== lecturerEmail) {
-            setDoc(doc(db, "users", prefix), lectProfile, { merge: true }).catch(() => { });
-        }
-    }
+    };
 
-    return sessionId;
+    const result = await initiateSession(sessionParams);
+    return result;
 }

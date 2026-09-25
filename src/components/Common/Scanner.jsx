@@ -1,36 +1,191 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Scanner } from '@yudiel/react-qr-scanner';
 import jsQR from 'jsqr';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Capacitor } from '@capacitor/core';
+import { App as CapacitorApp } from '@capacitor/app';
 import {
     FaArrowLeft,
     FaCheckCircle,
     FaSpinner,
     FaSyncAlt,
-    FaExclamationTriangle,
-    FaLock,
+    FaShieldAlt,
+    FaClock,
+    FaUserCheck,
+    FaArrowRight,
     FaCamera,
-    FaUpload,
-    FaInfoCircle
+    FaExclamationTriangle,
+    FaMobileAlt,
+    FaExternalLinkAlt,
+    FaLock,
+    FaKey
 } from 'react-icons/fa';
 import { MdQrCodeScanner } from 'react-icons/md';
 import { useAuth } from '../authcontext';
+import { Kiosk } from '../../plugins/kiosk';
+import {
+    authorizeStudentQR1,
+    validateStudentQR2,
+    submitVerifiedAttendance,
+    subscribeToSession,
+    subscribeToStudentAuthorization,
+    recordSessionViolation,
+    verifyLecturerEmergencyPin,
+    requestAutoFailSafeUnlock
+} from '../../services/sessionAuthService';
+import { db } from '../../firebase';
+import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
+import { isGenericName, normalizeDescriptor } from '../../utils/studentDataHelper';
+import FaceScanner, { releaseAllMediaTracks } from '../Lecturer/pages/FaceScanner';
 
+/**
+ * Stage 4: Student Two-Phase Attendance Scanner & Supervised Kiosk Controller
+ * 
+ * Timeline:
+ * T = 0s to 60s (0:00 - 1:00) : QR 1 Phase 1 Check-In -> Authorizes Student -> Starts Kiosk Mode
+ * T = 60s to 180s (1:00 - 3:00): QR 2 Phase 2 Biometric -> Gated by Phase 1 -> Submits Attendance
+ * Post-Attendance             : Device remains locked in Lock Task Mode -> Auto Release in 5:00 Fail-Safe
+ */
 function QrScannerApp() {
     const navigate = useNavigate();
-    const { profile } = useAuth();
+    const [searchParams] = useSearchParams();
+    const { user, profile, loading } = useAuth();
     const fileInputRef = useRef(null);
+    const sessionTimerRef = useRef(null);
 
-    const [scanResult, setScanResult] = useState('');
-    const [isNavigating, setIsNavigating] = useState(false);
-    const [facingMode, setFacingMode] = useState('environment'); // 'environment' or 'user'
+    // Platform & App Detection
+    const isNativeApp = Capacitor.isNativePlatform();
+    const [showAppBanner, setShowAppBanner] = useState(false);
+    const [dismissedAppBanner, setDismissedAppBanner] = useState(false);
+    const [deviceOwnerStatus, setDeviceOwnerStatus] = useState({ checked: false, isDeviceOwner: true, isWeb: false });
+    const [deviceIdentity, setDeviceIdentity] = useState(null);
+
+    // Current State: 'IDLE' | 'AUTHORIZING_QR1' | 'KIOSK_WAITING_QR2' | 'VALIDATING_QR2' | 'BIOMETRIC_SCAN' | 'ATTENDANCE_SUCCESS' | 'DISQUALIFIED'
+    const [scanState, setScanState] = useState('IDLE');
+
+    // Web Guardian Supervision State
+    const [supervisionViolation, setSupervisionViolation] = useState(false);
+    const [violationCount, setViolationCount] = useState(0);
+
+    // Camera & Scanner State
+    const [facingMode, setFacingMode] = useState('environment');
     const [retryKey, setRetryKey] = useState(0);
     const [cameraError, setCameraError] = useState('');
     const [permissionDenied, setPermissionDenied] = useState(false);
     const [scanningFile, setScanningFile] = useState(false);
     const [scannerActive, setScannerActive] = useState(true);
 
-    // Initial check for desktop vs mobile to choose best default camera
+    // Active Session & Student Authorization Data
+    const [activeSessionId, setActiveSessionId] = useState('');
+    const [activeQr2Token, setActiveQr2Token] = useState('');
+    const [sessionData, setSessionData] = useState(null);
+    const [sessionStartAt, setSessionStartAt] = useState(0);
+    const [kioskEndsAt, setKioskEndsAt] = useState(0);
+    const [elapsedSeconds, setElapsedSeconds] = useState(0);
+    const [sessionRemaining, setSessionRemaining] = useState(180);
+    const [errorMessage, setErrorMessage] = useState('');
+
+    // 5-Minute Fail-Safe Auto Release State
+    const [attendanceSubmittedAt, setAttendanceSubmittedAt] = useState(0);
+    const [autoReleaseAt, setAutoReleaseAt] = useState(0);
+    const [autoReleaseRemaining, setAutoReleaseRemaining] = useState(300); // 5 minutes in seconds
+
+    // Biometric Verification Data
+    const [verifiedStudent, setVerifiedStudent] = useState(null);
+    const [lookingUpStudent, setLookingUpStudent] = useState(false);
+    const [submittingAttendance, setSubmittingAttendance] = useState(false);
+    const [submissionDetails, setSubmissionDetails] = useState(null);
+
+    // Resolve Student Identity
+    const loggedInRollNo = (profile?.rollNo || (user?.email || '').split('@')[0] || '').trim().toUpperCase();
+    const rawProfileName = profile?.name || profile?.fullName || '';
+    const loggedInName = (!isGenericName(rawProfileName, loggedInRollNo, user?.email)) ? rawProfileName.trim() : loggedInRollNo;
+
+    // Lecturer Emergency PIN Release Modal State
+    const [showPinModal, setShowPinModal] = useState(false);
+    const [lecturerPinInput, setLecturerPinInput] = useState('');
+    const [pinVerificationError, setPinVerificationError] = useState('');
+    const [isVerifyingPin, setIsVerifyingPin] = useState(false);
+
+    // Check Device Owner & Anti-Escape Overlay status on launch
+    const [overlayStatus, setOverlayStatus] = useState({ checked: false, canDraw: true });
+    const checkDeviceProvisioning = useCallback(async () => {
+        if (isNativeApp) {
+            try {
+                const ownerRes = await Kiosk.isDeviceOwner();
+                const identRes = await Kiosk.getDeviceIdentity();
+                const overlayRes = await Kiosk.canDrawOverlays();
+                setOverlayStatus({ checked: true, canDraw: Boolean(overlayRes?.canDrawOverlays) });
+                setDeviceIdentity(identRes);
+                setDeviceOwnerStatus({
+                    checked: true,
+                    isDeviceOwner: Boolean(ownerRes?.isDeviceOwner),
+                    isWeb: false
+                });
+            } catch (e) {
+                setDeviceOwnerStatus({ checked: true, isDeviceOwner: false, isWeb: false });
+                setOverlayStatus({ checked: true, canDraw: false });
+            }
+        } else {
+            setDeviceOwnerStatus({ checked: true, isDeviceOwner: false, isWeb: true });
+        }
+    }, [isNativeApp]);
+
+    useEffect(() => {
+        checkDeviceProvisioning();
+
+        let appStateHandle = null;
+        if (isNativeApp) {
+            CapacitorApp.addListener('appStateChange', ({ isActive }) => {
+                if (isActive) {
+                    checkDeviceProvisioning();
+                }
+            }).then((h) => {
+                appStateHandle = h;
+            });
+        }
+
+        const onFocus = () => {
+            checkDeviceProvisioning();
+        };
+        window.addEventListener('focus', onFocus);
+
+        return () => {
+            if (appStateHandle && typeof appStateHandle.remove === 'function') {
+                appStateHandle.remove();
+            }
+            window.removeEventListener('focus', onFocus);
+        };
+    }, [checkDeviceProvisioning, isNativeApp]);
+
+    const handleLecturerPinUnlock = async (e) => {
+        if (e && typeof e.preventDefault === 'function') e.preventDefault();
+        if (!lecturerPinInput.trim()) {
+            setPinVerificationError('Please enter the 6-digit Session PIN.');
+            return;
+        }
+
+        setIsVerifyingPin(true);
+        setPinVerificationError('');
+
+        try {
+            await verifyLecturerEmergencyPin(activeSessionId, lecturerPinInput.trim(), deviceIdentity?.deviceId, user?.uid);
+            console.log('[Kiosk] Session PIN verified via Cloud Function. Releasing device from Kiosk Lock Task mode...');
+            try { localStorage.removeItem('smartattend_kiosk_session_state'); } catch (_) {}
+            releaseAllMediaTracks();
+            await Kiosk.stopKioskMode().catch(() => {});
+            await Kiosk.clearAttendanceRestrictions().catch(() => {});
+            setShowPinModal(false);
+            navigate('/student', { replace: true });
+        } catch (err) {
+            console.error('Session PIN verification error:', err);
+            setPinVerificationError(err.message || 'Invalid Session PIN. Device remains locked in Kiosk mode.');
+        } finally {
+            setIsVerifyingPin(false);
+        }
+    };
+
+    // Camera default preference (desktop vs mobile) and unmount track release
     useEffect(() => {
         if (typeof window !== 'undefined') {
             const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
@@ -38,65 +193,576 @@ function QrScannerApp() {
                 setFacingMode('user');
             }
         }
+
+        return () => {
+            releaseAllMediaTracks();
+        };
     }, []);
 
-    const processSessionString = (raw) => {
-        if (!raw || isNavigating) return;
+    // Student Database Record Lookup for Facial Biometrics
+    const lookupStudentBiometrics = useCallback(async (roll) => {
+        const targetRoll = (roll || loggedInRollNo || '').trim().toUpperCase();
+        if (!targetRoll || targetRoll.length < 2) return;
 
-        setScanResult(raw);
+        setLookingUpStudent(true);
+        try {
+            const possibleEmail = user?.email?.toLowerCase().trim() || `${targetRoll.toLowerCase()}@iiitdwd.ac.in`;
+            const prefix = targetRoll.toLowerCase();
 
-        // Extract session ID from scanned URL or string
-        let targetSessionId = null;
-        if (raw.includes("session=")) {
-            try {
-                const url = new URL(raw, window.location.origin);
-                targetSessionId = url.searchParams.get("session");
-            } catch {
-                const match = raw.match(/[?&]session=([^&#]+)/);
-                if (match) targetSessionId = match[1];
+            const [
+                sDoc, uDoc, aDoc,
+                sRollSnap, uRollSnap,
+                sPrefixDoc,
+                sEmailDoc
+            ] = await Promise.all([
+                getDoc(doc(db, 'students', targetRoll)).catch(() => ({ exists: () => false })),
+                getDoc(doc(db, 'users', targetRoll)).catch(() => ({ exists: () => false })),
+                getDoc(doc(db, 'authorizedUsers', targetRoll)).catch(() => ({ exists: () => false })),
+                getDocs(query(collection(db, 'students'), where('rollNo', '==', targetRoll))).catch(() => ({ docs: [] })),
+                getDocs(query(collection(db, 'users'), where('rollNo', '==', targetRoll))).catch(() => ({ docs: [] })),
+                prefix !== targetRoll ? getDoc(doc(db, 'students', prefix)).catch(() => ({ exists: () => false })) : Promise.resolve({ exists: () => false }),
+                getDoc(doc(db, 'students', possibleEmail)).catch(() => ({ exists: () => false }))
+            ]);
+
+            const candidateDocs = [];
+            if (sDoc.exists()) candidateDocs.push(sDoc.data());
+            if (uDoc.exists()) candidateDocs.push(uDoc.data());
+            if (aDoc.exists()) candidateDocs.push(aDoc.data());
+            sRollSnap.docs?.forEach((d) => candidateDocs.push(d.data()));
+            uRollSnap.docs?.forEach((d) => candidateDocs.push(d.data()));
+            if (sPrefixDoc.exists()) candidateDocs.push(sPrefixDoc.data());
+            if (sEmailDoc.exists()) candidateDocs.push(sEmailDoc.data());
+
+            let merged = { rollNo: targetRoll, name: loggedInName };
+            for (const docData of candidateDocs) {
+                if (docData.name && !isGenericName(docData.name, targetRoll)) merged.name = docData.name;
+                if (docData.fullName && !isGenericName(docData.fullName, targetRoll)) merged.fullName = docData.fullName;
+                const desc = normalizeDescriptor(docData.faceDescriptor) || normalizeDescriptor(docData.descriptor);
+                if (desc && Array.isArray(desc) && desc.length === 128) {
+                    merged.faceDescriptor = desc;
+                    merged.faceRegistered = true;
+                }
+                if (docData.photoURL) merged.photoURL = docData.photoURL;
             }
-        } else if (!raw.startsWith("http") && raw.trim().length > 3) {
-            targetSessionId = raw.trim();
+
+            setVerifiedStudent(merged);
+        } catch (err) {
+            console.warn('Student biometrics lookup notice:', err);
+        } finally {
+            setLookingUpStudent(false);
+        }
+    }, [loggedInRollNo, loggedInName, user]);
+
+    // Authoritative Session Countdown Timer
+    useEffect(() => {
+        if (!sessionStartAt || !kioskEndsAt) return;
+
+        const updateClock = () => {
+            const now = Date.now();
+            const elapsed = Math.floor((now - sessionStartAt) / 1000);
+            const remaining = Math.max(0, Math.floor((kioskEndsAt - now) / 1000));
+            setElapsedSeconds(elapsed);
+            setSessionRemaining(remaining);
+        };
+
+        updateClock();
+        sessionTimerRef.current = setInterval(updateClock, 1000);
+
+        return () => {
+            if (sessionTimerRef.current) clearInterval(sessionTimerRef.current);
+        };
+    }, [sessionStartAt, kioskEndsAt]);
+
+    // 5-Minute Fail-Safe Countdown Timer after Attendance Submission
+    useEffect(() => {
+        if (scanState !== 'ATTENDANCE_SUCCESS' || !autoReleaseAt) return;
+
+        const updateFailSafe = async () => {
+            const now = Date.now();
+            const remaining = Math.max(0, Math.floor((autoReleaseAt - now) / 1000));
+            setAutoReleaseRemaining(remaining);
+
+            // Fail-safe trigger: 5 minutes elapsed without lecturer release
+            if (remaining <= 0) {
+                console.log('[Kiosk] 5-Minute fail-safe timer expired. Authorizing automatic device release...');
+                try {
+                    await requestAutoFailSafeUnlock(activeSessionId, user?.uid, deviceIdentity?.deviceId);
+                } catch (e) {
+                    console.warn('Fail safe unlock notice:', e);
+                }
+                try { localStorage.removeItem('smartattend_kiosk_session_state'); } catch (_) {}
+                releaseAllMediaTracks();
+                await Kiosk.stopKioskMode().catch(() => {});
+                await Kiosk.clearAttendanceRestrictions().catch(() => {});
+                navigate('/student', { replace: true });
+            }
+        };
+
+        updateFailSafe();
+        const interval = setInterval(updateFailSafe, 1000);
+
+        return () => clearInterval(interval);
+    }, [scanState, autoReleaseAt, activeSessionId, user?.uid, deviceIdentity?.deviceId, navigate]);
+
+    // Session state persistence across app crash / restarts
+    useEffect(() => {
+        const isSessionOngoing = activeSessionId && (
+            (kioskEndsAt && kioskEndsAt > Date.now()) ||
+            (autoReleaseAt && autoReleaseAt > Date.now()) ||
+            scanState === 'KIOSK_WAITING_QR2' ||
+            scanState === 'BIOMETRIC_SCAN' ||
+            scanState === 'ATTENDANCE_SUCCESS'
+        );
+
+        if (isSessionOngoing) {
+            try {
+                localStorage.setItem('smartattend_kiosk_session_state', JSON.stringify({
+                    sessionId: activeSessionId,
+                    sessionStartAt,
+                    kioskEndsAt,
+                    attendanceSubmittedAt,
+                    autoReleaseAt,
+                    scanState,
+                    activeQr2Token,
+                    submissionDetails,
+                    rollNo: loggedInRollNo
+                }));
+            } catch (e) {
+                console.warn('LocalStorage save notice:', e);
+            }
+        } else if (scanState === 'IDLE' || (autoReleaseAt && Date.now() >= autoReleaseAt)) {
+            try {
+                localStorage.removeItem('smartattend_kiosk_session_state');
+            } catch (_) {}
+        }
+    }, [activeSessionId, sessionStartAt, kioskEndsAt, attendanceSubmittedAt, autoReleaseAt, scanState, activeQr2Token, submissionDetails, loggedInRollNo]);
+
+    // Resume session on mount if app was closed/restarted during active session
+    useEffect(() => {
+        try {
+            const raw = localStorage.getItem('smartattend_kiosk_session_state');
+            if (raw) {
+                const parsed = JSON.parse(raw);
+                const hasValidTimer = (parsed.autoReleaseAt && parsed.autoReleaseAt > Date.now()) || (parsed.kioskEndsAt && parsed.kioskEndsAt > Date.now());
+                if (parsed && parsed.sessionId && hasValidTimer) {
+                    console.log('[Kiosk] Resuming active attendance session after app launch/restart:', parsed);
+                    setActiveSessionId(parsed.sessionId);
+                    setSessionStartAt(parsed.sessionStartAt);
+                    setKioskEndsAt(parsed.kioskEndsAt);
+                    if (parsed.attendanceSubmittedAt) setAttendanceSubmittedAt(parsed.attendanceSubmittedAt);
+                    if (parsed.autoReleaseAt) {
+                        setAutoReleaseAt(parsed.autoReleaseAt);
+                        setAutoReleaseRemaining(Math.max(0, Math.floor((parsed.autoReleaseAt - Date.now()) / 1000)));
+                    }
+                    if (parsed.activeQr2Token) setActiveQr2Token(parsed.activeQr2Token);
+                    if (parsed.submissionDetails) setSubmissionDetails(parsed.submissionDetails);
+                    setScanState(parsed.scanState || 'KIOSK_WAITING_QR2');
+
+                    // Re-enforce native Lock Task Mode & DevicePolicyManager restrictions
+                    Kiosk.startKioskMode().catch(() => {});
+                    Kiosk.setAttendanceRestrictions().catch(() => {});
+                } else {
+                    localStorage.removeItem('smartattend_kiosk_session_state');
+                }
+            }
+        } catch (e) {
+            console.warn('Notice restoring session:', e);
+        }
+    }, []);
+
+    // Intercept hardware/software back button on Android
+    useEffect(() => {
+        let backListener = null;
+        if (isNativeApp) {
+            CapacitorApp.addListener('backButton', () => {
+                const isSessionActive = scanState === 'KIOSK_WAITING_QR2' || scanState === 'BIOMETRIC_SCAN' || scanState === 'ATTENDANCE_SUCCESS';
+                if (isSessionActive) {
+                    console.log('[Kiosk] Back navigation blocked during active attendance kiosk session.');
+                } else {
+                    navigate('/student', { replace: true });
+                }
+            }).then((handle) => {
+                backListener = handle;
+            });
         }
 
-        if (targetSessionId) {
-            setIsNavigating(true);
-            setCameraError('');
-            setTimeout(() => {
-                navigate(`/student-form?session=${encodeURIComponent(targetSessionId)}`);
-            }, 500);
-        } else {
-            setCameraError("Invalid QR code. Please scan a valid SmartAttend session QR code.");
+        return () => {
+            if (backListener && typeof backListener.remove === 'function') {
+                backListener.remove();
+            }
+        };
+    }, [scanState, isNativeApp, navigate]);
+
+    // Web Guardian Supervision: Monitor tab switches or leaving app during active session
+    useEffect(() => {
+        const isSessionActive = scanState === 'KIOSK_WAITING_QR2' || scanState === 'BIOMETRIC_SCAN';
+        if (!isSessionActive) {
+            setSupervisionViolation(false);
+            return;
+        }
+
+        const handleViolationTrigger = (source) => {
+            console.warn(`[Kiosk Guardian] Tab switch or App minimize detected via ${source}!`);
+            
+            // Record violation event to Firestore audit trail
+            if (activeSessionId) {
+                recordSessionViolation(activeSessionId, user?.uid, loggedInRollNo, `APP_LEAVE_${source}`);
+            }
+
+            setViolationCount((prev) => {
+                const nextCount = prev + 1;
+                if (nextCount >= 2) {
+                    console.error('[Kiosk Guardian] Max violations exceeded. Disqualifying attendance session.');
+                    try { localStorage.removeItem(`smartattend_qr1_auth_${activeSessionId}`); } catch (_) {}
+                    try { sessionStorage.removeItem(`smartattend_qr1_auth_${activeSessionId}`); } catch (_) {}
+                    releaseAllMediaTracks();
+                    // Keep Kiosk locked to prevent student from escaping!
+                    Kiosk.startKioskMode().catch(() => {});
+                    setErrorMessage('❌ Attendance Disqualified: App switching / leaving the app was detected. Device remains locked in Kiosk mode until Lecturer unlocks.');
+                    setScanState('DISQUALIFIED');
+                    setSupervisionViolation(false);
+                } else {
+                    setSupervisionViolation(true);
+                }
+                return nextCount;
+            });
+        };
+
+        const handleVisibilityChange = () => {
+            if (!isNativeApp && (document.hidden || document.visibilityState === 'hidden')) {
+                handleViolationTrigger('VISIBILITY_CHANGE');
+            }
+        };
+
+        const handleBlur = () => {
+            if (!isNativeApp) {
+                handleViolationTrigger('WINDOW_BLUR');
+            }
+        };
+
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+        window.addEventListener('blur', handleBlur);
+
+        return () => {
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
+            window.removeEventListener('blur', handleBlur);
+        };
+    }, [scanState, isNativeApp, activeSessionId, user, loggedInRollNo]);
+
+    // Mobile Web App Auto-Launch (If opened via phone camera or Chrome)
+    useEffect(() => {
+        if (typeof window !== 'undefined' && !isNativeApp) {
+            const isAndroid = /Android/i.test(navigator.userAgent);
+            const session = searchParams.get('session');
+            if (isAndroid) {
+                setShowAppBanner(true);
+                if (session) {
+                    const qr1 = searchParams.get('qr1Token') || '';
+                    const qr2 = searchParams.get('qr2Token') || '';
+                    const phase = searchParams.get('phase') || '';
+                    const currentUrl = window.location.href;
+                    const intentUrl = `intent://student/mark-attendance?session=${encodeURIComponent(session)}&qr1Token=${encodeURIComponent(qr1)}&qr2Token=${encodeURIComponent(qr2)}&phase=${encodeURIComponent(phase)}#Intent;scheme=smartattend;package=com.smartattend.app;S.browser_fallback_url=${encodeURIComponent(currentUrl)};end`;
+                    try {
+                        window.location.href = intentUrl;
+                    } catch (e) {
+                        console.warn('[AutoLaunch] Intent redirect error:', e);
+                    }
+                }
+            }
+        }
+    }, [isNativeApp, searchParams]);
+
+    const handleOpenInSmartAttendApp = () => {
+        const currentUrl = window.location.href;
+        const session = searchParams.get('session') || activeSessionId || '';
+        const qr1 = searchParams.get('qr1Token') || '';
+        const qr2 = searchParams.get('qr2Token') || activeQr2Token || '';
+        const phase = searchParams.get('phase') || '';
+
+        // Android Chrome Intent:
+        // If SmartAttend App is installed -> Directly launches native app!
+        // If SmartAttend App is NOT installed -> Stays seamlessly on fallback webpage!
+        const intentUrl = `intent://student/mark-attendance?session=${encodeURIComponent(session)}&qr1Token=${encodeURIComponent(qr1)}&qr2Token=${encodeURIComponent(qr2)}&phase=${encodeURIComponent(phase)}#Intent;scheme=smartattend;package=com.smartattend.app;S.browser_fallback_url=${encodeURIComponent(currentUrl)};end`;
+
+        window.location.href = intentUrl;
+    };
+
+    // Subscribe to Session document updates
+    useEffect(() => {
+        if (!activeSessionId) return;
+        const unsub = subscribeToSession(activeSessionId, (data) => {
+            setSessionData(data);
+            if (data.sessionStartAt && !sessionStartAt) {
+                const startMs = typeof data.sessionStartAt.toMillis === 'function' ? data.sessionStartAt.toMillis() : data.sessionStartAt;
+                setSessionStartAt(startMs);
+            }
+            if (data.kioskEndsAt && !kioskEndsAt) {
+                const endMs = typeof data.kioskEndsAt.toMillis === 'function' ? data.kioskEndsAt.toMillis() : data.kioskEndsAt;
+                setKioskEndsAt(endMs);
+            }
+            // If lecturer ends the session in real-time
+            if (data.status === 'CLOSED' || data.phase === 'CLOSED' || data.isClosed === true) {
+                console.log('[Kiosk] Session marked as CLOSED by Lecturer. Automatically unlocking Kiosk mode...');
+                try { localStorage.removeItem('smartattend_kiosk_session_state'); } catch (_) {}
+                releaseAllMediaTracks();
+                Kiosk.stopKioskMode().catch(() => {});
+                Kiosk.clearAttendanceRestrictions().catch(() => {});
+                navigate('/student', { replace: true });
+            }
+        });
+        return () => unsub();
+    }, [activeSessionId, sessionStartAt, kioskEndsAt, navigate]);
+
+    // Subscribe to Individual Student Authorization for Remote Release by Lecturer
+    useEffect(() => {
+        if (!activeSessionId) return;
+        const studentIdentifier = user?.uid || loggedInRollNo;
+        if (!studentIdentifier) return;
+
+        const unsubAuth = subscribeToStudentAuthorization(activeSessionId, studentIdentifier, (authData) => {
+            if (authData && (authData.released === true || authData.status === 'RELEASED')) {
+                console.log('[Kiosk] Individual device release authorized by Lecturer. Unlocking Kiosk mode...');
+                try { localStorage.removeItem('smartattend_kiosk_session_state'); } catch (_) {}
+                releaseAllMediaTracks();
+                Kiosk.stopKioskMode().catch(() => {});
+                Kiosk.clearAttendanceRestrictions().catch(() => {});
+                navigate('/student', { replace: true });
+            }
+        });
+
+        return () => unsubAuth();
+    }, [activeSessionId, user?.uid, loggedInRollNo, navigate]);
+
+    // Parse Scanned String / URL
+    const parseScannedPayload = (raw) => {
+        if (!raw) return null;
+        let sessionId = null;
+        let qr1Token = null;
+        let qr2Token = null;
+        let phase = null;
+
+        try {
+            let urlObj = null;
+            if (raw.startsWith('http://') || raw.startsWith('https://')) {
+                urlObj = new URL(raw);
+            } else if (raw.includes('session=') || raw.includes('?')) {
+                urlObj = new URL(raw, window.location.origin);
+            }
+
+            if (urlObj) {
+                sessionId = urlObj.searchParams.get('session');
+                qr1Token = urlObj.searchParams.get('qr1Token');
+                qr2Token = urlObj.searchParams.get('qr2Token');
+                phase = urlObj.searchParams.get('phase');
+            }
+        } catch {
+            const sessMatch = raw.match(/[?&]session=([^&#]+)/);
+            if (sessMatch) sessionId = sessMatch[1];
+            const qr1Match = raw.match(/[?&]qr1Token=([^&#]+)/);
+            if (qr1Match) qr1Token = qr1Match[1];
+            const qr2Match = raw.match(/[?&]qr2Token=([^&#]+)/);
+            if (qr2Match) qr2Token = qr2Match[1];
+            const pMatch = raw.match(/[?&]phase=([^&#]+)/);
+            if (pMatch) phase = pMatch[1];
+        }
+
+        if (!sessionId && !raw.startsWith('http') && raw.trim().length > 3) {
+            sessionId = raw.trim();
+        }
+
+        return { sessionId, qr1Token, qr2Token, phase };
+    };
+
+    // 1. Process Phase 1 QR 1: Check-in & Start Lock Task Kiosk
+    const handleProcessQR1 = async (sessionId, qr1Token) => {
+        if (!user) {
+            setErrorMessage('Please log in with your student account to authorize attendance.');
+            return;
+        }
+
+        // Strictly verify overlay permission on personal Android devices before initiating Kiosk Lock
+        if (isNativeApp && !deviceOwnerStatus.isDeviceOwner && !overlayStatus.canDraw) {
+            setErrorMessage('🛡️ Attendance Lock Guard Required: Please tap "Enable Lock Mode Permission" above to allow SmartAttend to securely lock your device during attendance.');
+            return;
+        }
+
+        // Strictly prevent re-scanning QR 1 if already checked in or waiting for QR 2
+        if (scanState === 'KIOSK_WAITING_QR2' || scanState === 'VALIDATING_QR2' || scanState === 'BIOMETRIC_SCAN' || scanState === 'ATTENDANCE_SUCCESS' || (activeSessionId && activeSessionId === sessionId)) {
+            console.log('[Scanner] QR 1 ignored: Student already authorized for Phase 1. Waiting for QR 2 release.');
+            return;
+        }
+
+        setScanState('AUTHORIZING_QR1');
+        setErrorMessage('');
+
+        try {
+            const studentProfileOverride = {
+                rollNo: loggedInRollNo,
+                name: loggedInName,
+                email: user.email || '',
+                deviceId: deviceIdentity?.deviceId || null,
+                isDeviceOwner: deviceOwnerStatus.isDeviceOwner
+            };
+
+            const result = await authorizeStudentQR1(sessionId, qr1Token, studentProfileOverride);
+
+            setActiveSessionId(sessionId);
+            setSessionStartAt(result.sessionStartAt || Date.now());
+            setKioskEndsAt(result.kioskEndsAt || (Date.now() + 180000));
+
+            // Start Android Lock Task Mode, Web Supervision & Device Policy Restrictions
+            try {
+                console.log('[Kiosk] Activating Native Android Lock Task / Dedicated Kiosk mode for Student...');
+                await Kiosk.setAttendanceRestrictions();
+                await Kiosk.startKioskMode();
+            } catch (kioskErr) {
+                console.warn('[Kiosk] Notice starting kiosk mode:', kioskErr);
+            }
+
+            // Pre-fetch student biometric template
+            try {
+                await lookupStudentBiometrics(result.rollNo || loggedInRollNo);
+            } catch (bioErr) {
+                console.warn('Biometrics lookup notice:', bioErr);
+            }
+
+            // Move to Kiosk Supervised Waiting state (QR 1 is now permanently closed for this session)
+            setScanState('KIOSK_WAITING_QR2');
+        } catch (err) {
+            console.error('Error authorizing QR 1:', err);
+            setErrorMessage(err.message || 'Could not authorize Phase 1 check-in. Please verify session is active.');
+            setScanState('IDLE');
         }
     };
 
-    const handleScan = (result) => {
-        if (!result || isNavigating) return;
+    // 2. Process Phase 2 QR 2: Gate verification & open Face Biometric Scanner
+    const handleProcessQR2 = async (sessionId, qr2Token) => {
+        if (!user) {
+            setErrorMessage('Please log in to submit attendance.');
+            return;
+        }
+
+        // Prevent redundant QR 2 validations if already scanning biometrics or submitted
+        if (scanState === 'VALIDATING_QR2' || scanState === 'BIOMETRIC_SCAN' || scanState === 'ATTENDANCE_SUCCESS') {
+            return;
+        }
+
+        setScanState('VALIDATING_QR2');
+        setErrorMessage('');
+
+        try {
+            const targetSession = sessionId || activeSessionId;
+            if (!targetSession) {
+                throw new Error("No active attendance session identified.");
+            }
+            const result = await validateStudentQR2(targetSession, qr2Token);
+
+            setActiveSessionId(targetSession);
+            setActiveQr2Token(qr2Token);
+            if (result.kioskEndsAt) setKioskEndsAt(result.kioskEndsAt);
+
+            // Ensure biometrics are loaded
+            await lookupStudentBiometrics(result.rollNo || loggedInRollNo);
+
+            // Explicitly release previous QR camera tracks to avoid camera resource collision
+            releaseAllMediaTracks();
+            setScannerActive(false);
+
+            // Move to Live Biometric Face Verification
+            setScanState('BIOMETRIC_SCAN');
+        } catch (err) {
+            console.error('Error validating QR 2:', err);
+            const msg = err.message || '';
+            if (msg.includes('QR 1') || msg.includes('Access denied') || msg.includes('Access Denied') || msg.includes('permission-denied')) {
+                setErrorMessage('⛔ Access Denied: You did not scan QR 1 during Phase 1 (0:00 - 1:00). You cannot mark attendance for this session.');
+            } else {
+                setErrorMessage(msg || 'Invalid Phase 2 QR code.');
+            }
+            setScanState(activeSessionId ? 'KIOSK_WAITING_QR2' : 'IDLE');
+        }
+    };
+
+    // Master Scan Handler
+    const processSessionString = (raw) => {
+        if (!raw) return;
+        const payload = parseScannedPayload(raw);
+
+        if (!payload || !payload.sessionId) {
+            setErrorMessage('Invalid QR code format. Please scan a valid SmartAttend session QR code.');
+            return;
+        }
+
+        // 1. If student is already checked in (in Kiosk Mode waiting for QR 2):
+        // STRICTLY IGNORE any QR 1 scans until QR 2 is released by lecturer!
+        if (scanState === 'KIOSK_WAITING_QR2' || activeSessionId) {
+            const isQR2 = Boolean(payload.qr2Token || payload.phase === '2' || payload.phase === 'PHASE_2' || (sessionData?.phase === 'PHASE_2' && payload.sessionId === activeSessionId));
+            const isQR1 = Boolean(payload.qr1Token || payload.phase === '1' || payload.phase === 'PHASE_1');
+
+            if (isQR2) {
+                console.log('[Scanner] Phase 2 (QR 2) scanned successfully. Proceeding to biometrics...');
+                handleProcessQR2(payload.sessionId || activeSessionId, payload.qr2Token || payload.sessionId);
+            } else if (isQR1) {
+                // QR 1 is explicitly blocked from re-scanning!
+                console.log('[Scanner] QR 1 ignored. Student already completed Phase 1 check-in. Waiting for Lecturer to display QR 2.');
+            } else if (sessionData?.phase === 'PHASE_2') {
+                handleProcessQR2(payload.sessionId || activeSessionId, payload.qr2Token || payload.sessionId);
+            }
+            return;
+        }
+
+        // 2. Initial state (student has not scanned QR 1 yet):
+        if (payload.qr1Token || payload.phase === '1' || payload.phase === 'PHASE_1') {
+            handleProcessQR1(payload.sessionId, payload.qr1Token);
+        } else if (payload.qr2Token || payload.phase === '2' || payload.phase === 'PHASE_2') {
+            handleProcessQR2(payload.sessionId, payload.qr2Token);
+        } else {
+            handleProcessQR1(payload.sessionId, payload.sessionId);
+        }
+    };
+
+    // Auto-check URL search params on mount (e.g. if student opened link directly)
+    useEffect(() => {
+        if (loading) return;
+        if (!user) return;
+
+        const urlSession = searchParams.get('session');
+        const urlQr1 = searchParams.get('qr1Token');
+        const urlQr2 = searchParams.get('qr2Token');
+        const urlPhase = searchParams.get('phase');
+
+        if (urlSession && (urlQr1 || urlPhase === '1')) {
+            handleProcessQR1(urlSession, urlQr1 || urlSession);
+        } else if (urlSession && (urlQr2 || urlPhase === '2')) {
+            handleProcessQR2(urlSession, urlQr2 || urlSession);
+        }
+    }, [searchParams, loading, user]);
+
+    const handleCameraScan = (result) => {
+        if (!result) return;
         const raw = result[0]?.rawValue || (typeof result === 'string' ? result : '');
         if (raw) {
             processSessionString(raw);
         }
     };
 
-    const handleError = (error) => {
-        console.warn("Scanner Error:", error);
-        const errName = error?.name || "";
+    const handleCameraError = (error) => {
+        console.warn('Scanner Error:', error);
+        const errName = error?.name || '';
         const errMsg = error?.message || String(error);
 
-        if (errName === "NotAllowedError" || errName === "PermissionDeniedError" || errMsg.toLowerCase().includes("permission")) {
+        if (errName === 'NotAllowedError' || errName === 'PermissionDeniedError' || errMsg.toLowerCase().includes('permission')) {
             setPermissionDenied(true);
             setCameraError("Camera permission blocked on HTTP. Use 'Snap / Upload QR Photo' below for instant scan!");
-        } else if (errName === "OverconstrainedError" || errMsg.toLowerCase().includes("constraint")) {
+        } else if (errName === 'OverconstrainedError' || errMsg.toLowerCase().includes('constraint')) {
             if (facingMode === 'environment') {
                 setFacingMode('user');
                 setRetryKey((k) => k + 1);
             }
         } else {
-            setCameraError("WebRTC camera stream unavailable. Please use the camera snap button below.");
+            setCameraError('WebRTC camera stream unavailable. Please use the camera snap button below.');
         }
     };
 
-    // Instant Photo / Camera File Scanner (Works 100% across all HTTP LAN devices)
     const handleFileScan = (e) => {
         const file = e.target.files?.[0];
         if (!file) return;
@@ -109,54 +775,834 @@ function QrScannerApp() {
             const img = new Image();
             img.onload = () => {
                 try {
-                    const canvas = document.createElement("canvas");
+                    const canvas = document.createElement('canvas');
                     canvas.width = img.naturalWidth || img.width;
                     canvas.height = img.naturalHeight || img.height;
-                    const ctx = canvas.getContext("2d");
+                    const ctx = canvas.getContext('2d');
                     ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
 
                     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
                     const code = jsQR(imageData.data, imageData.width, imageData.height, {
-                        inversionAttempts: "attemptBoth"
+                        inversionAttempts: 'attemptBoth'
                     });
 
                     setScanningFile(false);
                     if (code && code.data) {
                         processSessionString(code.data);
                     } else {
-                        setCameraError("❌ Could not detect QR code in photo. Please point camera directly at the QR code and snap again.");
+                        setCameraError('❌ Could not detect QR code in photo. Please point camera directly at the QR code and snap again.');
                     }
                 } catch (decodeErr) {
-                    console.error("QR decode error:", decodeErr);
+                    console.error('QR decode error:', decodeErr);
                     setScanningFile(false);
-                    setCameraError("Error reading QR image.");
+                    setCameraError('Error reading QR image.');
                 }
             };
             img.onerror = () => {
                 setScanningFile(false);
-                setCameraError("Failed to load photo.");
+                setCameraError('Failed to load photo.');
             };
             img.src = event.target.result;
         };
         reader.readAsDataURL(file);
     };
 
-    const toggleFacingMode = () => {
-        setFacingMode((prev) => (prev === 'environment' ? 'user' : 'environment'));
-        setRetryKey((k) => k + 1);
-        setCameraError('');
-        setPermissionDenied(false);
+    // 3. Handle Live Face Biometric Verification change & submit attendance
+    const handleFaceVerificationChange = useCallback(async (res) => {
+        if (res && res.verified) {
+            // Auto-submit verified attendance
+            if (!submittingAttendance) {
+                setSubmittingAttendance(true);
+                releaseAllMediaTracks();
+                try {
+                    const submissionResult = await submitVerifiedAttendance(
+                        activeSessionId,
+                        activeQr2Token || activeSessionId,
+                        {
+                            confidence: res.confidence || 100,
+                            distance: res.distance || 0.35,
+                            liveness: res.liveness === true,
+                            blinkCount: res.blinkCount || 1
+                        }
+                    );
+
+                    const submittedMs = submissionResult.submittedAt || submissionResult.attendanceSubmittedAt || Date.now();
+                    const autoReleaseMs = submissionResult.autoReleaseAt || (submittedMs + 5 * 60 * 1000);
+
+                    setAttendanceSubmittedAt(submittedMs);
+                    setAutoReleaseAt(autoReleaseMs);
+                    setAutoReleaseRemaining(Math.max(0, Math.floor((autoReleaseMs - Date.now()) / 1000)));
+
+                    setSubmissionDetails({
+                        rollNo: submissionResult.rollNo || loggedInRollNo,
+                        studentName: submissionResult.studentName || loggedInName,
+                        courseCode: sessionData?.courseCode || 'CLASS',
+                        classCode: sessionData?.classCode || '',
+                        roomNo: sessionData?.roomNo || 'C002',
+                        submittedAt: submittedMs,
+                        autoReleaseAt: autoReleaseMs
+                    });
+
+                    // Keep device in Lock Task Mode
+                    setScanState('ATTENDANCE_SUCCESS');
+                } catch (subErr) {
+                    console.error('Attendance submission error:', subErr);
+                    alert('❌ Attendance submission notice: ' + (subErr.message || 'Error recording attendance'));
+                    if (subErr.message?.includes('QR 1') || subErr.message?.includes('Access Denied') || subErr.message?.includes('Missing Phase 1')) {
+                        setErrorMessage(subErr.message);
+                        setScanState('IDLE');
+                    }
+                } finally {
+                    setSubmittingAttendance(false);
+                }
+            }
+        }
+    }, [activeSessionId, activeQr2Token, submittingAttendance, loggedInRollNo, loggedInName, sessionData]);
+
+    const formatMmSs = (sec) => {
+        const m = Math.floor(sec / 60);
+        const s = sec % 60;
+        return `${m}:${String(s).padStart(2, '0')}`;
     };
 
-    const restartScanner = () => {
-        setRetryKey((k) => k + 1);
-        setCameraError('');
-        setPermissionDenied(false);
-        setScannerActive(true);
+    // Render Lecturer Emergency PIN Release Modal
+    const renderLecturerPinModal = () => {
+        if (!showPinModal) return null;
+        return (
+            <div style={{
+                position: 'fixed',
+                inset: 0,
+                backgroundColor: 'rgba(15, 23, 42, 0.85)',
+                backdropFilter: 'blur(8px)',
+                zIndex: 10000,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: '20px'
+            }}>
+                <div style={{
+                    maxWidth: '400px',
+                    width: '100%',
+                    background: '#ffffff',
+                    borderRadius: '20px',
+                    padding: '26px 24px',
+                    boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
+                    textAlign: 'center',
+                    color: '#0f172a'
+                }}>
+                    <div style={{
+                        width: '56px',
+                        height: '56px',
+                        borderRadius: '50%',
+                        background: 'rgba(99, 102, 241, 0.12)',
+                        color: '#6366f1',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: '24px',
+                        margin: '0 auto 12px'
+                    }}>
+                        <FaLock />
+                    </div>
+                    <h3 style={{ margin: '0 0 6px', fontSize: '1.25rem', fontWeight: 800 }}>
+                        Lecturer Session PIN Unlock
+                    </h3>
+                    <p style={{ margin: '0 0 16px', fontSize: '0.84rem', color: '#64748b', lineHeight: 1.4 }}>
+                        Enter the 6-digit Session PIN displayed on the Lecturer Dashboard to unlock this device from Kiosk mode.
+                    </p>
+
+                    <form onSubmit={handleLecturerPinUnlock}>
+                        <input
+                            type="password"
+                            maxLength={6}
+                            value={lecturerPinInput}
+                            onChange={(e) => setLecturerPinInput(e.target.value)}
+                            placeholder="Enter 6-digit Session PIN"
+                            autoFocus
+                            style={{
+                                width: '100%',
+                                padding: '12px 16px',
+                                borderRadius: '12px',
+                                border: '1.5px solid #cbd5e1',
+                                fontSize: '1.2rem',
+                                letterSpacing: '4px',
+                                textAlign: 'center',
+                                fontWeight: 800,
+                                marginBottom: '12px',
+                                outline: 'none'
+                            }}
+                        />
+
+                        {pinVerificationError && (
+                            <div style={{
+                                padding: '8px 12px',
+                                borderRadius: '8px',
+                                background: '#fee2e2',
+                                color: '#b91c1c',
+                                fontSize: '0.82rem',
+                                fontWeight: 700,
+                                marginBottom: '12px'
+                            }}>
+                                {pinVerificationError}
+                            </div>
+                        )}
+
+                        <div style={{ display: 'flex', gap: '10px' }}>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setShowPinModal(false);
+                                    setLecturerPinInput('');
+                                    setPinVerificationError('');
+                                }}
+                                style={{
+                                    flex: 1,
+                                    padding: '11px',
+                                    borderRadius: '12px',
+                                    background: '#f1f5f9',
+                                    border: '1px solid #cbd5e1',
+                                    color: '#475569',
+                                    fontWeight: 700,
+                                    fontSize: '0.9rem',
+                                    cursor: 'pointer'
+                                }}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="submit"
+                                disabled={isVerifyingPin}
+                                style={{
+                                    flex: 1,
+                                    padding: '11px',
+                                    borderRadius: '12px',
+                                    background: '#6366f1',
+                                    border: 'none',
+                                    color: '#ffffff',
+                                    fontWeight: 800,
+                                    fontSize: '0.9rem',
+                                    cursor: 'pointer',
+                                    boxShadow: '0 4px 14px rgba(99, 102, 241, 0.4)'
+                                }}
+                            >
+                                {isVerifyingPin ? <FaSpinner className="fa-spin" /> : 'Authorize Release'}
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        );
     };
 
-    const returnPath = profile?.role === "student" ? "/student" : "/lecturer";
+    // =========================================================================
+    // UI VIEW 1: ATTENDANCE SUBMITTED (Attendance Lock Active until Lecturer Release)
+    // =========================================================================
+    if (scanState === 'ATTENDANCE_SUCCESS') {
+        return (
+            <div style={{
+                maxWidth: '540px',
+                margin: '30px auto',
+                padding: '30px 22px',
+                background: 'var(--surface, #ffffff)',
+                borderRadius: '24px',
+                border: '1.5px solid var(--border, #e2e8f0)',
+                boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.15)',
+                color: 'var(--text-main, #0f172a)',
+                textAlign: 'center',
+                position: 'relative'
+            }}>
+                <div style={{
+                    width: '72px',
+                    height: '72px',
+                    borderRadius: '50%',
+                    background: '#dcfce7',
+                    color: '#15803d',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    margin: '0 auto 16px',
+                    fontSize: '38px',
+                    boxShadow: '0 8px 20px rgba(22, 163, 74, 0.2)'
+                }}>
+                    <FaCheckCircle />
+                </div>
 
+                <h2 style={{ fontSize: '1.45rem', fontWeight: 800, margin: '0 0 6px 0', color: '#15803d' }}>
+                    Attendance Submitted — Waiting for Lecturer Release
+                </h2>
+                <p style={{ color: '#4338ca', fontSize: '0.92rem', fontWeight: 700, margin: '0 0 18px 0' }}>
+                    🔒 Android Enterprise Lock Task Mode Active
+                </p>
+
+                {/* Details Box */}
+                <div style={{
+                    background: 'var(--surface-soft, #f8fafc)',
+                    border: '1.5px solid var(--border, #e2e8f0)',
+                    borderRadius: '16px',
+                    padding: '14px 18px',
+                    textAlign: 'left',
+                    marginBottom: '18px'
+                }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderBottom: '1px solid #e2e8f0' }}>
+                        <span style={{ color: '#64748b', fontSize: '0.84rem' }}>Roll Number:</span>
+                        <strong style={{ fontWeight: 800 }}>{submissionDetails?.rollNo || loggedInRollNo}</strong>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderBottom: '1px solid #e2e8f0' }}>
+                        <span style={{ color: '#64748b', fontSize: '0.84rem' }}>Student Name:</span>
+                        <strong style={{ fontWeight: 800 }}>{submissionDetails?.studentName || loggedInName}</strong>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderBottom: '1px solid #e2e8f0' }}>
+                        <span style={{ color: '#64748b', fontSize: '0.84rem' }}>Class / Room:</span>
+                        <strong style={{ fontWeight: 800 }}>{submissionDetails?.courseCode} · Room {submissionDetails?.roomNo}</strong>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0' }}>
+                        <span style={{ color: '#64748b', fontSize: '0.84rem' }}>Biometric Verification:</span>
+                        <strong style={{ color: '#15803d', fontWeight: 800 }}>✅ PASSED (100% Match)</strong>
+                    </div>
+                </div>
+
+                {/* Student Enters Lecturer's Announced 6-Digit Session PIN */}
+                <div style={{
+                    background: 'rgba(99, 102, 241, 0.06)',
+                    border: '1.5px solid rgba(99, 102, 241, 0.3)',
+                    borderRadius: '18px',
+                    padding: '20px 18px',
+                    marginBottom: '16px',
+                    textAlign: 'center'
+                }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', color: '#4338ca', fontWeight: 800, fontSize: '0.95rem', marginBottom: '4px' }}>
+                        <FaLock /> Enter Session PIN to Unlock
+                    </div>
+                    <p style={{ margin: '0 0 14px 0', fontSize: '0.83rem', color: '#64748b' }}>
+                        Enter the 6-digit Session PIN announced by your lecturer to exit Kiosk mode.
+                    </p>
+
+                    <form onSubmit={handleLecturerPinUnlock} style={{ maxWidth: '320px', margin: '0 auto' }}>
+                        <input
+                            type="password"
+                            inputMode="numeric"
+                            pattern="[0-9]*"
+                            maxLength={6}
+                            value={lecturerPinInput}
+                            onChange={(e) => {
+                                setLecturerPinInput(e.target.value.replace(/\D/g, ''));
+                                if (pinVerificationError) setPinVerificationError('');
+                            }}
+                            placeholder="6-Digit PIN"
+                            autoFocus
+                            style={{
+                                width: '100%',
+                                padding: '12px 16px',
+                                borderRadius: '12px',
+                                border: pinVerificationError ? '2px solid #ef4444' : '2px solid #6366f1',
+                                fontSize: '1.35rem',
+                                letterSpacing: '8px',
+                                textAlign: 'center',
+                                fontWeight: 800,
+                                marginBottom: '10px',
+                                outline: 'none',
+                                background: '#ffffff',
+                                color: '#0f172a',
+                                boxShadow: '0 2px 8px rgba(99, 102, 241, 0.15)'
+                            }}
+                        />
+
+                        {pinVerificationError && (
+                            <div style={{
+                                padding: '8px 12px',
+                                borderRadius: '8px',
+                                background: '#fee2e2',
+                                border: '1px solid #fca5a5',
+                                color: '#b91c1c',
+                                fontSize: '0.82rem',
+                                fontWeight: 700,
+                                marginBottom: '10px',
+                                textAlign: 'center'
+                            }}>
+                                {pinVerificationError}
+                            </div>
+                        )}
+
+                        <button
+                            type="submit"
+                            disabled={isVerifyingPin || !lecturerPinInput.trim()}
+                            style={{
+                                width: '100%',
+                                padding: '12px 18px',
+                                borderRadius: '12px',
+                                background: 'linear-gradient(135deg, #6366f1 0%, #4338ca 100%)',
+                                border: 'none',
+                                color: '#ffffff',
+                                fontWeight: 800,
+                                fontSize: '0.95rem',
+                                cursor: isVerifyingPin || !lecturerPinInput.trim() ? 'not-allowed' : 'pointer',
+                                boxShadow: '0 4px 14px rgba(99, 102, 241, 0.4)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: '8px'
+                            }}
+                        >
+                            {isVerifyingPin ? (
+                                <><FaSpinner className="fa-spin" /> Verifying PIN...</>
+                            ) : (
+                                <><FaLock /> Unlock Device</>
+                            )}
+                        </button>
+                    </form>
+                </div>
+
+                {/* 5-Minute Fail-Safe Live Countdown */}
+                <div style={{
+                    background: 'var(--surface-soft, #f8fafc)',
+                    border: '1px solid var(--border, #e2e8f0)',
+                    borderRadius: '14px',
+                    padding: '14px 16px'
+                }}>
+                    <div style={{ fontSize: '0.78rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px' }}>
+                        Automatic Fail-Safe Release
+                    </div>
+                    <div style={{ fontSize: '1.75rem', fontWeight: 800, color: '#4338ca', letterSpacing: '1px' }}>
+                        Auto Release in {formatMmSs(autoReleaseRemaining)}
+                    </div>
+                    <p style={{ margin: '4px 0 0 0', fontSize: '0.78rem', color: '#94a3b8' }}>
+                        If the lecturer does not announce the PIN, this device will automatically exit Kiosk mode in {formatMmSs(autoReleaseRemaining)}. Manual PIN release cancels the timer.
+                    </p>
+                </div>
+            </div>
+        );
+    }
+
+    // =========================================================================
+    // UI VIEW 1.5: DISQUALIFIED LOCKED SCREEN (App switching detected, locked until Lecturer PIN)
+    // =========================================================================
+    if (scanState === 'DISQUALIFIED') {
+        return (
+            <div style={{
+                maxWidth: '540px',
+                margin: '30px auto',
+                padding: '30px 22px',
+                background: 'var(--surface, #ffffff)',
+                borderRadius: '24px',
+                border: '2px solid #ef4444',
+                boxShadow: '0 25px 50px -12px rgba(239, 68, 68, 0.25)',
+                color: 'var(--text-main, #0f172a)',
+                textAlign: 'center',
+                position: 'relative'
+            }}>
+                {renderLecturerPinModal()}
+
+                <div style={{
+                    width: '72px',
+                    height: '72px',
+                    borderRadius: '50%',
+                    background: '#fee2e2',
+                    color: '#dc2626',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    margin: '0 auto 16px',
+                    fontSize: '38px',
+                    boxShadow: '0 8px 20px rgba(220, 38, 38, 0.25)'
+                }}>
+                    <FaExclamationTriangle />
+                </div>
+
+                <h2 style={{ fontSize: '1.5rem', fontWeight: 800, margin: '0 0 6px 0', color: '#dc2626' }}>
+                    Attendance Disqualified
+                </h2>
+                <p style={{ color: 'var(--text-muted, #64748b)', fontSize: '0.9rem', margin: '0 0 20px 0', lineHeight: 1.5 }}>
+                    App switching or minimizing was detected during active attendance supervision.
+                </p>
+
+                <div style={{
+                    background: '#fef2f2',
+                    border: '1.5px solid #fecaca',
+                    borderRadius: '16px',
+                    padding: '16px 18px',
+                    textAlign: 'left',
+                    marginBottom: '20px'
+                }}>
+                    <div style={{ color: '#991b1b', fontSize: '0.85rem', lineHeight: 1.5 }}>
+                        <strong>🔒 Attendance Lock Active:</strong> This device remains in Attendance Lock Mode. Hand your phone to your course lecturer to authorize release using the Lecturer Release Code.
+                    </div>
+                </div>
+
+                <button
+                    type="button"
+                    onClick={() => setShowPinModal(true)}
+                    style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        padding: '12px 20px',
+                        borderRadius: '12px',
+                        background: '#dc2626',
+                        color: '#ffffff',
+                        border: 'none',
+                        fontSize: '0.9rem',
+                        fontWeight: 800,
+                        cursor: 'pointer',
+                        boxShadow: '0 4px 14px rgba(220, 38, 38, 0.35)'
+                    }}
+                >
+                    <FaLock /> Enter Lecturer Release Code
+                </button>
+            </div>
+        );
+    }
+
+    // =========================================================================
+    // UI VIEW 2: LIVE BIOMETRIC FACE SCANNER (Triggered by Phase 2 QR 2)
+    // =========================================================================
+    if (scanState === 'BIOMETRIC_SCAN') {
+        return (
+            <div style={{
+                maxWidth: '560px',
+                margin: '20px auto',
+                padding: '24px 20px',
+                background: 'var(--surface, #ffffff)',
+                borderRadius: '24px',
+                border: '1.5px solid var(--border, #e2e8f0)',
+                boxShadow: '0 20px 45px -20px rgba(0, 0, 0, 0.15)',
+                color: 'var(--text-main, #0f172a)',
+                textAlign: 'center',
+                position: 'relative'
+            }}>
+                {renderLecturerPinModal()}
+
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
+                    <div style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        padding: '6px 12px',
+                        borderRadius: '999px',
+                        background: 'rgba(16, 185, 129, 0.12)',
+                        color: '#059669',
+                        fontSize: '0.8rem',
+                        fontWeight: 800
+                    }}>
+                        <FaCheckCircle /> Phase 2: Biometric Verification
+                    </div>
+
+                    <button
+                        type="button"
+                        onClick={() => setShowPinModal(true)}
+                        style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            background: 'transparent',
+                            border: 'none',
+                            color: '#6366f1',
+                            fontSize: '0.78rem',
+                            fontWeight: 700,
+                            cursor: 'pointer'
+                        }}
+                    >
+                        <FaLock /> Lecturer Exit
+                    </button>
+                </div>
+
+                <h2 style={{ margin: '0 0 6px 0', fontSize: '1.4rem', fontWeight: 800 }}>
+                    Face Biometric Verification
+                </h2>
+                <p style={{ margin: '0 0 16px 0', color: 'var(--text-muted, #64748b)', fontSize: '0.86rem' }}>
+                    Position your face within the frame. Blink naturally to confirm liveness.
+                </p>
+
+                {/* Face Scanner Component */}
+                <FaceScanner
+                    verifiedStudent={verifiedStudent}
+                    lookingUp={lookingUpStudent}
+                    rollNo={loggedInRollNo}
+                    onVerificationChange={handleFaceVerificationChange}
+                />
+
+                {submittingAttendance && (
+                    <div style={{
+                        marginTop: '16px',
+                        padding: '12px',
+                        borderRadius: '12px',
+                        background: '#dcfce7',
+                        color: '#15803d',
+                        fontWeight: 800,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '8px'
+                    }}>
+                        <FaSpinner className="fa-spin" />
+                        <span>Biometrics Verified! Submitting attendance record...</span>
+                    </div>
+                )}
+            </div>
+        );
+    }
+
+    // =========================================================================
+    // UI VIEW 3: KIOSK WAITING SCREEN (Phase 1 Complete, Waiting for Phase 2 QR)
+    // =========================================================================
+    if (scanState === 'KIOSK_WAITING_QR2') {
+        return (
+            <div style={{
+                maxWidth: '540px',
+                margin: '24px auto',
+                padding: '26px 20px',
+                background: 'var(--surface, #ffffff)',
+                borderRadius: '24px',
+                border: '1.5px solid var(--border, #e2e8f0)',
+                boxShadow: '0 20px 45px -20px rgba(0, 0, 0, 0.15)',
+                color: 'var(--text-main, #0f172a)',
+                textAlign: 'center',
+                position: 'relative'
+            }}>
+                {renderLecturerPinModal()}
+
+                {/* Web Guardian Violation Overlay */}
+                {supervisionViolation && (
+                    <div style={{
+                        position: 'fixed',
+                        inset: 0,
+                        backgroundColor: 'rgba(15, 23, 42, 0.96)',
+                        zIndex: 9999,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        padding: '24px',
+                        color: '#ffffff',
+                        textAlign: 'center'
+                    }}>
+                        <div style={{
+                            width: '80px',
+                            height: '80px',
+                            borderRadius: '50%',
+                            background: '#fee2e2',
+                            color: '#b91c1c',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontSize: '40px',
+                            marginBottom: '16px'
+                        }}>
+                            <FaExclamationTriangle />
+                        </div>
+                        <h2 style={{ fontSize: '1.5rem', fontWeight: 800, margin: '0 0 10px 0', color: '#f87171' }}>
+                            Security Supervision Alert!
+                        </h2>
+                        <p style={{ maxWidth: '440px', fontSize: '0.9rem', color: '#cbd5e1', lineHeight: 1.5, marginBottom: '16px' }}>
+                            App switching or minimization detected for student <strong>{loggedInRollNo}</strong>.
+                            Leaving SmartAttend or sharing QR codes is strictly prohibited.
+                        </p>
+                        <div style={{
+                            padding: '12px 16px',
+                            borderRadius: '12px',
+                            background: 'rgba(239, 68, 68, 0.15)',
+                            border: '1px solid rgba(239, 68, 68, 0.4)',
+                            color: '#fca5a5',
+                            fontSize: '0.82rem',
+                            lineHeight: 1.45,
+                            marginBottom: '20px',
+                            textAlign: 'left'
+                        }}>
+                            <div style={{ fontWeight: 800, marginBottom: '4px', color: '#f87171' }}>⚠️ Anti-Proxy Protection Active:</div>
+                            • Violations Count: <strong>{violationCount} / 2</strong> (Next violation disqualifies attendance)<br />
+                            • Phase 2 requires live 3D Facial Biometrics matching {loggedInRollNo}'s record.<br />
+                            • Session Time Remaining: <strong>{formatMmSs(sessionRemaining)}</strong>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => setSupervisionViolation(false)}
+                            style={{
+                                padding: '14px 28px',
+                                borderRadius: '14px',
+                                background: '#6366f1',
+                                color: '#ffffff',
+                                border: 'none',
+                                fontWeight: 800,
+                                fontSize: '1rem',
+                                cursor: 'pointer',
+                                boxShadow: '0 4px 16px rgba(99, 102, 241, 0.4)'
+                            }}
+                        >
+                            Return to Attendance Session
+                        </button>
+                    </div>
+                )}
+
+                <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    style={{ display: 'none' }}
+                    onChange={handleFileScan}
+                />
+
+                {/* Supervised Banner */}
+                <div style={{
+                    padding: '10px 14px',
+                    borderRadius: '12px',
+                    background: 'linear-gradient(135deg, #4338ca 0%, #6366f1 100%)',
+                    color: '#ffffff',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    marginBottom: '16px'
+                }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 800, fontSize: '0.85rem' }}>
+                        <FaLock /> Attendance Lock Mode Active
+                    </div>
+                    <button
+                        type="button"
+                        onClick={() => setShowPinModal(true)}
+                        style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            background: 'rgba(255, 255, 255, 0.18)',
+                            border: '1px solid rgba(255, 255, 255, 0.3)',
+                            borderRadius: '8px',
+                            padding: '4px 10px',
+                            color: '#ffffff',
+                            fontSize: '0.75rem',
+                            fontWeight: 700,
+                            cursor: 'pointer'
+                        }}
+                    >
+                        <FaLock /> Lecturer Release
+                    </button>
+                </div>
+
+                {/* Success Icon */}
+                <div style={{
+                    width: '60px',
+                    height: '60px',
+                    borderRadius: '50%',
+                    background: '#dcfce7',
+                    color: '#15803d',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    margin: '0 auto 12px',
+                    fontSize: '32px'
+                }}>
+                    <FaCheckCircle />
+                </div>
+
+                <h2 style={{ margin: '0 0 6px 0', fontSize: '1.35rem', fontWeight: 800 }}>
+                    Attendance Session Verified
+                </h2>
+                <p style={{ margin: '0 0 16px 0', color: 'var(--text-muted, #64748b)', fontSize: '0.86rem' }}>
+                    You are <strong>AUTHORIZED</strong> for this session ({loggedInRollNo} · {loggedInName}).
+                </p>
+
+                {/* Instruction Callout */}
+                <div style={{
+                    background: 'rgba(99, 102, 241, 0.08)',
+                    border: '1.5px dashed #6366f1',
+                    borderRadius: '16px',
+                    padding: '14px 16px',
+                    marginBottom: '18px',
+                    textAlign: 'left'
+                }}>
+                    <div style={{ fontWeight: 800, color: '#4338ca', fontSize: '0.9rem', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <FaClock /> Next: Scan QR 2 for Biometric Attendance
+                    </div>
+                    <p style={{ margin: 0, fontSize: '0.82rem', color: '#475569', lineHeight: 1.4 }}>
+                        When your lecturer displays <strong>QR 2 (1:00 - 3:00)</strong> on the screen, point the live camera below at the screen to verify your face and mark attendance.
+                    </p>
+                </div>
+
+                {/* Live Scanner Frame */}
+                <div style={{
+                    borderRadius: '16px',
+                    overflow: 'hidden',
+                    border: '2px solid rgba(99, 102, 241, 0.4)',
+                    background: '#020617',
+                    position: 'relative',
+                    minHeight: '220px'
+                }}>
+                    <div style={{
+                        position: 'absolute',
+                        top: '10px',
+                        left: '50%',
+                        transform: 'translateX(-50%)',
+                        zIndex: 10,
+                        padding: '6px 14px',
+                        borderRadius: '999px',
+                        background: 'rgba(15, 23, 42, 0.85)',
+                        border: '1px solid rgba(99, 102, 241, 0.5)',
+                        backdropFilter: 'blur(8px)',
+                        color: '#a5b4fc',
+                        fontSize: '0.75rem',
+                        fontWeight: 700,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        whiteSpace: 'nowrap',
+                        boxShadow: '0 4px 12px rgba(0, 0, 0, 0.4)'
+                    }}>
+                        <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', background: '#22c55e', boxShadow: '0 0 8px #22c55e' }}></span>
+                        Phase 1 Locked · Listening for QR 2
+                    </div>
+
+                    <Scanner
+                        key={`waiting-${retryKey}-${facingMode}`}
+                        onScan={handleCameraScan}
+                        onError={handleCameraError}
+                        constraints={{ facingMode }}
+                        sound={false}
+                        components={{ audio: false }}
+                    />
+                </div>
+
+                <div style={{ marginTop: '14px', textAlign: 'center' }}>
+                    <button
+                        type="button"
+                        onClick={() => setShowPinModal(true)}
+                        style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            padding: '8px 14px',
+                            borderRadius: '10px',
+                            background: 'var(--surface-soft, #f8fafc)',
+                            border: '1px solid var(--border, #cbd5e1)',
+                            color: '#475569',
+                            fontSize: '0.8rem',
+                            fontWeight: 700,
+                            cursor: 'pointer'
+                        }}
+                    >
+                        <FaLock style={{ color: '#6366f1' }} /> Enter Lecturer Release Code
+                    </button>
+                </div>
+
+                {errorMessage && (
+                    <div style={{
+                        marginTop: '12px',
+                        padding: '10px 14px',
+                        borderRadius: '10px',
+                        background: '#fee2e2',
+                        border: '1px solid #fca5a5',
+                        color: '#b91c1c',
+                        fontSize: '0.84rem',
+                        fontWeight: 700,
+                        textAlign: 'left'
+                    }}>
+                        {errorMessage}
+                    </div>
+                )}
+            </div>
+        );
+    }
+
+    // =========================================================================
+    // UI VIEW 4: INITIAL IDLE SCANNER (Student Scans QR 1)
+    // =========================================================================
     return (
         <div style={{
             maxWidth: '540px',
@@ -169,13 +1615,80 @@ function QrScannerApp() {
             color: 'var(--text-main, #0f172a)',
             textAlign: 'center'
         }}>
-            {/* Hidden Photo / Camera Input for 100% HTTP compatibility */}
+            {/* Smart App Requirement for Mobile Web Browsers */}
+            {!isNativeApp && (
+                <div style={{
+                    marginBottom: '20px',
+                    padding: '16px',
+                    borderRadius: '16px',
+                    background: 'linear-gradient(135deg, #1e1b4b 0%, #312e81 100%)',
+                    color: '#ffffff',
+                    border: '1.5px solid #6366f1',
+                    textAlign: 'left',
+                    boxShadow: '0 8px 24px rgba(49, 46, 129, 0.4)'
+                }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 800, fontSize: '0.95rem', marginBottom: '6px' }}>
+                        <FaLock style={{ color: '#a5b4fc' }} /> Hardware Lock Required
+                    </div>
+                    <p style={{ margin: '0 0 14px 0', fontSize: '0.84rem', color: '#e0e7ff', lineHeight: 1.4 }}>
+                        This attendance session uses <strong>Lecturer Kiosk Lock Mode</strong>. To lock your device and prevent exiting without a PIN, open this session in the <strong>SmartAttend Android App</strong>.
+                    </p>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        <button
+                            type="button"
+                            onClick={handleOpenInSmartAttendApp}
+                            style={{
+                                width: '100%',
+                                padding: '11px 16px',
+                                borderRadius: '12px',
+                                background: '#6366f1',
+                                color: '#ffffff',
+                                border: 'none',
+                                fontWeight: 800,
+                                fontSize: '0.9rem',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: '8px',
+                                boxShadow: '0 4px 14px rgba(99, 102, 241, 0.4)'
+                            }}
+                        >
+                            <FaExternalLinkAlt /> Open in SmartAttend App
+                        </button>
+                        <a
+                            href="http://10.0.10.251:8080/SmartAttend-debug.apk"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{
+                                width: '100%',
+                                padding: '9px 16px',
+                                borderRadius: '12px',
+                                background: 'rgba(255, 255, 255, 0.12)',
+                                color: '#ffffff',
+                                border: '1px solid rgba(255, 255, 255, 0.25)',
+                                fontWeight: 700,
+                                fontSize: '0.82rem',
+                                textDecoration: 'none',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: '6px',
+                                textAlign: 'center'
+                            }}
+                        >
+                            <FaMobileAlt /> Download SmartAttend Android APK
+                        </a>
+                    </div>
+                </div>
+            )}
+
             <input
                 ref={fileInputRef}
                 type="file"
                 accept="image/*"
                 capture="environment"
-                style={{ display: "none" }}
+                style={{ display: 'none' }}
                 onChange={handleFileScan}
             />
 
@@ -183,7 +1696,7 @@ function QrScannerApp() {
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '18px' }}>
                 <button
                     type="button"
-                    onClick={() => navigate(returnPath)}
+                    onClick={() => navigate('/student')}
                     style={{
                         display: 'inline-flex',
                         alignItems: 'center',
@@ -196,31 +1709,31 @@ function QrScannerApp() {
                         cursor: 'pointer'
                     }}
                 >
-                    <FaArrowLeft /> Back
+                    <FaArrowLeft /> Back to Dashboard
                 </button>
 
-                <div style={{ display: 'flex', gap: '8px' }}>
-                    <button
-                        type="button"
-                        onClick={toggleFacingMode}
-                        title="Switch Front/Back Camera"
-                        style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '6px',
-                            padding: '6px 12px',
-                            borderRadius: '8px',
-                            background: 'var(--surface-soft, #f1f5f9)',
-                            border: '1px solid var(--border, #cbd5e1)',
-                            color: 'var(--text-main, #334155)',
-                            fontSize: '0.78rem',
-                            fontWeight: 700,
-                            cursor: 'pointer'
-                        }}
-                    >
-                        <FaSyncAlt /> {facingMode === 'environment' ? 'Rear Cam' : 'Front Cam'}
-                    </button>
-                </div>
+                <button
+                    type="button"
+                    onClick={() => {
+                        setFacingMode((prev) => (prev === 'environment' ? 'user' : 'environment'));
+                        setRetryKey((k) => k + 1);
+                    }}
+                    style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        padding: '6px 12px',
+                        borderRadius: '8px',
+                        background: 'var(--surface-soft, #f1f5f9)',
+                        border: '1px solid var(--border, #cbd5e1)',
+                        color: 'var(--text-main, #334155)',
+                        fontSize: '0.78rem',
+                        fontWeight: 700,
+                        cursor: 'pointer'
+                    }}
+                >
+                    <FaSyncAlt /> {facingMode === 'environment' ? 'Rear Cam' : 'Front Cam'}
+                </button>
             </div>
 
             {/* Icon & Title */}
@@ -243,42 +1756,125 @@ function QrScannerApp() {
                 Scan Class QR Code
             </h2>
             <p style={{ margin: '0 0 16px 0', color: 'var(--text-muted, #64748b)', fontSize: '0.88rem' }}>
-                Point your camera at the attendance QR code displayed by your lecturer.
+                Point camera at the attendance QR code displayed on the lecturer screen.
             </p>
 
-            {/* Direct Snap Photo Button (Always works on all phones over HTTP) */}
-            <div style={{ marginBottom: '16px' }}>
-                <button
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={scanningFile || isNavigating}
-                    style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: '8px',
-                        width: '100%',
-                        padding: '13px 20px',
-                        borderRadius: '14px',
-                        background: 'linear-gradient(180deg, var(--accent, #6366f1), var(--accent-strong, #4338ca))',
-                        color: '#ffffff',
-                        border: 'none',
-                        fontWeight: 800,
-                        fontSize: '0.98rem',
-                        cursor: 'pointer',
-                        boxShadow: '0 4px 16px #6366f1',
-                        transition: 'all 0.2s ease'
-                    }}
-                >
-                    {scanningFile ? (
-                        <><FaSpinner className="fa-spin" /> Decoding QR Code...</>
-                    ) : (
-                        <><FaCamera /> Scan QR via Device Camera</>
-                    )}
-                </button>
-            </div>
+            {/* Student Info Pill */}
+            {user && (
+                <div style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '6px 14px',
+                    borderRadius: '999px',
+                    background: 'var(--surface-soft, #f8fafc)',
+                    border: '1px solid var(--border, #e2e8f0)',
+                    fontSize: '0.82rem',
+                    fontWeight: 700,
+                    color: '#334155',
+                    marginBottom: '16px'
+                }}>
+                    <FaUserCheck style={{ color: '#6366f1' }} />
+                    <span>Logged in as: <strong>{loggedInRollNo}</strong> ({loggedInName})</span>
+                </div>
+            )}
 
-            {/* Live WebRTC Viewport */}
+            {/* Native Anti-Escape Guardian Status / Overlay Permission Prompt */}
+            {isNativeApp && !deviceOwnerStatus.isDeviceOwner && overlayStatus.checked && !overlayStatus.canDraw && (
+                <div style={{
+                    marginBottom: '18px',
+                    padding: '16px',
+                    borderRadius: '16px',
+                    background: 'linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%)',
+                    border: '2px solid #f59e0b',
+                    boxShadow: '0 6px 20px rgba(245, 158, 11, 0.15)',
+                    textAlign: 'left'
+                }}>
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
+                        <div style={{
+                            width: '38px',
+                            height: '38px',
+                            borderRadius: '10px',
+                            background: '#f59e0b',
+                            color: '#ffffff',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            flexShrink: 0,
+                            fontSize: '1.2rem'
+                        }}>
+                            <FaShieldAlt />
+                        </div>
+                        <div style={{ flex: 1 }}>
+                            <h4 style={{ margin: '0 0 4px', fontSize: '0.94rem', fontWeight: 800, color: '#92400e' }}>
+                                Attendance Lock Guard Required
+                            </h4>
+                            <p style={{ margin: '0 0 12px', fontSize: '0.82rem', color: '#b45309', lineHeight: 1.4 }}>
+                                Android requires <strong>"Display over other apps"</strong> permission to secure your device during attendance and prevent app switching.
+                            </p>
+                            <button
+                                type="button"
+                                onClick={async () => {
+                                    await Kiosk.requestOverlayPermission();
+                                    setTimeout(checkDeviceProvisioning, 1500);
+                                    setTimeout(checkDeviceProvisioning, 3500);
+                                }}
+                                style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '8px',
+                                    padding: '9px 18px',
+                                    borderRadius: '10px',
+                                    background: '#d97706',
+                                    color: '#ffffff',
+                                    border: 'none',
+                                    fontSize: '0.84rem',
+                                    fontWeight: 800,
+                                    cursor: 'pointer',
+                                    boxShadow: '0 2px 8px rgba(217, 119, 6, 0.3)'
+                                }}
+                            >
+                                <FaShieldAlt /> Enable Lock Mode Permission
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Snap Button (Fallback for Web Browsers with HTTP/insecure camera restrictions) */}
+            {!isNativeApp && (
+                <div style={{ marginBottom: '16px' }}>
+                    <button
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={scanningFile || scanState !== 'IDLE'}
+                        style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '8px',
+                            width: '100%',
+                            padding: '13px 20px',
+                            borderRadius: '14px',
+                            background: 'linear-gradient(180deg, var(--accent, #6366f1), var(--accent-strong, #4338ca))',
+                            color: '#ffffff',
+                            border: 'none',
+                            fontWeight: 800,
+                            fontSize: '0.98rem',
+                            cursor: 'pointer',
+                            boxShadow: '0 4px 16px rgba(99, 102, 241, 0.35)'
+                        }}
+                    >
+                        {scanningFile ? (
+                            <><FaSpinner className="fa-spin" /> Decoding QR Code...</>
+                        ) : (
+                            <><FaCamera /> Snap / Upload QR Photo</>
+                        )}
+                    </button>
+                </div>
+            )}
+
+            {/* Camera Viewport */}
             <div style={{
                 borderRadius: '16px',
                 overflow: 'hidden',
@@ -291,19 +1887,62 @@ function QrScannerApp() {
                 {scannerActive && (
                     <Scanner
                         key={`${retryKey}-${facingMode}`}
-                        onScan={handleScan}
-                        onError={handleError}
-                        constraints={{
-                            facingMode: facingMode
-                        }}
+                        onScan={handleCameraScan}
+                        onError={handleCameraError}
+                        constraints={{ facingMode }}
                         sound={false}
-                        components={{
-                            audio: false
-                        }}
+                        components={{ audio: false }}
                     />
                 )}
 
-                {/* Permission Denied Overlay */}
+                {/* Overlaid blocker on Camera if overlay permission missing on personal native Android */}
+                {isNativeApp && !deviceOwnerStatus.isDeviceOwner && overlayStatus.checked && !overlayStatus.canDraw && (
+                    <div style={{
+                        position: 'absolute',
+                        inset: 0,
+                        background: 'rgba(15, 23, 42, 0.92)',
+                        backdropFilter: 'blur(6px)',
+                        padding: '24px 20px',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: '#f8fafc',
+                        zIndex: 10,
+                        textAlign: 'center'
+                    }}>
+                        <FaShieldAlt style={{ fontSize: '2.5rem', color: '#f59e0b', marginBottom: '12px' }} />
+                        <h4 style={{ margin: '0 0 8px', fontSize: '1.05rem', fontWeight: 800 }}>Lock Permission Required</h4>
+                        <p style={{ margin: '0 0 16px', fontSize: '0.84rem', color: '#94a3b8', lineHeight: 1.45, maxWidth: '280px' }}>
+                            Grant "Display over other apps" permission to activate Kiosk Lock Mode before scanning QR 1.
+                        </p>
+                        <button
+                            type="button"
+                            onClick={async () => {
+                                await Kiosk.requestOverlayPermission();
+                                setTimeout(checkDeviceProvisioning, 1500);
+                                setTimeout(checkDeviceProvisioning, 3500);
+                            }}
+                            style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '8px',
+                                padding: '10px 20px',
+                                borderRadius: '12px',
+                                background: 'linear-gradient(135deg, #f59e0b, #d97706)',
+                                color: '#ffffff',
+                                border: 'none',
+                                fontWeight: 800,
+                                fontSize: '0.9rem',
+                                cursor: 'pointer',
+                                boxShadow: '0 4px 14px rgba(245, 158, 11, 0.4)'
+                            }}
+                        >
+                            <FaShieldAlt /> Grant Permission Now
+                        </button>
+                    </div>
+                )}
+
                 {permissionDenied && (
                     <div style={{
                         position: 'absolute',
@@ -320,15 +1959,12 @@ function QrScannerApp() {
                         <FaCamera style={{ fontSize: '2.4rem', color: '#6366f1', marginBottom: '10px' }} />
                         <h4 style={{ margin: '0 0 6px', fontSize: '1rem', fontWeight: 800 }}>Tap Above to Scan</h4>
                         <p style={{ margin: '0 0 14px', fontSize: '0.82rem', color: '#94a3b8', lineHeight: 1.4, maxWidth: '300px' }}>
-                            Live WebRTC video streams require HTTPS on mobile IP. Click the <strong>"Scan QR via Device Camera"</strong> button above to scan instantly with your camera!
+                            Click <strong>"Scan QR via Device Camera"</strong> above to scan instantly with your phone camera!
                         </p>
                         <button
                             type="button"
                             onClick={() => fileInputRef.current?.click()}
                             style={{
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: '6px',
                                 padding: '10px 20px',
                                 borderRadius: '10px',
                                 background: '#6366f1',
@@ -345,48 +1981,41 @@ function QrScannerApp() {
                 )}
             </div>
 
-            {/* Error Message */}
-            {
-                cameraError && !permissionDenied && (
-                    <div style={{
-                        marginTop: '12px',
-                        padding: '10px 14px',
-                        borderRadius: '10px',
-                        background: 'rgba(239, 68, 68, 0.1)',
-                        border: '1px solid rgba(239, 68, 68, 0.25)',
-                        color: '#ef4444',
-                        fontSize: '0.84rem',
-                        fontWeight: 600,
-                        textAlign: 'left'
-                    }}>
-                        {cameraError}
-                    </div>
-                )
-            }
+            {/* Loading or Error States */}
+            {scanState === 'AUTHORIZING_QR1' && (
+                <div style={{
+                    marginTop: '16px',
+                    padding: '12px',
+                    borderRadius: '12px',
+                    background: 'rgba(99, 102, 241, 0.1)',
+                    color: '#4338ca',
+                    fontWeight: 800,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '8px'
+                }}>
+                    <FaSpinner className="fa-spin" />
+                    <span>Verifying Phase 1 Check-In &amp; Starting Kiosk Mode...</span>
+                </div>
+            )}
 
-            {/* Success Navigating Alert */}
-            {
-                isNavigating && (
-                    <div style={{
-                        marginTop: '18px',
-                        padding: '14px 18px',
-                        borderRadius: '12px',
-                        background: '#dcfce7',
-                        color: '#15803d',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: '8px',
-                        fontWeight: 800,
-                        fontSize: '0.98rem',
-                        boxShadow: '0 4px 14px rgba(22, 163, 74, 0.15)'
-                    }}>
-                        <FaCheckCircle />
-                        <span>Session QR Code Verified! Opening attendance form...</span>
-                    </div>
-                )
-            }
-        </div >
+            {errorMessage && (
+                <div style={{
+                    marginTop: '14px',
+                    padding: '12px 14px',
+                    borderRadius: '10px',
+                    background: '#fee2e2',
+                    border: '1px solid #fca5a5',
+                    color: '#b91c1c',
+                    fontSize: '0.86rem',
+                    fontWeight: 700,
+                    textAlign: 'left'
+                }}>
+                    {errorMessage}
+                </div>
+            )}
+        </div>
     );
 }
 

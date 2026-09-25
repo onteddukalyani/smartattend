@@ -232,9 +232,9 @@ export default function LecturerCourses() {
                 branch: s.branch || "CSE",
                 semester: s.semester || "1",
                 batch: s.batch || "2025",
-                hasFace: Boolean(s.faceRegistered || s.biometricEnrolled),
-                faceDescriptor: s.faceDescriptor,
-                photoURL: s.photoURL || ""
+                hasFace: Boolean(!s.faceRemovedAt && Array.isArray(s.faceDescriptor) && s.faceDescriptor.length === 128),
+                faceDescriptor: (!s.faceRemovedAt && Array.isArray(s.faceDescriptor) && s.faceDescriptor.length === 128) ? s.faceDescriptor : null,
+                photoURL: (!s.faceRemovedAt && Array.isArray(s.faceDescriptor) && s.faceDescriptor.length === 128) ? (s.photoURL || "") : ""
             }));
             setStudents(mapped);
         };

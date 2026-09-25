@@ -81,18 +81,21 @@ export default function Statistics() {
                         ? d.semester
                         : (prev?.semester || d.semester || "1");
 
-                    const isExplicitlyRemoved = Boolean(
-                        d.faceRemovedAt ||
-                        d.faceRegistered === false ||
-                        d.biometricEnrolled === false ||
-                        d.hasFaceRegistered === false ||
-                        !d.faceDescriptor ||
-                        (Array.isArray(d.faceDescriptor) && d.faceDescriptor.length !== 128)
-                    );
+                    const docVector = (Array.isArray(d.faceDescriptor) && d.faceDescriptor.length === 128)
+                        ? d.faceDescriptor
+                        : ((Array.isArray(d.descriptor) && d.descriptor.length === 128) ? d.descriptor : null);
+                    const prevVector = (Array.isArray(prev?.faceDescriptor) && prev.faceDescriptor.length === 128)
+                        ? prev.faceDescriptor
+                        : null;
+                    const finalVector = docVector || prevVector || null;
 
-                    const hasFace = !isExplicitlyRemoved && Array.isArray(d.faceDescriptor) && d.faceDescriptor.length === 128;
-                    const validDescriptor = hasFace ? d.faceDescriptor : null;
-                    const photo = isExplicitlyRemoved ? "" : ((d.photoURL && d.photoURL.length > 5) ? d.photoURL : (prev?.photoURL || d.photo || d.image || ""));
+                    const latestEnrolledAt = Math.max(d.enrolledAt || 0, prev?.enrolledAt || 0);
+                    const latestRemovedAt = Math.max(d.faceRemovedAt || 0, prev?.faceRemovedAt || 0);
+                    const isExplicitlyRemoved = Boolean(latestRemovedAt > 0 && latestRemovedAt > latestEnrolledAt && !docVector);
+
+                    const hasFace = Boolean(!isExplicitlyRemoved && finalVector && Array.isArray(finalVector) && finalVector.length === 128);
+                    const validDescriptor = hasFace ? finalVector : null;
+                    const photo = hasFace ? ((d.photoURL && d.photoURL.length > 5) ? d.photoURL : (prev?.photoURL || d.photo || d.image || "")) : "";
 
                     return {
                         ...(prev || {}),
@@ -135,21 +138,8 @@ export default function Statistics() {
 
     // Face biometric registration status detection
     const hasFaceRegistered = Boolean(
-        fetchedStudentData
-            ? (
-                !fetchedStudentData.faceRemovedAt &&
-                fetchedStudentData.faceRegistered !== false &&
-                fetchedStudentData.biometricEnrolled !== false &&
-                Array.isArray(fetchedStudentData.faceDescriptor) &&
-                fetchedStudentData.faceDescriptor.length === 128
-            )
-            : (
-                !profile?.faceRemovedAt &&
-                profile?.faceRegistered !== false &&
-                profile?.biometricEnrolled !== false &&
-                Array.isArray(profile?.faceDescriptor) &&
-                profile.faceDescriptor.length === 128
-            )
+        (!fetchedStudentData?.faceRemovedAt && Array.isArray(fetchedStudentData?.faceDescriptor) && fetchedStudentData.faceDescriptor.length === 128) ||
+        (!profile?.faceRemovedAt && Array.isArray(profile?.faceDescriptor) && profile.faceDescriptor.length === 128)
     );
 
     // Build candidate roll numbers for matching

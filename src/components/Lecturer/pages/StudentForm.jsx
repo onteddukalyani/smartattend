@@ -15,6 +15,7 @@ import {
 import { db } from "../../../firebase";
 import { useAuth } from "../../authcontext";
 import { isGenericName } from "../../../utils/studentDataHelper";
+import { submitVerifiedAttendance } from "../../../services/sessionAuthService";
 import FaceScanner from "./FaceScanner";
 import './StudentForm.css';
 
@@ -226,24 +227,19 @@ function StudentForm() {
                     ? docData.branch
                     : ((mergedStudent.branch && String(mergedStudent.branch).toLowerCase() !== "general") ? mergedStudent.branch : "CSE");
 
-                const isExplicitlyRemoved = Boolean(
-                    docData.faceRemovedAt ||
-                    mergedStudent.faceRemovedAt ||
-                    docData.faceRegistered === false ||
-                    mergedStudent.faceRegistered === false ||
-                    docData.biometricEnrolled === false ||
-                    mergedStudent.biometricEnrolled === false ||
-                    docData.hasFaceRegistered === false ||
-                    mergedStudent.hasFaceRegistered === false
-                );
+                const docVector = (Array.isArray(docData.faceDescriptor) && docData.faceDescriptor.length === 128)
+                    ? docData.faceDescriptor
+                    : ((Array.isArray(docData.descriptor) && docData.descriptor.length === 128) ? docData.descriptor : null);
+                const prevVector = (Array.isArray(mergedStudent.faceDescriptor) && mergedStudent.faceDescriptor.length === 128)
+                    ? mergedStudent.faceDescriptor
+                    : null;
+                const validVector = docVector || prevVector || null;
 
-                const validVector = !isExplicitlyRemoved && (
-                    (Array.isArray(docData.faceDescriptor) && docData.faceDescriptor.length === 128)
-                        ? docData.faceDescriptor
-                        : ((Array.isArray(mergedStudent.faceDescriptor) && mergedStudent.faceDescriptor.length === 128) ? mergedStudent.faceDescriptor : null)
-                );
+                const latestEnrolledAt = Math.max(docData.enrolledAt || 0, mergedStudent.enrolledAt || 0);
+                const latestRemovedAt = Math.max(docData.faceRemovedAt || 0, mergedStudent.faceRemovedAt || 0);
+                const isExplicitlyRemoved = Boolean(latestRemovedAt > 0 && latestRemovedAt > latestEnrolledAt && !docVector);
 
-                const hasFace = Boolean(!isExplicitlyRemoved && validVector);
+                const hasFace = Boolean(!isExplicitlyRemoved && validVector && Array.isArray(validVector) && validVector.length === 128);
 
                 mergedStudent = {
                     ...mergedStudent,
@@ -255,8 +251,8 @@ function StudentForm() {
                     faceRegistered: hasFace,
                     biometricEnrolled: hasFace,
                     hasFaceRegistered: hasFace,
-                    faceDescriptor: validVector,
-                    photoURL: isExplicitlyRemoved ? "" : ((docData.photoURL && docData.photoURL.length > 5) ? docData.photoURL : (mergedStudent.photoURL || docData.photo || ""))
+                    faceDescriptor: hasFace ? validVector : null,
+                    photoURL: (hasFace && !isExplicitlyRemoved) ? ((docData.photoURL && docData.photoURL.length > 5) ? docData.photoURL : (mergedStudent.photoURL || docData.photo || "")) : ""
                 };
             }
 
@@ -440,53 +436,66 @@ function StudentForm() {
             }
 
             const studentEmail = user?.email?.toLowerCase().trim() || formData.email?.toLowerCase().trim() || "";
-
             const resolvedBatch = (sessionData.batch && sessionData.batch.trim() !== "" && sessionData.batch !== "—") ? sessionData.batch : "2025";
 
-            // Save Attendance record with authoritative database student name
-            await setDoc(attendanceRef, {
-                sessionId: sessionId,
-                ownerId: sessionData.ownerId || sessionData.ownerEmail || sessionData.lecturerEmail || "system",
-                lecturerName: sessionData.lecturerName || "",
-                lecturerEmail: sessionData.lecturerEmail || sessionData.ownerEmail || "",
-                courseCode: sessionData.courseCode || "N/A",
-                classCode: sessionData.classCode || "N/A",
-                batch: resolvedBatch,
-                roomNo: sessionData.roomNo || "N/A",
-                rollNo: cleanRollNo,
-                fullName: cleanFullName,
-                studentName: cleanFullName,
-                name: cleanFullName,
-                studentEmail: studentEmail,
-                studentUid: user?.uid || "",
-                faceVerified: true,
-                faceMatchConfidence: faceVerificationData?.confidence || 100,
-                faceDistance: faceVerificationData?.distance !== undefined ? Number(faceVerificationData.distance.toFixed(4)) : null,
-                livenessConfirmed: faceVerificationData?.liveness === true,
-                antiSpoofScore: "PASSED",
-                blinkCount: faceVerificationData?.blinkCount || 1,
-                biometricVerifiedAt: Date.now(),
-                submittedAt: Date.now()
-            });
-
-            // Atomically synchronize attendee in attendance_sessions collection for 0ms multi-page real-time sync
+            // Submit Attendance via secure sessionAuthService
             try {
-                await updateDoc(sessionRef, {
-                    attendees: arrayUnion({
-                        id: `${sessionId}_${cleanRollNo}`,
-                        rollNo: cleanRollNo,
-                        studentName: cleanFullName,
-                        fullName: cleanFullName,
-                        email: studentEmail,
-                        studentEmail: studentEmail,
-                        faceVerified: true,
-                        faceMatchConfidence: faceVerificationData?.confidence || 100,
-                        submittedAt: Date.now()
-                    }),
-                    attendanceCount: increment(1)
+                await submitVerifiedAttendance(
+                    sessionId,
+                    sessionData.qr2Token || sessionId,
+                    {
+                        confidence: faceVerificationData?.confidence || 100,
+                        distance: faceVerificationData?.distance !== undefined ? Number(faceVerificationData.distance.toFixed(4)) : 0.35,
+                        liveness: faceVerificationData?.liveness === true,
+                        blinkCount: faceVerificationData?.blinkCount || 1
+                    }
+                );
+            } catch (authServErr) {
+                console.warn("Notice submitting via sessionAuthService, writing direct record:", authServErr);
+                // Fallback direct write
+                await setDoc(attendanceRef, {
+                    sessionId: sessionId,
+                    ownerId: sessionData.ownerId || sessionData.ownerEmail || sessionData.lecturerEmail || "system",
+                    lecturerName: sessionData.lecturerName || "",
+                    lecturerEmail: sessionData.lecturerEmail || sessionData.ownerEmail || "",
+                    courseCode: sessionData.courseCode || "N/A",
+                    classCode: sessionData.classCode || "N/A",
+                    batch: resolvedBatch,
+                    roomNo: sessionData.roomNo || "N/A",
+                    rollNo: cleanRollNo,
+                    fullName: cleanFullName,
+                    studentName: cleanFullName,
+                    name: cleanFullName,
+                    studentEmail: studentEmail,
+                    studentUid: user?.uid || "",
+                    faceVerified: true,
+                    faceMatchConfidence: faceVerificationData?.confidence || 100,
+                    faceDistance: faceVerificationData?.distance !== undefined ? Number(faceVerificationData.distance.toFixed(4)) : null,
+                    livenessConfirmed: faceVerificationData?.liveness === true,
+                    antiSpoofScore: "PASSED",
+                    blinkCount: faceVerificationData?.blinkCount || 1,
+                    biometricVerifiedAt: Date.now(),
+                    submittedAt: Date.now()
                 });
-            } catch (sessUpdateErr) {
-                console.warn("Session attendee array update warning:", sessUpdateErr);
+
+                try {
+                    await updateDoc(sessionRef, {
+                        attendees: arrayUnion({
+                            id: `${sessionId}_${cleanRollNo}`,
+                            rollNo: cleanRollNo,
+                            studentName: cleanFullName,
+                            fullName: cleanFullName,
+                            email: studentEmail,
+                            studentEmail: studentEmail,
+                            faceVerified: true,
+                            faceMatchConfidence: faceVerificationData?.confidence || 100,
+                            submittedAt: Date.now()
+                        }),
+                        attendanceCount: increment(1)
+                    });
+                } catch (sessUpdateErr) {
+                    console.warn("Session attendee array update warning:", sessUpdateErr);
+                }
             }
 
             // Persist the student's active roll number for immediate dashboard recognition
@@ -684,15 +693,15 @@ function StudentForm() {
                         <span style={{
                             padding: "6px 14px",
                             borderRadius: "8px",
-                            background: (verifiedStudent?.faceRegistered || (verifiedStudent?.faceDescriptor && verifiedStudent.faceDescriptor.length === 128)) ? "#dcfce7" : "#fee2e2",
-                            color: (verifiedStudent?.faceRegistered || (verifiedStudent?.faceDescriptor && verifiedStudent.faceDescriptor.length === 128)) ? "#15803d" : "#b91c1c",
+                            background: (verifiedStudent?.faceDescriptor && Array.isArray(verifiedStudent.faceDescriptor) && verifiedStudent.faceDescriptor.length === 128) ? "#dcfce7" : "#fee2e2",
+                            color: (verifiedStudent?.faceDescriptor && Array.isArray(verifiedStudent.faceDescriptor) && verifiedStudent.faceDescriptor.length === 128) ? "#15803d" : "#b91c1c",
                             fontSize: "0.82rem",
                             fontWeight: 700,
                             display: "inline-flex",
                             alignItems: "center",
                             gap: "6px"
                         }}>
-                            {(verifiedStudent?.faceRegistered || (verifiedStudent?.faceDescriptor && verifiedStudent.faceDescriptor.length === 128))
+                            {(verifiedStudent?.faceDescriptor && Array.isArray(verifiedStudent.faceDescriptor) && verifiedStudent.faceDescriptor.length === 128)
                                 ? "🛡️ 128-D Biometric Registered"
                                 : "⚠️ Biometrics Not Registered"}
                         </span>

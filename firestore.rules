@@ -3,57 +3,62 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    function isAuthenticated() {
-      return request.auth != null;
-    }
-
-    // Admins Collection
     match /admins/{adminId} {
-      allow read, write: if isAuthenticated();
+      allow read, write: if true;
     }
 
-    // Lecturers Collection
+    match /institution_settings/{docId} {
+      allow read, write: if true;
+    }
+
     match /lecturers/{lecturerId} {
-      allow read, write: if isAuthenticated();
+      allow read, write: if true;
     }
 
-    // Students Collection - Read & write accessible for lookups, attendance, and biometric enrollment
+    match /courses/{courseId} {
+      allow read, write: if true;
+    }
+
     match /students/{studentId} {
       allow read, write: if true;
     }
 
-    // Authorized Users Collection (Roster / Whitelist & Google Auth Sync)
-    match /authorizedUsers/{userId} {
-      allow read, write: if true;
-    }
-
-    // Users Collection (Universal User Profiles)
     match /users/{userId} {
       allow read, write: if true;
     }
 
-    // Attendance Sessions
+    match /authorizedUsers/{userId} {
+      allow read, write: if true;
+    }
+
+    // =========================================================================
+    // ATTENDANCE SESSIONS & SECURITY TOKENS
+    // =========================================================================
+
     match /attendance_sessions/{sessionId} {
-      allow read, write: if true;
+      // Authenticated users can read session documents
+      allow read: if request.auth != null;
+      allow create, update, delete: if request.auth != null;
+
+      // Private Security Tokens: NEVER readable or writable by client SDKs
+      // Only Cloud Functions Admin SDK can read/write tokens and Session PIN hashes
+      match /security/{docId} {
+        allow read, write: if false;
+      }
+
+      // Authorizations subcollection: student devices and lecturers
+      match /authorizations/{studentUid} {
+        allow read, write: if request.auth != null;
+      }
+
+      // Audit logs for release and security events
+      match /audit_logs/{logId} {
+        allow read, write: if request.auth != null;
+      }
     }
 
-    // Attendance Records
     match /attendance_records/{recordId} {
-      allow read, write: if true;
-    }
-
-    // Courses Collection
-    match /courses/{courseId} {
-      allow read: if true;
-      allow write: if isAuthenticated();
-    }
-
-    // Institution Settings
-    match /institution_settings/{docId} {
-      allow read: if true;
-      allow write: if isAuthenticated();
+      allow read, write: if request.auth != null;
     }
   }
 }
-
-

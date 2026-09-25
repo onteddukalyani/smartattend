@@ -39,8 +39,15 @@ export function LiveFaceEnrollment({
     const canvasRef = useRef(null);
     const animationRef = useRef(null);
     const fileInputRef = useRef(null);
+<<<<<<< HEAD
     const aadhaarEngineRef = useRef(null);
     const hasTriggeredCompleteRef = useRef(false);
+=======
+
+    // Dynamic Anti-Spoofing & Liveness Engine Ref
+    const livenessEngineRef = useRef(null);
+    const blinkCountRef = useRef(0);
+>>>>>>> testing-branch
 
     const [cameraActive, setCameraActive] = useState(false);
     const [cameraLoading, setCameraLoading] = useState(false);
@@ -56,6 +63,12 @@ export function LiveFaceEnrollment({
     const [isDragging, setIsDragging] = useState(false);
     const [flashEffect, setFlashEffect] = useState(false);
     const [duplicateError, setDuplicateError] = useState("");
+<<<<<<< HEAD
+=======
+    const [livenessStep, setLivenessStep] = useState("ALIGN");
+    const [livenessProgress, setLivenessProgress] = useState(15);
+    const [challengeMessage, setChallengeMessage] = useState("");
+>>>>>>> testing-branch
 
     // Aadhaar KYC Interactive State
     const [checkpoints, setCheckpoints] = useState({
@@ -74,6 +87,7 @@ export function LiveFaceEnrollment({
     useEffect(() => {
         aadhaarEngineRef.current = new AadhaarLivenessEngine({
             onStateChange: (state) => {
+<<<<<<< HEAD
                 setCheckpoints(state.checkpoints);
                 setCurrentStep(state.currentStep);
                 setCurrentPose(state.currentPose);
@@ -82,6 +96,20 @@ export function LiveFaceEnrollment({
 
                 if (!capturing && !enrolledPhoto) {
                     setStatusMessage(state.message);
+=======
+                setLivenessStep(state.step);
+                setBlinkCount(state.blinkCount);
+                blinkCountRef.current = state.blinkCount;
+                const isPassed = state.livenessConfirmed || state.blinkCount >= 1;
+                setLivenessPassed(isPassed);
+                setIsSpoof(state.spoofDetected);
+                setLivenessProgress(state.progress);
+                setChallengeMessage(state.message);
+                if (state.message) {
+                    setFaceQualityStatus(state.message);
+                }
+                if (state.statusType) {
+>>>>>>> testing-branch
                     setStatusType(state.statusType);
                 }
 
@@ -349,6 +377,17 @@ export function LiveFaceEnrollment({
     const handleCaptureFace = async () => {
         if (!videoRef.current || capturing) return;
         setDuplicateError("");
+<<<<<<< HEAD
+=======
+
+        // Check if spoof detected
+        if (isSpoof || (livenessEngineRef.current && livenessEngineRef.current.spoofDetected)) {
+            setFaceQualityStatus("⛔ Cannot enroll static photo or screen replay. Live biological face with natural blink required.");
+            setStatusType("warning");
+            return;
+        }
+
+>>>>>>> testing-branch
         setCapturing(true);
         setStatusMessage("⚡ Extracting 128-D biometric vector & verifying...");
         setStatusType("capturing");
@@ -369,15 +408,43 @@ export function LiveFaceEnrollment({
                 .withFaceLandmarks()
                 .withFaceDescriptor();
 
+<<<<<<< HEAD
             if (!detection || !detection.descriptor) {
                 setStatusMessage("❌ Face not detected clearly. Look straight into camera and retry.");
+=======
+                const detection = await faceapi
+                    .detectSingleFace(videoRef.current, new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.5 }))
+                    .withFaceLandmarks()
+                    .withFaceDescriptor();
+
+                if (detection) {
+                    capturedDescriptors.push(detection.descriptor);
+                }
+                await new Promise((r) => setTimeout(r, 140));
+            }
+
+            if (capturedDescriptors.length < 2) {
+                setFaceQualityStatus("❌ Face not clearly detected across frames. Ensure good lighting and look directly into the camera.");
+>>>>>>> testing-branch
                 setStatusType("warning");
                 setCapturing(false);
                 hasTriggeredCompleteRef.current = false;
                 return;
             }
 
+<<<<<<< HEAD
             const descriptorArray = Array.from(detection.descriptor);
+=======
+            // Average the 128-dimensional vectors
+            const avgDescriptor = new Array(128).fill(0);
+            for (let i = 0; i < 128; i++) {
+                let sum = 0;
+                for (let j = 0; j < capturedDescriptors.length; j++) {
+                    sum += capturedDescriptors[j][i];
+                }
+                avgDescriptor[i] = sum / capturedDescriptors.length;
+            }
+>>>>>>> testing-branch
 
             // DUPLICATE BIOMETRICS SECURITY CHECK
             setStatusMessage("🔍 Verifying biometric uniqueness across registry...");
@@ -412,7 +479,11 @@ export function LiveFaceEnrollment({
                     photoURL: photoDataUrl,
                     biometricEnrolled: true,
                     livenessConfirmed: true,
+<<<<<<< HEAD
                     aadhaarVerified: true,
+=======
+                    blinkCount: blinkCountRef.current || blinkCount || 1,
+>>>>>>> testing-branch
                     enrolledAt: Date.now()
                 });
             }
@@ -546,6 +617,7 @@ export function LiveFaceEnrollment({
         setEnrolledPhoto(null);
         setCapturedVector(null);
         setDuplicateError("");
+<<<<<<< HEAD
         setIsAadhaarVerified(false);
         setProgress(0);
         hasTriggeredCompleteRef.current = false;
@@ -553,6 +625,17 @@ export function LiveFaceEnrollment({
             aadhaarEngineRef.current.reset();
         }
         setStatusMessage("🎯 Step 1/4: Look straight into the camera");
+=======
+        setSelectedFileName("");
+        if (livenessEngineRef.current) {
+            livenessEngineRef.current.reset();
+        }
+        blinkCountRef.current = 0;
+        setBlinkCount(0);
+        setLivenessPassed(false);
+        setIsSpoof(false);
+        setFaceQualityStatus("Position your face in camera or upload a clear frontal photo to register biometrics.");
+>>>>>>> testing-branch
         setStatusType("ready");
         if (fileInputRef.current) {
             fileInputRef.current.value = "";

@@ -227,23 +227,26 @@ export function mergeAllStudentRecords(authDocs = [], studentsDocs = [], usersDo
                    canonicalRoll;
         }
 
-        // Check for explicit face removal flags across documents
-        const isExplicitlyRemoved = Boolean(
-            data.faceRemovedAt ||
-            existing.faceRemovedAt ||
-            data.faceRegistered === false ||
-            existing.faceRegistered === false ||
-            data.biometricEnrolled === false ||
-            existing.biometricEnrolled === false
-        );
-
         // Merge Facial Biometrics (128-D vector)
-        let faceDescriptor = null;
-        if (!isExplicitlyRemoved) {
-            const docVector = normalizeDescriptor(data.faceDescriptor);
-            const existingVector = normalizeDescriptor(existing.faceDescriptor);
-            faceDescriptor = docVector || existingVector || null;
-        }
+        const docVector = normalizeDescriptor(data.faceDescriptor) || normalizeDescriptor(data.descriptor);
+        const existingVector = normalizeDescriptor(existing.faceDescriptor) || normalizeDescriptor(existing.descriptor);
+        const faceDescriptor = docVector || existingVector || null;
+
+        const docEnrolledAt = Number(data.enrolledAt || data.faceEnrolledAt || 0) || 0;
+        const existingEnrolledAt = Number(existing.enrolledAt || existing.faceEnrolledAt || 0) || 0;
+        const latestEnrolledAt = Math.max(docEnrolledAt, existingEnrolledAt);
+
+        const docRemovedAt = Number(data.faceRemovedAt || 0) || 0;
+        const existingRemovedAt = Number(existing.faceRemovedAt || 0) || 0;
+        const latestRemovedAt = Math.max(docRemovedAt, existingRemovedAt);
+
+        // A face is explicitly removed ONLY if faceRemovedAt is strictly after enrolledAt AND neither doc has a valid vector
+        const isExplicitlyRemoved = Boolean(
+            latestRemovedAt > 0 &&
+            latestRemovedAt > latestEnrolledAt &&
+            !docVector &&
+            !existingVector
+        );
 
         const hasValidVector = Boolean(
             !isExplicitlyRemoved &&
@@ -252,9 +255,9 @@ export function mergeAllStudentRecords(authDocs = [], studentsDocs = [], usersDo
             faceDescriptor.length === 128
         );
 
-        const faceRegistered = hasValidVector;
-        const biometricEnrolled = hasValidVector;
-        const hasFaceRegistered = hasValidVector;
+        const faceRegistered = Boolean(hasValidVector || (data.faceRegistered && faceDescriptor) || (existing.faceRegistered && faceDescriptor));
+        const biometricEnrolled = faceRegistered;
+        const hasFaceRegistered = faceRegistered;
 
         let photoURL = "";
         if (!isExplicitlyRemoved) {
@@ -283,9 +286,11 @@ export function mergeAllStudentRecords(authDocs = [], studentsDocs = [], usersDo
             status: status,
             faceRegistered: faceRegistered,
             biometricEnrolled: biometricEnrolled,
-            hasFaceRegistered: faceRegistered,
+            hasFaceRegistered: hasFaceRegistered,
             faceDescriptor: hasValidVector ? faceDescriptor : null,
             photoURL: photoURL,
+            enrolledAt: latestEnrolledAt,
+            faceRemovedAt: isExplicitlyRemoved ? latestRemovedAt : null,
             role: "student"
         });
     });

@@ -9,9 +9,19 @@
  * 5. 👁️ BLINK / SMILE (EAR blink / live human reflex)
  */
 
+<<<<<<< HEAD
 export const BLINK_CLOSED_THRESHOLD = 0.21;
 export const BLINK_OPEN_THRESHOLD = 0.25;
 export const STATIC_VARIANCE_THRESHOLD = 0.00008;
+=======
+export const BLINK_CLOSED_THRESHOLD = 0.220; // Eye Aspect Ratio below this = eye closed
+export const BLINK_OPEN_THRESHOLD = 0.240;   // Eye Aspect Ratio above this = eye open
+export const STATIC_VARIANCE_THRESHOLD = 0.00010; // Zero variance across frames = flat static image
+export const YAW_CENTER_MIN = 0.75;
+export const YAW_CENTER_MAX = 1.32;
+export const YAW_LEFT_MAX = 0.70;   // Looking left (relative to camera)
+export const YAW_RIGHT_MIN = 1.38;  // Looking right (relative to camera)
+>>>>>>> testing-branch
 
 export const getDist = (p1, p2) => {
     if (!p1 || !p2) return 0;
@@ -19,11 +29,11 @@ export const getDist = (p1, p2) => {
 };
 
 export const computeEAR = (eye) => {
-    if (!eye || eye.length < 6) return 0.30;
+    if (!eye || eye.length < 6) return 0.28;
     const v1 = getDist(eye[1], eye[5]);
     const v2 = getDist(eye[2], eye[4]);
     const h = getDist(eye[0], eye[3]);
-    if (h < 1e-4) return 0.30;
+    if (h < 1e-4) return 0.28;
     return (v1 + v2) / (2.0 * h);
 };
 
@@ -102,7 +112,11 @@ export const computeMotionVariance = (history) => {
 };
 
 /**
+<<<<<<< HEAD
  * Aadhaar / KYC Interactive Multi-Angle Liveness Engine
+=======
+ * Interactive Step-by-Step Liveness Engine
+>>>>>>> testing-branch
  */
 export class AadhaarLivenessEngine {
     constructor(options = {}) {
@@ -111,6 +125,7 @@ export class AadhaarLivenessEngine {
     }
 
     reset() {
+<<<<<<< HEAD
         // Multi-Angle Checkpoints
         this.checkpoints = {
             CENTER: false,
@@ -122,11 +137,17 @@ export class AadhaarLivenessEngine {
 
         // Step Progression: "CENTER" -> "LEFT" -> "RIGHT" -> "UP" -> "BLINK" -> "COMPLETE"
         this.currentStep = "CENTER";
+=======
+        this.step = "ALIGN"; // "ALIGN" -> "BLINK" -> "PASSED"
+>>>>>>> testing-branch
         this.eyeState = "open";
         this.blinkCount = 0;
+        this.baselineEAR = 0.28;
+        this.earHistory = [];
         this.ratioHistory = [];
         this.staticFramesCount = 0;
         this.spoofDetected = false;
+<<<<<<< HEAD
         this.isComplete = false;
         this.currentPose = "CENTER";
         this.yawRatio = 1.0;
@@ -135,6 +156,15 @@ export class AadhaarLivenessEngine {
         this.message = "🎯 Step 1/4: Look straight into the camera";
         this.statusType = "ready";
         this.holdFrames = 0;
+=======
+        this.livenessConfirmed = false;
+        this.centerHoldFrames = 0;
+        this.turnDetected = false;
+        this.targetTurn = Math.random() > 0.5 ? "LEFT" : "RIGHT";
+        this.message = "Center your face in the camera frame.";
+        this.statusType = "ready";
+        this.progress = 15;
+>>>>>>> testing-branch
         this.notify();
     }
 
@@ -169,21 +199,42 @@ export class AadhaarLivenessEngine {
         this.pitchRatio = pitchRatio;
         this.currentPose = pose;
 
+<<<<<<< HEAD
         // 1. EAR Blink Tracking
+=======
+        // 1. EAR Blink Detection with dynamic baseline
+>>>>>>> testing-branch
         const leftEye = positions.slice(36, 42);
         const rightEye = positions.slice(42, 48);
         const leftEAR = computeEAR(leftEye);
         const rightEAR = computeEAR(rightEye);
         const avgEAR = (leftEAR + rightEAR) / 2.0;
 
+        // Maintain moving baseline of open eye
+        if (avgEAR > 0.20) {
+            this.earHistory.push(avgEAR);
+            if (this.earHistory.length > 25) this.earHistory.shift();
+            const sum = this.earHistory.reduce((a, b) => a + b, 0);
+            this.baselineEAR = sum / this.earHistory.length;
+        }
+
+        // Relative and absolute closed threshold
+        const closedCutoff = Math.min(BLINK_CLOSED_THRESHOLD, this.baselineEAR * 0.82);
+        const openCutoff = Math.max(BLINK_OPEN_THRESHOLD, this.baselineEAR * 0.90);
+
         let justBlinked = false;
-        if (avgEAR < BLINK_CLOSED_THRESHOLD) {
+        if (avgEAR < closedCutoff || avgEAR < 0.220) {
             this.eyeState = "closed";
-        } else if (avgEAR >= BLINK_OPEN_THRESHOLD) {
+        } else if (avgEAR >= openCutoff || avgEAR >= 0.235) {
             if (this.eyeState === "closed") {
                 this.blinkCount += 1;
                 justBlinked = true;
+<<<<<<< HEAD
                 this.checkpoints.BLINK = true;
+=======
+                this.livenessConfirmed = true;
+                this.spoofDetected = false;
+>>>>>>> testing-branch
             }
             this.eyeState = "open";
         }
@@ -194,8 +245,19 @@ export class AadhaarLivenessEngine {
         if (this.ratioHistory.length > 15) this.ratioHistory.shift();
         const variance = computeMotionVariance(this.ratioHistory);
 
+<<<<<<< HEAD
         // 3. Static Spoof Protection
         if (this.blinkCount === 0 && !this.checkpoints.LEFT && !this.checkpoints.RIGHT && variance < STATIC_VARIANCE_THRESHOLD && this.ratioHistory.length >= 12) {
+=======
+        // Natural micro-motion dynamics
+        if (variance > 0.00055 && this.ratioHistory.length >= 8) {
+            this.livenessConfirmed = true;
+            this.spoofDetected = false;
+        }
+
+        // 3. Static Spoof Detector (Freeze frame / printed photo held still)
+        if (this.blinkCount === 0 && !this.livenessConfirmed && variance < STATIC_VARIANCE_THRESHOLD && this.ratioHistory.length >= 15) {
+>>>>>>> testing-branch
             this.staticFramesCount += 1;
             if (this.staticFramesCount >= 25) {
                 this.spoofDetected = true;
@@ -209,6 +271,7 @@ export class AadhaarLivenessEngine {
             this.spoofDetected = false;
         }
 
+<<<<<<< HEAD
         // 4. Update Checkpoints dynamically based on natural motion
         if (pose === "CENTER" && yawRatio >= 0.82 && yawRatio <= 1.20 && pitchRatio >= 0.82 && pitchRatio <= 1.20) {
             this.checkpoints.CENTER = true;
@@ -221,6 +284,36 @@ export class AadhaarLivenessEngine {
         }
         if (pose === "UP" || pitchRatio > 1.22) {
             this.checkpoints.UP = true;
+=======
+        // 4. Progressive Challenge State Machine
+        if (this.livenessConfirmed || this.blinkCount >= 1) {
+            this.step = "PASSED";
+            this.livenessConfirmed = true;
+            this.spoofDetected = false;
+            this.message = `✅ Live Human Presence Verified! (${this.blinkCount > 0 ? `Blinks: ${this.blinkCount}` : "3D Motion Detected"}) 🛡️`;
+            this.statusType = "success";
+            this.progress = 100;
+        } else if (this.step === "ALIGN") {
+            const isFacingFront = yawRatio >= YAW_CENTER_MIN && yawRatio <= YAW_CENTER_MAX;
+            if (isFacingFront && box.width > 70) {
+                this.centerHoldFrames += 1;
+                if (this.centerHoldFrames >= 3) {
+                    this.step = "BLINK";
+                    this.message = "👁️ Please blink your eyes naturally.";
+                    this.statusType = "capturing";
+                    this.progress = 50;
+                }
+            } else {
+                this.centerHoldFrames = 0;
+                this.message = "Look directly forward into the camera.";
+                this.statusType = "ready";
+                this.progress = 25;
+            }
+        } else if (this.step === "BLINK") {
+            this.message = "👁️ Please blink your eyes naturally to verify live presence.";
+            this.statusType = "capturing";
+            this.progress = 65;
+>>>>>>> testing-branch
         }
 
         // 5. Guided Step Flow & Progress
