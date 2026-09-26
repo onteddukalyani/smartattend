@@ -58,6 +58,7 @@ workflows:
 
           echo "Using Real Simulator Destination: $DEST_ARG"
 
+          set -o pipefail
           xcodebuild build \
             $TARGET_ARG \
             -scheme "$XCODE_SCHEME" \
@@ -66,7 +67,13 @@ workflows:
             -derivedDataPath build \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO
+            CODE_SIGNING_ALLOWED=NO 2>&1 | tee xcodebuild.log || {
+              BUILD_STATUS=$?
+              echo "❌ Xcode build failed with exit code $BUILD_STATUS!"
+              tail -n 100 xcodebuild.log
+              grep -E -C 2 "error:" xcodebuild.log || true
+              exit $BUILD_STATUS
+            }
 
           # Ensure GoogleService-Info.plist is copied into App.app
           cp ios/App/App/GoogleService-Info.plist build/Build/Products/Release-iphonesimulator/App.app/ || true
