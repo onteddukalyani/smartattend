@@ -65,11 +65,12 @@ jobs:
             $TARGET_ARG \
             -scheme App \
             -configuration Release \
-            -destination 'generic/platform=iOS' \
+            -sdk iphoneos \
             -derivedDataPath build \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO
+            CODE_SIGNING_ALLOWED=NO \
+            AD_HOC_CODE_SIGNING_ALLOWED=YES
 
           # Create Payload directory and package into SmartAttend.ipa
           mkdir -p Payload
@@ -90,7 +91,7 @@ jobs:
             $TARGET_ARG \
             -scheme App \
             -configuration Release \
-            -destination 'generic/platform=iOS Simulator' \
+            -sdk iphonesimulator \
             -derivedDataPath build-sim \
             CODE_SIGNING_ALLOWED=NO
 
