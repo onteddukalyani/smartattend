@@ -35,7 +35,7 @@ jobs:
       - name: 🔄 Sync Capacitor iOS Platform
         run: npx cap sync ios
 
-      - name: 🛠️ Verify Xcode
+      - name: 🛠️ Verify Xcode Installation
         run: |
           xcode-select -p
           xcodebuild -version
@@ -53,7 +53,6 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO
 
-          # Create Payload directory and package into SmartAttend.ipa
           mkdir -p Payload
           cp -r build/Build/Products/Release-iphoneos/App.app Payload/SmartAttend.app
           zip -r SmartAttend.ipa Payload
@@ -72,7 +71,6 @@ jobs:
 
           zip -r SmartAttend-Simulator.zip \
             build-sim/Build/Products/Release-iphonesimulator/App.app
-
           echo "✅ SmartAttend-Simulator.zip created successfully!"
 
       - name: 📤 Upload SmartAttend.ipa Artifact (BrowserStack & LambdaTest)

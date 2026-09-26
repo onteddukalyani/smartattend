@@ -35,8 +35,14 @@ workflows:
           npx cap sync ios
       - name: Build iOS App for Testing (BrowserStack IPA)
         script: |
+          if [ -d "ios/App/App.xcworkspace" ]; then
+            TARGET_ARG="-workspace ios/App/App.xcworkspace"
+          else
+            TARGET_ARG="-project ios/App/App.xcodeproj"
+          fi
+
           xcodebuild clean build \
-            -workspace "$XCODE_WORKSPACE" \
+            $TARGET_ARG \
             -scheme "$XCODE_SCHEME" \
             -configuration Release \
             -destination 'generic/platform=iOS' \
@@ -50,17 +56,22 @@ workflows:
           zip -r SmartAttend.ipa Payload
       - name: Build iOS Simulator App (Appetize.io)
         script: |
+          if [ -d "ios/App/App.xcworkspace" ]; then
+            TARGET_ARG="-workspace ios/App/App.xcworkspace"
+          else
+            TARGET_ARG="-project ios/App/App.xcodeproj"
+          fi
+
           xcodebuild clean build \
-            -workspace "$XCODE_WORKSPACE" \
+            $TARGET_ARG \
             -scheme "$XCODE_SCHEME" \
             -configuration Release \
             -destination 'generic/platform=iOS Simulator' \
             -derivedDataPath build-sim \
             CODE_SIGNING_ALLOWED=NO
 
-          cd build-sim/Build/Products/Release-iphonesimulator
-          zip -r ../../../SmartAttend-Simulator.zip App.app
-          cd ../../..
+          zip -r SmartAttend-Simulator.zip \
+            build-sim/Build/Products/Release-iphonesimulator/App.app
     artifacts:
       - SmartAttend.ipa
       - SmartAttend-Simulator.zip
