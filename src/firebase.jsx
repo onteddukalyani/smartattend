@@ -50,26 +50,35 @@ googleProvider.setCustomParameters({
 });
 
 export const loginWithGoogle = async () => {
-  const isNative = Capacitor.isNativePlatform() || Capacitor.getPlatform() !== 'web';
-  console.log("loginWithGoogle triggered. isNative:", isNative, "Platform:", Capacitor.getPlatform());
+  const isNative = Capacitor.isNativePlatform() || (Capacitor.getPlatform && Capacitor.getPlatform() !== 'web');
+  console.log("loginWithGoogle triggered. isNative:", isNative, "Platform:", Capacitor.getPlatform ? Capacitor.getPlatform() : 'web');
 
   if (isNative) {
-    // 1. Native Google Sign-In for Android / iOS in Capacitor
-    const result = await FirebaseAuthentication.signInWithGoogle();
-    console.log("Native Google Sign-In result:", result);
-    // Extract ID token from credential
-    const idToken = result.credential?.idToken || result.idToken;
-    if (idToken) {
-      const credential = GoogleAuthProvider.credential(idToken);
-      return await signInWithCredential(auth, credential);
-    }
+    try {
+      // 1. Try Native Google Sign-In for Android / iOS in Capacitor
+      const result = await FirebaseAuthentication.signInWithGoogle();
+      console.log("Native Google Sign-In result:", result);
+      
+      const idToken = result.credential?.idToken || result.idToken;
+      if (idToken) {
+        const credential = GoogleAuthProvider.credential(idToken);
+        return await signInWithCredential(auth, credential);
+      }
 
-    // Fallback if result has user object directly
-    if (result.user) {
-      return { user: result.user };
+      if (result.user) {
+        return { user: result.user };
+      }
+      throw new Error("No credential tokens returned from native Google Sign-In.");
+    } catch (nativeErr) {
+      console.warn("Native Google Sign-In notice (attempting Web Popup fallback):", nativeErr.message || nativeErr);
+      // 2. Seamless fallback to Firebase Web popup
+      try {
+        return await signInWithPopup(auth, googleProvider);
+      } catch (webErr) {
+        console.error("Web Google popup failed:", webErr);
+        throw (nativeErr.message && !webErr.message ? nativeErr : webErr);
+      }
     }
-
-    throw new Error("Failed to receive authentication tokens from native Google Sign-In.");
   } else {
     // 2. Standard Web Browser Popup Authentication
     return await signInWithPopup(auth, googleProvider);
@@ -78,7 +87,11 @@ export const loginWithGoogle = async () => {
 
 export const loginAsGuest = async () => {
   if (Capacitor.isNativePlatform()) {
-    return await FirebaseAuthentication.signInAnonymously();
+    try {
+      return await FirebaseAuthentication.signInAnonymously();
+    } catch (err) {
+      console.warn("Native guest login fallback:", err);
+    }
   }
   return await signInAnonymously(auth);
 };

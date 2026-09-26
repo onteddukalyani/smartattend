@@ -40,13 +40,25 @@ workflows:
             TARGET_ARG="-project ios/App/App.xcodeproj"
           fi
 
-          SIM_ID=$(xcrun simctl list devices available | grep -i "iPhone" | head -n 1 | sed -E 's/.*\(([A-F0-9-]+)\).*/\1/' | xargs)
-          if [ -n "$SIM_ID" ]; then
-            DEST_ARG="id=$SIM_ID"
-          else
-            DEST_ARG="platform=iOS Simulator,name=iPhone 16"
+          # Discover real non-placeholder simulator destination directly from xcodebuild
+          DEST_ARG=$(xcodebuild -showdestinations $TARGET_ARG -scheme "$XCODE_SCHEME" 2>/dev/null | grep -i "platform:iOS Simulator" | grep -i "iPhone" | grep -v "placeholder" | head -n 1 | sed -E 's/.*id:([^,}]+).*/id=\1/' | xargs)
+
+          if [ -z "$DEST_ARG" ]; then
+            DEST_ARG=$(xcodebuild -showdestinations $TARGET_ARG -scheme "$XCODE_SCHEME" 2>/dev/null | grep -i "platform:iOS Simulator" | grep -v "placeholder" | head -n 1 | sed -E 's/.*id:([^,}]+).*/id=\1/' | xargs)
           fi
 
+          if [ -z "$DEST_ARG" ]; then
+            SIM_ID=$(xcrun simctl list devices available | grep -i "iPhone" | head -n 1 | sed -E 's/.*\(([A-F0-9-]+)\).*/\1/' | xargs)
+            if [ -n "$SIM_ID" ]; then
+              DEST_ARG="id=$SIM_ID"
+            else
+              DEST_ARG="platform=iOS Simulator,name=iPhone 16"
+            fi
+          fi
+
+          echo "Using Real Simulator Destination: $DEST_ARG"
+
+          set -o pipefail
           xcodebuild build \
             $TARGET_ARG \
             -scheme "$XCODE_SCHEME" \
@@ -55,12 +67,28 @@ workflows:
             -derivedDataPath build \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO
+            CODE_SIGNING_ALLOWED=NO 2>&1 | tee xcodebuild.log || {
+              BUILD_STATUS=$?
+              echo "❌ Xcode build failed with exit code $BUILD_STATUS!"
+              tail -n 100 xcodebuild.log
+              grep -E -C 2 "error:" xcodebuild.log || true
+              exit $BUILD_STATUS
+            }
 
+          # Ensure GoogleService-Info.plist is copied into App.app
+          cp ios/App/App/GoogleService-Info.plist build/Build/Products/Release-iphonesimulator/App.app/ || true
+
+          # 1. Ad-hoc code sign the compiled app bundle
+          codesign --force --deep --sign - build/Build/Products/Release-iphonesimulator/App.app || true
+
+          # 2. Package SmartAttend-Simulator.zip (Flat root structure for Appetize.io)
+          (cd build/Build/Products/Release-iphonesimulator && zip -qr ../../../../SmartAttend-Simulator.zip App.app)
+
+          # 3. Package SmartAttend.ipa (Standard Payload/App.app structure)
+          rm -rf Payload
           mkdir -p Payload
-          cp -r build/Build/Products/Release-iphonesimulator/App.app Payload/SmartAttend.app
-          zip -r SmartAttend.ipa Payload
-          zip -r SmartAttend-Simulator.zip build/Build/Products/Release-iphonesimulator/App.app
+          cp -r build/Build/Products/Release-iphonesimulator/App.app Payload/App.app
+          zip -qr SmartAttend.ipa Payload
     artifacts:
       - SmartAttend.ipa
       - SmartAttend-Simulator.zip

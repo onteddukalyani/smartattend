@@ -311,9 +311,21 @@ export const AuthProvider = ({ children }) => {
   // ON AUTH STATE CHANGED (FAST PROFILE CACHE + BACKGROUND REFRESH)
   // =========================================================
   useEffect(() => {
+    let isMounted = true;
+
+    // Safety timeout: Prevent splash screen from hanging on mobile cold boot
+    const safetyTimer = setTimeout(() => {
+      if (isMounted) {
+        setLoading(false);
+      }
+    }, 1500);
+
     const unsubscribe = onAuthStateChanged(
       auth,
       async (currentUser) => {
+        clearTimeout(safetyTimer);
+        if (!isMounted) return;
+
         try {
           if (!currentUser || !currentUser.email) {
             setUser(null);
@@ -340,6 +352,8 @@ export const AuthProvider = ({ children }) => {
 
           // 2. Perform fresh parallel lookup in Firestore
           const registeredUser = await lookupUserInSystem(currentUser.email);
+
+          if (!isMounted) return;
 
           if (!registeredUser) {
             console.warn("Unregistered user attempted access on session restore:", currentUser.email);
@@ -369,20 +383,30 @@ export const AuthProvider = ({ children }) => {
             localStorage.setItem(cacheKey, JSON.stringify(enrichedProfile));
           } catch (_) {}
 
-          setUser(currentUser);
-          setProfile(enrichedProfile);
+          if (isMounted) {
+            setUser(currentUser);
+            setProfile(enrichedProfile);
+          }
 
         } catch (error) {
           console.error("Error restoring authentication:", error);
-          setUser(null);
-          setProfile(null);
+          if (isMounted) {
+            setUser(null);
+            setProfile(null);
+          }
         } finally {
-          setLoading(false);
+          if (isMounted) {
+            setLoading(false);
+          }
         }
       }
     );
 
-    return () => unsubscribe();
+    return () => {
+      isMounted = false;
+      clearTimeout(safetyTimer);
+      unsubscribe();
+    };
   }, []);
 
 
