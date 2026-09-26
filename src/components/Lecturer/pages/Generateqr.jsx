@@ -12,7 +12,7 @@ import {
     releaseIndividualStudentDevice
 } from "../../../services/sessionAuthService";
 import { useAuth } from "../../authcontext";
-import { isCourseAssignedToLecturer } from "./LecturerCourses";
+import { isCourseAssignedToLecturer } from "../../Common/CoursesManager";
 import {
     FaQrcode,
     FaBookOpen,

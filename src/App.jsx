@@ -23,7 +23,7 @@ const LecturerDashboard = lazy(() => import("./components/Lecturer/LecturerDashb
 const LecturerDashboardView = lazy(() => import("./components/Lecturer/pages/Dashboard"));
 const LecturerPage = lazy(() => import("./components/Lecturer/pages/Generateqr"));
 const StudentForm = lazy(() => import("./components/Lecturer/pages/StudentForm"));
-const AttendanceData = lazy(() => import("./components/Lecturer/pages/AttendanceData"));
+const AttendanceData = lazy(() => import("./components/Admin/pages/AttendanceOverview"));
 const FaceScanner = lazy(() => import("./components/Lecturer/pages/FaceScanner"));
 const ClassesData = lazy(() => import("./components/Lecturer/pages/SessionData"));
 const SessionAttendanceData = lazy(() =>
@@ -31,7 +31,7 @@ const SessionAttendanceData = lazy(() =>
 );
 const ActiveSessions = lazy(() => import("./components/Lecturer/pages/ActiveSessions"));
 const StudentsList = lazy(() => import("./components/Lecturer/pages/StudentsList"));
-const LecturerCourses = lazy(() => import("./components/Lecturer/pages/LecturerCourses"));
+const LecturerCourses = lazy(() => import("./components/Common/CoursesManager"));
 const AddStudent = lazy(() => import("./components/Admin/pages/AddStudent"));
 
 // Student lazy imports

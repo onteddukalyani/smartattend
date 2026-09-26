@@ -14,7 +14,7 @@ import AddStudent from "./pages/AddStudent";
 import AttendanceOverview from "./pages/AttendanceOverview";
 import InstitutionSettings from "./pages/InstitutionSettings";
 import AdminProfile from "./pages/AdminProfile";
-import ManageCourses from "./pages/ManageCourses";
+import ManageCourses from "../Common/CoursesManager";
 import Settings from "../Common/Settings";
 import ClassesData, { SessionAttendanceData } from "../Lecturer/pages/SessionData";
 import "./AdminDashboard.css";
