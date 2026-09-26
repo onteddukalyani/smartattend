@@ -35,11 +35,8 @@ jobs:
       - name: 🔄 Sync Capacitor iOS Platform
         run: npx cap sync ios
 
-      - name: 🛠️ Setup Xcode Version
-        uses: maxim-lobachev/Xcode-Install-Action@v1
-        with:
-          xcode-version: 'latest-stable'
-        continue-on-error: true
+      - name: 🛠️ Verify Pre-installed Xcode
+        run: xcodebuild -version
 
       - name: 📱 Compile iOS App (Device / BrowserStack IPA)
         run: |
