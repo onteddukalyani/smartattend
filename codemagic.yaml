@@ -40,11 +40,18 @@ workflows:
             TARGET_ARG="-project ios/App/App.xcodeproj"
           fi
 
+          SIM_ID=$(xcrun simctl list devices available | grep -i "iPhone" | head -n 1 | sed -E 's/.*\(([A-F0-9-]+)\).*/\1/' | xargs)
+          if [ -n "$SIM_ID" ]; then
+            DEST_ARG="id=$SIM_ID"
+          else
+            DEST_ARG="platform=iOS Simulator,name=iPhone 16"
+          fi
+
           xcodebuild build \
             $TARGET_ARG \
             -scheme "$XCODE_SCHEME" \
             -configuration Release \
-            -destination 'generic/platform=iOS Simulator' \
+            -destination "$DEST_ARG" \
             -derivedDataPath build \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
