@@ -35,8 +35,10 @@ jobs:
       - name: 🔄 Sync Capacitor iOS Platform
         run: npx cap sync ios
 
-      - name: 🛠️ Verify Pre-installed Xcode
-        run: xcodebuild -version
+      - name: 🛠️ Verify Xcode
+        run: |
+          xcode-select -p
+          xcodebuild -version
 
       - name: 📱 Compile iOS App (Device / BrowserStack IPA)
         run: |
@@ -68,10 +70,9 @@ jobs:
             -derivedDataPath build-sim \
             CODE_SIGNING_ALLOWED=NO
 
-          # Zip App.app bundle for Appetize.io
-          cd build-sim/Build/Products/Release-iphonesimulator
-          zip -r ../../../SmartAttend-Simulator.zip App.app
-          cd ../../..
+          zip -r SmartAttend-Simulator.zip \
+            build-sim/Build/Products/Release-iphonesimulator/App.app
+
           echo "✅ SmartAttend-Simulator.zip created successfully!"
 
       - name: 📤 Upload SmartAttend.ipa Artifact (BrowserStack & LambdaTest)
