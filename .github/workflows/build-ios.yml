@@ -35,16 +35,6 @@ jobs:
       - name: 🔨 Build React Web Application
         run: npm run build
 
-      - name: ⚡ Cache Swift Packages
-        uses: actions/cache@v4
-        with:
-          path: |
-            build/SourcePackages
-            ~/Library/Caches/org.swift.swiftpm
-          key: ${{ runner.os }}-spm-${{ hashFiles('package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-spm-
-
       - name: 🔄 Sync Capacitor iOS Platform
         run: npx cap sync ios
 

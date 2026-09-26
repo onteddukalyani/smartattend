@@ -1,6 +1,5 @@
 import UIKit
 import Capacitor
-import FirebaseCore
 
 @UIApplicationMain
 class AppDelegate: UIResponder, UIApplicationDelegate {
@@ -8,14 +7,6 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     var window: UIWindow?
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
-        if FirebaseApp.app() == nil {
-            if let filePath = Bundle.main.path(forResource: "GoogleService-Info", ofType: "plist"),
-               let options = FirebaseOptions(contentsOfFile: filePath) {
-                FirebaseApp.configure(options: options)
-            } else {
-                FirebaseApp.configure()
-            }
-        }
         return true
     }
 
