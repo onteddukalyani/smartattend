@@ -98,16 +98,19 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO
 
-          # 1. Package SmartAttend.ipa (for BrowserStack & LambdaTest)
-          mkdir -p Payload
-          cp -r build/Build/Products/Release-iphonesimulator/App.app Payload/SmartAttend.app
-          zip -r SmartAttend.ipa Payload
-          echo "✅ SmartAttend.ipa created successfully!"
+          # 1. Ad-hoc code sign the compiled app bundle
+          codesign --force --deep --sign - build/Build/Products/Release-iphonesimulator/App.app || true
 
-          # 2. Package SmartAttend-Simulator.zip (for Appetize.io)
-          zip -r SmartAttend-Simulator.zip \
-            build/Build/Products/Release-iphonesimulator/App.app
-          echo "✅ SmartAttend-Simulator.zip created successfully!"
+          # 2. Package SmartAttend-Simulator.zip (Flat root structure for Appetize.io)
+          (cd build/Build/Products/Release-iphonesimulator && zip -qr ../../../../SmartAttend-Simulator.zip App.app)
+          echo "✅ SmartAttend-Simulator.zip packaged at root level!"
+
+          # 3. Package SmartAttend.ipa (Standard Payload/App.app structure)
+          rm -rf Payload
+          mkdir -p Payload
+          cp -r build/Build/Products/Release-iphonesimulator/App.app Payload/App.app
+          zip -qr SmartAttend.ipa Payload
+          echo "✅ SmartAttend.ipa created with valid bundle structure!"
 
       - name: 📤 Upload SmartAttend.ipa Artifact (BrowserStack & LambdaTest)
         uses: actions/upload-artifact@v4
