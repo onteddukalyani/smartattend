@@ -43,56 +43,56 @@ const Login = () => {
   // =====================================================
 
   const handleGoogleLogin = async () => {
-  try {
-    setError("");
+    try {
+      setError("");
 
-    if (!selectedRole) {
-      setError("Please select a role before signing in.");
-      return;
-    }
-
-    setLoading(true);
-
-    console.log("LOGIN PAGE ROLE:", selectedRole);
-
-    const authorizedUser =
-      await loginWithGoogle(selectedRole);
-
-    console.log(
-      "LOGIN SUCCESS:",
-      authorizedUser
-    );
-
-    const roleTarget = String(authorizedUser?.role || selectedRole || "student").toLowerCase().trim();
-    const pendingRedirect = sessionStorage.getItem("smartattend_redirect_after_login");
-
-    if (roleTarget === "admin" || roleTarget === "administrator" || roleTarget === "superadmin") {
-      navigate("/admin", { replace: true });
-    } else if (roleTarget === "lecturer" || roleTarget === "faculty") {
-      navigate("/lecturer", { replace: true });
-    } else {
-      if (pendingRedirect && pendingRedirect.includes("mark-attendance")) {
-        sessionStorage.removeItem("smartattend_redirect_after_login");
-        navigate(pendingRedirect, { replace: true });
-      } else {
-        navigate("/student", { replace: true });
+      if (!selectedRole) {
+        setError("Please select a role before signing in.");
+        return;
       }
+
+      setLoading(true);
+
+      console.log("LOGIN PAGE ROLE:", selectedRole);
+
+      const authorizedUser =
+        await loginWithGoogle(selectedRole);
+
+      console.log(
+        "LOGIN SUCCESS:",
+        authorizedUser
+      );
+
+      const roleTarget = String(authorizedUser?.role || selectedRole || "student").toLowerCase().trim();
+      const pendingRedirect = sessionStorage.getItem("smartattend_redirect_after_login");
+
+      if (roleTarget === "admin" || roleTarget === "administrator" || roleTarget === "superadmin") {
+        navigate("/admin", { replace: true });
+      } else if (roleTarget === "lecturer" || roleTarget === "faculty") {
+        navigate("/lecturer", { replace: true });
+      } else {
+        if (pendingRedirect && pendingRedirect.includes("mark-attendance")) {
+          sessionStorage.removeItem("smartattend_redirect_after_login");
+          navigate(pendingRedirect, { replace: true });
+        } else {
+          navigate("/student", { replace: true });
+        }
+      }
+
+    } catch (error) {
+      console.error(
+        "LOGIN ERROR:",
+        error
+      );
+
+      setError(
+        error.message || "Login failed."
+      );
+
+    } finally {
+      setLoading(false);
     }
-
-  } catch (error) {
-    console.error(
-      "LOGIN ERROR:",
-      error
-    );
-
-    setError(
-      error.message || "Login failed."
-    );
-
-  } finally {
-    setLoading(false);
-  }
-};
+  };
 
 
   return (
@@ -184,11 +184,10 @@ const Login = () => {
 
             <button
               type="button"
-              className={`login-button ${
-                selectedRole === "admin"
+              className={`login-button ${selectedRole === "admin"
                   ? "selected"
                   : ""
-              }`}
+                }`}
               onClick={() =>
                 handleRoleSelect("admin")
               }
@@ -208,11 +207,10 @@ const Login = () => {
 
             <button
               type="button"
-              className={`login-button ${
-                selectedRole === "lecturer"
+              className={`login-button ${selectedRole === "lecturer"
                   ? "selected"
                   : ""
-              }`}
+                }`}
               onClick={() =>
                 handleRoleSelect("lecturer")
               }
@@ -232,11 +230,10 @@ const Login = () => {
 
             <button
               type="button"
-              className={`login-button ${
-                selectedRole === "student"
+              className={`login-button ${selectedRole === "student"
                   ? "selected"
                   : ""
-              }`}
+                }`}
               onClick={() =>
                 handleRoleSelect("student")
               }
@@ -306,7 +303,7 @@ const Login = () => {
           {/* =================================================
               PRIVACY
           ================================================= */}
-
+          <br></br>
           <p className="login-privacy">
 
             Your account and selected role will be

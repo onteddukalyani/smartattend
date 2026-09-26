@@ -29,11 +29,6 @@ try {
   console.log('\n🔄 Step 2/3: Syncing Capacitor Android Assets...');
   execSync('npx cap sync android', { cwd: rootDir, stdio: 'inherit' });
 
-<<<<<<< HEAD
-  const gradlewCmd = process.platform === 'win32' ? '.\\gradlew.bat' : './gradlew';
-  console.log('\n🔨 Step 3/3: Compiling Android APK with Gradle clean & assembleDebug...');
-  execSync(`${gradlewCmd} clean assembleDebug --no-daemon`, { cwd: androidDir, stdio: 'inherit' });
-=======
   const cleanDirs = [
     path.join(rootDir, 'node_modules', '@capacitor', 'android', 'capacitor', 'build'),
     path.join(rootDir, 'node_modules', '@capacitor', 'android', 'build'),
@@ -58,8 +53,7 @@ try {
   } catch (_) {}
 
   console.log('\n🔨 Step 3/3: Compiling Android APK...');
-  execSync(`${gradlewCmd} clean assembleDebug --no-daemon --no-build-cache`, { cwd: androidDir, stdio: 'inherit' });
->>>>>>> testing-branch
+  execSync(`${gradlewCmd} assembleDebug --no-daemon`, { cwd: androidDir, stdio: 'inherit' });
 
   // 4. Copy to Root
   if (fs.existsSync(srcApk)) {

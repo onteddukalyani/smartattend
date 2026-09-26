@@ -12,7 +12,7 @@ function Navbar({ sidebarHidden, onMenuClick }) {
     const { user, profile } = useAuth();
     const [profileImageFailed, setProfileImageFailed] = useState(false);
     const profileName = profile?.name || (user?.isAnonymous ? "Guest" : (profile?.rollNo || "Student"));
-    const profileImage = user?.photoURL;
+    const profileImage = profile?.photoURL || profile?.photo || profile?.image || user?.photoURL;
     return (
         <header className="navbar">
 

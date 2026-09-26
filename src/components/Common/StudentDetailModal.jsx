@@ -27,6 +27,7 @@ import { useAuth } from "../authcontext";
 import { downloadExcel } from "../../DownloadExcel";
 import { useTableSort, SortIcon } from "./useTableSort";
 import { LiveFaceEnrollment } from "./LiveFaceEnrollment";
+import ProfilePhotoModal from "./ProfilePhotoModal";
 import { removeStudentFaceAndBiometrics, removeStudentPhotoOnly, checkDuplicateFaceBiometrics } from "../../utils/biometricManager";
 import { deleteStudentRecordCompletely } from "../../utils/studentDataHelper";
 import "./StudentDetailModal.css";
@@ -39,7 +40,8 @@ const StudentDetailModal = ({ student, onClose, onUpdate }) => {
   const [loading, setLoading] = useState(true);
   const [sessionsMap, setSessionsMap] = useState(new Map());
 
-  // Biometric Enrollment State
+  // Biometric Enrollment State & Photo Viewer
+  const [showPhotoModal, setShowPhotoModal] = useState(false);
   const [showFaceEnroll, setShowFaceEnroll] = useState(false);
   const [enrolledBiometric, setEnrolledBiometric] = useState(null);
   const [savingFace, setSavingFace] = useState(false);
@@ -390,7 +392,12 @@ const StudentDetailModal = ({ student, onClose, onUpdate }) => {
         {/* Header Profile Section */}
         <div className="modal-profile-header">
           <div className="modal-avatar-container-outer">
-            <div className="modal-avatar-wrapper">
+            <div
+              className="modal-avatar-wrapper"
+              onClick={() => setShowPhotoModal(true)}
+              title="Click to view full-size profile photo"
+              style={{ cursor: "pointer" }}
+            >
               {currentStudent.photoURL || currentStudent.image ? (
                 <img
                   src={currentStudent.photoURL || currentStudent.image}
@@ -748,6 +755,17 @@ const StudentDetailModal = ({ student, onClose, onUpdate }) => {
           </div>
         </div>
       </div>
+
+      {/* WhatsApp / Instagram Style Full Screen Profile Photo Viewer */}
+      <ProfilePhotoModal
+        isOpen={showPhotoModal}
+        onClose={() => setShowPhotoModal(false)}
+        photoSrc={currentStudent.photoURL || currentStudent.image}
+        name={currentStudent.name || "Student"}
+        role="student"
+        subtext={`${currentStudent.rollNo || "Student"} • ${currentStudent.branch || "CSE"} Sem ${currentStudent.semester || "1"}`}
+        canEdit={false}
+      />
     </div>
   );
 };

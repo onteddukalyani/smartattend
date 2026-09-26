@@ -99,8 +99,18 @@ export const AuthProvider = ({ children }) => {
       if (candidateDocs.length > 0) {
         let merged = {};
         let authoritativeName = "";
+        let authoritativeSemester = "";
+        let authoritativeBranch = "";
         let isExplicitlyFaceRemoved = false;
         let mostRecentRemovalTime = 0;
+
+        const studentDoc = studentRollSnap.exists() ? studentRollSnap.data() : (studentEmailDocSnap.exists() ? studentEmailDocSnap.data() : (studentPrefixSnap.exists() ? studentPrefixSnap.data() : null));
+        if (studentDoc) {
+          if (studentDoc.semester) authoritativeSemester = String(studentDoc.semester).trim();
+          if (studentDoc.branch && String(studentDoc.branch).toLowerCase() !== "general") authoritativeBranch = String(studentDoc.branch).trim();
+          if (studentDoc.name && !isGenericName(studentDoc.name, rollFromEmail, cleanEmail)) authoritativeName = String(studentDoc.name).trim();
+          if (studentDoc.fullName && !isGenericName(studentDoc.fullName, rollFromEmail, cleanEmail)) authoritativeName = String(studentDoc.fullName).trim();
+        }
 
         for (const c of candidateDocs) {
           if (!authoritativeName && c.name && !isGenericName(c.name, rollFromEmail, cleanEmail)) {
@@ -111,6 +121,12 @@ export const AuthProvider = ({ children }) => {
           }
           if (!authoritativeName && c.displayName && !isGenericName(c.displayName, rollFromEmail, cleanEmail)) {
             authoritativeName = String(c.displayName).trim();
+          }
+          if (!authoritativeSemester && c.semester) {
+            authoritativeSemester = String(c.semester).trim();
+          }
+          if (!authoritativeBranch && c.branch && String(c.branch).toLowerCase() !== "general") {
+            authoritativeBranch = String(c.branch).trim();
           }
           if (c.faceRemovedAt || c.faceRegistered === false || c.biometricEnrolled === false || c.hasFaceRegistered === false) {
             isExplicitlyFaceRemoved = true;
@@ -123,8 +139,8 @@ export const AuthProvider = ({ children }) => {
             ...c,
             faceDescriptor: c.faceDescriptor || merged.faceDescriptor,
             photoURL: c.photoURL || c.photo || c.image || merged.photoURL || "",
-            branch: (c.branch && String(c.branch).toLowerCase() !== "general") ? c.branch : (merged.branch || "CSE"),
-            semester: c.semester || merged.semester,
+            branch: authoritativeBranch || (c.branch && String(c.branch).toLowerCase() !== "general" ? c.branch : (merged.branch || "CSE")),
+            semester: authoritativeSemester || c.semester || merged.semester || "1",
             rollNo: c.rollNo || merged.rollNo || rollFromEmail,
             role: c.role || merged.role || "student"
           };
@@ -177,9 +193,16 @@ export const AuthProvider = ({ children }) => {
         !qStudentRoll.empty ? qStudentRoll.docs[0].data() : null
       ].filter(Boolean);
 
+      const studentFallback = (!qStudentRoll.empty ? qStudentRoll.docs[0].data() : (!qStudentEmail.empty ? qStudentEmail.docs[0].data() : null));
+      let authoritativeSemester = "";
+      if (studentFallback) {
+        if (studentFallback.semester) authoritativeSemester = String(studentFallback.semester).trim();
+        if (studentFallback.branch && String(studentFallback.branch).toLowerCase() !== "general") authoritativeBranch = String(studentFallback.branch).trim();
+        if (studentFallback.name && !isGenericName(studentFallback.name, rollFromEmail, cleanEmail)) authoritativeName = String(studentFallback.name).trim();
+      }
+
       if (fieldDocs.length > 0) {
         let merged = {};
-        let authoritativeName = "";
         let isExplicitlyFaceRemoved = false;
         let mostRecentRemovalTime = 0;
 
@@ -193,6 +216,12 @@ export const AuthProvider = ({ children }) => {
           if (!authoritativeName && c.displayName && !isGenericName(c.displayName, rollFromEmail, cleanEmail)) {
             authoritativeName = String(c.displayName).trim();
           }
+          if (!authoritativeSemester && c.semester) {
+            authoritativeSemester = String(c.semester).trim();
+          }
+          if (!authoritativeBranch && c.branch && String(c.branch).toLowerCase() !== "general") {
+            authoritativeBranch = String(c.branch).trim();
+          }
           if (c.faceRemovedAt || c.faceRegistered === false || c.biometricEnrolled === false || c.hasFaceRegistered === false) {
             isExplicitlyFaceRemoved = true;
             if (typeof c.faceRemovedAt === "number" && c.faceRemovedAt > mostRecentRemovalTime) {
@@ -204,8 +233,8 @@ export const AuthProvider = ({ children }) => {
             ...c,
             faceDescriptor: c.faceDescriptor || merged.faceDescriptor,
             photoURL: c.photoURL || c.photo || c.image || merged.photoURL || "",
-            branch: (c.branch && String(c.branch).toLowerCase() !== "general") ? c.branch : (merged.branch || "CSE"),
-            semester: c.semester || merged.semester,
+            branch: authoritativeBranch || ((c.branch && String(c.branch).toLowerCase() !== "general") ? c.branch : (merged.branch || "CSE")),
+            semester: authoritativeSemester || c.semester || merged.semester || "1",
             rollNo: c.rollNo || merged.rollNo || rollFromEmail,
             role: c.role || merged.role || "student"
           };
@@ -581,6 +610,219 @@ export const AuthProvider = ({ children }) => {
   };
 
   // =========================================================
+  // UPDATE PROFILE SEMESTER IN FIRESTORE & REACT STATE
+  // =========================================================
+  const updateProfileSemester = async (newSemester) => {
+    const cleanSemester = String(newSemester || "1").trim();
+    const cleanEmail = (user?.email || profile?.email || "").toLowerCase().trim();
+    const prefix = cleanEmail ? cleanEmail.split("@")[0].toLowerCase().trim() : "";
+    const role = normalizeRole(profile?.role || "student");
+    const rollNo = (profile?.rollNo || (role === "student" ? prefix.toUpperCase() : "")).trim().toUpperCase();
+
+    const updatePayload = {
+      semester: cleanSemester,
+      updatedAt: Date.now()
+    };
+
+    const promises = [];
+
+    if (rollNo) {
+      promises.push(setDoc(doc(db, "students", rollNo), updatePayload, { merge: true }).catch(() => {}));
+      promises.push(setDoc(doc(db, "users", rollNo), updatePayload, { merge: true }).catch(() => {}));
+    }
+    if (user?.uid) {
+      promises.push(setDoc(doc(db, "users", user.uid), updatePayload, { merge: true }).catch(() => {}));
+    }
+    if (prefix && prefix !== rollNo.toLowerCase()) {
+      promises.push(setDoc(doc(db, "students", prefix), updatePayload, { merge: true }).catch(() => {}));
+      promises.push(setDoc(doc(db, "users", prefix), updatePayload, { merge: true }).catch(() => {}));
+    }
+    if (cleanEmail) {
+      promises.push(setDoc(doc(db, "authorizedUsers", cleanEmail), updatePayload, { merge: true }).catch(() => {}));
+    }
+
+    await Promise.all(promises);
+
+    // Update React State immediately across the entire application
+    setProfile((prev) => ({
+      ...(prev || {}),
+      semester: cleanSemester
+    }));
+
+    // Update cache
+    if (user?.uid) {
+      try {
+        const cacheKey = `smartattend-cached-profile-${user.uid}`;
+        const cached = localStorage.getItem(cacheKey);
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          parsed.semester = cleanSemester;
+          localStorage.setItem(cacheKey, JSON.stringify(parsed));
+        }
+      } catch (_) {}
+    }
+
+    return cleanSemester;
+  };
+
+  // =========================================================
+  // UPDATE PROFILE PHOTO IN FIRESTORE & REACT STATE
+  // =========================================================
+  const updateProfilePhoto = async (photoDataUrl) => {
+    if (!photoDataUrl || typeof photoDataUrl !== "string") {
+      throw new Error("Invalid photo data.");
+    }
+    const cleanEmail = (user?.email || profile?.email || "").toLowerCase().trim();
+    const prefix = cleanEmail ? cleanEmail.split("@")[0].toLowerCase().trim() : "";
+    const role = normalizeRole(profile?.role || "student");
+    const rollNo = (profile?.rollNo || (role === "student" ? prefix.toUpperCase() : "")).trim().toUpperCase();
+
+    const photoPayload = {
+      photoURL: photoDataUrl,
+      photo: photoDataUrl,
+      image: photoDataUrl,
+      profilePic: photoDataUrl,
+      avatar: photoDataUrl,
+      updatedAt: Date.now()
+    };
+
+    const promises = [];
+
+    if (role === "student") {
+      if (rollNo) {
+        promises.push(setDoc(doc(db, "students", rollNo), photoPayload, { merge: true }));
+        promises.push(setDoc(doc(db, "users", rollNo), photoPayload, { merge: true }));
+      }
+      if (prefix && prefix !== rollNo.toLowerCase()) {
+        promises.push(setDoc(doc(db, "students", prefix), photoPayload, { merge: true }).catch(() => { }));
+        promises.push(setDoc(doc(db, "users", prefix), photoPayload, { merge: true }).catch(() => { }));
+      }
+    } else if (role === "lecturer") {
+      const lectId = profile?.id || prefix || cleanEmail;
+      promises.push(setDoc(doc(db, "lecturers", lectId), photoPayload, { merge: true }));
+      promises.push(setDoc(doc(db, "users", lectId), photoPayload, { merge: true }));
+      if (prefix && prefix !== lectId) {
+        promises.push(setDoc(doc(db, "lecturers", prefix), photoPayload, { merge: true }).catch(() => { }));
+      }
+      if (cleanEmail && cleanEmail !== lectId) {
+        promises.push(setDoc(doc(db, "lecturers", cleanEmail), photoPayload, { merge: true }).catch(() => { }));
+      }
+    } else if (role === "admin") {
+      const adminId = profile?.id || prefix || cleanEmail;
+      promises.push(setDoc(doc(db, "admins", adminId), photoPayload, { merge: true }));
+      promises.push(setDoc(doc(db, "users", adminId), photoPayload, { merge: true }));
+      if (prefix && prefix !== adminId) {
+        promises.push(setDoc(doc(db, "admins", prefix), photoPayload, { merge: true }).catch(() => { }));
+      }
+      if (cleanEmail && cleanEmail !== adminId) {
+        promises.push(setDoc(doc(db, "admins", cleanEmail), photoPayload, { merge: true }).catch(() => { }));
+      }
+    }
+
+    if (cleanEmail) {
+      promises.push(setDoc(doc(db, "authorizedUsers", cleanEmail), photoPayload, { merge: true }).catch(() => { }));
+    }
+
+    await Promise.all(promises);
+
+    // Update React State & Cache immediately across the entire application
+    setProfile((prev) => {
+      const updated = {
+        ...(prev || {}),
+        photoURL: photoDataUrl,
+        photo: photoDataUrl,
+        image: photoDataUrl,
+        profilePic: photoDataUrl,
+        avatar: photoDataUrl
+      };
+      if (user?.uid) {
+        try {
+          localStorage.setItem(`smartattend-cached-profile-${user.uid}`, JSON.stringify(updated));
+        } catch (_) {}
+      }
+      return updated;
+    });
+
+    return photoDataUrl;
+  };
+
+  // =========================================================
+  // DELETE PROFILE PHOTO IN FIRESTORE & REACT STATE
+  // =========================================================
+  const deleteProfilePhoto = async () => {
+    const cleanEmail = (user?.email || profile?.email || "").toLowerCase().trim();
+    const prefix = cleanEmail ? cleanEmail.split("@")[0].toLowerCase().trim() : "";
+    const role = normalizeRole(profile?.role || "student");
+    const rollNo = (profile?.rollNo || (role === "student" ? prefix.toUpperCase() : "")).trim().toUpperCase();
+
+    const clearPayload = {
+      photoURL: "",
+      photo: "",
+      image: "",
+      profilePic: "",
+      avatar: "",
+      updatedAt: Date.now()
+    };
+
+    const promises = [];
+
+    if (role === "student") {
+      if (rollNo) {
+        promises.push(setDoc(doc(db, "students", rollNo), clearPayload, { merge: true }));
+        promises.push(setDoc(doc(db, "users", rollNo), clearPayload, { merge: true }));
+      }
+      if (prefix && prefix !== rollNo.toLowerCase()) {
+        promises.push(setDoc(doc(db, "students", prefix), clearPayload, { merge: true }).catch(() => { }));
+        promises.push(setDoc(doc(db, "users", prefix), clearPayload, { merge: true }).catch(() => { }));
+      }
+    } else if (role === "lecturer") {
+      const lectId = profile?.id || prefix || cleanEmail;
+      promises.push(setDoc(doc(db, "lecturers", lectId), clearPayload, { merge: true }));
+      promises.push(setDoc(doc(db, "users", lectId), clearPayload, { merge: true }));
+      if (prefix && prefix !== lectId) {
+        promises.push(setDoc(doc(db, "lecturers", prefix), clearPayload, { merge: true }).catch(() => { }));
+      }
+      if (cleanEmail && cleanEmail !== lectId) {
+        promises.push(setDoc(doc(db, "lecturers", cleanEmail), clearPayload, { merge: true }).catch(() => { }));
+      }
+    } else if (role === "admin") {
+      const adminId = profile?.id || prefix || cleanEmail;
+      promises.push(setDoc(doc(db, "admins", adminId), clearPayload, { merge: true }));
+      promises.push(setDoc(doc(db, "users", adminId), clearPayload, { merge: true }));
+      if (prefix && prefix !== adminId) {
+        promises.push(setDoc(doc(db, "admins", prefix), clearPayload, { merge: true }).catch(() => { }));
+      }
+      if (cleanEmail && cleanEmail !== adminId) {
+        promises.push(setDoc(doc(db, "admins", cleanEmail), clearPayload, { merge: true }).catch(() => { }));
+      }
+    }
+
+    if (cleanEmail) {
+      promises.push(setDoc(doc(db, "authorizedUsers", cleanEmail), clearPayload, { merge: true }).catch(() => { }));
+    }
+
+    await Promise.all(promises);
+
+    // Update React State & Cache immediately across the entire application
+    setProfile((prev) => {
+      const updated = {
+        ...(prev || {}),
+        photoURL: "",
+        photo: "",
+        image: "",
+        profilePic: "",
+        avatar: ""
+      };
+      if (user?.uid) {
+        try {
+          localStorage.setItem(`smartattend-cached-profile-${user.uid}`, JSON.stringify(updated));
+        } catch (_) {}
+      }
+      return updated;
+    });
+  };
+
+  // =========================================================
   // LOGOUT
   // =========================================================
 
@@ -604,6 +846,9 @@ export const AuthProvider = ({ children }) => {
         loading,
         loginWithGoogle,
         updateProfileName,
+        updateProfileSemester,
+        updateProfilePhoto,
+        deleteProfilePhoto,
         logoutUser: handleLogout
       }}
     >

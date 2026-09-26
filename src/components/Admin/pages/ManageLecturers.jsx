@@ -676,9 +676,9 @@ const ManageLecturers = () => {
                     >
                       <td>
                         <div className="lecturer-profile-cell">
-                          {lecturer.photoURL ? (
+                          {(lecturer.photoURL || lecturer.photo || lecturer.image) ? (
                             <div className="lecturer-avatar-box">
-                              <img src={lecturer.photoURL} alt={lecturer.name} />
+                              <img src={lecturer.photoURL || lecturer.photo || lecturer.image} alt={lecturer.name} />
                               <span className={`avatar-status-dot ${lecturer.status === "active" ? "online" : "offline"}`}></span>
                             </div>
                           ) : (

@@ -43,13 +43,14 @@ import { useAuth } from "../../authcontext";
 import { downloadExcel } from "../../../DownloadExcel";
 import { useTableSort, SortIcon } from "../../Common/useTableSort";
 import { LiveFaceEnrollment } from "../../Common/LiveFaceEnrollment";
+import ProfilePhotoModal from "../../Common/ProfilePhotoModal";
 import { removeStudentPhotoOnly, checkDuplicateFaceBiometrics } from "../../../utils/biometricManager";
 import { getCandidateRolls, computeStudentMetrics } from "../studentAttendanceHelper";
 import { isGenericName } from "../../../utils/studentDataHelper";
 import "./Dashboard.css";
 
 export default function StudentDashboard() {
-    const { user, profile, updateProfileName } = useAuth();
+    const { user, profile, updateProfileName, updateProfilePhoto, deleteProfilePhoto } = useAuth();
     const navigate = useNavigate();
 
     const [courses, setCourses] = useState([]);
@@ -66,7 +67,8 @@ export default function StudentDashboard() {
     const [faceSaving, setFaceSaving] = useState(false);
     const [faceSuccessMsg, setFaceSuccessMsg] = useState("");
 
-    // Profile Photo Upload State
+    // Profile Photo Upload & View State
+    const [showPhotoModal, setShowPhotoModal] = useState(false);
     const [photoUploading, setPhotoUploading] = useState(false);
     const [photoSuccessMsg, setPhotoSuccessMsg] = useState("");
     const [photoDeleting, setPhotoDeleting] = useState(false);
@@ -107,9 +109,9 @@ export default function StudentDashboard() {
                         ? d.branch
                         : (prev?.branch || d.department || "CSE");
 
-                    const semester = (d.semester && String(d.semester).trim() && String(d.semester).trim() !== "1")
-                        ? d.semester
-                        : (prev?.semester || d.semester || "1");
+                    const semester = (d.semester !== undefined && d.semester !== null && String(d.semester).trim() !== "")
+                        ? String(d.semester).trim()
+                        : (prev?.semester || "1");
 
                     // Determine valid 128-D descriptor from current doc or preserve existing
                     const docVector = (Array.isArray(d.faceDescriptor) && d.faceDescriptor.length === 128)
@@ -163,9 +165,11 @@ export default function StudentDashboard() {
     }, [activeRollNo, user?.email]);
 
     const studentName = fetchedStudentData?.name || profile?.name || activeRollNo || "Student";
-    const rawBranch = profile?.branch || fetchedStudentData?.branch;
+    const rawBranch = fetchedStudentData?.branch || profile?.branch || fetchedStudentData?.department || profile?.department;
     const studentBranch = (rawBranch && String(rawBranch).toLowerCase() !== "general") ? rawBranch : "CSE";
-    const studentSemester = profile?.semester || fetchedStudentData?.semester || "1";
+    const studentSemester = (fetchedStudentData?.semester !== undefined && fetchedStudentData?.semester !== null && String(fetchedStudentData?.semester).trim() !== "")
+        ? String(fetchedStudentData.semester).trim()
+        : (profile?.semester ? String(profile.semester).trim() : "1");
 
     const hasFaceRegistered = Boolean(
         (!fetchedStudentData?.faceRemovedAt && Array.isArray(fetchedStudentData?.faceDescriptor) && fetchedStudentData.faceDescriptor.length === 128) ||
@@ -379,30 +383,13 @@ export default function StudentDashboard() {
                     ctx.drawImage(img, 0, 0, width, height);
                     const compressedDataUrl = canvas.toDataURL("image/jpeg", 0.85);
 
-                    const cleanEmail = (user?.email || "").toLowerCase().trim();
-                    const prefix = cleanEmail ? cleanEmail.split("@")[0] : activeRollNo.toLowerCase();
-
-                    const photoPayload = {
-                        photoURL: compressedDataUrl,
-                        updatedAt: Date.now()
-                    };
-
-                    const promises = [
-                        setDoc(doc(db, "students", activeRollNo), photoPayload, { merge: true }),
-                        setDoc(doc(db, "users", activeRollNo), photoPayload, { merge: true })
-                    ];
-                    if (cleanEmail) {
-                        promises.push(setDoc(doc(db, "authorizedUsers", cleanEmail), photoPayload, { merge: true }).catch(() => { }));
-                    }
-                    if (prefix && prefix !== activeRollNo.toLowerCase()) {
-                        promises.push(setDoc(doc(db, "students", prefix), photoPayload, { merge: true }).catch(() => { }));
-                    }
-
-                    await Promise.all(promises);
+                    await updateProfilePhoto(compressedDataUrl);
 
                     setFetchedStudentData((prev) => ({
                         ...(prev || {}),
-                        photoURL: compressedDataUrl
+                        photoURL: compressedDataUrl,
+                        photo: compressedDataUrl,
+                        image: compressedDataUrl
                     }));
 
                     setPhotoSuccessMsg("✅ Profile photo updated successfully!");
@@ -424,6 +411,7 @@ export default function StudentDashboard() {
 
         try {
             setPhotoDeleting(true);
+            await deleteProfilePhoto();
             await removeStudentPhotoOnly({ rollNo: activeRollNo, email: user?.email });
             setFetchedStudentData((prev) => ({
                 ...(prev || {}),
@@ -481,10 +469,16 @@ export default function StudentDashboard() {
 
                             return (
                                 <>
-                                    <div className="student-hero-avatar" style={{
-                                        overflow: "hidden",
-                                        background: hasActivePhoto && photoSrc ? "#0f172a" : "linear-gradient(135deg, var(--accent, #6366f1), #4338ca)"
-                                    }}>
+                                    <div
+                                        className="student-hero-avatar"
+                                        onClick={() => setShowPhotoModal(true)}
+                                        title="Click to view full-size profile photo"
+                                        style={{
+                                            overflow: "hidden",
+                                            background: hasActivePhoto && photoSrc ? "#0f172a" : "linear-gradient(135deg, var(--accent, #6366f1), #4338ca)",
+                                            cursor: "pointer"
+                                        }}
+                                    >
                                         {hasActivePhoto && photoSrc ? (
                                             <img
                                                 src={photoSrc}
@@ -497,7 +491,7 @@ export default function StudentDashboard() {
                                     </div>
 
                                     {/* Profile Photo Actions */}
-                                    <div style={{ position: "absolute", bottom: "-4px", right: "-6px", display: "flex", gap: "4px", alignItems: "center" }}>
+                                    <div style={{ position: "absolute", bottom: "-4px", right: "-6px", display: "flex", gap: "4px", alignItems: "center" }} onClick={(e) => e.stopPropagation()}>
                                         {hasActivePhoto && (
                                             <button
                                                 type="button"
@@ -1321,6 +1315,21 @@ export default function StudentDashboard() {
                     </div>
                 </div>
             )}
+
+            {/* WhatsApp / Instagram Style Full Screen Profile Photo Viewer */}
+            <ProfilePhotoModal
+                isOpen={showPhotoModal}
+                onClose={() => setShowPhotoModal(false)}
+                photoSrc={fetchedStudentData?.photoURL || (fetchedStudentData === null ? (profile?.photoURL || user?.photoURL) : "")}
+                name={studentName}
+                role="student"
+                subtext={`${activeRollNo} • ${studentBranch} Sem ${studentSemester}`}
+                canEdit={true}
+                onUpload={handleProfilePhotoUpload}
+                onDelete={handleDeleteProfilePhoto}
+                uploading={photoUploading}
+                deleting={photoDeleting}
+            />
         </div>
     );
 }

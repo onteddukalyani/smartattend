@@ -396,16 +396,19 @@
 
 .search-field-icon {
     position: absolute;
-    left: 14px;
+    left: 16px;
+    top: 50%;
+    transform: translateY(-50%);
     color: var(--accent, #6366f1);
-    font-size: 0.95rem;
+    font-size: 1rem;
     pointer-events: none;
+    z-index: 2;
 }
 
 .search-input-field {
     width: 100%;
     box-sizing: border-box;
-    padding: 12px 38px 12px 42px;
+    padding: 12px 38px 12px 48px !important;
     font-size: 0.92rem;
     border: 1.5px solid var(--border, #cbd5e1);
     border-radius: 12px;
@@ -876,18 +879,28 @@
     display: flex;
     flex-direction: column;
     gap: 3px;
+    min-width: 0;
+    max-width: 280px;
 }
 
 .student-name {
-    font-size: 0.98rem;
+    font-size: 0.96rem;
     font-weight: 750;
     color: var(--text-main, #0f172a);
     letter-spacing: -0.01em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: block;
+    max-width: 100%;
 }
 
 .student-email {
     font-size: 0.8rem;
     color: var(--text-muted, #64748b);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 /* Branch & Semester Badges */
@@ -1166,9 +1179,14 @@
 
 .card-student-name {
     margin: 0;
-    font-size: 1.05rem;
+    font-size: 1.02rem;
     font-weight: 800;
     color: var(--text-main, #0f172a);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: block;
+    max-width: 100%;
 }
 
 .card-roll-badge {

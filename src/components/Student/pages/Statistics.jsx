@@ -77,9 +77,9 @@ export default function Statistics() {
                         ? d.branch
                         : (prev?.branch || d.department || "CSE");
 
-                    const semester = (d.semester && String(d.semester).trim() && String(d.semester).trim() !== "1")
-                        ? d.semester
-                        : (prev?.semester || d.semester || "1");
+                    const semester = (d.semester !== undefined && d.semester !== null && String(d.semester).trim() !== "")
+                        ? String(d.semester).trim()
+                        : (prev?.semester || "1");
 
                     const docVector = (Array.isArray(d.faceDescriptor) && d.faceDescriptor.length === 128)
                         ? d.faceDescriptor
@@ -132,9 +132,11 @@ export default function Statistics() {
     }, [activeRollNo, user?.email]);
 
     const studentName = fetchedStudentData?.name || profile?.name || activeRollNo || "Student";
-    const rawBranch = profile?.branch || fetchedStudentData?.branch;
+    const rawBranch = fetchedStudentData?.branch || profile?.branch || fetchedStudentData?.department || profile?.department;
     const studentBranch = (rawBranch && String(rawBranch).toLowerCase() !== "general") ? rawBranch : "CSE";
-    const studentSemester = profile?.semester || fetchedStudentData?.semester || "1";
+    const studentSemester = (fetchedStudentData?.semester !== undefined && fetchedStudentData?.semester !== null && String(fetchedStudentData?.semester).trim() !== "")
+        ? String(fetchedStudentData.semester).trim()
+        : (profile?.semester ? String(profile.semester).trim() : "1");
 
     // Face biometric registration status detection
     const hasFaceRegistered = Boolean(

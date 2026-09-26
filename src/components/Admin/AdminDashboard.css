@@ -2334,4 +2334,25 @@
   text-align-last: left;
   line-height: 1.5;
   transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-}
+}
+
+/* Ensure search inputs with icons inside admin pages always retain proper left padding */
+.admin-content .search-box-container input,
+.admin-content .search-input-field,
+.admin-content .cm-search-input,
+.admin-content .cm-search-wrap input,
+.admin-content .admin-search-box input,
+.admin-content .search-box input,
+.admin-content .ao-search-input,
+.admin-content input.search-input-field,
+.admin-content input.cm-search-input {
+  padding-left: 46px !important;
+  padding-right: 36px !important;
+}
+
+.admin-content .modern-search-box input {
+  padding: 8px 10px 8px 6px !important;
+  border: none !important;
+  background: transparent !important;
+}
+

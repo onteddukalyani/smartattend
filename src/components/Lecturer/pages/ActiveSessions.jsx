@@ -77,7 +77,7 @@ function ActiveSessions() {
                 <div className="active-sessions-heading">
                     <div>
                         <p className="dashboard-section-kicker">LIVE ATTENDANCE</p>
-                        <h2>Active session QR codes</h2>
+                        <h2>Active Session QR Codes</h2>
                     </div>
                     <Link to="/lecturer/lecturerpage" className="new-session-link">
                         + Generate New QR
@@ -85,49 +85,26 @@ function ActiveSessions() {
                 </div>
 
                 {activeSessions.length === 0 ? (
-                    <div style={{
-                        padding: "32px 20px",
-                        background: "var(--surface-soft, #f8fafc)",
-                        border: "1.5px dashed var(--border, #cbd5e1)",
-                        borderRadius: "16px",
-                        textAlign: "center",
-                        margin: "16px 0 32px"
-                    }}>
-                        <FaQrcode style={{ fontSize: "2.5rem", color: "#6366f1", marginBottom: "12px", opacity: 0.8 }} />
-                        <h3 style={{ margin: "0 0 6px", fontSize: "1.15rem", fontWeight: 800, color: "var(--text-main, #0f172a)" }}>
-                            No Live Active Sessions
-                        </h3>
-                        <p style={{ margin: "0 0 16px", fontSize: "0.88rem", color: "var(--text-muted, #64748b)" }}>
-                            Attendance QR codes remain live for 2 minutes upon creation. Start a new session below to generate an active QR code.
+                    <div className="active-empty-box">
+                        <FaQrcode className="active-empty-icon" />
+                        <h3>No Active Live Sessions</h3>
+                        <p>
+                            Attendance QR codes remain live for the configured session duration. Start a new session to generate an active QR.
                         </p>
-                        <Link
-                            to="/lecturer/lecturerpage"
-                            style={{
-                                display: "inline-flex",
-                                alignItems: "center",
-                                gap: "8px",
-                                padding: "10px 20px",
-                                borderRadius: "10px",
-                                background: "linear-gradient(135deg, #6366f1, #4f46e5)",
-                                color: "#ffffff",
-                                textDecoration: "none",
-                                fontWeight: 700,
-                                fontSize: "0.9rem"
-                            }}
-                        >
-                            <FaQrcode /> Start Class Session
+                        <Link to="/lecturer/lecturerpage" className="active-start-btn">
+                            <FaQrcode /> Start New Session
                         </Link>
                     </div>
                 ) : (
                     <div className="active-sessions-grid">
                         {activeSessions.map((session) => (
                             <Link to={`/lecturer/attendance-sessions/${session.id}`} className="active-session-card" key={session.id}>
-                                <QRCodeCanvas value={`${window.location.origin}/student-form?session=${session.id}`} size={150} />
-                                <div>
+                                <QRCodeCanvas value={`${window.location.origin}/student/mark-attendance?session=${encodeURIComponent(session.id)}`} size={140} />
+                                <div className="active-session-meta">
                                     <strong>{session.courseCode || session.classCode || "Class"}</strong>
                                     <span>Room {session.roomNo || "N/A"} · {session.classCode || "CSE"}</span>
-                                    <small style={{ color: "#10b981", fontWeight: 700 }}>
-                                        <FaClock /> Expires {new Date(session.expiresAt).toLocaleTimeString()}
+                                    <small className="active-session-expiry">
+                                        <FaClock /> Expires {session.expiresAt ? new Date(session.expiresAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "Soon"}
                                     </small>
                                 </div>
                             </Link>
@@ -137,53 +114,37 @@ function ActiveSessions() {
 
                 {/* Recent Sessions List for Quick Access */}
                 {recentSessions.length > 0 && (
-                    <div style={{ marginTop: "32px", textAlign: "left" }}>
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "14px" }}>
-                            <h3 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 800, color: "var(--text-main, #0f172a)" }}>
-                                Recent Class Sessions
-                            </h3>
-                            <Link to="/lecturer/attendance-sessions" style={{ fontSize: "0.85rem", color: "#6366f1", fontWeight: 700, textDecoration: "none" }}>
+                    <div className="active-recent-section">
+                        <div className="active-recent-header">
+                            <h3>Recent Class Sessions</h3>
+                            <Link to="/lecturer/attendance-sessions" className="active-view-all-link">
                                 View All Classes →
                             </Link>
                         </div>
 
-                        <div style={{
-                            display: "grid",
-                            gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))",
-                            gap: "14px"
-                        }}>
+                        <div className="active-recent-grid">
                             {recentSessions.map((session) => {
                                 const sDate = session.createdAt ? new Date(session.createdAt) : null;
                                 return (
                                     <Link
                                         key={session.id}
                                         to={`/lecturer/attendance-sessions/${session.id}`}
-                                        style={{
-                                            display: "block",
-                                            padding: "14px 16px",
-                                            background: "var(--surface, #ffffff)",
-                                            border: "1.5px solid var(--border, #e2e8f0)",
-                                            borderRadius: "14px",
-                                            textDecoration: "none",
-                                            color: "inherit",
-                                            boxShadow: "0 2px 8px rgba(0, 0, 0, 0.04)",
-                                            transition: "all 0.2s ease"
-                                        }}
+                                        className="active-recent-card"
                                     >
-                                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "6px" }}>
-                                            <strong style={{ fontSize: "0.95rem", color: "#6366f1" }}>
+                                        <div className="active-recent-top">
+                                            <strong>
                                                 {session.courseCode || session.classCode || "Class Session"}
                                             </strong>
-                                            <span style={{ fontSize: "0.76rem", padding: "2px 8px", borderRadius: "6px", background: "rgba(99, 102, 241, 0.1)", color: "#6366f1", fontWeight: 700 }}>
+                                            <span className="active-recent-badge">
                                                 Batch {session.batch || "2025"}
                                             </span>
                                         </div>
-                                        <div style={{ fontSize: "0.82rem", color: "var(--text-muted, #64748b)", display: "flex", gap: "10px", marginBottom: "6px" }}>
+                                        <div className="active-recent-details">
                                             <span><FaDoorOpen /> Room {session.roomNo || "N/A"}</span>
                                             <span>• {session.classCode || "General"}</span>
                                         </div>
-                                        <div style={{ fontSize: "0.76rem", color: "var(--text-muted, #94a3b8)" }}>
-                                            {sDate ? sDate.toLocaleString() : "Date N/A"}
+                                        <div className="active-recent-time">
+                                            {sDate ? sDate.toLocaleDateString() : "Date N/A"} {sDate ? sDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""}
                                         </div>
                                     </Link>
                                 );
@@ -196,4 +157,4 @@ function ActiveSessions() {
     );
 }
 
-export default ActiveSessions;
+export default ActiveSessions;

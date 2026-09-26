@@ -1,0 +1,307 @@
+/* =========================================================
+   WHATSAPP & INSTAGRAM STYLE PROFILE PHOTO VIEWER MODAL
+   ========================================================= */
+
+.wa-dp-backdrop {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(8, 12, 22, 0.92);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+    z-index: 99999;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    align-items: center;
+    padding: clamp(16px, 3vw, 28px);
+    box-sizing: border-box;
+    animation: waDpFadeIn 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes waDpFadeIn {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+
+/* ---------------------------------------------------------
+   Top Bar Header
+   --------------------------------------------------------- */
+.wa-dp-top-bar {
+    width: 100%;
+    max-width: 900px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 18px;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 18px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+    z-index: 10;
+}
+
+.wa-dp-user-meta {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    min-width: 0;
+}
+
+.wa-dp-mini-avatar {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #6366f1, #4338ca);
+    color: #ffffff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    font-weight: 800;
+    overflow: hidden;
+    flex-shrink: 0;
+    border: 2px solid rgba(255, 255, 255, 0.25);
+}
+
+.wa-dp-mini-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.wa-dp-title-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.wa-dp-name {
+    margin: 0;
+    color: #ffffff;
+    font-size: clamp(1rem, 1.8vw, 1.25rem);
+    font-weight: 800;
+    letter-spacing: -0.01em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.wa-dp-sub-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.wa-dp-role-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 0.72rem;
+    font-weight: 800;
+    padding: 2px 8px;
+    border-radius: 6px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.wa-dp-role-badge.role-student {
+    background: rgba(16, 185, 129, 0.22);
+    color: #34d399;
+    border: 1px solid rgba(16, 185, 129, 0.4);
+}
+
+.wa-dp-role-badge.role-lecturer,
+.wa-dp-role-badge.role-faculty {
+    background: rgba(14, 165, 233, 0.22);
+    color: #38bdf8;
+    border: 1px solid rgba(14, 165, 233, 0.4);
+}
+
+.wa-dp-role-badge.role-admin {
+    background: rgba(99, 102, 241, 0.22);
+    color: #a5b4fc;
+    border: 1px solid rgba(99, 102, 241, 0.4);
+}
+
+.wa-dp-subtext {
+    font-size: 0.78rem;
+    color: #cbd5e1;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-weight: 600;
+}
+
+.wa-dp-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.wa-dp-action-icon-btn {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    color: #ffffff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 15px;
+    cursor: pointer;
+    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.wa-dp-action-icon-btn:hover {
+    background: rgba(255, 255, 255, 0.22);
+    transform: scale(1.08);
+}
+
+.wa-dp-action-icon-btn.close-btn:hover {
+    background: #ef4444;
+    border-color: #ef4444;
+    color: #ffffff;
+}
+
+/* ---------------------------------------------------------
+   Central Photo Container
+   --------------------------------------------------------- */
+.wa-dp-content-wrapper {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    max-width: 900px;
+    margin: 16px 0;
+    position: relative;
+}
+
+.wa-dp-image-container {
+    width: min(85vw, 480px);
+    height: min(85vw, 480px);
+    max-height: 56vh;
+    border-radius: 28px;
+    overflow: hidden;
+    background: #0f172a;
+    border: 3px solid rgba(255, 255, 255, 0.15);
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.65), 0 0 40px rgba(99, 102, 241, 0.15);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: waDpZoom 0.26s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes waDpZoom {
+    from {
+        transform: scale(0.85);
+        opacity: 0.4;
+    }
+    to {
+        transform: scale(1);
+        opacity: 1;
+    }
+}
+
+.wa-dp-full-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+    user-select: none;
+    -webkit-user-drag: none;
+}
+
+.wa-dp-placeholder-big {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+}
+
+.wa-dp-initial-big {
+    width: 120px;
+    height: 120px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #6366f1, #4338ca);
+    color: #ffffff;
+    font-size: 56px;
+    font-weight: 800;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 8px 30px rgba(99, 102, 241, 0.35);
+}
+
+.wa-dp-no-photo-txt {
+    color: #94a3b8;
+    font-size: 0.95rem;
+    font-weight: 600;
+    margin: 0;
+}
+
+/* ---------------------------------------------------------
+   Bottom Action Controls
+   --------------------------------------------------------- */
+.wa-dp-bottom-controls {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-top: 20px;
+    flex-wrap: wrap;
+    justify-content: center;
+}
+
+.wa-dp-bottom-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 20px;
+    border-radius: 999px;
+    font-size: 0.9rem;
+    font-weight: 750;
+    cursor: pointer;
+    border: none;
+    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+}
+
+.wa-dp-bottom-btn.upload-btn {
+    background: linear-gradient(135deg, #6366f1, #4f46e5);
+    color: #ffffff;
+}
+
+.wa-dp-bottom-btn.upload-btn:hover {
+    background: linear-gradient(135deg, #4f46e5, #4338ca);
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(99, 102, 241, 0.4);
+}
+
+.wa-dp-bottom-btn.delete-btn {
+    background: rgba(239, 68, 68, 0.18);
+    color: #fca5a5;
+    border: 1px solid rgba(239, 68, 68, 0.4);
+}
+
+.wa-dp-bottom-btn.delete-btn:hover {
+    background: #ef4444;
+    color: #ffffff;
+    border-color: #ef4444;
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(239, 68, 68, 0.4);
+}

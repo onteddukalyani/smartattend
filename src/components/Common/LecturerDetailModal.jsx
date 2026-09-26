@@ -20,6 +20,7 @@ import { db } from "../../firebase";
 import { downloadExcel } from "../../DownloadExcel";
 import { useTableSort, SortIcon } from "./useTableSort";
 import { buildUserLookupMaps, normalizeSessions, doesSessionBelongToLecturer } from "./sessionMatcher";
+import ProfilePhotoModal from "./ProfilePhotoModal";
 import "./StudentDetailModal.css";
 
 const LecturerDetailModal = ({ lecturer, onClose }) => {
@@ -27,6 +28,7 @@ const LecturerDetailModal = ({ lecturer, onClose }) => {
   const [attendancesCountMap, setAttendancesCountMap] = useState(new Map());
   const [totalAttendees, setTotalAttendees] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [showPhotoModal, setShowPhotoModal] = useState(false);
 
   const sessionRows = React.useMemo(() => {
     return sessions.map((sess) => ({
@@ -151,10 +153,15 @@ const LecturerDetailModal = ({ lecturer, onClose }) => {
 
         {/* Header Profile Section */}
         <div className="modal-profile-header">
-          <div className="modal-avatar-wrapper lecturer-avatar-theme">
-            {lecturer.photoURL ? (
+          <div
+            className="modal-avatar-wrapper lecturer-avatar-theme"
+            onClick={() => setShowPhotoModal(true)}
+            title="Click to view full-size profile photo"
+            style={{ cursor: "pointer" }}
+          >
+            {(lecturer.photoURL || lecturer.photo || lecturer.image) ? (
               <img
-                src={lecturer.photoURL}
+                src={lecturer.photoURL || lecturer.photo || lecturer.image}
                 alt={lecturer.name}
                 className="modal-avatar-img"
               />
@@ -388,6 +395,17 @@ const LecturerDetailModal = ({ lecturer, onClose }) => {
           </div>
         </div>
       </div>
+
+      {/* WhatsApp / Instagram Style Full Screen Profile Photo Viewer */}
+      <ProfilePhotoModal
+        isOpen={showPhotoModal}
+        onClose={() => setShowPhotoModal(false)}
+        photoSrc={lecturer.photoURL || lecturer.photo || lecturer.image}
+        name={lecturer.name || "Faculty Member"}
+        role="lecturer"
+        subtext={`${lecturer.designation || "Lecturer"} • ${lecturer.department || "CSE"}`}
+        canEdit={false}
+      />
     </div>
   );
 };

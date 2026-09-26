@@ -39,9 +39,29 @@ import {
 import { db } from "../../firebase";
 import { useAuth } from "../authcontext";
 import { downloadExcel } from "../../DownloadExcel";
-import StudentDetailModal from "./StudentDetailModal";
 import { mergeAllStudentRecords } from "../../utils/studentDataHelper";
 import "./CoursesManager.css";
+
+export function normalizeCourseDepartment(dept) {
+  if (!dept) return "CSE";
+  const str = String(dept).trim().toUpperCase();
+  if (!str) return "CSE";
+
+  if (str === "CSE" || str === "CSE-A" || str === "CSE-B" || str === "CE") return "CSE";
+  if (str === "ECE") return "ECE";
+  if (str === "DSAI") return "DSAI";
+  if (str === "AIC") return "AIC";
+  if (str === "GENERAL") return "CSE";
+
+  const clean = str.replace(/[^A-Z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+
+  if (clean.includes("CYBERNETIC") || clean.includes("AIC")) return "AIC";
+  if (clean.includes("DATA SCIENCE") || clean.includes("DSAI") || clean.includes("ARTIFICIAL INTELLIGENCE")) return "DSAI";
+  if (clean.includes("ELECTRONIC") || clean.includes("COMMUNICATION") || clean.includes("ECE")) return "ECE";
+  if (clean.includes("COMPUTER") || clean.includes("CSE") || clean.includes("SOFTWARE") || clean === "CE") return "CSE";
+
+  return "CSE";
+}
 
 export function normalizeCode(str) {
   if (!str) return "";
@@ -287,7 +307,7 @@ export default function CoursesManager() {
       const payload = {
         code: cleanCode,
         name: formData.name.trim(),
-        department: formData.department.trim().toUpperCase(),
+        department: normalizeCourseDepartment(formData.department),
         semester: parseInt(formData.semester, 10) || 4,
         credits: parseInt(formData.credits, 10) || 4,
         description: formData.description.trim(),
@@ -499,24 +519,26 @@ export default function CoursesManager() {
 
       {/* Toolbar & Filters */}
       <div className="cm-toolbar">
-        {isCurrentLecturer ? (
-          <div className="cm-tabs">
-            <button
-              type="button"
-              className={`cm-tab-btn ${activeTab === "my" ? "active" : ""}`}
-              onClick={() => setActiveTab("my")}
-            >
-              <FaChalkboardTeacher /> My Courses ({stats.myCount})
-            </button>
-            <button
-              type="button"
-              className={`cm-tab-btn ${activeTab === "all" ? "active" : ""}`}
-              onClick={() => setActiveTab("all")}
-            >
-              <FaBookOpen /> All Courses ({stats.total})
-            </button>
-          </div>
-        ) : (
+        <div className="cm-toolbar-left">
+          {isCurrentLecturer && (
+            <div className="cm-scope-tabs">
+              <button
+                type="button"
+                className={`cm-scope-btn ${activeTab === "my" ? "active" : ""}`}
+                onClick={() => setActiveTab("my")}
+              >
+                <FaChalkboardTeacher /> My Courses ({stats.myCount})
+              </button>
+              <button
+                type="button"
+                className={`cm-scope-btn ${activeTab === "all" ? "active" : ""}`}
+                onClick={() => setActiveTab("all")}
+              >
+                <FaBookOpen /> All Courses ({stats.total})
+              </button>
+            </div>
+          )}
+
           <div className="cm-tabs">
             <button
               type="button"
@@ -546,8 +568,15 @@ export default function CoursesManager() {
             >
               ECE
             </button>
+            <button
+              type="button"
+              className={`cm-tab-btn ${selectedDept === "AIC" ? "active" : ""}`}
+              onClick={() => setSelectedDept("AIC")}
+            >
+              AIC
+            </button>
           </div>
-        )}
+        </div>
 
         <div className="cm-filter-controls">
           <div className="cm-search-wrap">
@@ -615,7 +644,7 @@ export default function CoursesManager() {
                       <FaBookOpen /> {course.code}
                     </span>
                     <span className="cm-course-dept-badge">
-                      {course.department || "CSE"} · Sem {course.semester || 4}
+                      {normalizeCourseDepartment(course.department)} · Sem {course.semester || 4}
                     </span>
                   </div>
 
@@ -735,10 +764,10 @@ export default function CoursesManager() {
                       onChange={(e) => setFormData((p) => ({ ...p, department: e.target.value }))}
                       required
                     >
-                      <option value="CSE">Computer Science (CSE)</option>
-                      <option value="DSAI">Data Science &amp; AI (DSAI)</option>
-                      <option value="ECE">Electronics (ECE)</option>
-                      <option value="GENERAL">General / Foundation</option>
+                      <option value="CSE">CSE</option>
+                      <option value="DSAI">DSAI</option>
+                      <option value="ECE">ECE</option>
+                      <option value="AIC">AIC</option>
                     </select>
                   </div>
                 </div>

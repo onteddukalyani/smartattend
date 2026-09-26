@@ -31,6 +31,7 @@ import { db } from "../../../firebase";
 import { useAuth } from "../../authcontext";
 import { useTableSort, SortIcon } from "../../Common/useTableSort";
 import { downloadExcel } from "../../../DownloadExcel";
+import ProfilePhotoModal from "../../Common/ProfilePhotoModal";
 import "./ManageAdmins.css";
 
 const ManageAdmins = () => {
@@ -41,6 +42,7 @@ const ManageAdmins = () => {
   const [statusFilter, setStatusFilter] = useState("all"); // "all" | "active" | "disabled"
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState(null);
+  const [viewingPhotoAdmin, setViewingPhotoAdmin] = useState(null);
 
   useEffect(() => {
     loadAdmins();
@@ -523,17 +525,19 @@ const ManageAdmins = () => {
                     <tr key={adminUser.id} className={isCurrent ? "row-current-admin" : ""}>
                       <td>
                         <div className="admin-profile-row">
-                          {adminUser.photoURL ? (
-                            <div className="admin-avatar-box">
+                          <div
+                            className={`admin-avatar-box ${!adminUser.photoURL ? "avatar-fallback" : ""}`}
+                            onClick={() => setViewingPhotoAdmin(adminUser)}
+                            title="Click to view full-size profile photo"
+                            style={{ cursor: "pointer" }}
+                          >
+                            {adminUser.photoURL ? (
                               <img src={adminUser.photoURL} alt={adminUser.name} />
-                              <span className={`avatar-status-dot ${adminUser.status === "active" ? "online" : "offline"}`}></span>
-                            </div>
-                          ) : (
-                            <div className="admin-avatar-box avatar-fallback">
+                            ) : (
                               <FaUserShield />
-                              <span className={`avatar-status-dot ${adminUser.status === "active" ? "online" : "offline"}`}></span>
-                            </div>
-                          )}
+                            )}
+                            <span className={`avatar-status-dot ${adminUser.status === "active" ? "online" : "offline"}`}></span>
+                          </div>
 
                           <div className="admin-text-details">
                             <div className="admin-name-heading">
@@ -630,6 +634,17 @@ const ManageAdmins = () => {
           </div>
         )}
       </div>
+
+      {/* WhatsApp / Instagram Style Full Screen Profile Photo Viewer */}
+      <ProfilePhotoModal
+        isOpen={Boolean(viewingPhotoAdmin)}
+        onClose={() => setViewingPhotoAdmin(null)}
+        photoSrc={viewingPhotoAdmin?.photoURL || viewingPhotoAdmin?.photo || viewingPhotoAdmin?.image}
+        name={viewingPhotoAdmin?.name || "Administrator"}
+        role="admin"
+        subtext={`${viewingPhotoAdmin?.designation || "System Administrator"} • ${viewingPhotoAdmin?.department || "Administration"}`}
+        canEdit={false}
+      />
     </div>
   );
 };

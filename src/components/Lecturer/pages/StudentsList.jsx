@@ -596,9 +596,44 @@ function StudentsList() {
                                                 <span className="roll-badge">{student.rollNo || "N/A"}</span>
                                             </td>
                                             <td className="td-student">
-                                                <div className="student-info-text">
-                                                    <strong className="student-name">{student.name || "Student"}</strong>
-                                                    <span className="student-email">{student.email || `${(student.rollNo || "").toLowerCase()}@iiitdwd.ac.in`}</span>
+                                                <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                                                    {(student.photoURL || student.photo || student.image) ? (
+                                                        <img
+                                                            src={student.photoURL || student.photo || student.image}
+                                                            alt={student.name || "Student"}
+                                                            style={{
+                                                                width: "36px",
+                                                                height: "36px",
+                                                                borderRadius: "50%",
+                                                                objectFit: "cover",
+                                                                flexShrink: 0,
+                                                                border: "2px solid var(--border, #e2e8f0)",
+                                                                boxShadow: "0 2px 6px rgba(0,0,0,0.06)"
+                                                            }}
+                                                        />
+                                                    ) : (
+                                                        <div
+                                                            style={{
+                                                                width: "36px",
+                                                                height: "36px",
+                                                                borderRadius: "50%",
+                                                                background: "linear-gradient(135deg, #6366f1, #4338ca)",
+                                                                color: "#ffffff",
+                                                                display: "flex",
+                                                                alignItems: "center",
+                                                                justifyContent: "center",
+                                                                fontSize: "14px",
+                                                                fontWeight: "700",
+                                                                flexShrink: 0
+                                                            }}
+                                                        >
+                                                            {(student.name || "S").charAt(0).toUpperCase()}
+                                                        </div>
+                                                    )}
+                                                    <div className="student-info-text">
+                                                        <strong className="student-name" title={student.name || "Student"}>{student.name || "Student"}</strong>
+                                                        <span className="student-email">{student.email || `${(student.rollNo || "").toLowerCase()}@iiitdwd.ac.in`}</span>
+                                                    </div>
                                                 </div>
                                             </td>
                                             <td className="td-branch">
@@ -691,10 +726,45 @@ function StudentsList() {
                                     </span>
                                 </div>
 
-                                <div className="card-student-body">
-                                    <h3 className="card-student-name">{student.name || "Student"}</h3>
-                                    <span className="card-roll-badge">{student.rollNo || "N/A"}</span>
-                                    <span className="card-student-email">{student.email}</span>
+                                <div className="card-student-body" style={{ display: "flex", alignItems: "center", gap: "12px", padding: "12px 16px" }}>
+                                    {(student.photoURL || student.photo || student.image) ? (
+                                        <img
+                                            src={student.photoURL || student.photo || student.image}
+                                            alt={student.name || "Student"}
+                                            style={{
+                                                width: "48px",
+                                                height: "48px",
+                                                borderRadius: "50%",
+                                                objectFit: "cover",
+                                                flexShrink: 0,
+                                                border: "2px solid var(--border, #e2e8f0)",
+                                                boxShadow: "0 2px 8px rgba(0,0,0,0.08)"
+                                            }}
+                                        />
+                                    ) : (
+                                        <div
+                                            style={{
+                                                width: "48px",
+                                                height: "48px",
+                                                borderRadius: "50%",
+                                                background: "linear-gradient(135deg, #6366f1, #4338ca)",
+                                                color: "#ffffff",
+                                                display: "flex",
+                                                alignItems: "center",
+                                                justifyContent: "center",
+                                                fontSize: "18px",
+                                                fontWeight: "700",
+                                                flexShrink: 0
+                                            }}
+                                        >
+                                            {(student.name || "S").charAt(0).toUpperCase()}
+                                        </div>
+                                    )}
+                                    <div style={{ minWidth: 0, flex: 1 }}>
+                                        <h3 className="card-student-name" title={student.name || "Student"} style={{ margin: "0 0 4px 0" }}>{student.name || "Student"}</h3>
+                                        <span className="card-roll-badge">{student.rollNo || "N/A"}</span>
+                                        <span className="card-student-email" style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{student.email}</span>
+                                    </div>
                                 </div>
 
                                 <div className="card-student-details">

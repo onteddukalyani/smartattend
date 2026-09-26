@@ -2,6 +2,7 @@ import React, { useEffect, useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import {
     collection,
+    doc,
     getDocs,
     onSnapshot,
     query,
@@ -28,6 +29,7 @@ import {
 import { db } from "../../../firebase";
 import { useAuth } from "../../authcontext";
 import { getCandidateRolls, computeStudentMetrics, parseTimestampMillis } from "../studentAttendanceHelper";
+import { normalizeCourseDepartment } from "../../Common/CoursesManager";
 import "./StudentCourses.css";
 
 export default function StudentCourses() {
@@ -44,17 +46,32 @@ export default function StudentCourses() {
     const [selectedSemester, setSelectedSemester] = useState("all");
     const [statusFilter, setStatusFilter] = useState("all"); // "all", "safe", "shortage", "my_dept"
     const [selectedCourseModal, setSelectedCourseModal] = useState(null);
+    const [fetchedStudentData, setFetchedStudentData] = useState(null);
 
     // Roll number derivation from email prefix / profile
     const emailRoll = (user?.email || "").split("@")[0].trim().toUpperCase();
     const activeRollNo = (profile?.rollNo || emailRoll || "").trim().toUpperCase();
-    const studentDept = profile?.department || profile?.branch || "CSE";
-    const studentSemester = profile?.semester || "1";
+
+    useEffect(() => {
+        if (!activeRollNo) return;
+        const unsub = onSnapshot(doc(db, "students", activeRollNo), (snap) => {
+            if (snap.exists()) {
+                setFetchedStudentData(snap.data());
+            }
+        }, (err) => console.warn("StudentCourses student doc snapshot error:", err));
+        return () => unsub();
+    }, [activeRollNo]);
+
+    const rawDept = fetchedStudentData?.branch || profile?.branch || fetchedStudentData?.department || profile?.department;
+    const studentDept = (rawDept && String(rawDept).toLowerCase() !== "general") ? rawDept : "CSE";
+    const studentSemester = (fetchedStudentData?.semester !== undefined && fetchedStudentData?.semester !== null && String(fetchedStudentData?.semester).trim() !== "")
+        ? String(fetchedStudentData.semester).trim()
+        : (profile?.semester ? String(profile.semester).trim() : "1");
 
     // Build candidate roll numbers for matching
     const candidateRolls = useMemo(() => {
-        return getCandidateRolls(user, profile);
-    }, [user, profile]);
+        return getCandidateRolls(user, profile, fetchedStudentData);
+    }, [user, profile, fetchedStudentData]);
 
     // 1. Real-time Courses listener
     useEffect(() => {
@@ -445,7 +462,7 @@ export default function StudentCourses() {
                                     <div className="sc-card-tags">
                                         <span className="sc-code-badge">{course.courseCode || "N/A"}</span>
                                         {course.department && (
-                                            <span className="sc-tag-dept">{course.department}</span>
+                                            <span className="sc-tag-dept">{normalizeCourseDepartment(course.department)}</span>
                                         )}
                                         {course.semester && (
                                             <span className="sc-tag-sem">Sem {course.semester}</span>

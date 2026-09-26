@@ -28,7 +28,7 @@ const AdminOverview = () => {
   const [recentSessions, setRecentSessions] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  const computeAdminData = (usersDocs, studentsDocs, sessionsDocs, recordsDocs, authDocs) => {
+  const computeAdminData = (usersDocs, studentsDocs, sessionsDocs, recordsDocs, authDocs, adminsDocs = []) => {
     try {
       const getCanonicalRoll = (d, id) => {
         if (d?.rollNo && String(d.rollNo).trim()) {
@@ -46,41 +46,51 @@ const AdminOverview = () => {
 
       const studentSet = new Set();
       const lecturerSet = new Set();
-      let admins = 0;
+      const adminSet = new Set();
 
-      // 1. Process authorizedUsers
+      // 1. Ingest dedicated admins collection
+      adminsDocs.forEach((docSnap) => {
+        const d = typeof docSnap.data === "function" ? docSnap.data() : docSnap;
+        const email = (d.email || (docSnap.id.includes("@") ? docSnap.id : "")).toLowerCase().trim();
+        const key = email || docSnap.id.toLowerCase().trim();
+        if (key) adminSet.add(key);
+      });
+
+      // 2. Process authorizedUsers
       authDocs.forEach((docSnap) => {
         const d = typeof docSnap.data === "function" ? docSnap.data() : docSnap;
         const role = String(d.role || "").toLowerCase().trim();
-        const email = (d.email || docSnap.id).toLowerCase().trim();
+        const email = (d.email || (docSnap.id.includes("@") ? docSnap.id : "")).toLowerCase().trim();
+        const key = email || docSnap.id.toLowerCase().trim();
 
         if (role === "lecturer" || role === "faculty" || role === "professor") {
-          lecturerSet.add(email);
-        } else if (role === "admin") {
-          admins++;
+          lecturerSet.add(email || docSnap.id);
+        } else if (role === "admin" || role === "administrator" || role === "superadmin") {
+          if (key) adminSet.add(key);
         } else if (role === "student") {
           const roll = getCanonicalRoll(d, docSnap.id);
           if (roll) studentSet.add(roll);
         }
       });
 
-      // 2. Process students collection
+      // 3. Process students collection
       studentsDocs.forEach((docSnap) => {
         const d = typeof docSnap.data === "function" ? docSnap.data() : docSnap;
         const roll = getCanonicalRoll(d, docSnap.id);
         if (roll) studentSet.add(roll);
       });
 
-      // 3. Process users collection
+      // 4. Process users collection
       usersDocs.forEach((docSnap) => {
         const d = typeof docSnap.data === "function" ? docSnap.data() : docSnap;
         const role = String(d.role || "").toLowerCase().trim();
-        const email = (d.email || "").toLowerCase().trim();
+        const email = (d.email || (docSnap.id.includes("@") ? docSnap.id : "")).toLowerCase().trim();
+        const key = email || docSnap.id.toLowerCase().trim();
 
         if (role === "lecturer" || role === "faculty" || role === "professor") {
           lecturerSet.add(email || docSnap.id);
-        } else if (role === "admin") {
-          admins++;
+        } else if (role === "admin" || role === "administrator" || role === "superadmin") {
+          if (key) adminSet.add(key);
         } else {
           const isStudent = role === "student" ||
             Boolean(d.rollNo) ||
@@ -137,7 +147,7 @@ const AdminOverview = () => {
       setStats({
         studentsCount: studentSet.size,
         lecturersCount: lecturerSet.size,
-        adminsCount: Math.max(admins, 1),
+        adminsCount: Math.max(adminSet.size, 1),
         sessionsCount: sessionsDocs.length || 0,
         attendancesCount: recordsDocs.length || 0
       });
@@ -155,14 +165,15 @@ const AdminOverview = () => {
   const fetchOverviewData = async () => {
     try {
       setLoading(true);
-      const [usersSnap, studentsSnap, sessionsSnap, recordsSnap, authUsersSnap] = await Promise.all([
+      const [usersSnap, studentsSnap, sessionsSnap, recordsSnap, authUsersSnap, adminsSnap] = await Promise.all([
         getDocs(collection(db, "users")).catch(() => ({ docs: [] })),
         getDocs(collection(db, "students")).catch(() => ({ docs: [] })),
         getDocs(collection(db, "attendance_sessions")).catch(() => ({ docs: [] })),
         getDocs(collection(db, "attendance_records")).catch(() => ({ docs: [] })),
-        getDocs(collection(db, "authorizedUsers")).catch(() => ({ docs: [] }))
+        getDocs(collection(db, "authorizedUsers")).catch(() => ({ docs: [] })),
+        getDocs(collection(db, "admins")).catch(() => ({ docs: [] }))
       ]);
-      computeAdminData(usersSnap.docs, studentsSnap.docs, sessionsSnap.docs, recordsSnap.docs, authUsersSnap.docs);
+      computeAdminData(usersSnap.docs, studentsSnap.docs, sessionsSnap.docs, recordsSnap.docs, authUsersSnap.docs, adminsSnap.docs);
     } catch (err) {
       console.error("Error fetching admin overview data:", err);
     } finally {
@@ -176,9 +187,10 @@ const AdminOverview = () => {
     let sessionsDocs = [];
     let recordsDocs = [];
     let authDocs = [];
+    let adminsDocs = [];
 
     const recompute = () => {
-      computeAdminData(usersDocs, studentsDocs, sessionsDocs, recordsDocs, authDocs);
+      computeAdminData(usersDocs, studentsDocs, sessionsDocs, recordsDocs, authDocs, adminsDocs);
     };
 
     const unsubUsers = onSnapshot(collection(db, "users"), (snap) => {
@@ -206,12 +218,18 @@ const AdminOverview = () => {
       recompute();
     }, (e) => console.warn("auth snapshot error:", e));
 
+    const unsubAdmins = onSnapshot(collection(db, "admins"), (snap) => {
+      adminsDocs = snap.docs;
+      recompute();
+    }, (e) => console.warn("admins snapshot error:", e));
+
     return () => {
       unsubUsers();
       unsubStudents();
       unsubSessions();
       unsubRecords();
       unsubAuth();
+      unsubAdmins();
     };
   }, []);
 

@@ -179,17 +179,32 @@
 .login-button:hover:not(:disabled) {
   border-color: var(--accent, #6366f1);
   background: var(--surface-soft, #f8fafc);
+  color: var(--accent, #6366f1);
   transform: translateY(-2px);
-  box-shadow: 0 6px 16px rgba(99, 102, 241, 0.12);
+  box-shadow: 0 6px 16px rgba(99, 102, 241, 0.18);
+}
+
+.login-button:hover:not(:disabled) span {
+  color: var(--accent, #6366f1);
 }
 
 [data-theme="midnight"] .login-button:hover:not(:disabled) {
   background: #222d48;
   border-color: #818cf8;
+  color: #a5b4fc;
+}
+
+[data-theme="midnight"] .login-button:hover:not(:disabled) span {
+  color: #a5b4fc;
 }
 
 .login-button:hover:not(:disabled) svg {
   transform: scale(1.1);
+  color: var(--accent, #6366f1);
+}
+
+[data-theme="midnight"] .login-button:hover:not(:disabled) svg {
+  color: #a5b4fc;
 }
 
 /* Selected Role State */

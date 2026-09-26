@@ -51,10 +51,10 @@ const AdminNavbar = ({ onMenuClick }) => {
         <Link to="/admin/settings" style={{ textDecoration: "none", color: "inherit" }} title="Click to view Settings & Edit Name">
           <div className="admin-user">
 
-            {user?.photoURL ? (
+            {(profile?.photoURL || profile?.photo || profile?.image || user?.photoURL) ? (
 
               <img
-                src={user.photoURL}
+                src={profile?.photoURL || profile?.photo || profile?.image || user?.photoURL}
                 alt=""
                 className="admin-user-photo"
               />
