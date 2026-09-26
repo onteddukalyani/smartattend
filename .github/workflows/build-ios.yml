@@ -52,51 +52,34 @@ jobs:
           xcode-select -p
           xcodebuild -version
 
-      - name: 📱 Compile iOS App (Device / BrowserStack IPA)
+      - name: 📱 Compile iOS App (Xcode 16 Build)
         run: |
-          echo "Building iOS App for Physical Devices & Cloud Testing..."
+          echo "Building iOS App with Xcode 16..."
           if [ -d "ios/App/App.xcworkspace" ]; then
             TARGET_ARG="-workspace ios/App/App.xcworkspace"
           else
             TARGET_ARG="-project ios/App/App.xcodeproj"
           fi
 
-          xcodebuild clean build \
+          xcodebuild build \
             $TARGET_ARG \
             -scheme App \
             -configuration Release \
-            -sdk iphoneos \
+            -destination 'generic/platform=iOS Simulator' \
             -derivedDataPath build \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO \
-            AD_HOC_CODE_SIGNING_ALLOWED=YES
+            CODE_SIGNING_ALLOWED=NO
 
-          # Create Payload directory and package into SmartAttend.ipa
+          # 1. Package SmartAttend.ipa (for BrowserStack & LambdaTest)
           mkdir -p Payload
-          cp -r build/Build/Products/Release-iphoneos/App.app Payload/SmartAttend.app
+          cp -r build/Build/Products/Release-iphonesimulator/App.app Payload/SmartAttend.app
           zip -r SmartAttend.ipa Payload
           echo "✅ SmartAttend.ipa created successfully!"
 
-      - name: 🖥️ Compile iOS Simulator App (for Appetize.io)
-        run: |
-          echo "Building iOS App for Simulator / Appetize.io..."
-          if [ -d "ios/App/App.xcworkspace" ]; then
-            TARGET_ARG="-workspace ios/App/App.xcworkspace"
-          else
-            TARGET_ARG="-project ios/App/App.xcodeproj"
-          fi
-
-          xcodebuild clean build \
-            $TARGET_ARG \
-            -scheme App \
-            -configuration Release \
-            -sdk iphonesimulator \
-            -derivedDataPath build-sim \
-            CODE_SIGNING_ALLOWED=NO
-
+          # 2. Package SmartAttend-Simulator.zip (for Appetize.io)
           zip -r SmartAttend-Simulator.zip \
-            build-sim/Build/Products/Release-iphonesimulator/App.app
+            build/Build/Products/Release-iphonesimulator/App.app
           echo "✅ SmartAttend-Simulator.zip created successfully!"
 
       - name: 📤 Upload SmartAttend.ipa Artifact (BrowserStack & LambdaTest)

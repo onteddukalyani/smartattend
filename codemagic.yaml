@@ -7,10 +7,8 @@ workflows:
       node: 22.11.0
       xcode: latest
       groups:
-        # Optional: Add your Apple Developer Portal credentials group if doing App Store signing
         - apple_credentials
       vars:
-        XCODE_WORKSPACE: "ios/App/App.xcworkspace"
         XCODE_SCHEME: "App"
         BUNDLE_ID: "com.smartattend.app"
     triggering:
@@ -34,7 +32,7 @@ workflows:
       - name: Sync Capacitor iOS
         script: |
           npx cap sync ios
-      - name: Build iOS App for Testing (BrowserStack IPA)
+      - name: Build iOS App with Xcode 16
         script: |
           if [ -d "ios/App/App.xcworkspace" ]; then
             TARGET_ARG="-workspace ios/App/App.xcworkspace"
@@ -42,38 +40,20 @@ workflows:
             TARGET_ARG="-project ios/App/App.xcodeproj"
           fi
 
-          xcodebuild clean build \
+          xcodebuild build \
             $TARGET_ARG \
             -scheme "$XCODE_SCHEME" \
             -configuration Release \
-            -sdk iphoneos \
+            -destination 'generic/platform=iOS Simulator' \
             -derivedDataPath build \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO \
-            AD_HOC_CODE_SIGNING_ALLOWED=YES
-
-          mkdir -p Payload
-          cp -r build/Build/Products/Release-iphoneos/App.app Payload/SmartAttend.app
-          zip -r SmartAttend.ipa Payload
-      - name: Build iOS Simulator App (Appetize.io)
-        script: |
-          if [ -d "ios/App/App.xcworkspace" ]; then
-            TARGET_ARG="-workspace ios/App/App.xcworkspace"
-          else
-            TARGET_ARG="-project ios/App/App.xcodeproj"
-          fi
-
-          xcodebuild clean build \
-            $TARGET_ARG \
-            -scheme "$XCODE_SCHEME" \
-            -configuration Release \
-            -sdk iphonesimulator \
-            -derivedDataPath build-sim \
             CODE_SIGNING_ALLOWED=NO
 
-          zip -r SmartAttend-Simulator.zip \
-            build-sim/Build/Products/Release-iphonesimulator/App.app
+          mkdir -p Payload
+          cp -r build/Build/Products/Release-iphonesimulator/App.app Payload/SmartAttend.app
+          zip -r SmartAttend.ipa Payload
+          zip -r SmartAttend-Simulator.zip build/Build/Products/Release-iphonesimulator/App.app
     artifacts:
       - SmartAttend.ipa
       - SmartAttend-Simulator.zip
