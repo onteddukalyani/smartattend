@@ -37,7 +37,7 @@ import { useAuth } from "../../authcontext";
 import { downloadExcel } from "../../../DownloadExcel";
 import { useTableSort, SortIcon } from "../../Common/useTableSort";
 import { getCandidateRolls, computeStudentMetrics } from "../studentAttendanceHelper";
-import { isGenericName } from "../../../utils/studentDataHelper";
+import { isGenericName, normalizeBranchName } from "../../../utils/studentDataHelper";
 import "./Statistics.css";
 
 export default function Statistics() {
@@ -73,9 +73,7 @@ export default function Statistics() {
                     if (isGenericName(resolvedName, activeRollNo, cleanEmail) && !isGenericName(d.displayName, activeRollNo, cleanEmail)) resolvedName = String(d.displayName).trim();
                     if (!resolvedName || isGenericName(resolvedName, activeRollNo, cleanEmail)) resolvedName = (!isGenericName(d.name, activeRollNo, cleanEmail) ? d.name : null) || (!isGenericName(d.fullName, activeRollNo, cleanEmail) ? d.fullName : null) || prev?.name || "";
 
-                    const branch = (d.branch && String(d.branch).toLowerCase() !== "general")
-                        ? d.branch
-                        : (prev?.branch || d.department || "CSE");
+                    const branch = normalizeBranchName(d.branch || prev?.branch || d.department || "CSE");
 
                     const semester = (d.semester !== undefined && d.semester !== null && String(d.semester).trim() !== "")
                         ? String(d.semester).trim()
@@ -133,7 +131,7 @@ export default function Statistics() {
 
     const studentName = fetchedStudentData?.name || profile?.name || activeRollNo || "Student";
     const rawBranch = fetchedStudentData?.branch || profile?.branch || fetchedStudentData?.department || profile?.department;
-    const studentBranch = (rawBranch && String(rawBranch).toLowerCase() !== "general") ? rawBranch : "CSE";
+    const studentBranch = normalizeBranchName(rawBranch || "CSE");
     const studentSemester = (fetchedStudentData?.semester !== undefined && fetchedStudentData?.semester !== null && String(fetchedStudentData?.semester).trim() !== "")
         ? String(fetchedStudentData.semester).trim()
         : (profile?.semester ? String(profile.semester).trim() : "1");

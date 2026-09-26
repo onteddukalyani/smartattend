@@ -20,6 +20,44 @@ import { db } from "../firebase";
 // Supports: 25bcs108, 23BCS055, 24DSAI012, 25CS108, 25AI050, 2025BCS108, 25-BCS-108, etc.
 export const ROLL_PATTERN = /^(\d{2,4}[-_]?[a-zA-Z]{2,5}[-_]?\d{2,4}|\d{5,12})$/i;
 
+/**
+ * Normalizes branch and department names into standard short forms consistently:
+ * - Computer Science and Engineering -> CSE
+ * - Artificial Intelligence and Computing -> AIC
+ * - Data Science and Artificial Intelligence -> DSAI
+ * - Electronics and Communication Engineering -> ECE
+ */
+export function normalizeBranchName(branch) {
+    if (!branch) return "CSE";
+    const str = String(branch).trim().toUpperCase();
+    if (!str) return "CSE";
+
+    if (str === "CSE" || str === "CE" || str === "CSE-A" || str === "CSE-B" || str === "GENERAL") return "CSE";
+    if (str === "ECE") return "ECE";
+    if (str === "DSAI" || str === "DS & AI" || str === "DS/AI" || str === "DS-AI") return "DSAI";
+    if (str === "AIC" || str === "AI & COMPUTING" || str === "AI/COMPUTING" || str === "AI-C") return "AIC";
+
+    const clean = str.replace(/[^A-Z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+
+    // 1. Check Data Science & AI (DSAI)
+    if (clean.includes("DATA SCIENCE") || clean.includes("DSAI") || (clean.includes("DATA") && clean.includes("AI")) || (clean.includes("DS") && clean.includes("AI"))) return "DSAI";
+
+    // 2. Check Artificial Intelligence & Computing (AIC)
+    if (clean.includes("CYBERNETIC") || clean.includes("AIC") || (clean.includes("COMPUTING") && (clean.includes("AI") || clean.includes("ARTIFICIAL"))) || clean.includes("INTELLIGENCE AND COMPUTING") || clean.includes("AI COMPUTING")) return "AIC";
+
+    // 3. Check Electronics & Communication Engineering (ECE)
+    if (clean.includes("ELECTRONIC") || clean.includes("COMMUNICATION") || clean.includes("ECE") || clean.includes("EC")) return "ECE";
+
+    // 4. Check Computer Science and Engineering (CSE)
+    if (clean.includes("COMPUTER") || clean.includes("CSE") || clean.includes("SOFTWARE") || clean === "CS" || clean === "CE") return "CSE";
+
+    // 5. Fallback for standalone AI / Data
+    if (clean.includes("DATA")) return "DSAI";
+    if (clean.includes("ARTIFICIAL") || clean.includes("INTELLIGENCE") || clean.includes("AI")) return "AIC";
+
+    return "CSE";
+}
+
 const GENERIC_IDENTIFIERS = new Set([
     "student",
     "user",
@@ -210,9 +248,8 @@ export function mergeAllStudentRecords(authDocs = [], studentsDocs = [], usersDo
         const cleanEmail = (email && email.includes("@")) ? email : (existing.email || (canonicalRoll.toLowerCase() + "@iiitdwd.ac.in"));
 
         // Merge Branch
-        let branch = (data.branch && String(data.branch).toLowerCase() !== "general") ? data.branch : (existing.branch || data.department || "CSE");
-        if (String(branch).toLowerCase() === "general") branch = "CSE";
-        branch = String(branch).toUpperCase().trim();
+        let rawBranch = (data.branch && String(data.branch).toLowerCase() !== "general") ? data.branch : (existing.branch || data.department || "CSE");
+        let branch = normalizeBranchName(rawBranch);
 
         // Merge Name (prefer authoritative human name over generic placeholder, email prefix, or roll number)
         let name = existing.name;

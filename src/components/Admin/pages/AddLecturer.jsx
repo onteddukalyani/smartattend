@@ -26,6 +26,7 @@ import {
 import * as XLSX from "xlsx";
 import { db } from "../../../firebase";
 import { useTableSort, SortIcon } from "../../Common/useTableSort";
+import { normalizeBranchName } from "../../../utils/studentDataHelper";
 import "./AddStudent.css";
 
 const AddLecturer = () => {
@@ -130,7 +131,7 @@ const AddLecturer = () => {
       const lecturerData = {
         name: form.name.trim(),
         email: cleanEmail,
-        department: (form.department.trim() && form.department.trim().toLowerCase() !== "general") ? form.department.trim() : "Computer Science & Engineering",
+        department: normalizeBranchName(form.department.trim()),
         designation: form.designation,
         phone: form.phone.trim(),
         cabin: form.cabin.trim(),
@@ -184,7 +185,7 @@ const AddLecturer = () => {
       {
         "Full Name": "Dr. Ramesh Sharma",
         "Email": "ramesh.sharma@iiitdwd.ac.in",
-        "Department": "Computer Science & Engineering",
+        "Department": "CSE",
         "Designation": "Associate Professor",
         "Phone": "9876543210",
         "Cabin": "Room 304, Academic Block"
@@ -192,7 +193,7 @@ const AddLecturer = () => {
       {
         "Full Name": "Dr. Sneha Patil",
         "Email": "sneha.patil@iiitdwd.ac.in",
-        "Department": "Data Science & AI",
+        "Department": "DSAI",
         "Designation": "Assistant Professor",
         "Phone": "9876543211",
         "Cabin": "Room 205, Academic Block"
@@ -200,7 +201,7 @@ const AddLecturer = () => {
       {
         "Full Name": "Dr. Amit Verma",
         "Email": "amit.verma@iiitdwd.ac.in",
-        "Department": "Electronics & Communication",
+        "Department": "ECE",
         "Designation": "Professor",
         "Phone": "9876543212",
         "Cabin": "Room 102, Academic Block"
@@ -254,7 +255,7 @@ const AddLecturer = () => {
 
           const name = getVal(["fullname", "name", "lecturername", "faculty", "facultyname", "teacher"]);
           const email = getVal(["email", "emailaddress", "mail", "googleemail"]).toLowerCase();
-          const department = getVal(["department", "dept", "branch"]) || "Computer Science & Engineering";
+          const department = normalizeBranchName(getVal(["department", "dept", "branch"]));
           const designation = getVal(["designation", "role", "title", "position"]) || "Assistant Professor";
           const phone = getVal(["phone", "phonenumber", "mobile", "contact"]);
           const cabin = getVal(["cabin", "room", "office", "roomno", "cabinno"]);
@@ -494,10 +495,10 @@ const AddLecturer = () => {
                   onChange={handleChange}
                 >
                   <option value="">Select Department</option>
-                  <option value="Computer Science & Engineering">Computer Science & Engineering</option>
-                  <option value="Data Science & AI">Data Science & AI</option>
-                  <option value="Electronics & Communication">Electronics & Communication</option>
-                  <option value="AI and Computing ">AI and Computing</option>
+                  <option value="CSE">CSE</option>
+                  <option value="AIC">AIC</option>
+                  <option value="DSAI">DSAI</option>
+                  <option value="ECE">ECE</option>
                 </select>
               </div>
 

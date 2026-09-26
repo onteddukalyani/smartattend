@@ -46,7 +46,7 @@ function GenerateQR() {
 
     // Form inputs
     const [roomNo, setRoomNo] = useState(searchParams.get("roomNo") || "");
-    const [courseCode, setCourseCode] = useState(searchParams.get("courseCode") || "");
+    const [courseCode, setCourseCode] = useState(searchParams.get("courseCode") || searchParams.get("course") || "");
     const [classCode, setClassCode] = useState(searchParams.get("classCode") || "");
     const [batch, setBatch] = useState(searchParams.get("batch") || "2025");
     const [availableCourses, setAvailableCourses] = useState([]);
@@ -83,12 +83,14 @@ function GenerateQR() {
                     id: d.id,
                     ...d.data()
                 }));
-                list.sort((a, b) => (a.courseCode || "").localeCompare(b.courseCode || ""));
+                list.sort((a, b) => (a.courseCode || a.code || "").localeCompare(b.courseCode || b.code || ""));
                 setAvailableCourses(list);
 
-                if (courseCode) {
-                    const matched = list.find((c) => (c.courseCode || "").toUpperCase() === courseCode.toUpperCase());
+                const targetCode = courseCode || searchParams.get("course") || searchParams.get("courseCode") || "";
+                if (targetCode) {
+                    const matched = list.find((c) => (c.courseCode || c.code || "").toUpperCase() === targetCode.toUpperCase());
                     if (matched) {
+                        setCourseCode(matched.courseCode || matched.code || targetCode);
                         if (matched.defaultRoom && !roomNo) setRoomNo(matched.defaultRoom);
                         if (matched.department && !classCode) setClassCode(matched.department);
                         if (matched.batch && (!batch || batch === "2025")) setBatch(matched.batch);
@@ -181,7 +183,7 @@ function GenerateQR() {
 
     const handleSelectCourse = (code) => {
         setCourseCode(code);
-        const matched = availableCourses.find((c) => (c.courseCode || "").toUpperCase() === code.toUpperCase());
+        const matched = availableCourses.find((c) => (c.courseCode || c.code || "").toUpperCase() === String(code).toUpperCase());
         if (matched) {
             if (matched.defaultRoom && !roomNo) setRoomNo(matched.defaultRoom);
             if (matched.department && !classCode) setClassCode(matched.department);
@@ -192,7 +194,7 @@ function GenerateQR() {
     const handleCourseCodeChange = (e) => {
         const val = e.target.value;
         setCourseCode(val);
-        const matched = availableCourses.find((c) => (c.courseCode || "").toUpperCase() === val.trim().toUpperCase());
+        const matched = availableCourses.find((c) => (c.courseCode || c.code || "").toUpperCase() === val.trim().toUpperCase());
         if (matched) {
             if (matched.defaultRoom && !roomNo) setRoomNo(matched.defaultRoom);
             if (matched.department && !classCode) setClassCode(matched.department);
@@ -446,20 +448,30 @@ function GenerateQR() {
                                 <option value="">-- Choose Course or Type Below --</option>
                                 {myCourses.length > 0 && (
                                     <optgroup label="🌟 My Assigned Courses">
-                                        {myCourses.map((c) => (
-                                            <option key={c.id} value={c.courseCode}>
-                                                {c.courseCode} - {c.courseName} ({c.department})
-                                            </option>
-                                        ))}
+                                        {myCourses.map((c) => {
+                                            const code = c.courseCode || c.code || "";
+                                            const name = c.courseName || c.name || "Curriculum Course";
+                                            const dept = c.department || "CSE";
+                                            return (
+                                                <option key={c.id} value={code}>
+                                                    {code} - {name} ({dept})
+                                                </option>
+                                            );
+                                        })}
                                     </optgroup>
                                 )}
                                 {otherCourses.length > 0 && (
                                     <optgroup label="📚 All Other Courses">
-                                        {otherCourses.map((c) => (
-                                            <option key={c.id} value={c.courseCode}>
-                                                {c.courseCode} - {c.courseName} ({c.department})
-                                            </option>
-                                        ))}
+                                        {otherCourses.map((c) => {
+                                            const code = c.courseCode || c.code || "";
+                                            const name = c.courseName || c.name || "Curriculum Course";
+                                            const dept = c.department || "CSE";
+                                            return (
+                                                <option key={c.id} value={code}>
+                                                    {code} - {name} ({dept})
+                                                </option>
+                                            );
+                                        })}
                                     </optgroup>
                                 )}
                             </select>

@@ -30,6 +30,7 @@ import { doc, onSnapshot } from "firebase/firestore";
 import { db } from "../../firebase";
 import { useAuth } from "../authcontext";
 import ProfilePhotoModal from "./ProfilePhotoModal";
+import { normalizeBranchName } from "../../utils/studentDataHelper";
 import "./Settings.css";
 
 function Settings() {
@@ -298,7 +299,7 @@ function Settings() {
         : (profile?.semester ? String(profile.semester).trim() : "1");
 
     const rawDept = fetchedStudentData?.branch || profile?.branch || fetchedStudentData?.department || profile?.department;
-    const studentBranch = (rawDept && String(rawDept).toLowerCase() !== "general") ? rawDept : "CSE";
+    const studentBranch = normalizeBranchName(rawDept || "CSE");
 
     const currentPhoto = profile?.photoURL || profile?.photo || profile?.image || user?.photoURL;
     const hasPhoto = Boolean(currentPhoto && !profileImageFailed);
@@ -596,7 +597,7 @@ function Settings() {
                                         </div>
                                     </div>
                                     <div className="st-detail-value">
-                                        <span className="st-text-bold">{profile?.department || "Computer Science"}</span>
+                                        <span className="st-text-bold">{normalizeBranchName(profile?.department || "CSE")}</span>
                                     </div>
                                 </div>
 

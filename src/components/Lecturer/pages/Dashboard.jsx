@@ -11,6 +11,7 @@ import { collection, getDocs, onSnapshot } from "firebase/firestore";
 import { db } from "../../../firebase";
 import { useAuth } from "../../authcontext";
 import ProfilePhotoModal from "../../Common/ProfilePhotoModal";
+import { normalizeBranchName } from "../../../utils/studentDataHelper";
 
 function Dashboard() {
     const { user, profile, updateProfilePhoto, deleteProfilePhoto } = useAuth();
@@ -318,7 +319,7 @@ function Dashboard() {
                                 <FaChalkboardTeacher /> Faculty Member
                             </span>
                             <span className="lecturer-badge">
-                                <FaUniversity /> {profile?.department || "Computer Science Department"}
+                                <FaUniversity /> {normalizeBranchName(profile?.department || "CSE")}
                             </span>
                             <span className="lecturer-badge">
                                 <FaEnvelope /> {user?.email || "Faculty Account"}
@@ -380,7 +381,7 @@ function Dashboard() {
                 photoSrc={avatarSrc}
                 name={lecturerName}
                 role="lecturer"
-                subtext={profile?.department || "Faculty Member"}
+                subtext={`Faculty Member • ${normalizeBranchName(profile?.department || "CSE")}`}
                 canEdit={true}
                 onUpload={handlePhotoUpload}
                 onDelete={handlePhotoDelete}

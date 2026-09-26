@@ -29,7 +29,7 @@ import { useTableSort, SortIcon } from "./useTableSort";
 import { LiveFaceEnrollment } from "./LiveFaceEnrollment";
 import ProfilePhotoModal from "./ProfilePhotoModal";
 import { removeStudentFaceAndBiometrics, removeStudentPhotoOnly, checkDuplicateFaceBiometrics } from "../../utils/biometricManager";
-import { deleteStudentRecordCompletely } from "../../utils/studentDataHelper";
+import { deleteStudentRecordCompletely, normalizeBranchName } from "../../utils/studentDataHelper";
 import "./StudentDetailModal.css";
 
 const StudentDetailModal = ({ student, onClose, onUpdate }) => {
@@ -434,7 +434,7 @@ const StudentDetailModal = ({ student, onClose, onUpdate }) => {
                 {currentStudent.status === "active" ? "Active Student" : "Disabled"}
               </span>
               <span className="badge-branch">
-                {(currentStudent.branch && String(currentStudent.branch).toLowerCase() !== "general") ? currentStudent.branch : "CSE"} {currentStudent.semester ? `• Sem ${currentStudent.semester}` : ""}
+                {normalizeBranchName(currentStudent.branch || "CSE")} {currentStudent.semester ? `• Sem ${currentStudent.semester}` : ""}
               </span>
             </div>
           </div>
@@ -505,7 +505,7 @@ const StudentDetailModal = ({ student, onClose, onUpdate }) => {
                 <FaGraduationCap className="info-icon" />
                 <div>
                   <label>Branch & Semester</label>
-                  <span>{(currentStudent.branch && String(currentStudent.branch).toLowerCase() !== "general") ? currentStudent.branch : "CSE"} - Semester {currentStudent.semester || "1"}</span>
+                  <span>{normalizeBranchName(currentStudent.branch || "CSE")} - Semester {currentStudent.semester || "1"}</span>
                 </div>
               </div>
 
@@ -763,7 +763,7 @@ const StudentDetailModal = ({ student, onClose, onUpdate }) => {
         photoSrc={currentStudent.photoURL || currentStudent.image}
         name={currentStudent.name || "Student"}
         role="student"
-        subtext={`${currentStudent.rollNo || "Student"} • ${currentStudent.branch || "CSE"} Sem ${currentStudent.semester || "1"}`}
+        subtext={`${currentStudent.rollNo || "Student"} • ${normalizeBranchName(currentStudent.branch || "CSE")} Sem ${currentStudent.semester || "1"}`}
         canEdit={false}
       />
     </div>

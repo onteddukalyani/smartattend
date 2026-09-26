@@ -21,6 +21,7 @@ import { downloadExcel } from "../../DownloadExcel";
 import { useTableSort, SortIcon } from "./useTableSort";
 import { buildUserLookupMaps, normalizeSessions, doesSessionBelongToLecturer } from "./sessionMatcher";
 import ProfilePhotoModal from "./ProfilePhotoModal";
+import { normalizeBranchName } from "../../utils/studentDataHelper";
 import "./StudentDetailModal.css";
 
 const LecturerDetailModal = ({ lecturer, onClose }) => {
@@ -182,7 +183,7 @@ const LecturerDetailModal = ({ lecturer, onClose }) => {
                 {lecturer.status === "active" ? "Active Faculty" : "Disabled"}
               </span>
               <span className="badge-branch">
-                {lecturer.department || "Computer Science & Engineering"}
+                {normalizeBranchName(lecturer.department || "CSE")}
               </span>
               {lecturer.approved === true ? (
                 <span className="approved-badge-pill">
@@ -250,7 +251,7 @@ const LecturerDetailModal = ({ lecturer, onClose }) => {
                 <FaBuilding className="info-icon" />
                 <div>
                   <label>Department / Branch</label>
-                  <span>{(lecturer.department && String(lecturer.department).toLowerCase() !== "general") ? lecturer.department : "Computer Science & Engineering"}</span>
+                  <span>{normalizeBranchName(lecturer.department || "CSE")}</span>
                 </div>
               </div>
 
@@ -403,7 +404,7 @@ const LecturerDetailModal = ({ lecturer, onClose }) => {
         photoSrc={lecturer.photoURL || lecturer.photo || lecturer.image}
         name={lecturer.name || "Faculty Member"}
         role="lecturer"
-        subtext={`${lecturer.designation || "Lecturer"} • ${lecturer.department || "CSE"}`}
+        subtext={`${lecturer.designation || "Lecturer"} • ${normalizeBranchName(lecturer.department || "CSE")}`}
         canEdit={false}
       />
     </div>

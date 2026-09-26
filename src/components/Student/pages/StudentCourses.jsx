@@ -63,7 +63,7 @@ export default function StudentCourses() {
     }, [activeRollNo]);
 
     const rawDept = fetchedStudentData?.branch || profile?.branch || fetchedStudentData?.department || profile?.department;
-    const studentDept = (rawDept && String(rawDept).toLowerCase() !== "general") ? rawDept : "CSE";
+    const studentDept = normalizeCourseDepartment(rawDept || "CSE");
     const studentSemester = (fetchedStudentData?.semester !== undefined && fetchedStudentData?.semester !== null && String(fetchedStudentData?.semester).trim() !== "")
         ? String(fetchedStudentData.semester).trim()
         : (profile?.semester ? String(profile.semester).trim() : "1");
@@ -171,7 +171,7 @@ export default function StudentCourses() {
 
     // Unique departments & semesters for filters
     const departments = useMemo(() => {
-        const set = new Set(metrics.coursesWithStats.map((c) => c.department).filter(Boolean));
+        const set = new Set(metrics.coursesWithStats.map((c) => normalizeCourseDepartment(c.department)).filter(Boolean));
         return Array.from(set).sort();
     }, [metrics.coursesWithStats]);
 
@@ -185,19 +185,21 @@ export default function StudentCourses() {
         const q = search.toLowerCase().trim();
 
         return metrics.coursesWithStats.filter((course) => {
+            const courseDept = normalizeCourseDepartment(course.department);
+
             // Search match
             const matchSearch =
                 !q ||
                 (course.courseCode || "").toLowerCase().includes(q) ||
                 (course.courseName || "").toLowerCase().includes(q) ||
                 (course.lecturerName || "").toLowerCase().includes(q) ||
-                (course.department || "").toLowerCase().includes(q) ||
+                courseDept.toLowerCase().includes(q) ||
                 (course.defaultRoom || "").toLowerCase().includes(q);
 
             if (!matchSearch) return false;
 
             // Department filter
-            if (selectedDepartment !== "all" && course.department !== selectedDepartment) {
+            if (selectedDepartment !== "all" && courseDept !== selectedDepartment) {
                 return false;
             }
 
@@ -215,7 +217,7 @@ export default function StudentCourses() {
             }
             if (statusFilter === "my_dept") {
                 if (!studentDept) return true;
-                return (course.department || "").toLowerCase() === studentDept.toLowerCase();
+                return courseDept.toLowerCase() === studentDept.toLowerCase();
             }
 
             return true;
@@ -557,7 +559,7 @@ export default function StudentCourses() {
                                 <div className="sc-card-tags">
                                     <span className="sc-code-badge">{selectedCourseModal.courseCode}</span>
                                     {selectedCourseModal.department && (
-                                        <span className="sc-tag-dept">{selectedCourseModal.department}</span>
+                                        <span className="sc-tag-dept">{normalizeCourseDepartment(selectedCourseModal.department)}</span>
                                     )}
                                     {selectedCourseModal.semester && (
                                         <span className="sc-tag-sem">Semester {selectedCourseModal.semester}</span>

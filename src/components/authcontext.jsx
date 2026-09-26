@@ -5,7 +5,7 @@ import React, {
   useState
 } from "react";
 
-import { onAuthStateChanged } from "firebase/auth";
+import { onAuthStateChanged, updateProfile } from "firebase/auth";
 
 import {
   doc,
@@ -719,8 +719,18 @@ export const AuthProvider = ({ children }) => {
       }
     }
 
+    if (user?.uid) {
+      promises.push(setDoc(doc(db, "users", user.uid), photoPayload, { merge: true }).catch(() => { }));
+    }
+
     if (cleanEmail) {
       promises.push(setDoc(doc(db, "authorizedUsers", cleanEmail), photoPayload, { merge: true }).catch(() => { }));
+    }
+
+    if (auth?.currentUser) {
+      try {
+        await updateProfile(auth.currentUser, { photoURL: photoDataUrl });
+      } catch (_) {}
     }
 
     await Promise.all(promises);
@@ -797,8 +807,18 @@ export const AuthProvider = ({ children }) => {
       }
     }
 
+    if (user?.uid) {
+      promises.push(setDoc(doc(db, "users", user.uid), clearPayload, { merge: true }).catch(() => { }));
+    }
+
     if (cleanEmail) {
       promises.push(setDoc(doc(db, "authorizedUsers", cleanEmail), clearPayload, { merge: true }).catch(() => { }));
+    }
+
+    if (auth?.currentUser) {
+      try {
+        await updateProfile(auth.currentUser, { photoURL: "" });
+      } catch (_) {}
     }
 
     await Promise.all(promises);

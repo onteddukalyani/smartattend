@@ -16,7 +16,7 @@ import { db } from "../../../firebase";
 import StudentDetailModal from "../../Common/StudentDetailModal";
 import { useTableSort, SortIcon } from "../../Common/useTableSort";
 import "./AttendanceOverview.css";
-import { mergeAllStudentRecords } from "../../../utils/studentDataHelper";
+import { mergeAllStudentRecords, normalizeBranchName } from "../../../utils/studentDataHelper";
 
 const AttendanceOverview = () => {
   const navigate = useNavigate();
@@ -426,7 +426,7 @@ const AttendanceOverview = () => {
                   </td>
 
                   <td>
-                    <span className="branch-badge">{(student.branch && String(student.branch).toLowerCase() !== "general") ? student.branch : "CSE"}</span>
+                    <span className="branch-badge">{normalizeBranchName(student.branch || "CSE")}</span>
                   </td>
 
                   <td>

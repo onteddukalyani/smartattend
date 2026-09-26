@@ -682,11 +682,11 @@ const AddStudent = () => {
                   value={form.branch}
                   onChange={handleChange}
                 >
-                  <option value="">Select branch</option>
-                  <option value="CSE">Computer Science & Engineering</option>
-                  <option value="DSAI">Data Science & AI</option>
-                  <option value="ECE">Electronics & Communication Engineering</option>
-                  <option value="AIC">AI and Computing</option>
+                  <option value="">Select Branch</option>
+                  <option value="CSE">CSE</option>
+                  <option value="AIC">AIC</option>
+                  <option value="DSAI">DSAI</option>
+                  <option value="ECE">ECE</option>
                 </select>
               </div>
 

@@ -3,6 +3,8 @@
  * Ensures 100% consistency across Student Dashboard, Courses, and Statistics.
  */
 
+import { normalizeBranchName } from "../../utils/studentDataHelper";
+
 export function normalizeCode(str) {
     if (!str) return "";
     return String(str).toUpperCase().replace(/[^A-Z0-9]/g, "").trim();
@@ -151,7 +153,7 @@ export function computeStudentMetrics(coursesDocs = [], sessionsDocs = [], recor
                 courseName: c.courseName || c.name || rawCode,
                 lecturerName: c.lecturerName || c.faculty || "Assigned Faculty",
                 lecturerEmail: c.lecturerEmail || "",
-                department: c.department || c.dept || "",
+                department: normalizeBranchName(c.department || c.dept || ""),
                 semester: c.semester || "",
                 batch: c.batch || "",
                 defaultRoom: c.defaultRoom || c.roomNo || "Main Hall",
@@ -173,7 +175,7 @@ export function computeStudentMetrics(coursesDocs = [], sessionsDocs = [], recor
                 courseName: sCourse,
                 lecturerName: s.lecturerName || "Faculty",
                 lecturerEmail: s.lecturerEmail || s.ownerEmail || "",
-                department: s.department || studentProfile.branch || studentProfile.department || "General",
+                department: normalizeBranchName(s.department || studentProfile.branch || studentProfile.department || "CSE"),
                 semester: s.semester || studentProfile.semester || "1",
                 batch: s.batch || studentProfile.batch || "2025",
                 defaultRoom: s.roomNo || "N/A",
@@ -193,7 +195,7 @@ export function computeStudentMetrics(coursesDocs = [], sessionsDocs = [], recor
                 courseName: rCourse,
                 lecturerName: r.lecturerName || "Faculty",
                 lecturerEmail: "",
-                department: studentProfile.branch || studentProfile.department || "General",
+                department: normalizeBranchName(studentProfile.branch || studentProfile.department || "CSE"),
                 semester: studentProfile.semester || "1",
                 batch: studentProfile.batch || "2025",
                 defaultRoom: r.roomNo || "N/A",

@@ -35,6 +35,7 @@ import LecturerDetailModal from "../../Common/LecturerDetailModal";
 import { useTableSort, SortIcon } from "../../Common/useTableSort";
 import { buildUserLookupMaps, normalizeSessions, doesSessionBelongToLecturer } from "../../Common/sessionMatcher";
 import { downloadExcel } from "../../../DownloadExcel";
+import { normalizeBranchName } from "../../../utils/studentDataHelper";
 
 import "./ManageLecturers.css";
 
@@ -103,7 +104,7 @@ const ManageLecturers = () => {
           email: email || data.email || "",
           uid: data.uid || lookupMaps.emailToUid.get(email) || null,
           name: data.name || (email ? email.split("@")[0] : "Lecturer"),
-          department: (data.department && String(data.department).toLowerCase() !== "general") ? data.department : "Computer Science & Engineering",
+          department: normalizeBranchName(data.department || "CSE"),
           designation: data.designation || "Assistant Professor",
           phone: data.phone || "",
           cabin: data.cabin || "",
@@ -130,7 +131,7 @@ const ManageLecturers = () => {
             email: email || existing.email || "",
             uid: data.uid || existing.uid || lookupMaps.emailToUid.get(email) || null,
             name: data.name || existing.name || (email ? email.split("@")[0] : "Lecturer"),
-            department: (data.department && String(data.department).toLowerCase() !== "general") ? data.department : ((existing.department && String(existing.department).toLowerCase() !== "general") ? existing.department : "Computer Science & Engineering"),
+            department: normalizeBranchName(data.department || existing.department || "CSE"),
             designation: data.designation || existing.designation || "Assistant Professor",
             phone: data.phone || existing.phone || "",
             cabin: data.cabin || existing.cabin || "",
@@ -159,7 +160,7 @@ const ManageLecturers = () => {
             email: email || existing.email || "",
             uid: data.uid || existing.uid || lookupMaps.emailToUid.get(email) || null,
             name: data.name || existing.name || (email ? email.split("@")[0] : "Lecturer"),
-            department: (data.department && String(data.department).toLowerCase() !== "general") ? data.department : ((existing.department && String(existing.department).toLowerCase() !== "general") ? existing.department : "Computer Science & Engineering"),
+            department: normalizeBranchName(data.department || existing.department || "CSE"),
             designation: data.designation || existing.designation || "Assistant Professor",
             phone: data.phone || existing.phone || "",
             cabin: data.cabin || existing.cabin || "",
@@ -377,7 +378,7 @@ const ManageLecturers = () => {
       "S.No": idx + 1,
       "Faculty Name": l.name || "N/A",
       "Email Address": l.email || "N/A",
-      "Department": l.department || "Computer Science & Engineering",
+      "Department": normalizeBranchName(l.department || "CSE"),
       "Designation": l.designation || "Assistant Professor",
       "Phone": l.phone || "N/A",
       "Classes Conducted": l.classesConducted || 0,
@@ -711,7 +712,7 @@ const ManageLecturers = () => {
                         <div className="department-cell-stack">
                           <span className="department-chip">
                             <FaBuilding className="chip-icon" />
-                            {lecturer.department || "Computer Science & Engineering"}
+                            {normalizeBranchName(lecturer.department || "CSE")}
                           </span>
                           <span className="designation-chip">
                             <FaUserTie className="chip-icon" />

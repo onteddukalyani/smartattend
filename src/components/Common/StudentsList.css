@@ -914,6 +914,7 @@
     font-weight: 800;
     letter-spacing: 0.04em;
     text-transform: uppercase;
+    white-space: nowrap;
 }
 
 .branch-badge.branch-cse {
@@ -932,6 +933,12 @@
     background: rgba(245, 158, 11, 0.12);
     color: #d97706;
     border: 1px solid rgba(245, 158, 11, 0.28);
+}
+
+.branch-badge.branch-aic {
+    background: rgba(16, 185, 129, 0.12);
+    color: #059669;
+    border: 1px solid rgba(16, 185, 129, 0.28);
 }
 
 .sem-pill {

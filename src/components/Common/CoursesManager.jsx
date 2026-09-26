@@ -34,12 +34,14 @@ import {
   FaQrcode,
   FaFileExcel,
   FaUserPlus,
-  FaExclamationTriangle
+  FaExclamationTriangle,
+  FaUndo
 } from "react-icons/fa";
 import { db } from "../../firebase";
 import { useAuth } from "../authcontext";
 import { downloadExcel } from "../../DownloadExcel";
 import { mergeAllStudentRecords } from "../../utils/studentDataHelper";
+import StudentDetailModal from "./StudentDetailModal";
 import "./CoursesManager.css";
 
 export function normalizeCourseDepartment(dept) {
@@ -47,18 +49,28 @@ export function normalizeCourseDepartment(dept) {
   const str = String(dept).trim().toUpperCase();
   if (!str) return "CSE";
 
-  if (str === "CSE" || str === "CSE-A" || str === "CSE-B" || str === "CE") return "CSE";
+  if (str === "CSE" || str === "Computer Science and Engineering" || str === "CSE-A" || str === "CSE-B" || str === "GENERAL") return "CSE";
   if (str === "ECE") return "ECE";
-  if (str === "DSAI") return "DSAI";
-  if (str === "AIC") return "AIC";
-  if (str === "GENERAL") return "CSE";
+  if (str === "DSAI" || str === "DS & AI" || str === "DS/AI" || str === "DS-AI") return "DSAI";
+  if (str === "AIC" || str === "AI & COMPUTING" || str === "AI/COMPUTING" || str === "AI-C") return "AIC";
 
   const clean = str.replace(/[^A-Z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
 
-  if (clean.includes("CYBERNETIC") || clean.includes("AIC")) return "AIC";
-  if (clean.includes("DATA SCIENCE") || clean.includes("DSAI") || clean.includes("ARTIFICIAL INTELLIGENCE")) return "DSAI";
-  if (clean.includes("ELECTRONIC") || clean.includes("COMMUNICATION") || clean.includes("ECE")) return "ECE";
-  if (clean.includes("COMPUTER") || clean.includes("CSE") || clean.includes("SOFTWARE") || clean === "CE") return "CSE";
+  // 1. Check Data Science & AI (DSAI)
+  if (clean.includes("DATA SCIENCE") || clean.includes("DSAI") || (clean.includes("DATA") && clean.includes("AI")) || (clean.includes("DS") && clean.includes("AI"))) return "DSAI";
+
+  // 2. Check Artificial Intelligence & Computing (AIC)
+  if (clean.includes("CYBERNETIC") || clean.includes("AIC") || (clean.includes("COMPUTING") && (clean.includes("AI") || clean.includes("ARTIFICIAL"))) || clean.includes("INTELLIGENCE AND COMPUTING") || clean.includes("AI COMPUTING")) return "AIC";
+
+  // 3. Check Electronics & Communication Engineering (ECE)
+  if (clean.includes("ELECTRONIC") || clean.includes("COMMUNICATION") || clean.includes("ECE") || clean.includes("EC")) return "ECE";
+
+  // 4. Check Computer Science and Engineering (CSE)
+  if (clean.includes("COMPUTER") || clean.includes("CSE") || clean.includes("SOFTWARE") || clean === "CS" || clean === "CE") return "CSE";
+
+  // 5. Fallback for standalone AI / Data
+  if (clean.includes("DATA")) return "DSAI";
+  if (clean.includes("ARTIFICIAL") || clean.includes("INTELLIGENCE") || clean.includes("AI")) return "AIC";
 
   return "CSE";
 }
@@ -182,21 +194,21 @@ export default function CoursesManager() {
         }
       });
       setLecturers(lecs);
-    }, () => {});
+    }, () => { });
     unsubs.push(unsubUsers);
 
     // Students listener
     const unsubStudents = onSnapshot(collection(db, "students"), (snapshot) => {
       const studs = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
       setAllStudents(studs);
-    }, () => {});
+    }, () => { });
     unsubs.push(unsubStudents);
 
     // Sessions listener
     const unsubSessions = onSnapshot(collection(db, "attendance_sessions"), (snapshot) => {
       const sess = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
       setSessions(sess);
-    }, () => {});
+    }, () => { });
     unsubs.push(unsubSessions);
 
     return () => {
@@ -610,24 +622,86 @@ export default function CoursesManager() {
 
       {/* Course Cards Grid */}
       {loading ? (
-        <div style={{ textAlign: "center", padding: "60px 0", color: "var(--accent, #6366f1)" }}>
-          <FaSyncAlt className="fa-spin" style={{ fontSize: "2rem", marginBottom: "12px" }} />
-          <p style={{ fontWeight: 700, color: "var(--text-muted, #64748b)" }}>Loading courses...</p>
+        <div className="cm-loading-wrap">
+          <FaSyncAlt className="fa-spin" />
+          <p>Loading course curriculum...</p>
         </div>
       ) : filteredCourses.length === 0 ? (
         <div className="cm-empty-state">
-          <div className="cm-empty-icon"><FaBookOpen /></div>
-          <h3>No Courses Found</h3>
-          <p>No courses matched your current filter criteria.</p>
-          {(isCurrentAdmin || isCurrentLecturer) && (
-            <button
-              type="button"
-              className="cm-btn cm-btn-primary"
-              style={{ marginTop: "14px" }}
-              onClick={() => handleOpenAddEditModal()}
-            >
-              <FaPlus /> Create Your First Course
-            </button>
+          <div className="cm-empty-icon">
+            <FaBookOpen />
+          </div>
+          {courses.length === 0 ? (
+            <>
+              <h3>No Courses Created Yet</h3>
+              <p>Your academic workspace has no curriculum courses registered in the database yet.</p>
+              {(isCurrentAdmin || isCurrentLecturer) && (
+                <div className="cm-empty-actions">
+                  <button
+                    type="button"
+                    className="cm-btn cm-btn-primary"
+                    onClick={() => handleOpenAddEditModal()}
+                  >
+                    <FaPlus /> Create First Course
+                  </button>
+                </div>
+              )}
+            </>
+          ) : activeTab === "my" && stats.myCount === 0 ? (
+            <>
+              <h3>No Assigned Courses</h3>
+              <p>You do not have any courses assigned to your faculty profile. Switch to view all institutional courses or create a new course.</p>
+              <div className="cm-empty-actions">
+                <button
+                  type="button"
+                  className="cm-btn cm-btn-secondary"
+                  onClick={() => setActiveTab("all")}
+                >
+                  <FaBookOpen /> View All Courses ({stats.total})
+                </button>
+                {(isCurrentAdmin || isCurrentLecturer) && (
+                  <button
+                    type="button"
+                    className="cm-btn cm-btn-primary"
+                    onClick={() => handleOpenAddEditModal()}
+                  >
+                    <FaPlus /> Add New Course
+                  </button>
+                )}
+              </div>
+            </>
+          ) : (
+            <>
+              <h3>No Matching Courses</h3>
+              <p>
+                No courses match your filter criteria
+                {selectedDept !== "all" ? ` (${selectedDept})` : ""}
+                {selectedSemester !== "all" ? ` (Semester ${selectedSemester})` : ""}
+                {searchTerm ? ` matching "${searchTerm}"` : ""}.
+              </p>
+              <div className="cm-empty-actions">
+                <button
+                  type="button"
+                  className="cm-btn cm-btn-secondary"
+                  onClick={() => {
+                    setSearchTerm("");
+                    setSelectedDept("all");
+                    setSelectedSemester("all");
+                  }}
+                >
+                  <FaUndo /> Reset All Filters
+                </button>
+                {(isCurrentAdmin || isCurrentLecturer) && (
+                  <button
+                    type="button"
+                    className="cm-btn cm-btn-primary"
+                    onClick={() => handleOpenAddEditModal()}
+                  >
+                    <FaPlus /> Add New Course
+                  </button>
+                )}
+              </div>
+            </>
           )}
         </div>
       ) : (
