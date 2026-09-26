@@ -1,33 +1,27 @@
 /**
- * Advanced Biometric Anti-Spoofing & Liveness Detection Engine
+ * Aadhaar / KYC-Grade Multi-Angle Face Biometric Verification Engine
  * 
- * Protects against:
- * 1. 2D Printed Photo Spoofing (detected via EAR blink check, 3D parallax, and static ratio variance).
- * 2. Flat Mobile Screen / Tablet Photo Spoofing (detected via micro-motion dynamics and head pose yaw).
- * 3. Video Replay Attacks (detected via dynamic active challenge-response prompt sequencing).
+ * Tracks 3D head poses in real-time:
+ * 1. 🎯 FRONT / CENTER (Face aligned)
+ * 2. ⬅️ LEFT TURN (Yaw left)
+ * 3. ➡️ RIGHT TURN (Yaw right)
+ * 4. ⬆️ TILT UP (Pitch up)
+ * 5. 👁️ BLINK / SMILE (EAR blink / live human reflex)
  */
 
-export const BLINK_CLOSED_THRESHOLD = 0.220; // Eye Aspect Ratio below this = eye closed
-export const BLINK_OPEN_THRESHOLD = 0.240;   // Eye Aspect Ratio above this = eye open
-export const STATIC_VARIANCE_THRESHOLD = 0.00010; // Zero variance across frames = flat static image
+export const BLINK_CLOSED_THRESHOLD = 0.21;
+export const BLINK_OPEN_THRESHOLD = 0.25;
+export const STATIC_VARIANCE_THRESHOLD = 0.00008;
 export const YAW_CENTER_MIN = 0.75;
 export const YAW_CENTER_MAX = 1.32;
 export const YAW_LEFT_MAX = 0.70;   // Looking left (relative to camera)
 export const YAW_RIGHT_MIN = 1.38;  // Looking right (relative to camera)
 
-/**
- * Computes Euclidean distance between two 2D/3D points
- */
 export const getDist = (p1, p2) => {
     if (!p1 || !p2) return 0;
     return Math.hypot(p1.x - p2.x, p1.y - p2.y);
 };
 
-/**
- * Computes Eye Aspect Ratio (EAR) for a 6-landmark eye contour
- * Points: [p0, p1, p2, p3, p4, p5]
- * EAR = (|p1 - p5| + |p2 - p4|) / (2 * |p0 - p3|)
- */
 export const computeEAR = (eye) => {
     if (!eye || eye.length < 6) return 0.28;
     const v1 = getDist(eye[1], eye[5]);
@@ -37,59 +31,56 @@ export const computeEAR = (eye) => {
     return (v1 + v2) / (2.0 * h);
 };
 
-/**
- * Computes 5 normalized 3D facial geometric ratios to track non-rigid parallax movement
- * across 68 facial landmarks.
- */
 export const computeFacialRatios = (positions) => {
     if (!positions || positions.length < 68) return [0, 0, 0, 0, 0];
-    const p36 = positions[36]; // Left eye outer corner
-    const p45 = positions[45]; // Right eye outer corner
+    const p36 = positions[36];
+    const p45 = positions[45];
     const eyeSpan = getDist(p36, p45);
     if (eyeSpan < 1) return [0, 0, 0, 0, 0];
 
-    const p30 = positions[30]; // Nose tip
-    const p27 = positions[27]; // Nose bridge top
-    const p48 = positions[48]; // Mouth left corner
-    const p54 = positions[54]; // Mouth right corner
-    const p8 = positions[8];   // Chin tip
+    const p30 = positions[30];
+    const p27 = positions[27];
+    const p48 = positions[48];
+    const p54 = positions[54];
+    const p8  = positions[8];
+
+    const noseToEyeMidY = p30.y - p27.y;
+    const mouthWidth = getDist(p48, p54);
+    const chinToNoseY = p8.y - p30.y;
+    const leftCheekToNose = getDist(positions[0], p30);
+    const rightCheekToNose = getDist(positions[16], p30);
 
     return [
-        getDist(p30, p36) / eyeSpan,
-        getDist(p30, p45) / eyeSpan,
-        getDist(p48, p54) / eyeSpan,
-        getDist(p30, p8) / eyeSpan,
-        getDist(p27, p30) / eyeSpan
+        noseToEyeMidY / eyeSpan,
+        mouthWidth / eyeSpan,
+        chinToNoseY / eyeSpan,
+        leftCheekToNose / eyeSpan,
+        rightCheekToNose / eyeSpan
     ];
 };
 
-/**
- * Computes head pose (Yaw & Pitch ratio) from 68 facial landmarks
- * Returns { yawRatio, pitchRatio, pose: 'CENTER' | 'LEFT' | 'RIGHT' | 'UP' | 'DOWN' }
- */
 export const computeHeadPose = (positions) => {
-    if (!positions || positions.length < 68) {
-        return { yawRatio: 1.0, pitchRatio: 1.0, pose: "UNKNOWN" };
-    }
+    if (!positions || positions.length < 68) return { yawRatio: 1.0, pitchRatio: 1.0, pose: "CENTER" };
+    
+    const nose = positions[30];
+    const leftEye = positions[36];
+    const rightEye = positions[45];
+    const chin = positions[8];
+    const eyeMidX = (leftEye.x + rightEye.x) / 2.0;
+    const eyeMidY = (leftEye.y + rightEye.y) / 2.0;
 
-    const p30 = positions[30]; // Nose tip
-    const p36 = positions[36]; // Left eye outer
-    const p45 = positions[45]; // Right eye outer
-    const p27 = positions[27]; // Nose bridge top
-    const p8 = positions[8];   // Chin tip
+    const dLeft = Math.max(0.1, getDist(leftEye, nose));
+    const dRight = Math.max(0.1, getDist(rightEye, nose));
+    const yawRatio = dLeft / dRight;
 
-    const leftDist = getDist(p30, p36) + 1e-5;
-    const rightDist = getDist(p30, p45) + 1e-5;
-    const yawRatio = leftDist / rightDist;
-
-    const topDist = getDist(p27, p30) + 1e-5;
-    const bottomDist = getDist(p30, p8) + 1e-5;
-    const pitchRatio = topDist / bottomDist;
+    const topDist = Math.max(0.1, nose.y - eyeMidY);
+    const bottomDist = Math.max(0.1, chin.y - nose.y);
+    const pitchRatio = bottomDist / topDist;
 
     let pose = "CENTER";
-    if (yawRatio < YAW_LEFT_MAX) {
+    if (yawRatio < 0.72) {
         pose = "LEFT";
-    } else if (yawRatio > YAW_RIGHT_MIN) {
+    } else if (yawRatio > 1.35) {
         pose = "RIGHT";
     } else if (pitchRatio > 1.35) {
         pose = "UP";
@@ -100,12 +91,8 @@ export const computeHeadPose = (positions) => {
     return { yawRatio, pitchRatio, pose };
 };
 
-/**
- * Calculates multi-frame geometric variance across 5 facial ratios
- * Used to distinguish live biological faces from 2D photos/screens
- */
 export const computeMotionVariance = (history) => {
-    if (!history || history.length < 6) return 0.001;
+    if (!history || history.length < 5) return 1.0;
     const n = history.length;
     let totalVar = 0;
     for (let dim = 0; dim < 5; dim++) {
@@ -121,16 +108,27 @@ export const computeMotionVariance = (history) => {
 };
 
 /**
- * Interactive Step-by-Step Liveness Engine
+ * Aadhaar / KYC Interactive Multi-Angle Liveness Engine
  */
-export class LivenessEngine {
+export class AadhaarLivenessEngine {
     constructor(options = {}) {
         this.onStateChange = options.onStateChange || (() => {});
         this.reset();
     }
 
     reset() {
-        this.step = "ALIGN"; // "ALIGN" -> "BLINK" -> "PASSED"
+        // Multi-Angle Checkpoints
+        this.checkpoints = {
+            CENTER: false,
+            LEFT: false,
+            RIGHT: false,
+            UP: false,
+            BLINK: false
+        };
+
+        // Step Progression: "CENTER" -> "LEFT" -> "RIGHT" -> "UP" -> "BLINK" -> "COMPLETE"
+        this.currentStep = "CENTER";
+        this.step = "ALIGN";
         this.eyeState = "open";
         this.blinkCount = 0;
         this.baselineEAR = 0.28;
@@ -138,36 +136,39 @@ export class LivenessEngine {
         this.ratioHistory = [];
         this.staticFramesCount = 0;
         this.spoofDetected = false;
+        this.isComplete = false;
         this.livenessConfirmed = false;
-        this.centerHoldFrames = 0;
-        this.turnDetected = false;
-        this.targetTurn = Math.random() > 0.5 ? "LEFT" : "RIGHT";
-        this.message = "Center your face in the camera frame.";
+        this.currentPose = "CENTER";
+        this.yawRatio = 1.0;
+        this.pitchRatio = 1.0;
+        this.progress = 0;
+        this.message = "🎯 Step 1/4: Look straight into the camera";
         this.statusType = "ready";
-        this.progress = 15;
+        this.holdFrames = 0;
         this.notify();
     }
 
     notify() {
         this.onStateChange({
-            step: this.step,
+            checkpoints: { ...this.checkpoints },
+            currentStep: this.currentStep,
+            currentPose: this.currentPose,
+            yawRatio: this.yawRatio,
+            pitchRatio: this.pitchRatio,
             blinkCount: this.blinkCount,
-            livenessConfirmed: this.livenessConfirmed,
+            isComplete: this.isComplete,
             spoofDetected: this.spoofDetected,
-            targetTurn: this.targetTurn,
+            progress: this.progress,
             message: this.message,
             statusType: this.statusType,
-            progress: this.progress
+            step: this.currentStep,
+            livenessConfirmed: this.isComplete || this.livenessConfirmed
         });
     }
 
-    /**
-     * Feed a live frame detection with landmarks
-     */
     processFrame(detection) {
         if (!detection || !detection.landmarks) {
-            this.staticFramesCount = 0;
-            this.message = "👀 Face not detected. Please look into the camera.";
+            this.message = "👀 Face not detected. Align face inside circle";
             this.statusType = "warning";
             this.notify();
             return false;
@@ -175,9 +176,12 @@ export class LivenessEngine {
 
         const landmarks = detection.landmarks;
         const positions = landmarks.positions;
-        const box = detection.detection?.box || { width: 100, height: 100 };
+        const { yawRatio, pitchRatio, pose } = computeHeadPose(positions);
+        this.yawRatio = yawRatio;
+        this.pitchRatio = pitchRatio;
+        this.currentPose = pose;
 
-        // 1. EAR Blink Detection with dynamic baseline
+        // 1. EAR Blink Tracking
         const leftEye = positions.slice(36, 42);
         const rightEye = positions.slice(42, 48);
         const leftEAR = computeEAR(leftEye);
@@ -203,72 +207,124 @@ export class LivenessEngine {
             if (this.eyeState === "closed") {
                 this.blinkCount += 1;
                 justBlinked = true;
+                this.checkpoints.BLINK = true;
                 this.livenessConfirmed = true;
-                this.spoofDetected = false;
             }
             this.eyeState = "open";
         }
 
-        // 2. Head Pose & Parallax
-        const { yawRatio, pose } = computeHeadPose(positions);
+        // 2. Multi-Frame Variance
         const currentRatios = computeFacialRatios(positions);
         this.ratioHistory.push(currentRatios);
-        if (this.ratioHistory.length > 20) this.ratioHistory.shift();
-
+        if (this.ratioHistory.length > 15) this.ratioHistory.shift();
         const variance = computeMotionVariance(this.ratioHistory);
 
-        // Natural micro-motion dynamics
-        if (variance > 0.00055 && this.ratioHistory.length >= 8) {
-            this.livenessConfirmed = true;
-            this.spoofDetected = false;
-        }
-
-        // 3. Static Spoof Detector (Freeze frame / printed photo held still)
-        if (this.blinkCount === 0 && !this.livenessConfirmed && variance < STATIC_VARIANCE_THRESHOLD && this.ratioHistory.length >= 15) {
+        // 3. Static Spoof Protection
+        if (this.blinkCount === 0 && !this.checkpoints.LEFT && !this.checkpoints.RIGHT && variance < STATIC_VARIANCE_THRESHOLD && this.ratioHistory.length >= 12) {
             this.staticFramesCount += 1;
             if (this.staticFramesCount >= 25) {
                 this.spoofDetected = true;
-                this.message = "⛔ Anti-Spoof Warning: Flat photo or screen detected. Live human presence required.";
-                this.statusType = "error";
+                this.message = "⚠️ Static photo detected. Real human presence required.";
+                this.statusType = "warning";
                 this.notify();
                 return false;
             }
-        } else if (variance >= STATIC_VARIANCE_THRESHOLD) {
+        } else {
             this.staticFramesCount = Math.max(0, this.staticFramesCount - 1);
             this.spoofDetected = false;
         }
 
-        // 4. Progressive Challenge State Machine
-        if (this.livenessConfirmed || this.blinkCount >= 1) {
-            this.step = "PASSED";
-            this.livenessConfirmed = true;
-            this.spoofDetected = false;
-            this.message = `✅ Live Human Presence Verified! (${this.blinkCount > 0 ? `Blinks: ${this.blinkCount}` : "3D Motion Detected"}) 🛡️`;
-            this.statusType = "success";
-            this.progress = 100;
-        } else if (this.step === "ALIGN") {
-            const isFacingFront = yawRatio >= YAW_CENTER_MIN && yawRatio <= YAW_CENTER_MAX;
-            if (isFacingFront && box.width > 70) {
-                this.centerHoldFrames += 1;
-                if (this.centerHoldFrames >= 3) {
-                    this.step = "BLINK";
-                    this.message = "👁️ Please blink your eyes naturally.";
-                    this.statusType = "capturing";
-                    this.progress = 50;
-                }
-            } else {
-                this.centerHoldFrames = 0;
-                this.message = "Look directly forward into the camera.";
-                this.statusType = "ready";
-                this.progress = 25;
-            }
-        } else if (this.step === "BLINK") {
-            this.message = "👁️ Please blink your eyes naturally to verify live presence.";
-            this.statusType = "capturing";
-            this.progress = 65;
+        // 4. Update Checkpoints dynamically based on natural motion
+        if (pose === "CENTER" && yawRatio >= 0.82 && yawRatio <= 1.20 && pitchRatio >= 0.82 && pitchRatio <= 1.20) {
+            this.checkpoints.CENTER = true;
+        }
+        if (pose === "LEFT" || yawRatio < 0.74) {
+            this.checkpoints.LEFT = true;
+        }
+        if (pose === "RIGHT" || yawRatio > 1.28) {
+            this.checkpoints.RIGHT = true;
+        }
+        if (pose === "UP" || pitchRatio > 1.22) {
+            this.checkpoints.UP = true;
         }
 
+        // 5. Guided Step Flow & Progress
+        if (this.currentStep === "CENTER") {
+            if (this.checkpoints.CENTER) {
+                this.holdFrames += 1;
+                if (this.holdFrames >= 3) {
+                    this.currentStep = "LEFT";
+                    this.holdFrames = 0;
+                    this.message = "⬅️ Step 2/4: Turn your face slowly to the LEFT";
+                    this.statusType = "capturing";
+                } else {
+                    this.message = "🎯 Hold face centered...";
+                    this.statusType = "aligned";
+                }
+            } else {
+                this.message = "🎯 Step 1/4: Look straight into the camera";
+                this.statusType = "ready";
+            }
+        } else if (this.currentStep === "LEFT") {
+            if (this.checkpoints.LEFT) {
+                this.holdFrames += 1;
+                if (this.holdFrames >= 2) {
+                    this.currentStep = "RIGHT";
+                    this.holdFrames = 0;
+                    this.message = "➡️ Step 3/4: Turn your face slowly to the RIGHT";
+                    this.statusType = "capturing";
+                } else {
+                    this.message = "✨ Left angle captured! Now face right...";
+                    this.statusType = "aligned";
+                }
+            } else {
+                this.message = "⬅️ Step 2/4: Turn your face slowly to the LEFT";
+                this.statusType = "ready";
+            }
+        } else if (this.currentStep === "RIGHT") {
+            if (this.checkpoints.RIGHT) {
+                this.holdFrames += 1;
+                if (this.holdFrames >= 2) {
+                    this.currentStep = "UP";
+                    this.holdFrames = 0;
+                    this.message = "⬆️ Step 4/4: Tilt your face slightly UP (or Blink eyes)";
+                    this.statusType = "capturing";
+                } else {
+                    this.message = "✨ Right angle captured! Tilting up...";
+                    this.statusType = "aligned";
+                }
+            } else {
+                this.message = "➡️ Step 3/4: Turn your face slowly to the RIGHT";
+                this.statusType = "ready";
+            }
+        } else if (this.currentStep === "UP") {
+            if (this.checkpoints.UP || this.checkpoints.BLINK || justBlinked) {
+                this.currentStep = "COMPLETE";
+                this.isComplete = true;
+                this.message = "✅ Aadhaar-Grade Biometrics Verified! Enrolling...";
+                this.statusType = "success";
+            } else {
+                this.message = "⬆️ Step 4/4: Tilt your face slightly UP or Blink naturally";
+                this.statusType = "ready";
+            }
+        } else if (this.currentStep === "COMPLETE") {
+            this.isComplete = true;
+            this.message = "✅ Biometrics 100% Verified!";
+            this.statusType = "success";
+        }
+
+        // Calculate Overall Progress % based on completed checkpoints
+        let completedCount = 0;
+        if (this.checkpoints.CENTER) completedCount += 1;
+        if (this.checkpoints.LEFT) completedCount += 1;
+        if (this.checkpoints.RIGHT) completedCount += 1;
+        if (this.checkpoints.UP || this.checkpoints.BLINK) completedCount += 1;
+
+        this.progress = Math.min(100, Math.round((completedCount / 4) * 100));
+        if (this.isComplete) this.progress = 100;
+
         this.notify();
-        return this.livenessConfirmed;
+        return this.isComplete;
     }
 }
+export const LivenessEngine = AadhaarLivenessEngine;

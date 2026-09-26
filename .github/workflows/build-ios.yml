@@ -1,0 +1,92 @@
+name: Build SmartAttend iOS (IPA)
+
+on:
+  push:
+    branches:
+      - main
+      - testing-branch
+  pull_request:
+    branches:
+      - main
+      - testing-branch
+  workflow_dispatch:
+
+jobs:
+  build-ios:
+    name: 🍎 Build iOS IPA & Simulator App
+    runs-on: macos-14
+
+    steps:
+      - name: ⬇️ Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: 🟢 Setup Node.js (v20)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: 📦 Install NPM Dependencies
+        run: npm ci --legacy-peer-deps || npm install --legacy-peer-deps
+
+      - name: 🔨 Build React Web Application
+        run: npm run build
+
+      - name: 🔄 Sync Capacitor iOS Platform
+        run: npx cap sync ios
+
+      - name: 🛠️ Setup Xcode Version
+        uses: maxim-lobachev/Xcode-Install-Action@v1
+        with:
+          xcode-version: 'latest-stable'
+        continue-on-error: true
+
+      - name: 📱 Compile iOS App (Device / BrowserStack IPA)
+        run: |
+          echo "Building iOS App for Physical Devices & Cloud Testing..."
+          xcodebuild clean build \
+            -workspace ios/App/App.xcworkspace \
+            -scheme App \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO
+
+          # Create Payload directory and package into SmartAttend.ipa
+          mkdir -p Payload
+          cp -r build/Build/Products/Release-iphoneos/App.app Payload/SmartAttend.app
+          zip -r SmartAttend.ipa Payload
+          echo "✅ SmartAttend.ipa created successfully!"
+
+      - name: 🖥️ Compile iOS Simulator App (for Appetize.io)
+        run: |
+          echo "Building iOS App for Simulator / Appetize.io..."
+          xcodebuild clean build \
+            -workspace ios/App/App.xcworkspace \
+            -scheme App \
+            -configuration Release \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build-sim \
+            CODE_SIGNING_ALLOWED=NO
+
+          # Zip App.app bundle for Appetize.io
+          cd build-sim/Build/Products/Release-iphonesimulator
+          zip -r ../../../SmartAttend-Simulator.zip App.app
+          cd ../../..
+          echo "✅ SmartAttend-Simulator.zip created successfully!"
+
+      - name: 📤 Upload SmartAttend.ipa Artifact (BrowserStack & LambdaTest)
+        uses: actions/upload-artifact@v4
+        with:
+          name: SmartAttend-IPA
+          path: SmartAttend.ipa
+          retention-days: 14
+
+      - name: 📤 Upload SmartAttend-Simulator.zip Artifact (Appetize.io)
+        uses: actions/upload-artifact@v4
+        with:
+          name: SmartAttend-Simulator-Appetize
+          path: SmartAttend-Simulator.zip
+          retention-days: 14

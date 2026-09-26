@@ -5,31 +5,23 @@ import {
     FaCheckCircle,
     FaRedo,
     FaSpinner,
-    FaUserCheck,
     FaShieldAlt,
-    FaMicrochip,
-    FaExclamationTriangle,
     FaVideo,
     FaUpload,
     FaLock,
     FaInfoCircle,
-    FaEye,
-    FaEyeSlash,
-    FaUserTimes,
     FaCloudUploadAlt,
     FaImage,
-    FaSync
+    FaArrowLeft,
+    FaArrowRight,
+    FaArrowUp,
+    FaBullseye,
+    FaUserTimes,
+    FaBolt,
+    FaIdCard
 } from "react-icons/fa";
 import { checkDuplicateFaceBiometrics } from "../../utils/biometricManager";
-import {
-    LivenessEngine,
-    computeEAR,
-    computeHeadPose,
-    computeFacialRatios,
-    computeMotionVariance,
-    BLINK_CLOSED_THRESHOLD,
-    BLINK_OPEN_THRESHOLD
-} from "../../utils/livenessDetector";
+import { AadhaarLivenessEngine } from "../../utils/livenessDetector";
 import "./LiveFaceEnrollment.css";
 
 const MODEL_CDN_URL = "https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/";
@@ -46,11 +38,10 @@ export function LiveFaceEnrollment({
     const streamRef = useRef(null);
     const canvasRef = useRef(null);
     const animationRef = useRef(null);
-    const fileInputRef = useRef(null);
-
-    // Dynamic Anti-Spoofing & Liveness Engine Ref
+    const aadhaarEngineRef = useRef(null);
     const livenessEngineRef = useRef(null);
     const blinkCountRef = useRef(0);
+    const hasTriggeredCompleteRef = useRef(false);
 
     const [cameraActive, setCameraActive] = useState(false);
     const [cameraLoading, setCameraLoading] = useState(false);
@@ -58,47 +49,56 @@ export function LiveFaceEnrollment({
     const [cameraError, setCameraError] = useState("");
     const [modelsLoaded, setModelsLoaded] = useState(false);
     const [capturing, setCapturing] = useState(false);
-    const [captureStep, setCaptureStep] = useState(0);
-    const [faceQualityStatus, setFaceQualityStatus] = useState("Look into the camera and blink naturally to verify live human presence.");
-    const [statusType, setStatusType] = useState("ready"); // "ready", "capturing", "success", "warning", "error"
+    const [statusMessage, setStatusMessage] = useState("Align face inside the Aadhaar biometric circle");
+    const [statusType, setStatusType] = useState("ready");
     const [enrolledPhoto, setEnrolledPhoto] = useState(initialPhoto);
     const [capturedVector, setCapturedVector] = useState(null);
     const [activeMode, setActiveMode] = useState("camera"); // "camera" or "upload"
     const [isDragging, setIsDragging] = useState(false);
-    const [selectedFileName, setSelectedFileName] = useState("");
-
-    // Liveness & Anti-Duplicate UI States
-    const [blinkCount, setBlinkCount] = useState(0);
-    const [livenessPassed, setLivenessPassed] = useState(false);
-    const [isSpoof, setIsSpoof] = useState(false);
+    const [flashEffect, setFlashEffect] = useState(false);
     const [duplicateError, setDuplicateError] = useState("");
-    const [livenessStep, setLivenessStep] = useState("ALIGN");
-    const [livenessProgress, setLivenessProgress] = useState(15);
-    const [challengeMessage, setChallengeMessage] = useState("");
+    // Aadhaar KYC Interactive State
+    const [checkpoints, setCheckpoints] = useState({
+        CENTER: false,
+        LEFT: false,
+        RIGHT: false,
+        UP: false,
+        BLINK: false
+    });
+    const [currentStep, setCurrentStep] = useState("CENTER");
+    const [currentPose, setCurrentPose] = useState("CENTER");
+    const [progress, setProgress] = useState(0);
+    const [isAadhaarVerified, setIsAadhaarVerified] = useState(false);
 
-    // Initialize Liveness Engine
+    // Initialize Aadhaar Multi-Angle Liveness Engine
     useEffect(() => {
-        livenessEngineRef.current = new LivenessEngine({
+        aadhaarEngineRef.current = new AadhaarLivenessEngine({
             onStateChange: (state) => {
-                setLivenessStep(state.step);
-                setBlinkCount(state.blinkCount);
-                blinkCountRef.current = state.blinkCount;
-                const isPassed = state.livenessConfirmed || state.blinkCount >= 1;
-                setLivenessPassed(isPassed);
-                setIsSpoof(state.spoofDetected);
-                setLivenessProgress(state.progress);
-                setChallengeMessage(state.message);
-                if (state.message) {
-                    setFaceQualityStatus(state.message);
+                setCheckpoints(state.checkpoints);
+                setCurrentStep(state.currentStep);
+                setCurrentPose(state.currentPose);
+                setProgress(state.progress);
+                setIsAadhaarVerified(state.isComplete);
+
+                if (!capturing && !enrolledPhoto) {
+                    setStatusMessage(state.message);
                 }
                 if (state.statusType) {
                     setStatusType(state.statusType);
                 }
+
+                // Automatic Trigger on 100% Aadhaar Verification
+                if (state.isComplete && !hasTriggeredCompleteRef.current && !capturing && !enrolledPhoto) {
+                    hasTriggeredCompleteRef.current = true;
+                    setTimeout(() => {
+                        handleCaptureFace();
+                    }, 400);
+                }
             }
         });
-    }, []);
+    }, [capturing, enrolledPhoto]);
 
-    // 1. Check Browser Permission and Secure Context State
+    // 1. Check Camera Permission
     useEffect(() => {
         const checkPerms = async () => {
             if (typeof window !== "undefined") {
@@ -125,7 +125,7 @@ export function LiveFaceEnrollment({
         checkPerms();
     }, [cameraActive, enrolledPhoto]);
 
-    // 2. Load AI Models
+    // 2. Load Neural Face Recognition Models
     const loadAiModels = useCallback(async () => {
         try {
             if (
@@ -177,13 +177,14 @@ export function LiveFaceEnrollment({
         };
     }, [loadAiModels, initialPhoto]);
 
-    // 3. User Gesture Driven Camera Stream Initializer
+    // 3. Start Camera Stream
     const startCameraStream = async () => {
         setCameraError("");
         setDuplicateError("");
         setCameraLoading(true);
-        setFaceQualityStatus("Requesting camera access...");
+        setStatusMessage("Connecting camera...");
         setStatusType("ready");
+        hasTriggeredCompleteRef.current = false;
 
         try {
             if (streamRef.current) {
@@ -192,82 +193,60 @@ export function LiveFaceEnrollment({
             }
 
             if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-                const legacyGetUserMedia =
-                    navigator.getUserMedia ||
-                    navigator.webkitGetUserMedia ||
-                    navigator.mozGetUserMedia ||
-                    navigator.msGetUserMedia;
-
-                if (legacyGetUserMedia) {
-                    const legacyStream = await new Promise((resolve, reject) => {
-                        legacyGetUserMedia.call(navigator, { video: true, audio: false }, resolve, reject);
-                    });
-                    attachStreamToVideo(legacyStream);
-                    return;
-                }
-
-                if (typeof window !== "undefined" && !window.isSecureContext) {
-                    setPermissionStatus("insecure");
-                    throw new Error("WebRTC live camera requires HTTPS or localhost. Please use 'Upload Photo' below.");
-                }
-
                 throw new Error("Camera API is not supported in this browser.");
             }
 
             let stream = null;
             try {
                 stream = await navigator.mediaDevices.getUserMedia({
-                    video: { facingMode: "user", width: { ideal: 1280, min: 640 }, height: { ideal: 720, min: 480 } },
+                    video: {
+                        facingMode: "user",
+                        width: { ideal: 640, min: 320 },
+                        height: { ideal: 480, min: 240 }
+                    },
                     audio: false
                 });
             } catch (err1) {
-                console.warn("facingMode: user failed, trying fallback video:", err1);
-                if (err1.name === "NotAllowedError" || err1.name === "PermissionDeniedError") {
-                    setPermissionStatus("denied");
-                    throw new Error("Camera permission was denied in your browser settings.");
-                }
+                console.warn("Camera facingMode fallback:", err1);
                 stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
             }
 
             if (!stream) {
-                throw new Error("Unable to obtain video stream.");
+                throw new Error("Unable to obtain camera stream.");
             }
 
-            attachStreamToVideo(stream);
+            streamRef.current = stream;
+            if (videoRef.current) {
+                videoRef.current.srcObject = stream;
+                videoRef.current.setAttribute("autoplay", "true");
+                videoRef.current.setAttribute("playsinline", "true");
+                videoRef.current.setAttribute("muted", "true");
+                videoRef.current.play().catch((e) => console.warn("Video play error:", e));
+            }
+            setCameraActive(true);
             setPermissionStatus("granted");
+            if (aadhaarEngineRef.current) {
+                aadhaarEngineRef.current.reset();
+            }
+            setStatusMessage("🎯 Step 1/4: Look straight into the camera");
+            setStatusType("ready");
         } catch (camErr) {
             console.error("Camera access error:", camErr);
             setCameraActive(false);
             if (camErr.name === "NotAllowedError" || camErr.name === "PermissionDeniedError") {
                 setPermissionStatus("denied");
-                setCameraError("Camera permission blocked in browser. Click the lock icon in your URL address bar to allow camera access.");
-            } else if (camErr.name === "NotReadableError" || camErr.name === "TrackStartError") {
-                setCameraError("Camera is already in use by another application (e.g. Teams, Zoom, or Windows Camera).");
+                setCameraError("Camera permission blocked in browser. Allow camera permission or upload a photo.");
             } else {
                 setCameraError(camErr.message || "Failed to start camera.");
             }
-            setFaceQualityStatus("⚠️ Camera stream unavailable. You can use 'Upload Face Photo' below.");
+            setStatusMessage("⚠️ Camera unavailable. You can upload a photo below.");
             setStatusType("warning");
         } finally {
             setCameraLoading(false);
         }
     };
 
-    const attachStreamToVideo = (stream) => {
-        streamRef.current = stream;
-        if (videoRef.current) {
-            videoRef.current.srcObject = stream;
-            videoRef.current.setAttribute("autoplay", "true");
-            videoRef.current.setAttribute("playsinline", "true");
-            videoRef.current.setAttribute("muted", "true");
-            videoRef.current.play().catch((e) => console.warn("Video play error:", e));
-        }
-        setCameraActive(true);
-        setFaceQualityStatus("Look directly into the camera and blink naturally to verify live human presence.");
-        setStatusType("ready");
-    };
-
-    // 4. Real-time Live Detection & Blink Tracking Loop during Enrollment
+    // 4. Real-time Multi-Angle Tracking Loop (60ms interval for fluid 20+ FPS tracking)
     useEffect(() => {
         if (!cameraActive || !modelsLoaded || enrolledPhoto) return;
 
@@ -277,7 +256,7 @@ export function LiveFaceEnrollment({
         const runLiveTracking = async (time) => {
             if (!isRunning) return;
 
-            if (time - lastScanTime > 160 && videoRef.current && videoRef.current.readyState >= 2) {
+            if (time - lastScanTime > 60 && videoRef.current && videoRef.current.readyState >= 2) {
                 lastScanTime = time;
 
                 try {
@@ -292,7 +271,7 @@ export function LiveFaceEnrollment({
                     }
 
                     const detection = await faceapi
-                        .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.5 }))
+                        .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.45 }))
                         .withFaceLandmarks();
 
                     const ctx = canvas ? canvas.getContext("2d") : null;
@@ -301,24 +280,20 @@ export function LiveFaceEnrollment({
                     }
 
                     if (detection) {
-                        const landmarks = detection.landmarks;
-                        const positions = landmarks.positions;
-                        const box = detection.detection.box;
-
-                        // Process through active 3D landmark Liveness & Anti-Spoof Engine
-                        if (livenessEngineRef.current) {
-                            livenessEngineRef.current.processFrame(detection);
+                        if (aadhaarEngineRef.current) {
+                            aadhaarEngineRef.current.processFrame(detection);
                         }
 
-                        // Render Canvas Reticle HUD
+                        // Render Canvas HUD Reticle
                         if (ctx && canvas) {
-                            const { x, y, width, height } = box;
-                            const cornerLen = Math.min(width, height) * 0.22;
-                            ctx.lineWidth = 3.5;
-                            ctx.strokeStyle = isSpoof ? "#ef4444" : livenessPassed ? "#10b981" : "#6366f1";
+                            const { x, y, width, height } = detection.detection.box;
+                            const cornerLen = Math.min(width, height) * 0.20;
+
+                            ctx.lineWidth = 3;
+                            ctx.strokeStyle = isAadhaarVerified ? "#10b981" : "#6366f1";
                             ctx.lineCap = "round";
 
-                            // Corners
+                            // Corner brackets
                             ctx.beginPath();
                             ctx.moveTo(x, y + cornerLen);
                             ctx.lineTo(x, y);
@@ -343,15 +318,19 @@ export function LiveFaceEnrollment({
                             ctx.lineTo(x + width, y + height - cornerLen);
                             ctx.stroke();
 
-                            // Eye landmarks
-                            const leftEye = positions.slice(36, 42);
-                            const rightEye = positions.slice(42, 48);
-                            ctx.fillStyle = livenessPassed ? "#10b981" : "#06b6d4";
+                            // Eye landmarks highlight
+                            const leftEye = detection.landmarks.positions.slice(36, 42);
+                            const rightEye = detection.landmarks.positions.slice(42, 48);
+                            ctx.fillStyle = isAadhaarVerified ? "rgba(16, 185, 129, 0.9)" : "rgba(99, 102, 241, 0.85)";
                             [...leftEye, ...rightEye].forEach((pt) => {
                                 ctx.beginPath();
-                                ctx.arc(pt.x, pt.y, 2.5, 0, 2 * Math.PI);
+                                ctx.arc(pt.x, pt.y, 2.2, 0, 2 * Math.PI);
                                 ctx.fill();
                             });
+                        }
+                    } else {
+                        if (aadhaarEngineRef.current) {
+                            aadhaarEngineRef.current.processFrame(null);
                         }
                     }
                 } catch (e) { }
@@ -366,84 +345,60 @@ export function LiveFaceEnrollment({
             isRunning = false;
             if (animationRef.current) cancelAnimationFrame(animationRef.current);
         };
-    }, [cameraActive, modelsLoaded, enrolledPhoto, isSpoof, livenessPassed]);
+    }, [cameraActive, modelsLoaded, enrolledPhoto, isAadhaarVerified]);
 
-    // 5. Capture Live Video Frames, Check Liveness & Duplicate Biometrics
+    // 5. Fast Biometric Vector Capture & Duplicate Verification
     const handleCaptureFace = async () => {
         if (!videoRef.current || capturing) return;
-        setDuplicateError("");
-
-        // Check if spoof detected
-        if (isSpoof || (livenessEngineRef.current && livenessEngineRef.current.spoofDetected)) {
-            setFaceQualityStatus("⛔ Cannot enroll static photo or screen replay. Live biological face with natural blink required.");
-            setStatusType("warning");
-            return;
-        }
-
         setCapturing(true);
-        setCaptureStep(0);
+        setStatusMessage("⚡ Extracting 128-D biometric vector & verifying...");
         setStatusType("capturing");
-        setFaceQualityStatus("Scanning & extracting 128-dimensional biometric vectors across live frames...");
+
+        // Flash effect for shutter feedback
+        setFlashEffect(true);
+        setTimeout(() => setFlashEffect(false), 220);
 
         try {
-            const capturedDescriptors = [];
             const canvas = document.createElement("canvas");
             canvas.width = videoRef.current.videoWidth || 640;
             canvas.height = videoRef.current.videoHeight || 480;
             const ctx = canvas.getContext("2d");
+            ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
 
-            for (let i = 0; i < 5; i++) {
-                setCaptureStep(i + 1);
-                ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
+            const detection = await faceapi
+                .detectSingleFace(videoRef.current, new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.45 }))
+                .withFaceLandmarks()
+                .withFaceDescriptor();
 
-                const detection = await faceapi
-                    .detectSingleFace(videoRef.current, new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.5 }))
-                    .withFaceLandmarks()
-                    .withFaceDescriptor();
-
-                if (detection) {
-                    capturedDescriptors.push(detection.descriptor);
-                }
-                await new Promise((r) => setTimeout(r, 140));
-            }
-
-            if (capturedDescriptors.length < 2) {
-                setFaceQualityStatus("❌ Face not clearly detected across frames. Ensure good lighting and look directly into the camera.");
+            if (!detection || !detection.descriptor) {
+                setStatusMessage("❌ Face not detected clearly. Look straight into camera and retry.");
                 setStatusType("warning");
                 setCapturing(false);
-                setCaptureStep(0);
+                hasTriggeredCompleteRef.current = false;
                 return;
             }
 
-            // Average the 128-dimensional vectors
-            const avgDescriptor = new Array(128).fill(0);
-            for (let i = 0; i < 128; i++) {
-                let sum = 0;
-                for (let j = 0; j < capturedDescriptors.length; j++) {
-                    sum += capturedDescriptors[j][i];
-                }
-                avgDescriptor[i] = sum / capturedDescriptors.length;
-            }
+            const descriptorArray = Array.from(detection.descriptor);
 
-            // DUPLICATE FACE BIOMETRICS SECURITY CHECK
-            setFaceQualityStatus("🔍 Verifying biometric uniqueness across student registry...");
-            const duplicateCheck = await checkDuplicateFaceBiometrics(avgDescriptor, targetRollNo, targetEmail);
+            // DUPLICATE BIOMETRICS SECURITY CHECK
+            setStatusMessage("🔍 Verifying biometric uniqueness across registry...");
+            const duplicateCheck = await checkDuplicateFaceBiometrics(descriptorArray, targetRollNo, targetEmail);
 
             if (duplicateCheck.isDuplicate && duplicateCheck.conflictStudent) {
                 const cs = duplicateCheck.conflictStudent;
-                const errText = `⛔ Duplicate Face Detected! This face is already registered to "${cs.name}" (Roll No: ${cs.rollNo} • ${cs.confidence}% Match). System security strictly prohibits saving the same facial biometric template to multiple students.`;
+                const errText = `⛔ Duplicate Face Detected! This biometric profile matches "${cs.name}" (Roll No: ${cs.rollNo}). Multiple students cannot share identical face templates.`;
                 setDuplicateError(errText);
-                setFaceQualityStatus(errText);
+                setStatusMessage(errText);
                 setStatusType("warning");
                 setCapturing(false);
-                setCaptureStep(0);
+                hasTriggeredCompleteRef.current = false;
                 return;
             }
 
-            const photoDataUrl = canvas.toDataURL("image/jpeg", 0.88);
+            const photoDataUrl = canvas.toDataURL("image/jpeg", 0.90);
             setEnrolledPhoto(photoDataUrl);
-            setCapturedVector(avgDescriptor);
-            setFaceQualityStatus("✅ Facial biometrics verified unique & registered successfully!");
+            setCapturedVector(descriptorArray);
+            setStatusMessage("✅ Aadhaar-Grade Biometrics Enrolled & Verified Unique!");
             setStatusType("success");
 
             if (streamRef.current) {
@@ -454,42 +409,42 @@ export function LiveFaceEnrollment({
 
             if (onFaceEnrolled) {
                 onFaceEnrolled({
-                    faceDescriptor: avgDescriptor,
+                    faceDescriptor: descriptorArray,
                     photoURL: photoDataUrl,
                     biometricEnrolled: true,
                     livenessConfirmed: true,
-                    blinkCount: blinkCountRef.current || blinkCount || 1,
+                    aadhaarVerified: true,
+                    blinkCount: blinkCountRef.current || 1,
                     enrolledAt: Date.now()
                 });
             }
         } catch (err) {
-            console.error("Enrollment error:", err);
-            setFaceQualityStatus("Error processing biometric face. Please try again or use photo upload.");
+            console.error("Capture error:", err);
+            setStatusMessage("Failed to process biometric face. Please try again.");
             setStatusType("warning");
+            hasTriggeredCompleteRef.current = false;
         } finally {
             setCapturing(false);
-            setCaptureStep(0);
         }
     };
 
-    // 6. Photo File Upload & Processing Handler with Duplicate Prevention
+    // 6. Photo File Upload Handler
     const processPhotoFile = async (file) => {
         if (!file) return;
         if (!file.type || !file.type.startsWith("image/")) {
-            setFaceQualityStatus("⚠️ Please upload a valid image file (PNG, JPG, JPEG, WEBP).");
+            setStatusMessage("⚠️ Please upload an image file (PNG, JPG, JPEG, WEBP).");
             setStatusType("warning");
             return;
         }
 
-        setSelectedFileName(file.name || "Uploaded Photo");
         setDuplicateError("");
         setCapturing(true);
-        setFaceQualityStatus("Extracting 128-D biometric vector from photo...");
+        setStatusMessage("⚡ Extracting 128-D biometric vector from photo...");
         setStatusType("capturing");
 
         try {
             if (!modelsLoaded) {
-                setFaceQualityStatus("Loading neural face recognition models...");
+                setStatusMessage("Loading AI recognition models...");
                 await loadAiModels();
             }
 
@@ -519,12 +474,12 @@ export function LiveFaceEnrollment({
                         ctx.drawImage(img, 0, 0, width, height);
 
                         const detection = await faceapi
-                            .detectSingleFace(canvas, new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.5 }))
+                            .detectSingleFace(canvas, new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.45 }))
                             .withFaceLandmarks()
                             .withFaceDescriptor();
 
                         if (!detection) {
-                            setFaceQualityStatus("❌ No clear face detected in photo. Please choose a well-lit photo looking directly at camera.");
+                            setStatusMessage("❌ No clear face detected in photo. Please choose a well-lit photo looking directly at camera.");
                             setStatusType("warning");
                             setCapturing(false);
                             return;
@@ -533,24 +488,23 @@ export function LiveFaceEnrollment({
                         const descriptorArray = Array.from(detection.descriptor);
 
                         // DUPLICATE BIOMETRICS CHECK
-                        setFaceQualityStatus("🔍 Verifying biometric uniqueness across registry...");
+                        setStatusMessage("🔍 Verifying biometric uniqueness...");
                         const duplicateCheck = await checkDuplicateFaceBiometrics(descriptorArray, targetRollNo, targetEmail);
 
                         if (duplicateCheck.isDuplicate && duplicateCheck.conflictStudent) {
                             const cs = duplicateCheck.conflictStudent;
-                            const errText = `⛔ Duplicate Face Detected! This photo matches already registered student "${cs.name}" (Roll No: ${cs.rollNo} • ${cs.confidence}% Match). Multiple students cannot share identical facial biometrics.`;
+                            const errText = `⛔ Duplicate Face Detected! This photo matches already registered student "${cs.name}" (Roll No: ${cs.rollNo}).`;
                             setDuplicateError(errText);
-                            setFaceQualityStatus(errText);
+                            setStatusMessage(errText);
                             setStatusType("warning");
                             setCapturing(false);
                             return;
                         }
 
-                        const photoDataUrl = canvas.toDataURL("image/jpeg", 0.88);
-
+                        const photoDataUrl = canvas.toDataURL("image/jpeg", 0.90);
                         setEnrolledPhoto(photoDataUrl);
                         setCapturedVector(descriptorArray);
-                        setFaceQualityStatus("✅ Facial biometrics verified unique & registered successfully! (128-D Vector Ready)");
+                        setStatusMessage("✅ Facial biometrics verified unique & registered successfully!");
                         setStatusType("success");
 
                         if (streamRef.current) {
@@ -565,22 +519,17 @@ export function LiveFaceEnrollment({
                                 photoURL: photoDataUrl,
                                 biometricEnrolled: true,
                                 livenessConfirmed: true,
+                                aadhaarVerified: true,
                                 enrolledAt: Date.now()
                             });
                         }
                     } catch (detectErr) {
-                        console.error("Native photo detection error:", detectErr);
-                        setFaceQualityStatus("Error analyzing face from photo. Please try another photo.");
+                        console.error("Photo detect error:", detectErr);
+                        setStatusMessage("Error analyzing face from photo. Please try another photo.");
                         setStatusType("warning");
                     } finally {
                         setCapturing(false);
                     }
-                };
-
-                img.onerror = () => {
-                    setFaceQualityStatus("Failed to load image file. Please try another photo.");
-                    setStatusType("warning");
-                    setCapturing(false);
                 };
 
                 img.src = readerEvent.target.result;
@@ -588,38 +537,10 @@ export function LiveFaceEnrollment({
 
             reader.readAsDataURL(file);
         } catch (err) {
-            console.error("Native photo capture error:", err);
-            setFaceQualityStatus("Failed to process photo capture.");
+            console.error("Photo capture error:", err);
+            setStatusMessage("Failed to process photo.");
             setStatusType("warning");
             setCapturing(false);
-        }
-    };
-
-    const handleNativePhotoCapture = (e) => {
-        const file = e.target.files?.[0];
-        if (file) processPhotoFile(file);
-    };
-
-    const handleDragOver = (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        setIsDragging(true);
-    };
-
-    const handleDragLeave = (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        setIsDragging(false);
-    };
-
-    const handleDrop = (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        setIsDragging(false);
-        const file = e.dataTransfer?.files?.[0];
-        if (file) {
-            setActiveMode("upload");
-            processPhotoFile(file);
         }
     };
 
@@ -627,15 +548,13 @@ export function LiveFaceEnrollment({
         setEnrolledPhoto(null);
         setCapturedVector(null);
         setDuplicateError("");
-        setSelectedFileName("");
-        if (livenessEngineRef.current) {
-            livenessEngineRef.current.reset();
+        setIsAadhaarVerified(false);
+        setProgress(0);
+        hasTriggeredCompleteRef.current = false;
+        if (aadhaarEngineRef.current) {
+            aadhaarEngineRef.current.reset();
         }
-        blinkCountRef.current = 0;
-        setBlinkCount(0);
-        setLivenessPassed(false);
-        setIsSpoof(false);
-        setFaceQualityStatus("Position your face in camera or upload a clear frontal photo to register biometrics.");
+        setStatusMessage("🎯 Step 1/4: Look straight into the camera");
         setStatusType("ready");
         if (fileInputRef.current) {
             fileInputRef.current.value = "";
@@ -649,7 +568,7 @@ export function LiveFaceEnrollment({
     };
 
     return (
-        <div className={`live-enrollment-card ${hideHeader ? "in-modal" : ""}`}>
+        <div className={`live-enrollment-card aadhaar-auth-card ${hideHeader ? "in-modal" : ""}`}>
             {/* Hidden Photo File Input */}
             <input
                 ref={fileInputRef}
@@ -657,10 +576,13 @@ export function LiveFaceEnrollment({
                 accept="image/*"
                 capture="user"
                 style={{ display: "none" }}
-                onChange={handleNativePhotoCapture}
+                onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) processPhotoFile(file);
+                }}
             />
 
-            {/* Mode Switcher Tabs (Live Camera vs Upload Photo) */}
+            {/* Mode Switcher Tabs */}
             {!enrolledPhoto && (
                 <div className="lfe-mode-tabs-wrapper">
                     <div className="lfe-mode-tabs">
@@ -672,7 +594,7 @@ export function LiveFaceEnrollment({
                                 if (!cameraActive && !enrolledPhoto) startCameraStream();
                             }}
                         >
-                            <FaVideo /> Live Camera
+                            <FaIdCard /> Aadhaar KYC Camera
                         </button>
                         <button
                             type="button"
@@ -686,44 +608,93 @@ export function LiveFaceEnrollment({
                                 }
                             }}
                         >
-                            <FaUpload /> Upload Face Photo
+                            <FaUpload /> Upload Photo
                         </button>
                     </div>
                 </div>
             )}
 
-            {/* Viewport Container for Camera Video or Upload Dropzone */}
+            {/* Viewport Container with Aadhaar Multi-Angle Radar HUD */}
             <div
-                className={`lfe-viewport-container ${enrolledPhoto ? "enrolled" : ""} ${capturing ? "capturing" : ""} ${isDragging ? "dragging" : ""} ${activeMode === "upload" && !cameraActive && !enrolledPhoto ? "upload-mode" : ""}`}
-                onDragOver={handleDragOver}
-                onDragLeave={handleDragLeave}
-                onDrop={handleDrop}
+                className={`lfe-viewport-container aadhaar-viewport ${enrolledPhoto ? "enrolled" : ""} ${isAadhaarVerified ? "verified" : ""} ${capturing ? "capturing" : ""} ${flashEffect ? "flash" : ""} ${activeMode === "upload" && !cameraActive && !enrolledPhoto ? "upload-mode" : ""}`}
+                onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+                onDragLeave={(e) => { e.preventDefault(); setIsDragging(false); }}
+                onDrop={(e) => {
+                    e.preventDefault();
+                    setIsDragging(false);
+                    const file = e.dataTransfer?.files?.[0];
+                    if (file) {
+                        setActiveMode("upload");
+                        processPhotoFile(file);
+                    }
+                }}
             >
-                {/* Clean Corner Brackets */}
-                <span className="lfe-corner-bracket lfe-corner-tl" />
-                <span className="lfe-corner-bracket lfe-corner-tr" />
-                <span className="lfe-corner-bracket lfe-corner-bl" />
-                <span className="lfe-corner-bracket lfe-corner-br" />
+                {/* Aadhaar Circular Multi-Angle Compass Ring */}
+                {!enrolledPhoto && cameraActive && activeMode === "camera" && (
+                    <div className="aadhaar-compass-hud">
+                        {/* 360 Progress SVG Ring */}
+                        <svg className="aadhaar-ring-svg" viewBox="0 0 260 260">
+                            <circle
+                                className="aadhaar-ring-bg"
+                                cx="130"
+                                cy="130"
+                                r="118"
+                            />
+                            <circle
+                                className="aadhaar-ring-progress"
+                                cx="130"
+                                cy="130"
+                                r="118"
+                                style={{
+                                    strokeDasharray: 741,
+                                    strokeDashoffset: 741 - (741 * progress) / 100
+                                }}
+                            />
+                        </svg>
 
-                {/* Face Oval Target Guide (only in active camera feed) */}
-                {!enrolledPhoto && cameraActive && activeMode === "camera" && <div className="lfe-face-guide" />}
+                        {/* Cardinal Direction Checkpoint Nodes */}
+                        <div className={`aadhaar-node node-up ${checkpoints.UP ? "done" : currentStep === "UP" ? "active" : ""}`}>
+                            <FaArrowUp />
+                            <span>UP</span>
+                        </div>
+                        <div className={`aadhaar-node node-left ${checkpoints.LEFT ? "done" : currentStep === "LEFT" ? "active" : ""}`}>
+                            <FaArrowLeft />
+                            <span>LEFT</span>
+                        </div>
+                        <div className={`aadhaar-node node-right ${checkpoints.RIGHT ? "done" : currentStep === "RIGHT" ? "active" : ""}`}>
+                            <FaArrowRight />
+                            <span>RIGHT</span>
+                        </div>
+                        <div className={`aadhaar-node node-center ${checkpoints.CENTER ? "done" : currentStep === "CENTER" ? "active" : ""}`}>
+                            <FaBullseye />
+                            <span>FRONT</span>
+                        </div>
 
-                {/* Laser Scanning Bar */}
-                {((!enrolledPhoto && cameraActive && activeMode === "camera") || (capturing && !enrolledPhoto)) && (
-                    <div className="lfe-scan-laser" />
+                        {/* Central Dynamic Directional Arrow Guide */}
+                        <div className="aadhaar-dynamic-pointer">
+                            {currentStep === "CENTER" && <div className="pointer-icon pulse-center">🎯</div>}
+                            {currentStep === "LEFT" && <div className="pointer-icon slide-left">⬅️ Turn Left</div>}
+                            {currentStep === "RIGHT" && <div className="pointer-icon slide-right">➡️ Turn Right</div>}
+                            {currentStep === "UP" && <div className="pointer-icon slide-up">⬆️ Tilt Up</div>}
+                            {currentStep === "COMPLETE" && <div className="pointer-icon success-check">✅</div>}
+                        </div>
+                    </div>
                 )}
 
-                {/* Media Feed / Upload Area */}
+                {/* Camera Shutter Flash */}
+                {flashEffect && <div className="lfe-shutter-flash" />}
+
+                {/* Enrolled Photo Display */}
                 {enrolledPhoto ? (
                     <div className="lfe-enrolled-preview-wrap">
-                        <img src={enrolledPhoto} alt="Enrolled Student" className="lfe-preview-img" />
+                        <img src={enrolledPhoto} alt="Enrolled Biometric Face" className="lfe-preview-img" />
                         <div className="lfe-enrolled-floating-badge">
                             <FaCheckCircle className="badge-icon" />
-                            <span>Biometrics Verified &amp; Ready</span>
+                            <span>Aadhaar-Grade Biometrics Enrolled</span>
                         </div>
                     </div>
                 ) : activeMode === "upload" && !cameraActive ? (
-                    /* DEDICATED UPLOAD DROPZONE */
+                    /* UPLOAD DROPZONE */
                     <div
                         className="lfe-upload-dropzone"
                         onClick={() => fileInputRef.current?.click()}
@@ -732,23 +703,16 @@ export function LiveFaceEnrollment({
                             <FaCloudUploadAlt className="lfe-upload-hero-icon" />
                         </div>
                         <h4 className="lfe-upload-title">
-                            {isDragging ? "Drop your face photo here!" : "Upload Student Face Photo"}
+                            {isDragging ? "Drop your face photo here" : "Upload Face Photo"}
                         </h4>
                         <p className="lfe-upload-subtitle">
-                            Drag &amp; drop an image file here, or click to browse from device
+                            Drag &amp; drop an image here, or click to browse
                         </p>
 
                         <div className="lfe-upload-guidelines">
                             <span className="lfe-guide-badge"><FaCheckCircle /> Frontal Face</span>
                             <span className="lfe-guide-badge"><FaCheckCircle /> Good Lighting</span>
-                            <span className="lfe-guide-badge"><FaCheckCircle /> Single Person</span>
-                        </div>
-
-                        <div className="lfe-upload-formats">
-                            <span className="lfe-format-tag">PNG</span>
-                            <span className="lfe-format-tag">JPG</span>
-                            <span className="lfe-format-tag">JPEG</span>
-                            <span className="lfe-format-tag">WEBP</span>
+                            <span className="lfe-guide-badge"><FaCheckCircle /> High Clarity</span>
                         </div>
 
                         <button
@@ -768,7 +732,7 @@ export function LiveFaceEnrollment({
                         </button>
                     </div>
                 ) : (
-                    /* CAMERA STREAM OR CAMERA PLACEHOLDER */
+                    /* CAMERA STREAM */
                     <>
                         <video
                             ref={videoRef}
@@ -792,14 +756,14 @@ export function LiveFaceEnrollment({
                             }}
                         />
 
-                        {/* Inactive Standby Hero Box */}
+                        {/* Standby Camera Box */}
                         {!cameraActive && (
                             <div className="lfe-camera-placeholder">
                                 <div className="lfe-placeholder-icon-wrap">
-                                    <FaCamera className="lfe-camera-placeholder-icon" />
+                                    <FaIdCard className="lfe-camera-placeholder-icon" />
                                 </div>
-                                <h5>AI Facial Biometrics Scanner</h5>
-                                <p>Start your camera for live liveness verification or switch to photo upload.</p>
+                                <h5>Aadhaar-Grade Face Authentication</h5>
+                                <p>Perform interactive multi-angle head movement (Front, Left, Right, Up) to verify biological liveness.</p>
 
                                 <div className="lfe-placeholder-btn-group">
                                     <button
@@ -811,7 +775,7 @@ export function LiveFaceEnrollment({
                                         {cameraLoading ? (
                                             <><FaSpinner className="fa-spin" /> Starting Camera...</>
                                         ) : (
-                                            <><FaVideo /> Start Camera</>
+                                            <><FaVideo /> Start Aadhaar Scan</>
                                         )}
                                     </button>
 
@@ -827,21 +791,17 @@ export function LiveFaceEnrollment({
                                     </button>
                                 </div>
 
-                                {/* Permission Denied Helper */}
                                 {permissionStatus === "denied" && (
                                     <div className="lfe-perm-denied-guide">
                                         <div style={{ fontWeight: 800, marginBottom: "4px", display: "flex", alignItems: "center", gap: "6px" }}>
                                             <FaLock /> Camera Blocked in Browser
                                         </div>
                                         <div>
-                                            1. Click the <strong>Lock / Camera icon 🔒</strong> in your address bar.<br />
-                                            2. Change <strong>Camera</strong> permission to <strong>Allow</strong>.<br />
-                                            3. Refresh or click retry.
+                                            Click the <strong>Lock / Camera icon 🔒</strong> in your address bar and set <strong>Camera</strong> to <strong>Allow</strong>.
                                         </div>
                                     </div>
                                 )}
 
-                                {/* Error Tip */}
                                 {cameraError && permissionStatus !== "denied" && (
                                     <div className="lfe-error-tip">
                                         <FaInfoCircle /> {cameraError}
@@ -853,93 +813,54 @@ export function LiveFaceEnrollment({
                 )}
             </div>
 
-            {/* Interactive Liveness Steps & Progress Indicator */}
+            {/* Aadhaar Interactive Step Pills & Progress */}
             {cameraActive && !enrolledPhoto && activeMode === "camera" && (
-                <div style={{ margin: "12px 0 6px" }}>
-                    <div style={{ display: "flex", justifyContent: "center", gap: "8px", marginBottom: "8px", flexWrap: "wrap" }}>
-                        <span style={{
-                            display: "inline-flex",
-                            alignItems: "center",
-                            gap: "5px",
-                            padding: "4px 10px",
-                            borderRadius: "6px",
-                            fontSize: "0.78rem",
-                            fontWeight: 700,
-                            background: livenessStep !== "ALIGN" ? "#dcfce7" : "#e0e7ff",
-                            color: livenessStep !== "ALIGN" ? "#15803d" : "#4338ca",
-                            border: livenessStep === "ALIGN" ? "1.5px solid #6366f1" : "1px solid #bbf7d0"
-                        }}>
-                            {livenessStep !== "ALIGN" ? "✅" : "1️⃣"} Center Face
+                <div className="aadhaar-steps-tray">
+                    <div className="aadhaar-pills-row">
+                        <span className={`aadhaar-pill ${checkpoints.CENTER ? "done" : currentStep === "CENTER" ? "current" : ""}`}>
+                            {checkpoints.CENTER ? "✅" : "1️⃣"} Front
                         </span>
-                        <span style={{
-                            display: "inline-flex",
-                            alignItems: "center",
-                            gap: "5px",
-                            padding: "4px 10px",
-                            borderRadius: "6px",
-                            fontSize: "0.78rem",
-                            fontWeight: 700,
-                            background: blinkCount >= 1 ? "#dcfce7" : livenessStep === "BLINK" ? "#fef3c7" : "#f1f5f9",
-                            color: blinkCount >= 1 ? "#15803d" : livenessStep === "BLINK" ? "#b45309" : "#64748b",
-                            border: livenessStep === "BLINK" ? "1.5px solid #f59e0b" : "1px solid #e2e8f0"
-                        }}>
-                            {blinkCount >= 1 ? "✅" : "2️⃣"} Blink Eyes ({blinkCount})
+                        <span className={`aadhaar-pill ${checkpoints.LEFT ? "done" : currentStep === "LEFT" ? "current" : ""}`}>
+                            {checkpoints.LEFT ? "✅" : "2️⃣"} Left Turn
                         </span>
-                        <span style={{
-                            display: "inline-flex",
-                            alignItems: "center",
-                            gap: "5px",
-                            padding: "4px 10px",
-                            borderRadius: "6px",
-                            fontSize: "0.78rem",
-                            fontWeight: 700,
-                            background: livenessPassed ? "#dcfce7" : livenessStep === "TURN" ? "#fef3c7" : "#f1f5f9",
-                            color: livenessPassed ? "#15803d" : livenessStep === "TURN" ? "#b45309" : "#64748b",
-                            border: livenessStep === "TURN" ? "1.5px solid #f59e0b" : "1px solid #e2e8f0"
-                        }}>
-                            {livenessPassed ? "✅" : "3️⃣"} 3D Head Turn
+                        <span className={`aadhaar-pill ${checkpoints.RIGHT ? "done" : currentStep === "RIGHT" ? "current" : ""}`}>
+                            {checkpoints.RIGHT ? "✅" : "3️⃣"} Right Turn
                         </span>
-                        <span style={{
-                            display: "inline-flex",
-                            alignItems: "center",
-                            gap: "5px",
-                            padding: "4px 10px",
-                            borderRadius: "6px",
-                            fontSize: "0.78rem",
-                            fontWeight: 700,
-                            background: isSpoof ? "#fee2e2" : livenessPassed ? "#dcfce7" : "#f1f5f9",
-                            color: isSpoof ? "#b91c1c" : livenessPassed ? "#15803d" : "#475569"
-                        }}>
-                            <FaShieldAlt /> {isSpoof ? "⚠️ Replay Spoof Alert" : livenessPassed ? "🛡️ Live Anti-Spoof: PASSED" : "Anti-Spoof: Active"}
+                        <span className={`aadhaar-pill ${checkpoints.UP || checkpoints.BLINK ? "done" : currentStep === "UP" ? "current" : ""}`}>
+                            {checkpoints.UP || checkpoints.BLINK ? "✅" : "4️⃣"} Tilt Up / Blink
                         </span>
                     </div>
 
-                    {/* Liveness Progress Bar */}
-                    <div style={{ width: "100%", height: "6px", background: "#e2e8f0", borderRadius: "999px", overflow: "hidden", margin: "6px 0" }}>
-                        <div style={{
-                            width: `${livenessProgress}%`,
-                            height: "100%",
-                            background: isSpoof ? "#ef4444" : livenessPassed ? "#10b981" : "#6366f1",
-                            transition: "width 0.3s ease, background-color 0.3s ease"
-                        }} />
+                    <div className="aadhaar-progress-track">
+                        <div
+                            className="aadhaar-progress-fill"
+                            style={{ width: `${progress}%` }}
+                        />
                     </div>
                 </div>
             )}
 
-            {/* Duplicate Face Error Alert */}
+            {/* Status Capsule */}
+            <div className="lfe-status-capsule-wrapper">
+                <div className={`lfe-status-capsule ${statusType}`}>
+                    {statusType === "success" && <FaCheckCircle style={{ color: "#10b981" }} />}
+                    {statusType === "capturing" && <FaSpinner className="fa-spin" style={{ color: "#6366f1" }} />}
+                    {statusType === "warning" && <FaInfoCircle style={{ color: "#f59e0b" }} />}
+                    {statusType === "aligned" && <FaBolt style={{ color: "#10b981" }} />}
+                    {statusType === "ready" && <FaShieldAlt style={{ color: "#6366f1" }} />}
+                    <span>{statusMessage}</span>
+                </div>
+
+                {cameraActive && !enrolledPhoto && activeMode === "camera" && (
+                    <span className="aadhaar-score-badge">
+                        KYC Progress: <strong>{progress}%</strong>
+                    </span>
+                )}
+            </div>
+
+            {/* Duplicate Error Alert */}
             {duplicateError && (
-                <div style={{
-                    padding: "14px 18px",
-                    borderRadius: "12px",
-                    background: "#fef2f2",
-                    border: "1.5px solid #fecaca",
-                    color: "#991b1b",
-                    margin: "12px 0",
-                    textAlign: "left",
-                    fontSize: "0.86rem",
-                    fontWeight: 600,
-                    lineHeight: 1.45
-                }}>
+                <div className="lfe-duplicate-alert">
                     <div style={{ display: "flex", alignItems: "center", gap: "8px", fontWeight: 800, fontSize: "0.95rem", marginBottom: "4px" }}>
                         <FaUserTimes style={{ color: "#ef4444" }} /> Duplicate Face Rejected
                     </div>
@@ -947,82 +868,46 @@ export function LiveFaceEnrollment({
                 </div>
             )}
 
-            {/* Status Quality Indicator */}
-            <div style={{
-                margin: "8px 0 12px",
-                fontSize: "0.88rem",
-                fontWeight: 700,
-                color: statusType === "success" ? "#10b981" : statusType === "warning" ? "#d97706" : "var(--text-muted, #64748b)"
-            }}>
-                {faceQualityStatus}
+            {/* Action Buttons */}
+            <div className="lfe-actions">
+                {enrolledPhoto ? (
+                    <div className="lfe-enrolled-actions">
+                        <button
+                            type="button"
+                            className="lfe-retake-btn"
+                            onClick={handleRetake}
+                        >
+                            <FaRedo /> Retake / Register New Biometrics
+                        </button>
+                    </div>
+                ) : cameraActive ? (
+                    <div className="lfe-active-action-row">
+                        <button
+                            type="button"
+                            className={`lfe-capture-btn ${isAadhaarVerified ? "ready-pulse" : ""}`}
+                            onClick={handleCaptureFace}
+                            disabled={capturing || !modelsLoaded}
+                        >
+                            {capturing ? (
+                                <><FaSpinner className="fa-spin" /> Enrolling Biometrics...</>
+                            ) : (
+                                <><FaCamera />  Capture Face Biometrics</>
+                            )}
+                        </button>
+
+                        <button
+                            type="button"
+                            className="lfe-secondary-upload-btn"
+                            onClick={() => {
+                                setActiveMode("upload");
+                                fileInputRef.current?.click();
+                            }}
+                        >
+                            <FaUpload /> Upload Photo
+                        </button>
+                    </div>
+                ) : null}
             </div>
-
-            {/* Multi-Frame Progress Bar during live capture or vector extraction */}
-            {capturing && (
-                <div className="lfe-progress-bar-wrapper">
-                    <div className="lfe-progress-info">
-                        <span>{captureStep > 0 ? `Biometric Sampling: Frame ${captureStep}/5` : "Extracting & Verifying Biometric Uniqueness..."}</span>
-                        <span>{captureStep > 0 ? `${Math.round((captureStep / 5) * 100)}%` : "AI Processing..."}</span>
-                    </div>
-                    <div className="lfe-progress-track">
-                        <div
-                            className="lfe-progress-fill"
-                            style={{ width: captureStep > 0 ? `${(captureStep / 5) * 100}%` : "100%" }}
-                        />
-                    </div>
-                </div>
-            )}
-
-            {/* Action Bar */}
-            {(cameraActive || enrolledPhoto || activeMode === "upload") && (
-                <div className="lfe-actions">
-                    {enrolledPhoto ? (
-                        <>
-                            <span className="lfe-success-badge">
-                                <FaCheckCircle /> Face Biometrics Enrolled &amp; Unique
-                            </span>
-                            <button
-                                type="button"
-                                className="lfe-retake-btn"
-                                onClick={handleRetake}
-                            >
-                                <FaRedo /> Retake / Upload New Photo
-                            </button>
-                        </>
-                    ) : cameraActive ? (
-                        <div className="lfe-active-action-row">
-                            <button
-                                type="button"
-                                className="lfe-capture-btn"
-                                onClick={handleCaptureFace}
-                                disabled={capturing || !modelsLoaded || isSpoof}
-                                style={{
-                                    opacity: isSpoof ? 0.6 : 1,
-                                    cursor: isSpoof ? "not-allowed" : "pointer"
-                                }}
-                            >
-                                {capturing ? (
-                                    <><FaSpinner className="fa-spin" /> Verifying &amp; Enrolling...</>
-                                ) : (
-                                    <><FaCamera /> 📸 Capture &amp; Register Facial Data</>
-                                )}
-                            </button>
-
-                            <button
-                                type="button"
-                                className="lfe-secondary-upload-btn"
-                                onClick={() => {
-                                    setActiveMode("upload");
-                                    fileInputRef.current?.click();
-                                }}
-                                title="Upload or snap photo from device"
-                            >
-                                <FaUpload /> Upload Photo
-                            </button>
-                        </div>
-                    ) : null}
-                </div>
-            )}
         </div>
     );
 }

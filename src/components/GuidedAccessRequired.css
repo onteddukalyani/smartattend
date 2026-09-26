@@ -1,0 +1,338 @@
+/* ==========================================================================
+   SMARTATTEND - GUIDED ACCESS REQUIRED SCREEN (iOS SUPERVISED KIOSK)
+   ========================================================================== */
+
+.guided-access-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 99999;
+    background: linear-gradient(145deg, #0f172a 0%, #1e293b 50%, #0f2b5c 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: calc(env(safe-area-inset-top, 20px) + 12px) 16px calc(env(safe-area-inset-bottom, 20px) + 16px) 16px;
+    overflow-y: auto;
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif;
+    color: #f8fafc;
+    box-sizing: border-box;
+    animation: gaFadeIn 0.35s ease-out forwards;
+}
+
+@keyframes gaFadeIn {
+    from {
+        opacity: 0;
+        transform: scale(0.98);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+.guided-access-container {
+    width: 100%;
+    max-width: 440px;
+    background: rgba(255, 255, 255, 0.96);
+    color: #0f172a;
+    border-radius: 28px;
+    box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.2);
+    padding: 28px 24px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    box-sizing: border-box;
+    backdrop-filter: blur(20px);
+}
+
+/* Header Badge */
+.ga-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 14px;
+    background: #eff6ff;
+    border: 1px solid #bfdbfe;
+    color: #1d4ed8;
+    border-radius: 9999px;
+    font-size: 0.8rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    margin-bottom: 16px;
+}
+
+.ga-badge-pulse {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #2563eb;
+    box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.7);
+    animation: gaPulse 1.8s infinite cubic-bezier(0.66, 0, 0, 1);
+}
+
+@keyframes gaPulse {
+    to {
+        box-shadow: 0 0 0 10px rgba(37, 99, 235, 0);
+    }
+}
+
+/* Title & Description */
+.ga-title {
+    font-size: 1.55rem;
+    font-weight: 800;
+    line-height: 1.25;
+    color: #0f172a;
+    margin: 0 0 8px 0;
+    letter-spacing: -0.02em;
+}
+
+.ga-subtitle {
+    font-size: 0.95rem;
+    line-height: 1.45;
+    color: #475569;
+    margin: 0 0 20px 0;
+    max-width: 360px;
+}
+
+/* iPhone Illustration */
+.ga-illustration-wrap {
+    width: 100%;
+    max-width: 220px;
+    margin: 8px auto 20px auto;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.ga-iphone-svg {
+    width: 100%;
+    height: auto;
+    filter: drop-shadow(0 12px 24px rgba(37, 99, 235, 0.18));
+}
+
+/* Side button indicator pulse */
+.ga-side-button-hint {
+    position: absolute;
+    right: -14px;
+    top: 38%;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    animation: gaBounceX 1.5s infinite ease-in-out;
+}
+
+.ga-hint-pill {
+    background: #2563eb;
+    color: #ffffff;
+    font-size: 0.72rem;
+    font-weight: 700;
+    padding: 4px 8px;
+    border-radius: 6px;
+    white-space: nowrap;
+    box-shadow: 0 4px 10px rgba(37, 99, 235, 0.4);
+}
+
+@keyframes gaBounceX {
+    0%, 100% {
+        transform: translateX(0);
+    }
+    50% {
+        transform: translateX(5px);
+    }
+}
+
+/* Step-by-Step Instruction Cards */
+.ga-steps-list {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-bottom: 24px;
+    text-align: left;
+}
+
+.ga-step-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 16px;
+    padding: 12px 14px;
+    transition: transform 0.2s, border-color 0.2s;
+}
+
+.ga-step-item:hover {
+    border-color: #cbd5e1;
+    background: #f1f5f9;
+}
+
+.ga-step-number {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: #2563eb;
+    color: #ffffff;
+    font-size: 0.85rem;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    box-shadow: 0 3px 8px rgba(37, 99, 235, 0.35);
+}
+
+.ga-step-content {
+    flex: 1;
+}
+
+.ga-step-title {
+    font-size: 0.92rem;
+    font-weight: 700;
+    color: #1e293b;
+    margin: 0 0 2px 0;
+}
+
+.ga-step-desc {
+    font-size: 0.82rem;
+    color: #64748b;
+    margin: 0;
+    line-height: 1.4;
+}
+
+.ga-step-desc strong {
+    color: #0f172a;
+    font-weight: 600;
+}
+
+.ga-highlight {
+    background: #dbeafe;
+    color: #1e40af;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-weight: 600;
+    font-size: 0.8rem;
+}
+
+/* Actions */
+.ga-actions {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.ga-check-button {
+    width: 100%;
+    padding: 14px 20px;
+    background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+    color: #ffffff;
+    border: none;
+    border-radius: 14px;
+    font-size: 1rem;
+    font-weight: 700;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    cursor: pointer;
+    box-shadow: 0 8px 20px -4px rgba(37, 99, 235, 0.5);
+    transition: all 0.2s ease-in-out;
+}
+
+.ga-check-button:hover:not(:disabled) {
+    background: linear-gradient(135deg, #1d4ed8 0%, #1e40af 100%);
+    transform: translateY(-1px);
+    box-shadow: 0 12px 24px -4px rgba(37, 99, 235, 0.6);
+}
+
+.ga-check-button:active:not(:disabled) {
+    transform: translateY(0);
+}
+
+.ga-check-button:disabled {
+    opacity: 0.75;
+    cursor: not-allowed;
+}
+
+.ga-spin-icon {
+    animation: gaSpin 1s linear infinite;
+}
+
+@keyframes gaSpin {
+    from {
+        transform: rotate(0deg);
+    }
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.ga-status-msg {
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: #dc2626;
+    margin: 0;
+    animation: gaFadeIn 0.25s ease-out;
+}
+
+.ga-status-msg.success {
+    color: #16a34a;
+}
+
+/* Exit info note */
+.ga-footer-note {
+    margin-top: 14px;
+    font-size: 0.78rem;
+    color: #64748b;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    justify-content: center;
+}
+
+/* Post Attendance Guided Access Exit Banner */
+.ga-exit-banner {
+    width: 100%;
+    background: #f0fdf4;
+    border: 1px solid #bbf7d0;
+    border-radius: 16px;
+    padding: 16px 18px;
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+    margin: 16px 0;
+    text-align: left;
+    box-sizing: border-box;
+}
+
+.ga-exit-banner-icon {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: #22c55e;
+    color: #ffffff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.ga-exit-banner-content h4 {
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: #14532d;
+    margin: 0 0 4px 0;
+}
+
+.ga-exit-banner-content p {
+    font-size: 0.84rem;
+    color: #166534;
+    margin: 0;
+    line-height: 1.45;
+}

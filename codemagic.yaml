@@ -1,0 +1,73 @@
+workflows:
+  ios-smartattend:
+    name: SmartAttend iOS Build
+    instance_type: mac_mini_m2
+    max_build_duration: 30
+    environment:
+      node: 20.11.0
+      xcode: latest
+      groups:
+        # Optional: Add your Apple Developer Portal credentials group if doing App Store signing
+        - apple_credentials
+      vars:
+        XCODE_WORKSPACE: "ios/App/App.xcworkspace"
+        XCODE_SCHEME: "App"
+        BUNDLE_ID: "com.smartattend.app"
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: 'main'
+          include: true
+          source: true
+        - pattern: 'testing-branch'
+          include: true
+          source: true
+    scripts:
+      - name: Install NPM dependencies
+        script: |
+          npm ci --legacy-peer-deps || npm install --legacy-peer-deps
+      - name: Build Vite React Web App
+        script: |
+          npm run build
+      - name: Sync Capacitor iOS
+        script: |
+          npx cap sync ios
+      - name: Build iOS App for Testing (BrowserStack IPA)
+        script: |
+          xcodebuild clean build \
+            -workspace "$XCODE_WORKSPACE" \
+            -scheme "$XCODE_SCHEME" \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO
+
+          mkdir -p Payload
+          cp -r build/Build/Products/Release-iphoneos/App.app Payload/SmartAttend.app
+          zip -r SmartAttend.ipa Payload
+      - name: Build iOS Simulator App (Appetize.io)
+        script: |
+          xcodebuild clean build \
+            -workspace "$XCODE_WORKSPACE" \
+            -scheme "$XCODE_SCHEME" \
+            -configuration Release \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build-sim \
+            CODE_SIGNING_ALLOWED=NO
+
+          cd build-sim/Build/Products/Release-iphonesimulator
+          zip -r ../../../SmartAttend-Simulator.zip App.app
+          cd ../../..
+    artifacts:
+      - SmartAttend.ipa
+      - SmartAttend-Simulator.zip
+    publishing:
+      email:
+        recipients:
+          - onteddukalyani@gmail.com
+        notify:
+          success: true
+          failure: true

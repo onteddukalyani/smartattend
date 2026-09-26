@@ -99,6 +99,9 @@ export const AuthProvider = ({ children }) => {
       if (candidateDocs.length > 0) {
         let merged = {};
         let authoritativeName = "";
+        let isExplicitlyFaceRemoved = false;
+        let mostRecentRemovalTime = 0;
+
         for (const c of candidateDocs) {
           if (!authoritativeName && c.name && !isGenericName(c.name, rollFromEmail, cleanEmail)) {
             authoritativeName = String(c.name).trim();
@@ -108,6 +111,12 @@ export const AuthProvider = ({ children }) => {
           }
           if (!authoritativeName && c.displayName && !isGenericName(c.displayName, rollFromEmail, cleanEmail)) {
             authoritativeName = String(c.displayName).trim();
+          }
+          if (c.faceRemovedAt || c.faceRegistered === false || c.biometricEnrolled === false || c.hasFaceRegistered === false) {
+            isExplicitlyFaceRemoved = true;
+            if (typeof c.faceRemovedAt === "number" && c.faceRemovedAt > mostRecentRemovalTime) {
+              mostRecentRemovalTime = c.faceRemovedAt;
+            }
           }
           merged = {
             ...merged,
@@ -120,6 +129,15 @@ export const AuthProvider = ({ children }) => {
             role: c.role || merged.role || "student"
           };
         }
+
+        if (isExplicitlyFaceRemoved) {
+          merged.faceDescriptor = null;
+          merged.faceRegistered = false;
+          merged.biometricEnrolled = false;
+          merged.hasFaceRegistered = false;
+          merged.faceRemovedAt = mostRecentRemovalTime || Date.now();
+        }
+
         const finalName = authoritativeName || merged.name || merged.fullName || "";
         return {
           id: rollFromEmail || cleanEmail,
@@ -162,6 +180,9 @@ export const AuthProvider = ({ children }) => {
       if (fieldDocs.length > 0) {
         let merged = {};
         let authoritativeName = "";
+        let isExplicitlyFaceRemoved = false;
+        let mostRecentRemovalTime = 0;
+
         for (const c of fieldDocs) {
           if (!authoritativeName && c.name && !isGenericName(c.name, rollFromEmail, cleanEmail)) {
             authoritativeName = String(c.name).trim();
@@ -171,6 +192,12 @@ export const AuthProvider = ({ children }) => {
           }
           if (!authoritativeName && c.displayName && !isGenericName(c.displayName, rollFromEmail, cleanEmail)) {
             authoritativeName = String(c.displayName).trim();
+          }
+          if (c.faceRemovedAt || c.faceRegistered === false || c.biometricEnrolled === false || c.hasFaceRegistered === false) {
+            isExplicitlyFaceRemoved = true;
+            if (typeof c.faceRemovedAt === "number" && c.faceRemovedAt > mostRecentRemovalTime) {
+              mostRecentRemovalTime = c.faceRemovedAt;
+            }
           }
           merged = {
             ...merged,
@@ -183,6 +210,15 @@ export const AuthProvider = ({ children }) => {
             role: c.role || merged.role || "student"
           };
         }
+
+        if (isExplicitlyFaceRemoved) {
+          merged.faceDescriptor = null;
+          merged.faceRegistered = false;
+          merged.biometricEnrolled = false;
+          merged.hasFaceRegistered = false;
+          merged.faceRemovedAt = mostRecentRemovalTime || Date.now();
+        }
+
         const finalName = authoritativeName || merged.name || merged.fullName || "";
         return {
           id: rollFromEmail || cleanEmail,

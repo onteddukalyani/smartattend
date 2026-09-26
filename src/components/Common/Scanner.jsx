@@ -35,8 +35,9 @@ import {
 } from '../../services/sessionAuthService';
 import { db } from '../../firebase';
 import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
-import { isGenericName, normalizeDescriptor } from '../../utils/studentDataHelper';
 import FaceScanner, { releaseAllMediaTracks } from '../Lecturer/pages/FaceScanner';
+import { isIOSDevice, isGuidedAccessEnabled } from '../../services/guidedAccessService';
+import GuidedAccessRequired, { GuidedAccessExitNotice } from '../GuidedAccessRequired';
 
 /**
  * Stage 4: Student Two-Phase Attendance Scanner & Supervised Kiosk Controller
@@ -62,6 +63,9 @@ function QrScannerApp() {
 
     // Current State: 'IDLE' | 'AUTHORIZING_QR1' | 'KIOSK_WAITING_QR2' | 'VALIDATING_QR2' | 'BIOMETRIC_SCAN' | 'ATTENDANCE_SUCCESS' | 'DISQUALIFIED'
     const [scanState, setScanState] = useState('IDLE');
+
+    // iOS Guided Access Lockdown State
+    const [showGuidedAccessRequired, setShowGuidedAccessRequired] = useState(false);
 
     // Web Guardian Supervision State
     const [supervisionViolation, setSupervisionViolation] = useState(false);
@@ -626,6 +630,16 @@ function QrScannerApp() {
                 console.warn('Biometrics lookup notice:', bioErr);
             }
 
+            // iOS Apple Guided Access Check: Enforce Guided Access lockdown before allowing QR2
+            if (isIOSDevice()) {
+                const gaStatus = await isGuidedAccessEnabled();
+                if (!gaStatus.enabled) {
+                    console.log('[GuidedAccess] iOS device detected with Guided Access OFF. Displaying lock requirement screen.');
+                    setShowGuidedAccessRequired(true);
+                    return;
+                }
+            }
+
             // Move to Kiosk Supervised Waiting state (QR 1 is now permanently closed for this session)
             setScanState('KIOSK_WAITING_QR2');
         } catch (err) {
@@ -995,6 +1009,21 @@ function QrScannerApp() {
     };
 
     // =========================================================================
+    // UI VIEW 0: iOS GUIDED ACCESS LOCK REQUIRED SCREEN
+    // =========================================================================
+    if (showGuidedAccessRequired) {
+        return (
+            <GuidedAccessRequired
+                onEnabled={() => {
+                    console.log('[GuidedAccess] Guided Access activated! Resuming attendance session.');
+                    setShowGuidedAccessRequired(false);
+                    setScanState('KIOSK_WAITING_QR2');
+                }}
+            />
+        );
+    }
+
+    // =========================================================================
     // UI VIEW 1: ATTENDANCE SUBMITTED (Attendance Lock Active until Lecturer Release)
     // =========================================================================
     if (scanState === 'ATTENDANCE_SUCCESS') {
@@ -1031,8 +1060,11 @@ function QrScannerApp() {
                     Attendance Submitted — Waiting for Lecturer Release
                 </h2>
                 <p style={{ color: '#4338ca', fontSize: '0.92rem', fontWeight: 700, margin: '0 0 18px 0' }}>
-                    🔒 Android Enterprise Lock Task Mode Active
+                    {isIOSDevice() ? '🔒 Apple Guided Access Session Active' : '🔒 Android Enterprise Lock Task Mode Active'}
                 </p>
+
+                {/* On iOS: Guided Access Exit Guidance Notice */}
+                {isIOSDevice() && <GuidedAccessExitNotice />}
 
                 {/* Details Box */}
                 <div style={{
