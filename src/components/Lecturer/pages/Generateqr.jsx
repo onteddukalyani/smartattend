@@ -581,27 +581,12 @@ function GenerateQR() {
 
                             {/* Lecturer Security PIN & Kiosk Remote Controller Bar */}
                             {phase !== "CLOSED" && (
-                                <div style={{
-                                    width: "100%",
-                                    marginBottom: "16px",
-                                    padding: "10px 14px",
-                                    borderRadius: "12px",
-                                    background: "rgba(99, 102, 241, 0.08)",
-                                    border: "1px dashed #6366f1",
-                                    display: "flex",
-                                    alignItems: "center",
-                                    justifyContent: "space-between",
-                                    flexWrap: "wrap",
-                                    gap: "8px"
-                                }}>
-                                    <div style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "0.86rem", color: "#334155", flexWrap: "wrap" }}>
+                                <div className="qr-pin-bar">
+                                    <div className="qr-pin-info">
                                         <FaLock style={{ color: "#6366f1" }} />
                                         <span>Session PIN:{" "}
-                                            <strong style={{ 
-                                                color: "#4338ca", 
+                                            <strong className="qr-pin-value" style={{ 
                                                 letterSpacing: showPin ? "2px" : "3px", 
-                                                fontSize: "1.05rem", 
-                                                fontWeight: 800,
                                                 fontFamily: showPin ? "inherit" : "monospace"
                                             }}>
                                                 {showPin ? (sessionPin || "------") : (sessionPin ? "••••••" : "------")}
@@ -612,26 +597,12 @@ function GenerateQR() {
                                                 type="button"
                                                 onClick={() => setShowPin((prev) => !prev)}
                                                 title={showPin ? "Hide PIN" : "View PIN"}
-                                                style={{
-                                                    display: "inline-flex",
-                                                    alignItems: "center",
-                                                    gap: "4px",
-                                                    padding: "3px 8px",
-                                                    marginLeft: "4px",
-                                                    borderRadius: "6px",
-                                                    background: showPin ? "rgba(99, 102, 241, 0.15)" : "#e2e8f0",
-                                                    border: "1px solid " + (showPin ? "#6366f1" : "#cbd5e1"),
-                                                    color: showPin ? "#4338ca" : "#475569",
-                                                    fontSize: "0.75rem",
-                                                    fontWeight: 600,
-                                                    cursor: "pointer",
-                                                    transition: "all 0.2s ease"
-                                                }}
+                                                className={`qr-pin-toggle-btn ${showPin ? "active" : ""}`}
                                             >
                                                 {showPin ? <><FaEyeSlash /> Hide PIN</> : <><FaEye /> View PIN</>}
                                             </button>
                                         )}
-                                        <span style={{ fontSize: "0.74rem", color: "#64748b", marginLeft: "4px" }}>(Unlocks student devices)</span>
+                                        <span style={{ fontSize: "0.74rem", color: "var(--text-muted, #64748b)" }}>(Unlocks student devices)</span>
                                     </div>
                                     <button
                                         type="button"
@@ -641,18 +612,9 @@ function GenerateQR() {
                                                 setPhase("CLOSED");
                                             }
                                         }}
-                                        style={{
-                                            padding: "6px 12px",
-                                            borderRadius: "8px",
-                                            background: "#fee2e2",
-                                            border: "1px solid #fca5a5",
-                                            color: "#b91c1c",
-                                            fontSize: "0.78rem",
-                                            fontWeight: 800,
-                                            cursor: "pointer"
-                                        }}
+                                        className="qr-pin-end-btn"
                                     >
-                                        🛑 End Session &amp; Release All Students
+                                        🛑 End Session &amp; Release All
                                     </button>
                                 </div>
                             )}
@@ -677,14 +639,14 @@ function GenerateQR() {
                                 <div style={{
                                     padding: "30px 20px",
                                     borderRadius: "16px",
-                                    background: "#f1f5f9",
-                                    border: "2px dashed #cbd5e1",
+                                    background: "var(--surface-soft, #f1f5f9)",
+                                    border: "2px dashed var(--border, #cbd5e1)",
                                     margin: "12px 0 20px",
-                                    color: "#334155"
+                                    color: "var(--text-main, #334155)"
                                 }}>
                                     <FaCheckDouble style={{ fontSize: "2.5rem", color: "#10b981", marginBottom: "10px" }} />
                                     <h3 style={{ margin: "0 0 6px", fontSize: "1.15rem", fontWeight: 800 }}>Attendance Session Completed</h3>
-                                    <p style={{ margin: 0, fontSize: "0.86rem", color: "#64748b" }}>
+                                    <p style={{ margin: 0, fontSize: "0.86rem", color: "var(--text-muted, #64748b)" }}>
                                         Fixed 2-minute deadline elapsed. All student devices have been unlocked from Kiosk mode.
                                     </p>
                                 </div>
@@ -692,39 +654,19 @@ function GenerateQR() {
 
                             {/* Phase 1 Status (0:00 to 1:00) */}
                             {phase === "PHASE_1" && (
-                                <div style={{ width: "100%", margin: "6px 0 16px" }}>
-                                    <div style={{
-                                        display: "inline-flex",
-                                        alignItems: "center",
-                                        gap: "8px",
-                                        padding: "8px 18px",
-                                        borderRadius: "999px",
-                                        background: qr1Remaining > 15 ? "rgba(99, 102, 241, 0.12)" : "rgba(239, 68, 68, 0.12)",
-                                        border: `1.5px solid ${qr1Remaining > 15 ? "#6366f1" : "#ef4444"}`,
-                                        color: qr1Remaining > 15 ? "#6366f1" : "#ef4444",
-                                        fontWeight: 800,
-                                        fontSize: "0.95rem"
-                                    }}>
+                                <div className="qr-phase-panel">
+                                    <div className={`qr-countdown-badge ${qr1Remaining > 15 ? "normal" : "urgent"}`}>
                                         <FaClock />
                                         <span>QR 1 Auto-Switches in:</span>
                                         <strong>{qr1Remaining}s (at 1:00)</strong>
                                     </div>
 
-                                    <div style={{
-                                        marginTop: "12px",
-                                        padding: "12px 16px",
-                                        borderRadius: "12px",
-                                        background: "var(--surface-soft, #f8fafc)",
-                                        border: "1px solid var(--border, #e2e8f0)",
-                                        display: "flex",
-                                        alignItems: "center",
-                                        justifyContent: "space-between"
-                                    }}>
-                                        <div style={{ display: "flex", alignItems: "center", gap: "8px", color: "var(--text-main, #1e293b)", fontWeight: 700 }}>
+                                    <div className="qr-metric-row">
+                                        <div className="qr-metric-label">
                                             <FaUserCheck style={{ color: "#6366f1", fontSize: "1.2rem" }} />
-                                            <span>Students Checked In &amp; Locked in Kiosk:</span>
+                                            <span>Students Checked In &amp; Locked:</span>
                                         </div>
-                                        <strong style={{ fontSize: "1.25rem", color: "#6366f1" }}>
+                                        <strong className="qr-metric-val" style={{ color: "#6366f1" }}>
                                             {totalScannedQR1}
                                         </strong>
                                     </div>
@@ -733,23 +675,7 @@ function GenerateQR() {
                                         type="button"
                                         onClick={handleForcePhase2}
                                         disabled={isTransitioning}
-                                        style={{
-                                            marginTop: "14px",
-                                            width: "100%",
-                                            padding: "12px 18px",
-                                            borderRadius: "12px",
-                                            background: "linear-gradient(135deg, #10b981 0%, #059669 100%)",
-                                            color: "#ffffff",
-                                            border: "none",
-                                            fontWeight: 800,
-                                            fontSize: "0.95rem",
-                                            cursor: "pointer",
-                                            boxShadow: "0 6px 18px rgba(16, 185, 129, 0.3)",
-                                            display: "flex",
-                                            alignItems: "center",
-                                            justifyContent: "center",
-                                            gap: "8px"
-                                        }}
+                                        className="qr-switch-btn"
                                     >
                                         <span>⚡ Switch to QR 2 Early</span>
                                         <FaArrowRight />
@@ -759,7 +685,7 @@ function GenerateQR() {
 
                             {/* Phase 2 Status (1:00 to 3:00) */}
                             {phase === "PHASE_2" && (
-                                <div style={{ width: "100%", margin: "6px 0 16px" }}>
+                                <div className="qr-phase-panel">
                                     <div style={{
                                         padding: "10px 14px",
                                         borderRadius: "10px",
@@ -768,26 +694,17 @@ function GenerateQR() {
                                         color: "#065f46",
                                         fontSize: "0.85rem",
                                         fontWeight: 700,
-                                        marginBottom: "12px"
+                                        marginBottom: "4px"
                                     }}>
                                         🔒 Phase 2 Active: Only {totalScannedQR1} students who checked in during 0:00–1:00 can submit attendance.
                                     </div>
 
-                                    <div style={{
-                                        padding: "12px 16px",
-                                        borderRadius: "12px",
-                                        background: "var(--surface-soft, #f8fafc)",
-                                        border: "1px solid var(--border, #e2e8f0)",
-                                        display: "flex",
-                                        alignItems: "center",
-                                        justifyContent: "space-between",
-                                        marginBottom: "14px"
-                                    }}>
-                                        <div style={{ display: "flex", alignItems: "center", gap: "8px", color: "var(--text-main, #1e293b)", fontWeight: 700 }}>
+                                    <div className="qr-metric-row">
+                                        <div className="qr-metric-label">
                                             <FaCheckCircle style={{ color: "#10b981", fontSize: "1.2rem" }} />
                                             <span>Attendance Recorded:</span>
                                         </div>
-                                        <strong style={{ fontSize: "1.25rem", color: "#10b981" }}>
+                                        <strong className="qr-metric-val" style={{ color: "#10b981" }}>
                                              {reachedQR2Count} / {totalScannedQR1}
                                         </strong>
                                     </div>
@@ -795,7 +712,7 @@ function GenerateQR() {
                                     <div style={{
                                         fontSize: "0.82rem",
                                         color: "var(--text-muted, #64748b)",
-                                        marginBottom: "14px",
+                                        marginBottom: "8px",
                                         fontWeight: 600
                                     }}>
                                         ⏱️ All student devices unlock automatically at <strong>3:00 ({sessionRemaining}s remaining)</strong>.
@@ -803,10 +720,10 @@ function GenerateQR() {
 
                                     <div className="qr-active-shortcuts">
                                         <Link
-                                            to={`/lecturer/attendance-sessions/${sessionId}`}
-                                            className="qr-view-live-btn"
+                                             to={`/lecturer/attendance-sessions/${sessionId}`}
+                                             className="qr-view-live-btn"
                                         >
-                                            <FaUsers /> View Live Attendance Register
+                                             <FaUsers /> View Live Attendance Register
                                         </Link>
                                     </div>
                                 </div>
@@ -814,26 +731,17 @@ function GenerateQR() {
 
                             {/* Session Finished Status (T >= 3:00) */}
                             {phase === "CLOSED" && (
-                                <div style={{ width: "100%", margin: "8px 0 16px" }}>
-                                    <div style={{
-                                        padding: "12px 16px",
-                                        borderRadius: "12px",
-                                        background: "#dcfce7",
-                                        border: "1px solid #86efac",
-                                        color: "#166534",
-                                        fontWeight: 800,
-                                        fontSize: "0.95rem",
-                                        marginBottom: "14px"
-                                    }}>
+                                <div className="qr-phase-panel">
+                                    <div className="qr-closed-box">
                                         ✅ Total Present: {sessionData?.attendanceCount || 0} / {authorizedStudents.length} Students
                                     </div>
 
                                     <div className="qr-active-shortcuts">
                                         <Link
-                                            to={`/lecturer/attendance-sessions/${sessionId}`}
-                                            className="qr-view-live-btn"
+                                             to={`/lecturer/attendance-sessions/${sessionId}`}
+                                             className="qr-view-live-btn"
                                         >
-                                            <FaUsers /> Open Final Attendance Register
+                                             <FaUsers /> Open Final Attendance Register
                                         </Link>
                                     </div>
                                 </div>

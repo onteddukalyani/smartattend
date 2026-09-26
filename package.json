@@ -10,6 +10,8 @@
     "preview": "vite preview",
     "cap:sync": "npm run build && npx cap sync android",
     "build:apk": "node scripts/build_apk.js",
+    "build:release": "node scripts/build_release_apk.js",
+    "build:bundle": "node scripts/build_bundle.js",
     "serve:apk": "node scripts/serve_apk.js"
   },
   "dependencies": {
