@@ -14,7 +14,7 @@ on:
 jobs:
   build-ios:
     name: 🍎 Build iOS IPA & Simulator App
-    runs-on: macos-14
+    runs-on: macos-15
 
     steps:
       - name: ⬇️ Checkout Repository
@@ -35,8 +35,17 @@ jobs:
       - name: 🔄 Sync Capacitor iOS Platform
         run: npx cap sync ios
 
-      - name: 🛠️ Verify Xcode Installation
+      - name: 🛠️ Select Xcode 16 (Swift 6+)
         run: |
+          if [ -d "/Applications/Xcode_16.2.app" ]; then
+            sudo xcode-select -s /Applications/Xcode_16.2.app
+          elif [ -d "/Applications/Xcode_16.1.app" ]; then
+            sudo xcode-select -s /Applications/Xcode_16.1.app
+          elif [ -d "/Applications/Xcode_16.0.app" ]; then
+            sudo xcode-select -s /Applications/Xcode_16.0.app
+          elif [ -d "/Applications/Xcode_16.app" ]; then
+            sudo xcode-select -s /Applications/Xcode_16.app
+          fi
           xcode-select -p
           xcodebuild -version
 
