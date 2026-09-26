@@ -112,8 +112,8 @@ jobs:
           # Ensure GoogleService-Info.plist is copied into App.app
           cp ios/App/App/GoogleService-Info.plist build/Build/Products/Release-iphonesimulator/App.app/ || true
 
-          # 1. Ad-hoc code sign the compiled app bundle
-          codesign --force --deep --sign - build/Build/Products/Release-iphonesimulator/App.app || true
+          # 1. Ad-hoc code sign the compiled app bundle with entitlements
+          codesign --force --deep --sign - --entitlements ios/App/App/App.entitlements build/Build/Products/Release-iphonesimulator/App.app || true
 
           # 2. Package SmartAttend-Simulator.zip (Flat root structure for Appetize.io)
           (cd build/Build/Products/Release-iphonesimulator && zip -qr ../../../../SmartAttend-Simulator.zip App.app)
