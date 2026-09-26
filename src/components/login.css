@@ -1,13 +1,19 @@
 .login-page {
   min-height: 100vh;
+  min-height: 100dvh;
   display: grid;
   place-items: center;
   padding: 32px 20px;
   box-sizing: border-box;
-  color: #172b4d;
-  background-color: #f5f7fb;
+  color: var(--text-main, #172b4d);
+  background-color: var(--page-bg, #f5f7fb);
   background-image: linear-gradient(rgba(139, 92, 246, 0.08) 1px, transparent 1px), linear-gradient(90deg, rgba(139, 92, 246, 0.08) 1px, transparent 1px);
   background-size: 32px 32px;
+}
+
+[data-theme="midnight"] .login-page {
+  background-color: #0b0f19;
+  background-image: linear-gradient(rgba(99, 102, 241, 0.08) 1px, transparent 1px), linear-gradient(90deg, rgba(99, 102, 241, 0.08) 1px, transparent 1px);
 }
 
 .login-shell {
@@ -15,11 +21,17 @@
   display: grid;
   grid-template-columns: 0.9fr 1.1fr;
   overflow: hidden;
-  border: 1px solid #d9e2ef;
-  border-radius: 14px;
-  background: #ffffff;
-  box-shadow: 0 22px 60px rgba(23, 43, 77, 0.14);
+  border: 1px solid var(--border, #d9e2ef);
+  border-radius: 20px;
+  background: var(--surface, #ffffff);
+  box-shadow: 0 25px 65px rgba(23, 43, 77, 0.12);
   animation: login-enter 420ms ease-out both;
+}
+
+[data-theme="midnight"] .login-shell {
+  background: #111827;
+  border-color: #1f293d;
+  box-shadow: 0 25px 65px rgba(0, 0, 0, 0.45);
 }
 
 .login-intro {
@@ -34,23 +46,25 @@
 }
 
 .login-mark {
-  width: 48px;
-  height: 48px;
+  width: 52px;
+  height: 52px;
   display: grid;
   place-items: center;
-  border-radius: 12px;
+  border-radius: 14px;
   color: #111827;
   background: #f7c948;
-  font-size: 1.35rem;
+  font-size: 1.45rem;
   font-weight: 800;
+  box-shadow: 0 8px 20px rgba(247, 201, 72, 0.35);
 }
 
 .login-intro h1 {
-  max-width: 300px;
+  max-width: 320px;
   margin: 24px 0 14px;
-  font-size: clamp(2rem, 4vw, 3.1rem);
-  line-height: 1.05;
-  letter-spacing: 0;
+  font-size: clamp(2rem, 3.8vw, 3rem);
+  line-height: 1.08;
+  font-weight: 800;
+  letter-spacing: -0.02em;
 }
 
 .login-intro p {
@@ -72,55 +86,124 @@
   display: flex;
   flex-direction: column;
   justify-content: center;
-  padding: 52px clamp(30px, 6vw, 76px);
+  padding: 48px clamp(24px, 5vw, 64px);
 }
 
 .login-form h2 {
   margin: 0 0 8px;
-  color: #172b4d;
-  font-size: 1.75rem;
+  color: var(--text-main, #172b4d);
+  font-size: 1.85rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+[data-theme="midnight"] .login-form h2 {
+  color: #f8fafc;
 }
 
 .login-form > p {
-  margin: 0 0 28px;
-  color: #63748a;
+  margin: 0 0 24px;
+  color: var(--text-muted, #63748a);
+  font-size: 0.95rem;
   line-height: 1.5;
 }
 
+[data-theme="midnight"] .login-form > p {
+  color: #94a3b8;
+}
+
 .login-error {
-  margin: 0 0 16px;
-  padding: 12px 14px;
-  border: 1px solid #f1b8b5;
-  border-radius: 8px;
-  color: #9f2924;
-  background: #fff4f3;
+  margin: 0 0 18px;
+  padding: 12px 16px;
+  border: 1px solid #fecaca;
+  border-radius: 12px;
+  color: #b91c1c;
+  background: #fef2f2;
   font-size: 0.9rem;
+  font-weight: 500;
   overflow-wrap: anywhere;
+  animation: login-enter 200ms ease-out both;
+}
+
+[data-theme="midnight"] .login-error {
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.3);
+  color: #fca5a5;
+}
+
+/* =========================================================
+   ROLE SELECTION BUTTONS (GRID)
+   ========================================================= */
+
+.role-selection {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-bottom: 22px;
 }
 
 .login-button {
   width: 100%;
-  min-height: 50px;
+  min-height: 52px;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 10px;
-  margin: 0 0 14px;
-  border: 1px solid transparent;
-  border-radius: 11px;
+  gap: 8px;
+  padding: 14px 10px;
+  border: 1.5px solid var(--border, #cbd5e1);
+  border-radius: 14px;
   font: inherit;
   font-weight: 700;
-  font-size: 15px;
+  font-size: 0.9rem;
+  color: var(--text-main, #334155);
+  background: var(--surface, #ffffff);
   cursor: pointer;
+  box-sizing: border-box;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.03);
   transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+[data-theme="midnight"] .login-button {
+  background: #1a233a;
+  border-color: #334155;
+  color: #cbd5e1;
+}
+
+.login-button svg {
+  font-size: 1.25rem;
+  color: var(--accent, #6366f1);
+  transition: transform 0.2s ease;
+}
+
 .login-button:hover:not(:disabled) {
+  border-color: var(--accent, #6366f1);
+  background: var(--surface-soft, #f8fafc);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(99, 102, 241, 0.12);
+}
+
+[data-theme="midnight"] .login-button:hover:not(:disabled) {
+  background: #222d48;
+  border-color: #818cf8;
+}
+
+.login-button:hover:not(:disabled) svg {
+  transform: scale(1.1);
+}
+
+/* Selected Role State */
+.login-button.selected {
+  background: linear-gradient(135deg, #6366f1, #4f46e5);
+  border-color: transparent;
+  color: #ffffff;
+  box-shadow: 0 8px 22px rgba(99, 102, 241, 0.38);
   transform: translateY(-2px);
 }
 
-.login-button:active:not(:disabled) {
-  transform: translateY(0);
+.login-button.selected svg {
+  color: #ffffff;
+  transform: scale(1.12);
 }
 
 .login-button:focus-visible {
@@ -133,43 +216,71 @@
   opacity: 0.65;
 }
 
+/* =========================================================
+   GOOGLE LOGIN SECTION
+   ========================================================= */
+
+.google-login-section {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  animation: login-enter 240ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.google-login-section p {
+  margin: 0;
+  font-size: 0.88rem;
+  color: var(--text-muted, #64748b);
+}
+
+[data-theme="midnight"] .google-login-section p {
+  color: #94a3b8;
+}
+
+.google-login-section strong {
+  color: var(--accent, #6366f1);
+  font-weight: 800;
+}
+
 .login-button-google {
+  flex-direction: row;
+  min-height: 52px;
+  padding: 12px 20px;
+  font-size: 0.98rem;
+  font-weight: 700;
   color: #ffffff;
-  background: var(--btn-primary-bg, linear-gradient(135deg, #6366f1, #4338ca));
-  box-shadow: var(--btn-primary-shadow, 0 4px 14px rgba(99, 102, 241, 0.28));
+  background: linear-gradient(135deg, #6366f1, #4f46e5);
+  border: none;
+  box-shadow: 0 6px 18px rgba(99, 102, 241, 0.32);
+}
+
+.login-button-google svg {
+  color: #ffffff;
+  font-size: 1.15rem;
 }
 
 .login-button-google:hover:not(:disabled) {
-  background: var(--btn-primary-hover, linear-gradient(135deg, #4f46e5, #3730a3));
-  box-shadow: 0 6px 20px rgba(99, 102, 241, 0.38);
-}
-
-.login-button-guest {
-  border: 1px solid var(--border, #c9d5e3);
-  color: var(--text-main, #29435f);
-  background: var(--surface, #ffffff);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
-}
-
-.login-button-guest:hover:not(:disabled) {
-  background: var(--surface-soft, #f8fafc);
-  border-color: var(--accent, #6366f1);
-  color: var(--accent, #6366f1);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  background: linear-gradient(135deg, #4f46e5, #4338ca);
+  box-shadow: 0 8px 24px rgba(99, 102, 241, 0.45);
+  transform: translateY(-2px);
 }
 
 .login-privacy {
-  margin-top: 18px;
-  color: #78889b;
-  font-size: 0.78rem;
+  margin-top: 24px;
+  color: var(--text-muted, #78889b);
+  font-size: 0.8rem;
   line-height: 1.5;
   text-align: center;
+}
+
+[data-theme="midnight"] .login-privacy {
+  color: #64748b;
 }
 
 @keyframes login-enter {
   from {
     opacity: 0;
-    transform: translateY(12px);
+    transform: translateY(10px);
   }
   to {
     opacity: 1;
@@ -179,35 +290,47 @@
 
 @media (max-width: 680px) {
   .login-page {
-    padding: 18px 14px;
+    padding: 16px 12px;
   }
 
   .login-shell {
     display: block;
+    border-radius: 16px;
   }
 
   .login-intro {
     min-height: auto;
-    padding: 28px 26px;
+    padding: 28px 22px;
   }
 
   .login-intro h1 {
-    margin-top: 22px;
-    font-size: 2.25rem;
+    margin-top: 18px;
+    font-size: 2rem;
   }
 
   .login-caption {
-    margin-top: 30px;
+    margin-top: 24px;
   }
 
   .login-form {
-    padding: 32px 26px 30px;
+    padding: 28px 20px 24px;
+  }
+
+  .role-selection {
+    gap: 8px;
+  }
+
+  .login-button {
+    min-height: 48px;
+    padding: 10px 6px;
+    font-size: 0.82rem;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .login-shell,
-  .login-button {
+  .login-button,
+  .google-login-section {
     animation: none;
     transition: none;
   }
