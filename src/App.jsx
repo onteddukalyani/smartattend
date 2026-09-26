@@ -30,7 +30,7 @@ const SessionAttendanceData = lazy(() =>
   import("./components/Lecturer/pages/SessionData").then((m) => ({ default: m.SessionAttendanceData }))
 );
 const ActiveSessions = lazy(() => import("./components/Lecturer/pages/ActiveSessions"));
-const StudentsList = lazy(() => import("./components/Lecturer/pages/StudentsList"));
+const StudentsList = lazy(() => import("./components/Common/StudentsList"));
 const LecturerCourses = lazy(() => import("./components/Common/CoursesManager"));
 const AddStudent = lazy(() => import("./components/Admin/pages/AddStudent"));
 
