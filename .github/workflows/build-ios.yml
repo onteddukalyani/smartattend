@@ -20,10 +20,10 @@ jobs:
       - name: ⬇️ Checkout Repository
         uses: actions/checkout@v4
 
-      - name: 🟢 Setup Node.js (v20)
+      - name: 🟢 Setup Node.js (v22 LTS)
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: 'npm'
 
       - name: 📦 Install NPM Dependencies
@@ -43,8 +43,14 @@ jobs:
       - name: 📱 Compile iOS App (Device / BrowserStack IPA)
         run: |
           echo "Building iOS App for Physical Devices & Cloud Testing..."
+          if [ -d "ios/App/App.xcworkspace" ]; then
+            TARGET_ARG="-workspace ios/App/App.xcworkspace"
+          else
+            TARGET_ARG="-project ios/App/App.xcodeproj"
+          fi
+
           xcodebuild clean build \
-            -workspace ios/App/App.xcworkspace \
+            $TARGET_ARG \
             -scheme App \
             -configuration Release \
             -destination 'generic/platform=iOS' \
@@ -53,6 +59,7 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO
 
+          # Create Payload directory and package into SmartAttend.ipa
           mkdir -p Payload
           cp -r build/Build/Products/Release-iphoneos/App.app Payload/SmartAttend.app
           zip -r SmartAttend.ipa Payload
@@ -61,8 +68,14 @@ jobs:
       - name: 🖥️ Compile iOS Simulator App (for Appetize.io)
         run: |
           echo "Building iOS App for Simulator / Appetize.io..."
+          if [ -d "ios/App/App.xcworkspace" ]; then
+            TARGET_ARG="-workspace ios/App/App.xcworkspace"
+          else
+            TARGET_ARG="-project ios/App/App.xcodeproj"
+          fi
+
           xcodebuild clean build \
-            -workspace ios/App/App.xcworkspace \
+            $TARGET_ARG \
             -scheme App \
             -configuration Release \
             -destination 'generic/platform=iOS Simulator' \
