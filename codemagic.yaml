@@ -68,6 +68,9 @@ workflows:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO
 
+          # Ensure GoogleService-Info.plist is copied into App.app
+          cp ios/App/App/GoogleService-Info.plist build/Build/Products/Release-iphonesimulator/App.app/ || true
+
           # 1. Ad-hoc code sign the compiled app bundle
           codesign --force --deep --sign - build/Build/Products/Release-iphonesimulator/App.app || true
 
