@@ -47,13 +47,21 @@ try {
     }
   }
 
+  // Remove any previous output APKs to guarantee fresh build
+  if (fs.existsSync(srcApk)) {
+    try { fs.unlinkSync(srcApk); } catch (_) {}
+  }
+  if (fs.existsSync(destApk)) {
+    try { fs.unlinkSync(destApk); } catch (_) {}
+  }
+
   const gradlewCmd = process.platform === 'win32' ? '.\\gradlew.bat' : './gradlew';
   try {
     execSync(`${gradlewCmd} --stop`, { cwd: androidDir, stdio: 'ignore' });
   } catch (_) {}
 
-  console.log('\n🔨 Step 3/3: Compiling Android APK...');
-  execSync(`${gradlewCmd} assembleDebug --no-daemon`, { cwd: androidDir, stdio: 'inherit' });
+  console.log('\n🔨 Step 3/3: Compiling Android APK (with --rerun-tasks to force fresh packaging)...');
+  execSync(`${gradlewCmd} assembleDebug --no-daemon --rerun-tasks`, { cwd: androidDir, stdio: 'inherit' });
 
   // 4. Copy to Root
   if (fs.existsSync(srcApk)) {

@@ -45,14 +45,22 @@ try {
     }
   }
 
+  // Remove previous output APKs
+  if (fs.existsSync(srcApk)) {
+    try { fs.unlinkSync(srcApk); } catch (_) {}
+  }
+  if (fs.existsSync(destApk)) {
+    try { fs.unlinkSync(destApk); } catch (_) {}
+  }
+
   const gradlewCmd = process.platform === 'win32' ? '.\\gradlew.bat' : './gradlew';
   try {
     execSync(`${gradlewCmd} --stop`, { cwd: androidDir, stdio: 'ignore' });
   } catch (_) {}
 
   // 3. Compile Signed Release APK
-  console.log('\n🔨 Step 3/3: Compiling Signed Release APK (assembleRelease)...');
-  execSync(`${gradlewCmd} assembleRelease --no-daemon --no-build-cache`, { cwd: androidDir, stdio: 'inherit' });
+  console.log('\n🔨 Step 3/3: Compiling Signed Release APK (assembleRelease with --rerun-tasks)...');
+  execSync(`${gradlewCmd} assembleRelease --no-daemon --rerun-tasks`, { cwd: androidDir, stdio: 'inherit' });
 
   // 4. Copy to Root
   if (fs.existsSync(srcApk)) {
