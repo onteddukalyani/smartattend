@@ -40,12 +40,19 @@ workflows:
             TARGET_ARG="-project ios/App/App.xcodeproj"
           fi
 
-          SIM_ID=$(xcrun simctl list devices available | grep -i "iPhone" | head -n 1 | sed -E 's/.*\(([A-F0-9-]+)\).*/\1/' | xargs)
-          if [ -n "$SIM_ID" ]; then
-            DEST_ARG="id=$SIM_ID"
-          else
-            DEST_ARG="platform=iOS Simulator,name=iPhone 16"
+          # Discover valid destination directly from xcodebuild
+          DEST_ARG=$(xcodebuild -showdestinations $TARGET_ARG -scheme "$XCODE_SCHEME" 2>/dev/null | grep -i "platform:iOS Simulator" | head -n 1 | sed -E 's/.*id:([^,}]+).*/id=\1/' | xargs)
+
+          if [ -z "$DEST_ARG" ]; then
+            SIM_ID=$(xcrun simctl list devices available | grep -i "iPhone" | head -n 1 | sed -E 's/.*\(([A-F0-9-]+)\).*/\1/' | xargs)
+            if [ -n "$SIM_ID" ]; then
+              DEST_ARG="id=$SIM_ID"
+            else
+              DEST_ARG="generic/platform=iOS Simulator"
+            fi
           fi
+
+          echo "Using Destination: $DEST_ARG"
 
           xcodebuild build \
             $TARGET_ARG \
