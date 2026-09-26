@@ -375,3 +375,35 @@
   font-size: 0.83rem;
   line-height: 1.45;
 }
+
+/* =========================================================
+   MIDNIGHT THEME COMPATIBILITY
+   ========================================================= */
+[data-theme="midnight"] .biometric-scanner-card {
+  background: #131b2e;
+  border-color: #1e293b;
+  color: #f8fafc;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+}
+
+[data-theme="midnight"] .registered-meta h4 {
+  color: #f8fafc;
+}
+
+[data-theme="midnight"] .registered-meta p {
+  color: #94a3b8;
+}
+
+[data-theme="midnight"] .confidence-gauge-wrap {
+  background: #1a233a;
+  border-color: #243048;
+}
+
+[data-theme="midnight"] .confidence-gauge-header {
+  color: #94a3b8;
+}
+
+[data-theme="midnight"] .confidence-gauge-bar-bg {
+  background: #243048;
+}
+

@@ -374,3 +374,40 @@
     width: 260px !important;
   }
 }
+
+/* =========================================================
+   MIDNIGHT THEME COMPATIBILITY
+   ========================================================= */
+[data-theme="midnight"] .admin-sidebar {
+  background: #0f172a;
+  border-right-color: #1e293b;
+}
+
+[data-theme="midnight"] .admin-sidebar-header {
+  border-bottom-color: #1e293b;
+}
+
+[data-theme="midnight"] .admin-brand-text h2 {
+  color: #f8fafc;
+}
+
+[data-theme="midnight"] .admin-brand-text span {
+  color: #94a3b8;
+}
+
+[data-theme="midnight"] .admin-nav-item,
+[data-theme="midnight"] .admin-bottom-link {
+  color: #94a3b8;
+}
+
+[data-theme="midnight"] .admin-nav-item:hover,
+[data-theme="midnight"] .admin-bottom-link:hover {
+  background: #1e293b;
+  color: #818cf8;
+}
+
+[data-theme="midnight"] .admin-nav-item.active,
+[data-theme="midnight"] .admin-bottom-link.active {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.2), rgba(79, 70, 229, 0.25));
+  color: #a5b4fc;
+}

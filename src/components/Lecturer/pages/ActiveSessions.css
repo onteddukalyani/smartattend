@@ -244,3 +244,42 @@
         align-items: center;
     }
 }
+
+/* =========================================
+   MIDNIGHT THEME COMPATIBILITY
+   ========================================= */
+[data-theme="midnight"] .active-sessions-panel {
+    background: #131b2e;
+    border-color: #1e293b;
+    box-shadow: 0 18px 42px -24px rgba(0, 0, 0, 0.6);
+}
+
+[data-theme="midnight"] .active-sessions-heading h2 {
+    color: #f8fafc;
+}
+
+[data-theme="midnight"] .active-session-card {
+    background: #1a233a;
+    border-color: #243048;
+    color: #f8fafc;
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.3);
+}
+
+[data-theme="midnight"] .active-session-card:hover {
+    border-color: #6366f1;
+    box-shadow: 0 18px 35px rgba(0, 0, 0, 0.45);
+}
+
+[data-theme="midnight"] .active-session-card strong {
+    color: #f8fafc;
+}
+
+[data-theme="midnight"] .active-session-card span {
+    color: #94a3b8;
+}
+
+[data-theme="midnight"] .active-sessions-empty {
+    background: #1a233a;
+    border-color: #334155;
+    color: #94a3b8;
+}

@@ -772,3 +772,71 @@
         width: 100% !important;
     }
 }
+
+/* =========================================================
+   MIDNIGHT THEME COMPATIBILITY
+   ========================================================= */
+[data-theme="midnight"] .student-statistics-page {
+    color: #f8fafc;
+}
+
+[data-theme="midnight"] .student-statistics-page .stats-header-banner,
+[data-theme="midnight"] .student-statistics-page .stats-card,
+[data-theme="midnight"] .student-statistics-page .stats-subject-card,
+[data-theme="midnight"] .student-statistics-page .stats-panel {
+    background: #131b2e;
+    border-color: #1e293b;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+}
+
+[data-theme="midnight"] .student-statistics-page .stats-header-info h1,
+[data-theme="midnight"] .student-statistics-page .stats-card-value,
+[data-theme="midnight"] .student-statistics-page .stats-subject-title,
+[data-theme="midnight"] .student-statistics-page .stats-subject-footer strong,
+[data-theme="midnight"] .student-statistics-page .stats-date-primary,
+[data-theme="midnight"] .student-statistics-page .stats-class-code {
+    color: #f8fafc;
+}
+
+[data-theme="midnight"] .student-statistics-page .stats-subtitle,
+[data-theme="midnight"] .student-statistics-page .stats-card-label,
+[data-theme="midnight"] .student-statistics-page .stats-card-subtext,
+[data-theme="midnight"] .student-statistics-page .stats-subject-lecturer,
+[data-theme="midnight"] .student-statistics-page .stats-date-time {
+    color: #94a3b8;
+}
+
+[data-theme="midnight"] .student-statistics-page .stats-course-select,
+[data-theme="midnight"] .student-statistics-page .stats-search-box input {
+    background: #1a233a;
+    border-color: #334155;
+    color: #f8fafc;
+}
+
+[data-theme="midnight"] .student-statistics-page .stats-course-select:focus,
+[data-theme="midnight"] .student-statistics-page .stats-search-box input:focus {
+    border-color: #6366f1;
+}
+
+[data-theme="midnight"] .student-statistics-page .stats-table-wrapper {
+    border-color: #1e293b;
+}
+
+[data-theme="midnight"] .student-statistics-page .stats-data-table thead tr {
+    background: #1a233a;
+    border-bottom-color: #243048;
+}
+
+[data-theme="midnight"] .student-statistics-page .stats-data-table th {
+    color: #94a3b8;
+}
+
+[data-theme="midnight"] .student-statistics-page .stats-data-table td {
+    color: #e2e8f0;
+    border-bottom-color: #1e293b;
+}
+
+[data-theme="midnight"] .student-statistics-page .stats-data-table tbody tr:hover {
+    background: #1d2b49;
+}
+

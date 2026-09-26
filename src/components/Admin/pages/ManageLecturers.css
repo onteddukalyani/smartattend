@@ -991,3 +991,71 @@
     gap: 12px;
   }
 }
+
+/* =========================================================
+   MIDNIGHT THEME COMPATIBILITY
+   ========================================================= */
+[data-theme="midnight"] .manage-lecturers-page {
+  color: #f8fafc;
+}
+
+[data-theme="midnight"] .manage-lecturers-page .stat-card,
+[data-theme="midnight"] .manage-lecturers-page .table-card-container,
+[data-theme="midnight"] .manage-lecturers-page .modern-search-box {
+  background: #131b2e;
+  border-color: #1e293b;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+}
+
+[data-theme="midnight"] .manage-lecturers-page .stat-card-data .stat-number,
+[data-theme="midnight"] .manage-lecturers-page .lecturer-name,
+[data-theme="midnight"] .manage-lecturers-page .table-empty-state h3 {
+  color: #f8fafc;
+}
+
+[data-theme="midnight"] .manage-lecturers-page .stat-card-data .stat-title,
+[data-theme="midnight"] .manage-lecturers-page .lecturer-email,
+[data-theme="midnight"] .manage-lecturers-page .table-empty-state p,
+[data-theme="midnight"] .manage-lecturers-page .lecturers-table td {
+  color: #cbd5e1;
+}
+
+[data-theme="midnight"] .manage-lecturers-page .modern-search-box input {
+  color: #f8fafc;
+}
+
+[data-theme="midnight"] .manage-lecturers-page .filter-tab-btn {
+  color: #94a3b8;
+}
+
+[data-theme="midnight"] .manage-lecturers-page .filter-tab-btn.active {
+  background: #1e293b;
+  color: #818cf8;
+}
+
+[data-theme="midnight"] .manage-lecturers-page .filter-tabs-pills {
+  background: #0b0f19;
+}
+
+[data-theme="midnight"] .manage-lecturers-page .lecturers-table thead tr {
+  background: #1a233a;
+  border-bottom-color: #243048;
+}
+
+[data-theme="midnight"] .manage-lecturers-page .lecturers-table th {
+  color: #94a3b8;
+}
+
+[data-theme="midnight"] .manage-lecturers-page .lecturers-table tbody tr {
+  border-bottom-color: #1e293b;
+}
+
+[data-theme="midnight"] .manage-lecturers-page .lecturers-table tbody tr:hover {
+  background: #1d2b49;
+}
+
+[data-theme="midnight"] .manage-lecturers-page .action-btn {
+  background: #1a233a;
+  border-color: #334155;
+  color: #94a3b8;
+}

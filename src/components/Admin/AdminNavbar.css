@@ -296,3 +296,29 @@
   background: #f2f1ff;
   border-color: #5146df;
 }
+
+/* =========================================
+   MIDNIGHT THEME COMPATIBILITY
+   ========================================= */
+[data-theme="midnight"] .admin-navbar {
+  background: #111a2b;
+  border-bottom-color: #1e293b;
+}
+
+[data-theme="midnight"] .admin-menu-button,
+[data-theme="midnight"] .navbar-menu-btn,
+[data-theme="midnight"] .admin-notification {
+  background: #1a233a;
+  border-color: #334155;
+  color: #f8fafc;
+}
+
+[data-theme="midnight"] .admin-brand strong,
+[data-theme="midnight"] .admin-profile-name {
+  color: #f8fafc;
+}
+
+[data-theme="midnight"] .admin-brand span,
+[data-theme="midnight"] .admin-profile-role {
+  color: #94a3b8;
+}

@@ -1,39 +1,79 @@
 /* =========================================================
-   COURSES MANAGER - UNIFIED PREMIUM RESPONSIVE STYLES
+   COURSES MANAGER - ULTRA-MODERN RESPONSIVE DESIGN SYSTEM
    Shared by Admin and Lecturer Dashboards
+   Supports High-Contrast Light Mode & Midnight Dark Mode
    ========================================================= */
 
 .courses-manager {
-  padding: clamp(16px, 2.5vw, 32px);
-  max-width: 1500px;
+  padding: clamp(20px, 3.2vw, 40px) clamp(16px, 3.2vw, 36px);
+  max-width: 1480px;
   margin: 0 auto;
   box-sizing: border-box;
   color: var(--text-main, #1e293b);
   min-height: calc(100vh - 80px);
+  animation: cmFadeIn 0.3s ease-out;
 }
 
-/* Header Section */
+@keyframes cmFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ---------------------------------------------------------
+   Header Section
+   --------------------------------------------------------- */
 .cm-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 24px;
+  margin-bottom: 28px;
   flex-wrap: wrap;
-  gap: 16px;
+  gap: 18px;
+  background: var(--surface, #ffffff);
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 20px;
+  padding: 24px 28px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.03);
+  position: relative;
+  overflow: hidden;
+}
+
+.cm-header::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 5px;
+  height: 100%;
+  background: linear-gradient(180deg, #6366f1, #8b5cf6, #3b82f6);
 }
 
 .cm-header-titles h1 {
   margin: 0 0 6px;
-  font-size: clamp(1.5rem, 2.8vw, 2.1rem);
+  font-size: clamp(1.6rem, 2.8vw, 2.2rem);
   font-weight: 800;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.025em;
   color: var(--text-main, #0f172a);
+}
+
+[data-theme="midnight"] .cm-header-titles h1 {
+  background: linear-gradient(135deg, #ffffff 0%, #c7d2fe 60%, #818cf8 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
 }
 
 .cm-header-titles p {
   margin: 0;
   color: var(--text-muted, #64748b);
-  font-size: 0.92rem;
+  font-size: 0.94rem;
+  line-height: 1.5;
+  max-width: 680px;
 }
 
 .cm-header-actions {
@@ -43,99 +83,117 @@
   flex-wrap: wrap;
 }
 
+/* ---------------------------------------------------------
+   Buttons
+   --------------------------------------------------------- */
 .cm-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
-  padding: 10px 18px;
+  padding: 11px 20px;
   border-radius: 12px;
-  font-size: 0.88rem;
+  font-size: 0.9rem;
   font-weight: 700;
   cursor: pointer;
   border: 1px solid transparent;
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
   box-sizing: border-box;
   text-decoration: none;
+  font-family: inherit;
 }
 
 .cm-btn:active {
-  transform: scale(0.98);
+  transform: scale(0.97);
 }
 
 .cm-btn-primary {
   background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
-  color: #ffffff;
-  box-shadow: 0 4px 14px rgba(99, 102, 241, 0.3);
+  color: #ffffff !important;
+  box-shadow: 0 4px 14px rgba(99, 102, 241, 0.35);
 }
 
 .cm-btn-primary:hover {
-  box-shadow: 0 6px 20px rgba(99, 102, 241, 0.45);
-  transform: translateY(-1px);
+  background: linear-gradient(135deg, #4f46e5 0%, #4338ca 100%);
+  box-shadow: 0 6px 20px rgba(99, 102, 241, 0.5);
+  transform: translateY(-2px);
 }
 
 .cm-btn-secondary {
   background: var(--surface, #ffffff);
   color: var(--text-main, #334155);
   border-color: var(--border, #cbd5e1);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
 }
 
 .cm-btn-secondary:hover {
-  background: var(--surface-soft, #f1f5f9);
-  border-color: #94a3b8;
+  background: var(--surface-soft, #f8fafc);
+  border-color: #6366f1;
+  color: #6366f1;
+  transform: translateY(-1px);
 }
 
 .cm-btn-danger {
-  background: #fee2e2;
-  color: #b91c1c;
-  border-color: #fca5a5;
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+  border-color: rgba(239, 68, 68, 0.25);
 }
 
 .cm-btn-danger:hover {
-  background: #fecaca;
-  color: #991b1b;
+  background: #ef4444;
+  color: #ffffff;
+  border-color: #ef4444;
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
+  transform: translateY(-1px);
 }
 
 .cm-btn-sm {
-  padding: 6px 12px;
-  font-size: 0.8rem;
-  border-radius: 8px;
+  padding: 8px 13px;
+  font-size: 0.82rem;
+  border-radius: 9px;
+  font-weight: 650;
 }
 
-/* Stats Row */
+/* ---------------------------------------------------------
+   KPI Summary Stats Grid
+   --------------------------------------------------------- */
 .cm-stats-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 16px;
-  margin-bottom: 24px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 18px;
+  margin-bottom: 28px;
 }
 
 .cm-stat-card {
   background: var(--surface, #ffffff);
   border: 1px solid var(--border, #e2e8f0);
-  border-radius: 16px;
-  padding: 18px 20px;
+  border-radius: 18px;
+  padding: 20px 22px;
   display: flex;
   align-items: center;
   gap: 16px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.03);
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  position: relative;
+  overflow: hidden;
 }
 
 .cm-stat-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.06);
+  transform: translateY(-3px);
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.07);
+  border-color: rgba(99, 102, 241, 0.35);
 }
 
 .cm-stat-icon {
-  width: 46px;
-  height: 46px;
-  border-radius: 12px;
+  width: 50px;
+  height: 50px;
+  border-radius: 14px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 1.3rem;
+  font-size: 1.35rem;
   flex-shrink: 0;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04);
 }
 
 .cm-stat-icon.indigo {
@@ -165,26 +223,30 @@
 
 .cm-stat-label {
   font-size: 0.78rem;
-  font-weight: 700;
+  font-weight: 750;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.05em;
   color: var(--text-muted, #64748b);
-  margin-bottom: 2px;
+  margin-bottom: 3px;
 }
 
 .cm-stat-value {
-  font-size: 1.6rem;
-  font-weight: 800;
+  font-size: 1.75rem;
+  font-weight: 850;
   color: var(--text-main, #0f172a);
+  letter-spacing: -0.02em;
+  line-height: 1.1;
 }
 
-/* Toolbar & Filters */
+/* ---------------------------------------------------------
+   Toolbar & Segmented Filters
+   --------------------------------------------------------- */
 .cm-toolbar {
   background: var(--surface, #ffffff);
   border: 1px solid var(--border, #e2e8f0);
   border-radius: 18px;
   padding: 16px 20px;
-  margin-bottom: 24px;
+  margin-bottom: 26px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -198,30 +260,36 @@
   align-items: center;
   gap: 6px;
   background: var(--surface-soft, #f1f5f9);
-  padding: 4px;
-  border-radius: 12px;
+  padding: 5px;
+  border-radius: 13px;
   border: 1px solid var(--border, #e2e8f0);
+  flex-wrap: wrap;
 }
 
 .cm-tab-btn {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
   padding: 8px 16px;
   border-radius: 9px;
   border: none;
   background: transparent;
   color: var(--text-muted, #64748b);
-  font-size: 0.85rem;
+  font-size: 0.86rem;
   font-weight: 700;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  font-family: inherit;
+}
+
+.cm-tab-btn:hover {
+  color: var(--text-main, #0f172a);
 }
 
 .cm-tab-btn.active {
   background: var(--surface, #ffffff);
-  color: var(--accent, #6366f1);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  color: #6366f1;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
 }
 
 .cm-filter-controls {
@@ -253,50 +321,57 @@
 
 .cm-search-input {
   width: 100%;
-  padding: 9px 14px 9px 38px;
-  border-radius: 10px;
-  border: 1px solid var(--border, #cbd5e1);
+  padding: 10px 14px 10px 38px;
+  border-radius: 11px;
+  border: 1.5px solid var(--border, #cbd5e1);
   background: var(--surface, #ffffff);
   color: var(--text-main, #1e293b);
   font-size: 0.88rem;
+  font-family: inherit;
   outline: none;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
   box-sizing: border-box;
 }
 
 .cm-search-input:focus {
-  border-color: var(--accent, #6366f1);
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+  border-color: #6366f1;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.18);
+  background: var(--surface, #ffffff);
 }
 
 .cm-select {
-  padding: 9px 14px;
-  border-radius: 10px;
-  border: 1px solid var(--border, #cbd5e1);
+  padding: 10px 16px;
+  border-radius: 11px;
+  border: 1.5px solid var(--border, #cbd5e1);
   background: var(--surface, #ffffff);
   color: var(--text-main, #1e293b);
   font-size: 0.88rem;
-  font-weight: 600;
+  font-family: inherit;
+  font-weight: 650;
   outline: none;
   cursor: pointer;
+  transition: all 0.2s ease;
 }
 
 .cm-select:focus {
-  border-color: var(--accent, #6366f1);
+  border-color: #6366f1;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.18);
 }
 
-/* Course Grid */
+/* ---------------------------------------------------------
+   Course Cards Grid
+   --------------------------------------------------------- */
 .cm-courses-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  gap: 20px;
+  grid-template-columns: repeat(auto-fill, minmax(330px, 1fr));
+  gap: 22px;
 }
 
 .cm-course-card {
   background: var(--surface, #ffffff);
   border: 1px solid var(--border, #e2e8f0);
   border-radius: 20px;
-  padding: 22px;
+  padding: 22px 24px;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.03);
   display: flex;
   flex-direction: column;
@@ -307,9 +382,9 @@
 }
 
 .cm-course-card:hover {
-  transform: translateY(-3px);
-  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.08);
-  border-color: var(--accent, #6366f1);
+  transform: translateY(-4px);
+  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.08);
+  border-color: rgba(99, 102, 241, 0.4);
 }
 
 .cm-course-card-top {
@@ -317,7 +392,7 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 12px;
+  margin-bottom: 14px;
 }
 
 .cm-course-code-badge {
@@ -326,7 +401,7 @@
   gap: 6px;
   padding: 6px 12px;
   background: rgba(99, 102, 241, 0.1);
-  border: 1px solid rgba(99, 102, 241, 0.25);
+  border: 1px solid rgba(99, 102, 241, 0.28);
   border-radius: 10px;
   color: #4f46e5;
   font-size: 0.88rem;
@@ -334,8 +409,13 @@
   letter-spacing: 0.04em;
 }
 
+[data-theme="midnight"] .cm-course-code-badge {
+  background: rgba(99, 102, 241, 0.2);
+  color: #a5b4fc;
+}
+
 .cm-course-dept-badge {
-  font-size: 0.75rem;
+  font-size: 0.74rem;
   font-weight: 750;
   padding: 4px 10px;
   border-radius: 999px;
@@ -343,39 +423,45 @@
   color: var(--text-muted, #64748b);
   border: 1px solid var(--border, #e2e8f0);
   text-transform: uppercase;
+  letter-spacing: 0.03em;
 }
 
 .cm-course-title {
-  margin: 0 0 10px;
-  font-size: 1.18rem;
+  margin: 0 0 12px;
+  font-size: 1.22rem;
   font-weight: 750;
   color: var(--text-main, #0f172a);
-  line-height: 1.35;
+  line-height: 1.38;
 }
 
 .cm-course-meta-row {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 14px;
   margin-bottom: 16px;
   flex-wrap: wrap;
-  font-size: 0.82rem;
+  font-size: 0.84rem;
   color: var(--text-muted, #64748b);
 }
 
 .cm-meta-item {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
+  font-weight: 600;
+}
+
+.cm-meta-item svg {
+  color: #6366f1;
 }
 
 .cm-course-faculty {
   background: var(--surface-soft, #f8fafc);
   border: 1px solid var(--border, #e2e8f0);
   border-radius: 12px;
-  padding: 10px 14px;
+  padding: 12px 14px;
   margin-bottom: 16px;
-  font-size: 0.84rem;
+  font-size: 0.85rem;
 }
 
 .cm-faculty-label {
@@ -386,7 +472,11 @@
   margin-bottom: 4px;
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
+}
+
+.cm-faculty-label svg {
+  color: #6366f1;
 }
 
 .cm-faculty-name {
@@ -411,47 +501,48 @@
   flex: 1;
 }
 
-/* Empty State */
+/* ---------------------------------------------------------
+   Empty State
+   --------------------------------------------------------- */
 .cm-empty-state {
   text-align: center;
   padding: 60px 20px;
   background: var(--surface, #ffffff);
   border: 2px dashed var(--border, #cbd5e1);
-  border-radius: 20px;
+  border-radius: 22px;
   grid-column: 1 / -1;
   color: var(--text-muted, #64748b);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.02);
 }
 
 .cm-empty-icon {
-  font-size: 3rem;
-  color: var(--accent, #a5b4fc);
-  margin-bottom: 14px;
+  font-size: 3.2rem;
+  color: #a5b4fc;
+  margin-bottom: 16px;
 }
 
 .cm-empty-state h3 {
   margin: 0 0 6px;
   color: var(--text-main, #0f172a);
-  font-size: 1.25rem;
+  font-size: 1.3rem;
+  font-weight: 800;
 }
 
-/* Modal Windows */
+/* ---------------------------------------------------------
+   Modal Dialogs
+   --------------------------------------------------------- */
 .cm-modal-backdrop {
   position: fixed;
   inset: 0;
   background: rgba(15, 23, 42, 0.65);
-  backdrop-filter: blur(4px);
+  backdrop-filter: blur(5px);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 1200;
-  padding: 16px;
+  padding: 20px;
   box-sizing: border-box;
   animation: cmFadeIn 0.2s ease;
-}
-
-@keyframes cmFadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
 }
 
 .cm-modal-dialog {
@@ -459,29 +550,35 @@
   border: 1px solid var(--border, #e2e8f0);
   border-radius: 22px;
   width: 100%;
-  max-width: 680px;
+  max-width: 660px;
   max-height: 90vh;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.35);
   overflow: hidden;
   animation: cmScaleUp 0.25s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .cm-modal-dialog.lg {
-  max-width: 900px;
+  max-width: 920px;
 }
 
 @keyframes cmScaleUp {
-  from { transform: scale(0.95); opacity: 0; }
-  to { transform: scale(1); opacity: 1; }
+  from {
+    transform: scale(0.95);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
 }
 
 .cm-modal-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 20px 24px;
+  padding: 20px 26px;
   border-bottom: 1px solid var(--border, #e2e8f0);
 }
 
@@ -495,11 +592,15 @@
   gap: 10px;
 }
 
+.cm-modal-header h2 svg {
+  color: #6366f1;
+}
+
 .cm-modal-close-btn {
   background: transparent;
   border: none;
   color: var(--text-muted, #94a3b8);
-  font-size: 1.2rem;
+  font-size: 1.25rem;
   cursor: pointer;
   padding: 6px;
   border-radius: 8px;
@@ -515,7 +616,7 @@
 }
 
 .cm-modal-body {
-  padding: 24px;
+  padding: 26px;
   overflow-y: auto;
   flex: 1;
 }
@@ -525,21 +626,23 @@
   align-items: center;
   justify-content: flex-end;
   gap: 12px;
-  padding: 16px 24px;
+  padding: 16px 26px;
   border-top: 1px solid var(--border, #e2e8f0);
   background: var(--surface-soft, #f8fafc);
 }
 
-/* Form Groups in Modal */
+/* ---------------------------------------------------------
+   Form Elements in Modal
+   --------------------------------------------------------- */
 .cm-form-group {
   margin-bottom: 18px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 7px;
 }
 
 .cm-form-group label {
-  font-size: 0.85rem;
+  font-size: 0.86rem;
   font-weight: 700;
   color: var(--text-main, #334155);
 }
@@ -548,41 +651,45 @@
 .cm-form-select,
 .cm-form-textarea {
   width: 100%;
-  padding: 10px 14px;
-  border-radius: 10px;
-  border: 1px solid var(--border, #cbd5e1);
+  padding: 11px 14px;
+  border-radius: 11px;
+  border: 1.5px solid var(--border, #cbd5e1);
   background: var(--surface, #ffffff);
   color: var(--text-main, #1e293b);
   font-size: 0.9rem;
+  font-family: inherit;
   outline: none;
   box-sizing: border-box;
+  transition: all 0.2s ease;
 }
 
 .cm-form-input:focus,
 .cm-form-select:focus,
 .cm-form-textarea:focus {
-  border-color: var(--accent, #6366f1);
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+  border-color: #6366f1;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.18);
 }
 
 .cm-form-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 14px;
+  gap: 16px;
 }
 
-/* Student Roster Table inside Modal */
+/* ---------------------------------------------------------
+   Student Roster Table inside Modal
+   --------------------------------------------------------- */
 .cm-roster-toolbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 16px;
+  gap: 14px;
+  margin-bottom: 18px;
   flex-wrap: wrap;
 }
 
 .cm-roster-table-wrap {
-  max-height: 400px;
+  max-height: 420px;
   overflow-y: auto;
   border: 1px solid var(--border, #e2e8f0);
   border-radius: 14px;
@@ -597,7 +704,7 @@
 
 .cm-table th {
   background: var(--surface-soft, #f1f5f9);
-  padding: 12px 16px;
+  padding: 13px 16px;
   font-weight: 750;
   color: var(--text-muted, #475569);
   border-bottom: 1px solid var(--border, #e2e8f0);
@@ -607,63 +714,115 @@
 }
 
 .cm-table td {
-  padding: 12px 16px;
+  padding: 13px 16px;
   border-bottom: 1px solid var(--border, #f1f5f9);
   color: var(--text-main, #1e293b);
 }
 
 .cm-table tr:hover td {
-  background: rgba(99, 102, 241, 0.03);
+  background: rgba(99, 102, 241, 0.04);
 }
 
-/* Midnight Theme Adjustments */
+/* ---------------------------------------------------------
+   Midnight Theme Adjustments
+   --------------------------------------------------------- */
+[data-theme="midnight"] .courses-manager {
+  color: #f8fafc;
+}
+
+[data-theme="midnight"] .cm-header,
 [data-theme="midnight"] .cm-course-card,
 [data-theme="midnight"] .cm-stat-card,
 [data-theme="midnight"] .cm-toolbar,
-[data-theme="midnight"] .cm-modal-dialog {
-  background: #1b2a40;
-  border-color: #34465f;
+[data-theme="midnight"] .cm-modal-dialog,
+[data-theme="midnight"] .cm-empty-state {
+  background: #151f32;
+  border-color: #24344d;
   color: #f8fafc;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35);
 }
 
 [data-theme="midnight"] .cm-modal-header,
 [data-theme="midnight"] .cm-modal-footer,
 [data-theme="midnight"] .cm-course-actions,
 [data-theme="midnight"] .cm-table th,
-[data-theme="midnight"] .cm-table td {
-  border-color: #34465f;
+[data-theme="midnight"] .cm-table td,
+[data-theme="midnight"] .cm-roster-table-wrap {
+  border-color: #24344d;
 }
 
 [data-theme="midnight"] .cm-modal-footer,
 [data-theme="midnight"] .cm-table th,
 [data-theme="midnight"] .cm-course-faculty,
-[data-theme="midnight"] .cm-tabs {
-  background: #152135;
+[data-theme="midnight"] .cm-tabs,
+[data-theme="midnight"] .cm-course-dept-badge {
+  background: #111a2b;
+  border-color: #24344d;
+  color: #cbd5e1;
+}
+
+[data-theme="midnight"] .cm-tab-btn {
+  color: #94a3b8;
+}
+
+[data-theme="midnight"] .cm-tab-btn.active {
+  background: #1e2c45;
+  color: #818cf8;
 }
 
 [data-theme="midnight"] .cm-search-input,
 [data-theme="midnight"] .cm-select,
 [data-theme="midnight"] .cm-form-input,
-[data-theme="midnight"] .cm-form-select {
-  background: #131d2e;
-  border-color: #34465f;
+[data-theme="midnight"] .cm-form-select,
+[data-theme="midnight"] .cm-form-textarea {
+  background: #111a2b;
+  border-color: #24344d;
   color: #f8fafc;
 }
 
-[data-theme="midnight"] .cm-header-titles h1,
+[data-theme="midnight"] .cm-search-input:focus,
+[data-theme="midnight"] .cm-select:focus,
+[data-theme="midnight"] .cm-form-input:focus,
+[data-theme="midnight"] .cm-form-select:focus,
+[data-theme="midnight"] .cm-form-textarea:focus {
+  border-color: #6366f1;
+  background: #131e33;
+}
+
 [data-theme="midnight"] .cm-course-title,
 [data-theme="midnight"] .cm-modal-header h2,
 [data-theme="midnight"] .cm-stat-value,
-[data-theme="midnight"] .cm-faculty-name {
+[data-theme="midnight"] .cm-faculty-name,
+[data-theme="midnight"] .cm-form-group label,
+[data-theme="midnight"] .cm-empty-state h3,
+[data-theme="midnight"] .cm-table td {
   color: #f8fafc;
 }
 
-/* Mobile Responsiveness */
+[data-theme="midnight"] .cm-btn-secondary {
+  background: #1a273e;
+  border-color: #2d4160;
+  color: #cbd5e1;
+}
+
+[data-theme="midnight"] .cm-btn-secondary:hover {
+  background: #243654;
+  border-color: #818cf8;
+  color: #ffffff;
+}
+
+/* ---------------------------------------------------------
+   Mobile Responsiveness
+   --------------------------------------------------------- */
 @media (max-width: 768px) {
   .courses-manager {
-    padding: 16px 12px;
+    padding: 16px 12px calc(88px + env(safe-area-inset-bottom, 0px));
   }
   
+  .cm-header {
+    padding: 18px 16px;
+  }
+
   .cm-form-row {
     grid-template-columns: 1fr;
   }
@@ -679,5 +838,15 @@
   
   .cm-course-card {
     padding: 18px 16px;
+  }
+
+  .cm-modal-dialog {
+    max-height: 92vh;
+  }
+
+  .cm-modal-header,
+  .cm-modal-body,
+  .cm-modal-footer {
+    padding: 16px;
   }
 }
