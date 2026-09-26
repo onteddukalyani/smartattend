@@ -27,6 +27,7 @@ workflows:
       - name: Install NPM dependencies
         script: |
           npm ci --legacy-peer-deps || npm install --legacy-peer-deps
+          node scripts/patch_spm.js
       - name: Build Vite React Web App
         script: |
           npm run build

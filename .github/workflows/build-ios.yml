@@ -29,6 +29,9 @@ jobs:
       - name: 📦 Install NPM Dependencies
         run: npm ci --legacy-peer-deps || npm install --legacy-peer-deps
 
+      - name: 🩹 Patch Swift Package Manager Tools Version
+        run: node scripts/patch_spm.js
+
       - name: 🔨 Build React Web Application
         run: npm run build
 
