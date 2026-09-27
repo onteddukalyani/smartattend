@@ -5,12 +5,13 @@ import Capacitor
 /**
  * GuidedAccessPlugin
  *
- * Capacitor iOS Plugin for Apple Guided Access (Single App Mode) Supervision
- * and real-time app-switching detection.
+ * Capacitor iOS Plugin for Apple Guided Access (Single App Mode) Supervision,
+ * real-time app-switching detection, and screen capture/recording detection.
  *
  * Events emitted:
  *   - guidedAccessStatusChanged: { enabled: Bool, timestamp: Double }
  *   - appSwitchDetected: { event: String, timestamp: Double, guidedAccessActive: Bool }
+ *   - screenCaptureDetected: { isCaptured: Bool, timestamp: Double }
  */
 @objc(GuidedAccessPlugin)
 public class GuidedAccessPlugin: CAPPlugin, CAPBridgedPlugin {
@@ -71,6 +72,17 @@ public class GuidedAccessPlugin: CAPPlugin, CAPBridgedPlugin {
             name: UIApplication.didEnterBackgroundNotification,
             object: nil
         )
+
+        // Screen capture / recording detection
+        // Fires when student starts screen recording, AirPlay mirroring, or QuickTime capture
+        if #available(iOS 11.0, *) {
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(handleScreenCaptureChange),
+                name: UIScreen.capturedDidChangeNotification,
+                object: nil
+            )
+        }
 
         isObserving = true
     }
@@ -176,6 +188,24 @@ public class GuidedAccessPlugin: CAPPlugin, CAPBridgedPlugin {
                 "event": "DID_ENTER_BACKGROUND",
                 "timestamp": Date().timeIntervalSince1970 * 1000,
                 "guidedAccessActive": gaEnabled
+            ])
+        }
+    }
+
+    /**
+     * Handler: Screen capture state changed.
+     * Fires when student starts/stops screen recording, AirPlay mirroring, or QuickTime capture.
+     * Emits screenCaptureDetected so JS can immediately disqualify the attendance session.
+     */
+    @objc private func handleScreenCaptureChange() {
+        DispatchQueue.main.async {
+            var isCaptured = false
+            if #available(iOS 11.0, *) {
+                isCaptured = UIScreen.main.isCaptured
+            }
+            self.notifyListeners("screenCaptureDetected", data: [
+                "isCaptured": isCaptured,
+                "timestamp": Date().timeIntervalSince1970 * 1000
             ])
         }
     }

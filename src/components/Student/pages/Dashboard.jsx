@@ -1,9 +1,8 @@
-import React, { useEffect, useState, useMemo } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useEffect, useState, useMemo } from "react";
+import { Link } from "react-router-dom";
 import {
     collection,
     doc,
-    getDoc,
     getDocs,
     setDoc,
     deleteField,
@@ -15,7 +14,6 @@ import {
     FaUserGraduate,
     FaIdCard,
     FaCalendarCheck,
-    FaChalkboardTeacher,
     FaHistory,
     FaSearch,
     FaFileDownload,
@@ -24,18 +22,16 @@ import {
     FaClock,
     FaSyncAlt,
     FaTimes,
-    FaInfoCircle,
-    FaQrcode,
     FaCamera,
     FaExclamationTriangle,
-    FaUserCheck,
     FaSpinner,
     FaLock,
     FaTrashAlt,
     FaPercentage,
     FaArrowRight,
     FaEdit,
-    FaCheck
+    FaCheck,
+    FaMobileAlt
 } from "react-icons/fa";
 import { MdQrCodeScanner } from "react-icons/md";
 import { db } from "../../../firebase";
@@ -45,13 +41,14 @@ import { useTableSort, SortIcon } from "../../Common/useTableSort";
 import { LiveFaceEnrollment } from "../../Common/LiveFaceEnrollment";
 import ProfilePhotoModal from "../../Common/ProfilePhotoModal";
 import { removeStudentPhotoOnly, checkDuplicateFaceBiometrics } from "../../../utils/biometricManager";
-import { getCandidateRolls, computeStudentMetrics } from "../studentAttendanceHelper";
+import { getCandidateRolls, computeStudentMetrics, parseTimestampMillis } from "../studentAttendanceHelper";
 import { isGenericName, normalizeBranchName } from "../../../utils/studentDataHelper";
+import DeviceOnboardingModal from "../DeviceOnboardingModal";
+import { subscribeToStudentNotifications, markNotificationAsRead } from "../../../services/notificationsService";
 import "./Dashboard.css";
 
 export default function StudentDashboard() {
     const { user, profile, updateProfileName, updateProfilePhoto, deleteProfilePhoto } = useAuth();
-    const navigate = useNavigate();
 
     const [courses, setCourses] = useState([]);
     const [sessions, setSessions] = useState([]);
@@ -60,6 +57,21 @@ export default function StudentDashboard() {
     const [refreshing, setRefreshing] = useState(false);
     const [search, setSearch] = useState("");
 
+    // Device Onboarding & Setup Modal State
+    const [currentDeviceType, setCurrentDeviceType] = useState(() => {
+        try {
+            return localStorage.getItem('smartattend_student_device_type') || '';
+        } catch (_) {
+            return '';
+        }
+    });
+    const [showDeviceModal, setShowDeviceModal] = useState(() => {
+        try {
+            return !localStorage.getItem('smartattend_student_device_type');
+        } catch (_) {
+            return false;
+        }
+    });
 
     // Face Biometric Registration Modal State
     const [showFaceModal, setShowFaceModal] = useState(false);
@@ -85,14 +97,22 @@ export default function StudentDashboard() {
     const activeRollNo = (profile?.rollNo || emailRoll || "").trim().toUpperCase();
 
     const [fetchedStudentData, setFetchedStudentData] = useState(null);
+    const [notifications, setNotifications] = useState([]);
+
+    // Subscribe to real-time Faculty & Admin notifications
+    useEffect(() => {
+        if (!activeRollNo) return;
+        const unsub = subscribeToStudentNotifications(activeRollNo, (newNotifs) => {
+            setNotifications(newNotifs || []);
+        });
+        return () => unsub();
+    }, [activeRollNo]);
 
     // Resolve student profile name & biometrics directly in real-time across all collections
     useEffect(() => {
         if (!activeRollNo) return;
 
         const cleanEmail = (user?.email || "").toLowerCase().trim();
-        const prefix = cleanEmail ? cleanEmail.split("@")[0].toLowerCase().trim() : activeRollNo.toLowerCase().trim();
-
         const unsubs = [];
 
         const handleDocUpdate = (snap) => {
@@ -208,11 +228,8 @@ export default function StudentDashboard() {
     // 3. Real-time Attendance Records listener
     useEffect(() => {
         if (!candidateRolls || candidateRolls.length === 0) {
-            setLoading(false);
             return;
         }
-
-        setLoading(true);
 
         const recordsQ = query(
             collection(db, "attendance_records"),
@@ -263,9 +280,12 @@ export default function StudentDashboard() {
     const metrics = useMemo(() => {
         return computeStudentMetrics(courses, sessions, records, {
             branch: studentBranch,
-            semester: studentSemester
+            semester: studentSemester,
+            candidateRolls,
+            rollNo: activeRollNo,
+            email: user?.email
         });
-    }, [courses, sessions, records, studentBranch, studentSemester]);
+    }, [courses, sessions, records, studentBranch, studentSemester, candidateRolls, activeRollNo, user?.email]);
 
     // Initial Face Biometric Enrollment Handler (Student Side - One-time registration only)
     const handleEnrollStudentFace = async (enrollData) => {
@@ -280,7 +300,6 @@ export default function StudentDashboard() {
         try {
             setFaceSaving(true);
             const cleanEmail = (user?.email || "").toLowerCase().trim();
-            const prefix = cleanEmail ? cleanEmail.split("@")[0].toLowerCase().trim() : activeRollNo.toLowerCase().trim();
 
             const rawVector = enrollData.faceDescriptor;
             const cleanVector = Array.isArray(rawVector) ? rawVector : Array.from(rawVector);
@@ -294,8 +313,15 @@ export default function StudentDashboard() {
                 return;
             }
 
-            // Purely update face registration details (never overwrite existing student profile details)
+            // Purely update face registration details while guaranteeing complete student profile schema
             const updatePayload = {
+                rollNo: activeRollNo,
+                name: fetchedStudentData?.name || profile?.name || activeRollNo,
+                email: cleanEmail,
+                branch: studentBranch || "CSE",
+                semester: studentSemester || "3",
+                role: "student",
+                status: "active",
                 faceDescriptor: cleanVector,
                 photoURL: enrollData.photoURL || fetchedStudentData?.photoURL || profile?.photoURL || "",
                 faceRegistered: true,
@@ -305,24 +331,9 @@ export default function StudentDashboard() {
                 enrolledAt: Date.now()
             };
 
-            const promises = [
-                setDoc(doc(db, "students", activeRollNo), updatePayload, { merge: true }),
-                setDoc(doc(db, "users", activeRollNo), updatePayload, { merge: true })
-            ];
-            if (cleanEmail) {
-                promises.push(setDoc(doc(db, "authorizedUsers", cleanEmail), updatePayload, { merge: true }).catch(() => { }));
-                promises.push(setDoc(doc(db, "students", cleanEmail), updatePayload, { merge: true }).catch(() => { }));
-                promises.push(setDoc(doc(db, "users", cleanEmail), updatePayload, { merge: true }).catch(() => { }));
-            }
-            if (prefix && prefix !== activeRollNo.toLowerCase()) {
-                promises.push(setDoc(doc(db, "students", prefix), updatePayload, { merge: true }).catch(() => { }));
-                promises.push(setDoc(doc(db, "users", prefix), updatePayload, { merge: true }).catch(() => { }));
-            }
-            if (user?.uid) {
-                promises.push(setDoc(doc(db, "users", user.uid), updatePayload, { merge: true }).catch(() => { }));
-            }
-
-            await Promise.all(promises);
+            // Append face biometrics strictly to the student's existing single Firestore document
+            const targetDocId = (fetchedStudentData?.id || activeRollNo).trim().toUpperCase();
+            await setDoc(doc(db, "students", targetDocId), updatePayload, { merge: true });
 
             setFetchedStudentData((prev) => ({
                 ...(prev || {}),
@@ -561,6 +572,11 @@ export default function StudentDashboard() {
                                 {photoSuccessMsg}
                             </div>
                         )}
+                        {nameEditSuccess && (
+                            <div className="student-hero-toast success">
+                                {nameEditSuccess}
+                            </div>
+                        )}
 
                         <div className="student-hero-badges">
                             <span className="student-role-pill-badge" title="Student Account">
@@ -605,6 +621,29 @@ export default function StudentDashboard() {
                                     <><FaCamera size={11} /> Face Pending (Click to Enroll)</>
                                 )}
                             </span>
+                            <span
+                                className="student-sub-badge"
+                                onClick={() => {
+                                    if (currentDeviceType) {
+                                        alert(`🔒 Registered Device Locked!\n\nYour account is locked to "${currentDeviceType.toUpperCase()}". Only a Lecturer or Administrator can reset your registered device type.`);
+                                    } else {
+                                        setShowDeviceModal(true);
+                                    }
+                                }}
+                                style={{
+                                    cursor: "pointer",
+                                    background: currentDeviceType ? "#f1f5f9" : "#e0f2fe",
+                                    color: currentDeviceType ? "#334155" : "#0369a1",
+                                    border: currentDeviceType ? "1px solid #cbd5e1" : "1px solid #bae6fd",
+                                    fontWeight: 700,
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    gap: "5px"
+                                }}
+                                title={currentDeviceType ? `Locked to ${currentDeviceType.toUpperCase()} (Managed by Lecturer/Admin)` : "Click to select your device type"}
+                            >
+                                <FaMobileAlt size={11} /> Device: {currentDeviceType ? `${currentDeviceType.toUpperCase()} 🔒` : 'Select Device'}
+                            </span>
                         </div>
                     </div>
                 </div>
@@ -616,6 +655,128 @@ export default function StudentDashboard() {
                     </Link>
                 </div>
             </div>
+
+            {/* Real-Time Faculty & Admin Notifications Banner */}
+            {notifications.filter((n) => !n.read).length > 0 && (
+                <div className="student-notifications-container" style={{ marginBottom: "16px" }}>
+                    {notifications.filter((n) => !n.read).map((n) => (
+                        <div key={n.id} className="student-notification-card" style={{
+                            background: "linear-gradient(135deg, #eff6ff 0%, #e0f2fe 100%)",
+                            border: "1.5px solid #93c5fd",
+                            borderRadius: "16px",
+                            padding: "16px 20px",
+                            marginBottom: "10px",
+                            display: "flex",
+                            alignItems: "flex-start",
+                            justifyContent: "space-between",
+                            gap: "14px",
+                            boxShadow: "0 6px 16px rgba(37, 99, 235, 0.12)",
+                            flexWrap: "wrap"
+                        }}>
+                            <div style={{ display: "flex", alignItems: "flex-start", gap: "12px", flex: "1 1 300px" }}>
+                                <div style={{
+                                    width: "40px",
+                                    height: "40px",
+                                    borderRadius: "12px",
+                                    background: "#2563eb",
+                                    color: "#ffffff",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                    fontSize: "1.15rem",
+                                    flexShrink: 0,
+                                    boxShadow: "0 4px 10px rgba(37, 99, 235, 0.25)"
+                                }}>
+                                    🔔
+                                </div>
+                                <div>
+                                    <div style={{ fontWeight: 800, fontSize: "0.98rem", color: "#1e40af", marginBottom: "3px" }}>
+                                        {n.title} <span style={{ fontSize: "0.78rem", fontWeight: 700, color: "#2563eb", background: "#ffffff", padding: "2px 8px", borderRadius: "99px", marginLeft: "6px" }}>By {n.senderName || "Faculty"}</span>
+                                    </div>
+                                    <div style={{ fontSize: "0.88rem", color: "#1e3a8a", lineHeight: 1.45 }}>
+                                        {n.message}
+                                    </div>
+                                    <div style={{ fontSize: "0.75rem", color: "#3b82f6", marginTop: "5px", fontWeight: 600 }}>
+                                        {n.createdAt ? new Date(n.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "Just now"}
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div style={{ display: "flex", alignItems: "center", gap: "8px", flexShrink: 0 }}>
+                                {n.type === 'DEVICE_RESET' && (
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            markNotificationAsRead(activeRollNo, n.id);
+                                            setShowDeviceModal(true);
+                                        }}
+                                        style={{
+                                            background: "linear-gradient(135deg, #2563eb, #1d4ed8)",
+                                            color: "#ffffff",
+                                            border: "none",
+                                            borderRadius: "10px",
+                                            padding: "8px 14px",
+                                            fontSize: "0.82rem",
+                                            fontWeight: 700,
+                                            cursor: "pointer",
+                                            display: "flex",
+                                            alignItems: "center",
+                                            gap: "6px",
+                                            boxShadow: "0 4px 10px rgba(37, 99, 235, 0.3)"
+                                        }}
+                                    >
+                                        <FaMobileAlt /> Set Up Device Now
+                                    </button>
+                                )}
+
+                                {n.type === 'BIOMETRICS_CLEARED' && (
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            markNotificationAsRead(activeRollNo, n.id);
+                                            setShowFaceModal(true);
+                                        }}
+                                        style={{
+                                            background: "linear-gradient(135deg, #2563eb, #1d4ed8)",
+                                            color: "#ffffff",
+                                            border: "none",
+                                            borderRadius: "10px",
+                                            padding: "8px 14px",
+                                            fontSize: "0.82rem",
+                                            fontWeight: 700,
+                                            cursor: "pointer",
+                                            display: "flex",
+                                            alignItems: "center",
+                                            gap: "6px",
+                                            boxShadow: "0 4px 10px rgba(37, 99, 235, 0.3)"
+                                        }}
+                                    >
+                                        <FaCamera /> Enroll Face Now
+                                    </button>
+                                )}
+
+                                <button
+                                    type="button"
+                                    onClick={() => markNotificationAsRead(activeRollNo, n.id)}
+                                    style={{
+                                        background: "#ffffff",
+                                        border: "1px solid #bfdbfe",
+                                        borderRadius: "10px",
+                                        padding: "7px 14px",
+                                        fontSize: "0.82rem",
+                                        fontWeight: 700,
+                                        color: "#2563eb",
+                                        cursor: "pointer",
+                                        boxShadow: "0 2px 6px rgba(0, 0, 0, 0.05)"
+                                    }}
+                                >
+                                    Dismiss
+                                </button>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            )}
 
             {/* Face Registration Pending Banner */}
             {!hasFaceRegistered && (
@@ -828,7 +989,7 @@ export default function StudentDashboard() {
                     </div>
                 </div>
 
-                {loading ? (
+                {loading && candidateRolls.length > 0 ? (
                     <div className="student-empty-state">
                         <div className="empty-state-icon-wrap">
                             <FaSyncAlt className="fa-spin" />
@@ -904,38 +1065,42 @@ export default function StudentDashboard() {
                                 </tr>
                             </thead>
                             <tbody>
-                                {sortedRecords.map((item) => (
-                                    <tr key={item.id}>
-                                        <td><strong>{item.rollNo || activeRollNo}</strong></td>
-                                        <td><strong>{item.fullName || studentName}</strong></td>
-                                        <td><strong>{item.courseCode}</strong></td>
-                                        <td>{item.classCode}</td>
-                                        <td>Room {item.roomNo}</td>
-                                        <td>
-                                            {item.submittedAt
-                                                ? new Date(item.submittedAt).toLocaleDateString(undefined, {
-                                                    weekday: "short",
-                                                    month: "short",
-                                                    day: "numeric",
-                                                    year: "numeric"
-                                                })
-                                                : "N/A"}
-                                        </td>
-                                        <td>
-                                            {item.submittedAt
-                                                ? new Date(item.submittedAt).toLocaleTimeString([], {
-                                                    hour: "2-digit",
-                                                    minute: "2-digit"
-                                                })
-                                                : "N/A"}
-                                        </td>
-                                        <td>
-                                            <span className="present-tag">
-                                                <FaCheckCircle /> Present
-                                            </span>
-                                        </td>
-                                    </tr>
-                                ))}
+                                {sortedRecords.map((item) => {
+                                    const submittedAtMillis = parseTimestampMillis(item.submittedAt);
+                                    const submittedAtDate = submittedAtMillis ? new Date(submittedAtMillis) : null;
+                                    return (
+                                        <tr key={item.id}>
+                                            <td><strong>{item.rollNo || activeRollNo}</strong></td>
+                                            <td><strong>{item.fullName || studentName}</strong></td>
+                                            <td><strong>{item.courseCode}</strong></td>
+                                            <td>{item.classCode}</td>
+                                            <td>Room {item.roomNo}</td>
+                                            <td>
+                                                {submittedAtDate
+                                                    ? submittedAtDate.toLocaleDateString(undefined, {
+                                                        weekday: "short",
+                                                        month: "short",
+                                                        day: "numeric",
+                                                        year: "numeric"
+                                                    })
+                                                    : "N/A"}
+                                            </td>
+                                            <td>
+                                                {submittedAtDate
+                                                    ? submittedAtDate.toLocaleTimeString([], {
+                                                        hour: "2-digit",
+                                                        minute: "2-digit"
+                                                    })
+                                                    : "N/A"}
+                                            </td>
+                                            <td>
+                                                <span className="present-tag">
+                                                    <FaCheckCircle /> Present
+                                                </span>
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
                             </tbody>
                         </table>
                     </div>
@@ -1327,6 +1492,17 @@ export default function StudentDashboard() {
                 onDelete={handleDeleteProfilePhoto}
                 uploading={photoUploading}
                 deleting={photoDeleting}
+            />
+
+            {/* Device Onboarding & Verification Modal (Android APK vs iPhone Guided Access) */}
+            <DeviceOnboardingModal
+                isOpen={showDeviceModal}
+                onClose={() => {
+                    setShowDeviceModal(false);
+                    try {
+                        setCurrentDeviceType(localStorage.getItem('smartattend_student_device_type') || '');
+                    } catch (_) {}
+                }}
             />
         </div>
     );

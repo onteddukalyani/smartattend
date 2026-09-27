@@ -230,41 +230,8 @@ const AddStudent = () => {
         updatedAt: serverTimestamp()
       };
 
-      // 4. Save across Firestore collections with { merge: true }
-      const savePromises = [
-        setDoc(doc(db, "students", cleanRollNo), studentPayload, { merge: true }),
-        setDoc(doc(db, "users", cleanRollNo), studentPayload, { merge: true })
-      ];
-
-      if (rollLower !== cleanRollNo) {
-        savePromises.push(setDoc(doc(db, "students", rollLower), studentPayload, { merge: true }).catch(() => { }));
-        savePromises.push(setDoc(doc(db, "users", rollLower), studentPayload, { merge: true }).catch(() => { }));
-      }
-
-      if (prefix && prefix !== cleanRollNo && prefix !== rollLower) {
-        savePromises.push(setDoc(doc(db, "students", prefix), studentPayload, { merge: true }).catch(() => { }));
-        savePromises.push(setDoc(doc(db, "users", prefix), studentPayload, { merge: true }).catch(() => { }));
-      }
-
-      // Authorize student for instant Google Login in authorizedUsers
-      if (cleanEmail) {
-        savePromises.push(
-          setDoc(doc(db, "authorizedUsers", cleanEmail), {
-            ...studentPayload,
-            createdAt: Date.now()
-          }, { merge: true }).catch((e) => console.warn("authorizedUsers email sync error:", e))
-        );
-        if (prefix && prefix !== cleanEmail) {
-          savePromises.push(
-            setDoc(doc(db, "authorizedUsers", prefix), {
-              ...studentPayload,
-              createdAt: Date.now()
-            }, { merge: true }).catch((e) => console.warn("authorizedUsers prefix sync error:", e))
-          );
-        }
-      }
-
-      await Promise.all(savePromises);
+      // 4. Save strictly under a single master student document in Firestore
+      await setDoc(doc(db, "students", cleanRollNo), studentPayload, { merge: true });
 
       alert(`✅ Student "${form.name.trim()}" (${cleanRollNo}) registered successfully!`);
       navigate(studentsPath);

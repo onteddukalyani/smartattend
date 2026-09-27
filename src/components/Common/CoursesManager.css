@@ -434,6 +434,53 @@
   border-color: rgba(99, 102, 241, 0.4);
 }
 
+.cm-course-card-top,
+.cm-course-meta-row,
+.cm-course-actions,
+.cm-empty-actions,
+.cm-roster-toolbar,
+.cm-modal-header,
+.cm-modal-footer,
+.cm-toolbar,
+.cm-toolbar-left,
+.cm-header,
+.cm-header-actions,
+.cm-stats-grid {
+  display: flex;
+}
+
+.cm-course-card-top {
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.cm-course-meta-row {
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+  font-size: 0.82rem;
+  color: var(--text-muted, #64748b);
+}
+
+.cm-course-actions {
+  align-items: center;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border, #e2e8f0);
+  flex-wrap: wrap;
+}
+
+.cm-course-actions .cm-btn {
+  flex: 1;
+}
+
+.cm-course-actions .cm-course-action-edit {
+  flex: 0 0 auto;
+}
+
 .cm-course-card-top {
   display: flex;
   align-items: flex-start;
@@ -779,6 +826,123 @@
   margin-bottom: 16px;
 }
 
+.cm-available-students {
+  margin-bottom: 16px;
+  overflow: hidden;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 12px;
+  background: var(--surface, #ffffff);
+}
+
+.cm-available-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 14px;
+  border-bottom: 1px solid var(--border, #e2e8f0);
+}
+
+.cm-available-header h3 {
+  margin: 0 0 4px;
+  color: var(--text-main, #1e293b);
+  font-size: 0.98rem;
+}
+
+.cm-available-header p {
+  margin: 0;
+  color: var(--text-muted, #64748b);
+  font-size: 0.8rem;
+}
+
+.cm-available-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: min(100%, 460px);
+}
+
+.cm-available-actions .cm-search-wrap {
+  min-width: 180px;
+}
+
+.cm-available-actions .cm-btn {
+  flex: 0 0 auto;
+}
+
+.cm-available-actions .cm-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+  transform: none;
+}
+
+.cm-available-list {
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.cm-available-student {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) minmax(70px, auto);
+  align-items: center;
+  gap: 10px;
+  min-height: 54px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border, #e2e8f0);
+  cursor: pointer;
+}
+
+.cm-available-student:last-child {
+  border-bottom: 0;
+}
+
+.cm-available-student:hover {
+  background: var(--surface-soft, #f8fafc);
+}
+
+.cm-available-student input {
+  width: 16px;
+  height: 16px;
+  accent-color: #4f46e5;
+}
+
+.cm-available-student-info {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.cm-available-student-info strong,
+.cm-available-student-info span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cm-available-student-info strong {
+  color: var(--text-main, #1e293b);
+  font-size: 0.84rem;
+}
+
+.cm-available-student-info span,
+.cm-available-student-dept,
+.cm-available-empty {
+  color: var(--text-muted, #64748b);
+  font-size: 0.76rem;
+}
+
+.cm-available-student-dept {
+  text-align: right;
+}
+
+.cm-available-empty {
+  margin: 0;
+  padding: 18px 14px;
+  text-align: center;
+}
+
 .cm-roster-table-wrap {
   overflow-x: auto;
   border-radius: 12px;
@@ -827,6 +991,7 @@
 [data-theme="midnight"] .cm-stat-card,
 [data-theme="midnight"] .cm-toolbar,
 [data-theme="midnight"] .cm-course-card,
+[data-theme="midnight"] .cm-available-students,
 [data-theme="midnight"] .cm-empty-state,
 [data-theme="midnight"] .cm-modal-dialog,
 [data-theme="midnight"] .cm-roster-table-wrap {
@@ -836,6 +1001,8 @@
 
 [data-theme="midnight"] .cm-stat-value,
 [data-theme="midnight"] .cm-course-title,
+[data-theme="midnight"] .cm-available-header h3,
+[data-theme="midnight"] .cm-available-student-info strong,
 [data-theme="midnight"] .cm-empty-state h3,
 [data-theme="midnight"] .cm-modal-header h2,
 [data-theme="midnight"] .cm-form-group label,
@@ -845,6 +1012,7 @@
 
 [data-theme="midnight"] .cm-course-dept-badge,
 [data-theme="midnight"] .cm-course-faculty,
+[data-theme="midnight"] .cm-available-student:hover,
 [data-theme="midnight"] .cm-tabs,
 [data-theme="midnight"] .cm-table th,
 [data-theme="midnight"] .cm-modal-close-btn {
@@ -1051,6 +1219,30 @@
 
   .cm-roster-toolbar .cm-btn {
     flex: 1;
+  }
+
+  .cm-available-header,
+  .cm-available-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .cm-available-actions {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .cm-available-actions .cm-btn {
+    width: 100%;
+  }
+
+  .cm-available-student {
+    grid-template-columns: 18px minmax(0, 1fr);
+  }
+
+  .cm-available-student-dept {
+    grid-column: 2;
+    text-align: left;
   }
 }
 

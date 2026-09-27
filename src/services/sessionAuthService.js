@@ -1,6 +1,7 @@
 import { httpsCallable } from "firebase/functions";
 import { doc, onSnapshot, collection, setDoc, getDoc, updateDoc, arrayUnion, increment, serverTimestamp } from "firebase/firestore";
 import { functions, db, auth } from "../firebase";
+import { sendFacultyNotification, sendStudentNotification, reportUserVerificationComplaint } from "./notificationsService";
 
 /**
  * Utility: Compute SHA-256 hash using Web Crypto API.
@@ -333,9 +334,14 @@ export async function validateStudentQR2(sessionId, qr2Token) {
     } catch (e) {}
   }
 
-  // 3. STRICT GATE: If student never checked in with QR 1, reject immediately!
+  // 3. STRICT GATE: If student never checked in with QR 1, reject immediately & log security complaint
   const isQr1Verified = authData && (authData.qr1Verified === true || authData.status === "QR1_VERIFIED" || authData.status === "SESSION_AUTHORIZED");
   if (!isQr1Verified) {
+    await reportUserVerificationComplaint(
+      { email: currentEmail, rollNo: currentRollNo },
+      "Attempted Phase 2 QR 2 validation without Phase 1 QR 1 check-in",
+      "ATTENDANCE_PHASE_GATE"
+    );
     throw new Error("⛔ Access Denied: You did not scan QR 1 during Phase 1 (0:00 - 1:00). You cannot mark attendance for this session.");
   }
 
@@ -347,6 +353,11 @@ export async function validateStudentQR2(sessionId, qr2Token) {
     const recordRef = doc(db, "attendance_records", recordId);
     const recordSnap = await getDoc(recordRef);
     if (recordSnap.exists()) {
+      await reportUserVerificationComplaint(
+        { email: currentEmail, rollNo: targetRoll },
+        `Duplicate attendance attempt for session ${sessionId}`,
+        "DUPLICATE_ATTENDANCE_ATTEMPT"
+      );
       throw new Error(`Roll Number ${targetRoll} has already marked attendance for this session.`);
     }
   } catch (dupErr) {
@@ -591,11 +602,18 @@ export function subscribeToAuthorizations(sessionId, onUpdate) {
 export async function recordSessionViolation(sessionId, studentUid, rollNo, reason = "APP_SWITCH_DETECTED") {
   if (!sessionId) return;
   try {
+    const cleanRoll = (rollNo || studentUid || "").trim().toUpperCase();
     const violationPayload = {
+      rollNo: cleanRoll,
+      studentUid: studentUid || cleanRoll,
+      reason: reason,
       timestamp: Date.now(),
-      reason: reason
+      status: "FLAGGED_DISQUALIFIED",
+      violationCount: 1,
+      flagged: true
     };
 
+    // 1. Update session authorizations subcollection
     if (studentUid) {
       const authRef = doc(db, "attendance_sessions", sessionId, "authorizations", studentUid);
       await updateDoc(authRef, {
@@ -603,11 +621,62 @@ export async function recordSessionViolation(sessionId, studentUid, rollNo, reas
       }).catch(() => {});
     }
 
-    if (rollNo && rollNo !== studentUid) {
-      const authRollRef = doc(db, "attendance_sessions", sessionId, "authorizations", rollNo);
+    if (cleanRoll && cleanRoll !== studentUid) {
+      const authRollRef = doc(db, "attendance_sessions", sessionId, "authorizations", cleanRoll);
       await updateDoc(authRollRef, {
         violations: arrayUnion(violationPayload)
       }).catch(() => {});
+    }
+
+    // 2. Append to top-level session document flaggedViolations array (for Lecturer & Admin real-time dashboard audit)
+    const sessionRef = doc(db, "attendance_sessions", sessionId);
+    await updateDoc(sessionRef, {
+      flaggedViolations: arrayUnion({
+        rollNo: cleanRoll,
+        studentUid: studentUid || cleanRoll,
+        violationType: reason,
+        violationReason: `Security breach: ${reason}`,
+        timestamp: Date.now(),
+        status: "FLAGGED_DISQUALIFIED",
+        violationCount: 1
+      })
+    }).catch(() => {});
+
+    // 3. Write a FLAGGED_DISQUALIFIED record into attendance_records collection
+    if (cleanRoll) {
+      const recordDocId = `${sessionId}_${cleanRoll}`;
+      const recordRef = doc(db, "attendance_records", recordDocId);
+      await setDoc(recordRef, {
+        sessionId: sessionId,
+        rollNo: cleanRoll,
+        studentUid: studentUid || cleanRoll,
+        status: "FLAGGED_DISQUALIFIED",
+        verificationStatus: "FLAGGED",
+        flagged: true,
+        disqualified: true,
+        violationCount: 1,
+        violationType: reason,
+        violationReason: `App switch / screen capture breach detected during Guided Access session (${reason})`,
+        timestamp: Date.now()
+      }, { merge: true }).catch(() => {});
+
+      // Real-time Faculty Audit Alert
+      await sendFacultyNotification(
+        "🚨 Anti-Proxy Violation Detected",
+        `Security breach detected for ${cleanRoll}: ${reason}. Attempt flagged and disqualified.`,
+        "ANTI_PROXY_VIOLATION",
+        cleanRoll,
+        "Anti-Proxy Guard"
+      );
+
+      // Real-time Student Notification
+      await sendStudentNotification(
+        cleanRoll,
+        "⚠️ Attendance Attempt Flagged",
+        `Your attendance attempt was flagged due to app switching or screen capture (${reason}). Attempt is disqualified for lecturer review.`,
+        "ANTI_PROXY_VIOLATION",
+        "Anti-Proxy Guard"
+      );
     }
   } catch (err) {
     console.warn("Notice recording session violation:", err);

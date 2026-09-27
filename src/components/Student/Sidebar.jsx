@@ -2,11 +2,10 @@ import {
     FaCog, FaHome,
     FaGraduationCap,
     FaSignOutAlt,
-    FaUser,
     FaTimes,
     FaBookOpen
 } from "react-icons/fa";
-import { MdQrCodeScanner, MdLogout } from "react-icons/md";
+import { MdQrCodeScanner } from "react-icons/md";
 import { BsBarChart } from "react-icons/bs";
 import { Link, useLocation } from "react-router-dom";
 import { useAuth } from "../authcontext";

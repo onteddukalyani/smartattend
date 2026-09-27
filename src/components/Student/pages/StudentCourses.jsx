@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import {
     collection,
@@ -75,7 +75,6 @@ export default function StudentCourses() {
 
     // 1. Real-time Courses listener
     useEffect(() => {
-        setLoading(true);
         const unsubscribeCourses = onSnapshot(
             collection(db, "courses"),
             (snapshot) => {
@@ -749,17 +748,6 @@ export default function StudentCourses() {
                                 onClick={() => setSelectedCourseModal(null)}
                             >
                                 Close
-                            </button>
-                            <button
-                                type="button"
-                                className="sc-btn sc-btn-primary"
-                                onClick={() => {
-                                    setSelectedCourseModal(null);
-                                    navigate("/student/mark-attendance");
-                                }}
-                            >
-                                <FaQrcode />
-                                <span>Mark Attendance</span>
                             </button>
                         </div>
                     </div>

@@ -1,4 +1,3 @@
-import React from "react";
 import { Link, useLocation } from "react-router-dom";
 import { FaHome, FaCog, FaBookOpen } from "react-icons/fa";
 import { MdQrCodeScanner } from "react-icons/md";

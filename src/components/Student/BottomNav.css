@@ -167,8 +167,9 @@
   }
 
   /* Ensure student pages don't get covered on mobile */
-  .student-dashboard-page,
-  .statistics-page,
+  .student-dashboard,
+  .student-courses-page,
+  .student-statistics-page,
   .settings-container,
   .app-content {
     padding-bottom: calc(84px + env(safe-area-inset-bottom, 0px)) !important;

@@ -86,10 +86,37 @@ export const addAppSwitchListener = async (onSwitchCallback) => {
     };
 };
 
+
+/**
+ * Subscribe to iOS screen capture/recording detection.
+ * Fires when student starts screen recording, AirPlay mirroring, or QuickTime capture.
+ * iOS 11+ native app only.
+ */
+export const addScreenCaptureListener = async (onCaptureCallback) => {
+    const isIOS = isIOSDevice();
+    if (!isIOS || !Capacitor.isNativePlatform()) return () => {};
+    let listenerHandle = null;
+    try {
+        listenerHandle = await NativeGuidedAccessPlugin.addListener('screenCaptureDetected', (data) => {
+            console.warn('[GuidedAccessService] Screen capture detected on iOS:', data);
+            if (typeof onCaptureCallback === 'function') {
+                onCaptureCallback({ isCaptured: Boolean(data?.isCaptured), timestamp: data?.timestamp || Date.now() });
+            }
+        });
+    } catch (err) {
+        console.warn('[GuidedAccessService] Screen capture listener notice:', err);
+    }
+    return async () => {
+        try {
+            if (listenerHandle && typeof listenerHandle.remove === 'function') await listenerHandle.remove();
+        } catch (e) {}
+    };
+};
 export const setMockGuidedAccess = (enabled) => {
     if (typeof window !== 'undefined' && window.sessionStorage) {
         window.sessionStorage.setItem('mock_guided_access_enabled', enabled ? 'true' : 'false');
     }
 };
 
-export default { isIOSDevice, isGuidedAccessEnabled, addGuidedAccessListener, addAppSwitchListener, setMockGuidedAccess };
+export default { isIOSDevice, isGuidedAccessEnabled, addGuidedAccessListener, addAppSwitchListener, addScreenCaptureListener, setMockGuidedAccess };
+

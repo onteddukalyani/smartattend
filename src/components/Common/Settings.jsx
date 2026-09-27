@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import {
     FaGoogle,
     FaUserCircle,
@@ -17,19 +18,21 @@ import {
     FaClock,
     FaEnvelope,
     FaSignOutAlt,
-    FaDatabase,
     FaMobileAlt,
     FaLock,
     FaEdit,
     FaSpinner,
     FaTimes,
     FaCamera,
-    FaTrashAlt
+    FaTrashAlt,
+    FaAndroid,
+    FaDownload
 } from "react-icons/fa";
 import { doc, onSnapshot } from "firebase/firestore";
 import { db } from "../../firebase";
 import { useAuth } from "../authcontext";
 import ProfilePhotoModal from "./ProfilePhotoModal";
+import DeviceOnboardingModal from "../Student/DeviceOnboardingModal";
 import { normalizeBranchName } from "../../utils/studentDataHelper";
 import "./Settings.css";
 
@@ -61,7 +64,6 @@ function Settings() {
     const [photoError, setPhotoError] = useState("");
 
     // Name Editing State
-    const [isEditingName, setIsEditingName] = useState(false);
     const [showEditNameModal, setShowEditNameModal] = useState(false);
     const [nameInput, setNameInput] = useState("");
     const [savingName, setSavingName] = useState(false);
@@ -75,6 +77,9 @@ function Settings() {
     const [savingSemester, setSavingSemester] = useState(false);
     const [semesterSuccess, setSemesterSuccess] = useState("");
     const [semesterError, setSemesterError] = useState("");
+
+    // Device Setup Modal State
+    const [showDeviceModal, setShowDeviceModal] = useState(false);
 
     useEffect(() => {
         document.documentElement.dataset.theme = theme;
@@ -188,7 +193,6 @@ function Settings() {
             setNameSuccess("");
             await updateProfileName(nameInput.trim());
             setNameSuccess("Name updated and saved to database!");
-            setIsEditingName(false);
             setTimeout(() => setNameSuccess(""), 3500);
         } catch (err) {
             setNameError(err.message || "Failed to update name");
@@ -216,6 +220,11 @@ function Settings() {
     };
 
     const rawRole = (profile?.role || localStorage.getItem("smartattend-user-role") || (user?.isAnonymous ? "guest" : "student")).toLowerCase();
+    const deviceSetupPath = rawRole === "admin" || rawRole === "administrator" || rawRole === "superadmin"
+        ? "/admin/device-setup"
+        : rawRole === "lecturer" || rawRole === "faculty" || rawRole === "teacher"
+            ? "/lecturer/device-setup"
+            : "/student/device-setup";
 
     // Normalized role info
     const getRoleInfo = (r) => {
@@ -580,8 +589,78 @@ function Settings() {
                                         </button>
                                     </div>
                                 </div>
+
                             </>
                         )}
+
+                        <div className="st-detail-row">
+                            <div className="st-detail-left">
+                                <div className="st-detail-icon-wrap" style={{ background: "#e0f2fe", color: "#0284c7" }}>
+                                    <FaMobileAlt />
+                                </div>
+                                <div className="st-detail-info">
+                                    <span className="st-detail-title">Device Security &amp; Setup</span>
+                                    <span className="st-detail-desc">Android installation / iPhone Guided Access</span>
+                                </div>
+                            </div>
+                            <div className="st-detail-value" style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                                {rawRole === "student" && (
+                                    <span className="st-badge-light" style={{ background: "#f0f9ff", color: "#0369a1", borderColor: "#bae6fd" }}>
+                                        {(localStorage.getItem("smartattend_student_device_type") || profile?.deviceType || "NOT SET").toUpperCase()}
+                                    </span>
+                                )}
+                                <Link to={deviceSetupPath} className="st-btn-mini-edit" title="Read Android and iPhone setup instructions">
+                                    <FaMobileAlt /> View instructions
+                                </Link>
+                                {rawRole === "student" && (
+                                    <button
+                                        type="button"
+                                        className="st-btn-mini-edit"
+                                        onClick={() => setShowDeviceModal(true)}
+                                        title="Change device selection"
+                                    >
+                                        <FaEdit /> Configure
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Android APK Direct Download (Available for Students, Lecturers & Admins to test) */}
+                        <div className="st-detail-row" style={{ background: "linear-gradient(135deg, #eff6ff 0%, #e0f2fe 100%)", padding: "14px 16px", borderRadius: "14px", border: "1.5px solid #93c5fd" }}>
+                            <div className="st-detail-left">
+                                <div className="st-detail-icon-wrap" style={{ background: "#2563eb", color: "#ffffff" }}>
+                                    <FaAndroid />
+                                </div>
+                                <div className="st-detail-info">
+                                    <span className="st-detail-title" style={{ color: "#1e40af", fontWeight: 800 }}>SmartAttend Android APK</span>
+                                    <span className="st-detail-desc" style={{ color: "#1e3a8a" }}>Official Android App Installer (.apk) for testing &amp; deployment</span>
+                                </div>
+                            </div>
+                            <div className="st-detail-value">
+                                <a
+                                    href={import.meta.env.VITE_ANDROID_APK_URL?.trim() || "/app-release.apk"}
+                                    download="SmartAttend-release.apk"
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="st-role-pill"
+                                    style={{
+                                        background: "linear-gradient(135deg, #2563eb, #1d4ed8)",
+                                        color: "#ffffff",
+                                        textDecoration: "none",
+                                        padding: "8px 16px",
+                                        borderRadius: "10px",
+                                        fontWeight: 700,
+                                        fontSize: "0.88rem",
+                                        display: "inline-flex",
+                                        alignItems: "center",
+                                        gap: "8px",
+                                        boxShadow: "0 4px 12px rgba(37, 99, 235, 0.3)"
+                                    }}
+                                >
+                                    <FaDownload /> Download APK (.apk)
+                                </a>
+                            </div>
+                        </div>
 
                         {/* Lecturer Details */}
                         {(rawRole === "lecturer" || rawRole === "faculty") && (
@@ -1083,6 +1162,12 @@ function Settings() {
                 onDelete={handlePhotoDelete}
                 uploading={photoUploading}
                 deleting={photoDeleting}
+            />
+
+            {/* Device Setup Modal */}
+            <DeviceOnboardingModal
+                isOpen={showDeviceModal}
+                onClose={() => setShowDeviceModal(false)}
             />
         </main>
     );

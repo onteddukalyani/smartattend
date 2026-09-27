@@ -1,10 +1,11 @@
 import { useEffect, useState, useMemo, useCallback } from "react";
-import { collection, getDocs, doc, deleteDoc, onSnapshot } from "firebase/firestore";
+import { collection, getDocs, doc, deleteDoc, setDoc, deleteField, onSnapshot } from "firebase/firestore";
 import { useNavigate } from "react-router-dom";
 import { db } from "../../firebase";
 import { useAuth } from "../authcontext";
 import { downloadExcel } from "../../DownloadExcel";
 import { removeStudentFaceAndBiometrics } from "../../utils/biometricManager";
+import { sendStudentNotification, sendFacultyNotification } from "../../services/notificationsService";
 import {
     FaSearch,
     FaSyncAlt,
@@ -26,7 +27,8 @@ import {
     FaGraduationCap,
     FaTrashAlt,
     FaUserTimes,
-    FaSpinner
+    FaSpinner,
+    FaMobileAlt
 } from "react-icons/fa";
 import StudentDetailModal from "./StudentDetailModal";
 import { useTableSort, SortIcon } from "./useTableSort";
@@ -178,10 +180,82 @@ function StudentsList() {
         try {
             setActionLoading(student.id || student.rollNo);
             await removeStudentFaceAndBiometrics(student);
+
+            // Notify student & faculty stream in real-time
+            const actorName = profile?.name || profile?.email || "Faculty/Admin";
+            await sendStudentNotification(
+                cleanRoll,
+                "Facial Biometrics Cleared",
+                `Your facial biometric data and photo were cleared by ${actorName}. Please re-enroll your facial biometrics on your dashboard.`,
+                "BIOMETRICS_CLEARED",
+                actorName
+            );
+
+            await sendFacultyNotification(
+                "Biometrics Cleared",
+                `Facial biometrics for ${studentName} (${cleanRoll}) cleared by ${actorName}.`,
+                "BIOMETRICS_CLEARED",
+                cleanRoll,
+                actorName
+            );
+
             alert(`✅ Facial biometric data and photo for ${studentName} (${cleanRoll}) have been cleared.`);
         } catch (err) {
             console.error("Error removing face biometrics:", err);
             alert("Failed to remove face biometrics: " + err.message);
+        } finally {
+            setActionLoading(null);
+        }
+    };
+
+    const handleResetStudentDeviceLock = async (student, e) => {
+        if (e) e.stopPropagation();
+        const studentName = student.name || student.rollNo || "this student";
+        const cleanRoll = String(student.rollNo || student.id || "").trim().toUpperCase();
+
+        const confirmed = window.confirm(
+            `🔓 Reset Device Lock?\n\nAre you sure you want to reset the registered device selection for ${studentName} (${cleanRoll})?\n\nThis will allow the student to select a new device type (Android APK or iPhone Guided Access) on their next sign-in.`
+        );
+        if (!confirmed) return;
+
+        try {
+            setActionLoading(student.id || cleanRoll);
+            await setDoc(doc(db, "students", cleanRoll), {
+                deviceType: deleteField(),
+                deviceTypeLocked: false,
+                deviceResetAt: Date.now()
+            }, { merge: true });
+
+            setStudents((prev) =>
+                prev.map((s) =>
+                    s.id === student.id || (cleanRoll && s.rollNo === cleanRoll)
+                        ? { ...s, deviceType: null, deviceTypeLocked: false }
+                        : s
+                )
+            );
+
+            // Notify student & faculty stream in real-time
+            const actorName = profile?.name || profile?.email || "Faculty/Admin";
+            await sendStudentNotification(
+                cleanRoll,
+                "Device Lock Reset",
+                `Your registered device lock was reset by ${actorName}. You can now select a new device type (Android APK or iPhone Guided Access) on your dashboard.`,
+                "DEVICE_RESET",
+                actorName
+            );
+
+            await sendFacultyNotification(
+                "Device Lock Reset 🔓",
+                `Device lock for ${studentName} (${cleanRoll}) reset by ${actorName}.`,
+                "DEVICE_RESET",
+                cleanRoll,
+                actorName
+            );
+
+            alert(`✅ Device lock for ${studentName} (${cleanRoll}) has been reset.`);
+        } catch (err) {
+            console.error("Error resetting student device lock:", err);
+            alert("Failed to reset device lock: " + err.message);
         } finally {
             setActionLoading(null);
         }
@@ -671,6 +745,17 @@ function StudentsList() {
                                                         title="View student profile & attendance logs"
                                                     >
                                                         <FaEye /> View
+                                                    </button>
+
+                                                    <button
+                                                        type="button"
+                                                        className="row-action-btn view-btn"
+                                                        onClick={(e) => handleResetStudentDeviceLock(student, e)}
+                                                        disabled={actionLoading === (student.id || student.rollNo)}
+                                                        title="Reset device lock for this student"
+                                                        style={{ background: "#e0f2fe", color: "#0369a1", borderColor: "#bae6fd" }}
+                                                    >
+                                                        <FaMobileAlt /> Device
                                                     </button>
 
                                                     {hasFace && (

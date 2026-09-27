@@ -18,7 +18,8 @@ import {
     FaMobileAlt,
     FaExternalLinkAlt,
     FaLock,
-    FaKey
+    FaKey,
+    FaDownload
 } from 'react-icons/fa';
 import { MdQrCodeScanner } from 'react-icons/md';
 import { useAuth } from '../authcontext';
@@ -36,8 +37,9 @@ import {
 import { db } from '../../firebase';
 import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import FaceScanner, { releaseAllMediaTracks } from '../Lecturer/pages/FaceScanner';
-import { isIOSDevice, isGuidedAccessEnabled, addAppSwitchListener } from '../../services/guidedAccessService';
+import { isIOSDevice, isGuidedAccessEnabled, addAppSwitchListener, addScreenCaptureListener } from '../../services/guidedAccessService';
 import GuidedAccessRequired, { GuidedAccessExitNotice } from '../GuidedAccessRequired';
+import { isGenericName, normalizeDescriptor } from '../../utils/studentDataHelper';
 
 /**
  * Stage 4: Student Two-Phase Attendance Scanner & Supervised Kiosk Controller
@@ -53,6 +55,9 @@ function QrScannerApp() {
     const { user, profile, loading } = useAuth();
     const fileInputRef = useRef(null);
     const sessionTimerRef = useRef(null);
+    // Silent camera lock — holds rear camera stream after QR1 to block other apps
+    const silentCameraLockRef = useRef(null);
+    const [cameraLockActive, setCameraLockActive] = useState(false);
 
     // Platform & App Detection
     const isNativeApp = Capacitor.isNativePlatform();
@@ -110,6 +115,42 @@ function QrScannerApp() {
     const [lecturerPinInput, setLecturerPinInput] = useState('');
     const [pinVerificationError, setPinVerificationError] = useState('');
     const [isVerifyingPin, setIsVerifyingPin] = useState(false);
+
+    /**
+     * acquireCameraLock — Silently grabs the rear camera after QR1.
+     * While this stream is held, no other app or browser tab can access the camera.
+     * The stream is NOT displayed — it runs hidden in the background.
+     */
+    const acquireCameraLock = useCallback(async () => {
+        // Already locked — don't open a second stream
+        if (silentCameraLockRef.current) return;
+        try {
+            console.log('[CameraLock] Acquiring silent rear camera lock...');
+            const stream = await navigator.mediaDevices.getUserMedia({
+                video: { facingMode: { ideal: 'environment' }, width: { ideal: 320 }, height: { ideal: 240 } },
+                audio: false
+            });
+            silentCameraLockRef.current = stream;
+            setCameraLockActive(true);
+            console.log('[CameraLock] Rear camera locked. Other apps cannot access camera.');
+        } catch (err) {
+            // Camera already in use or permission not granted — non-fatal, kiosk still works
+            console.warn('[CameraLock] Could not acquire silent camera lock:', err.message);
+        }
+    }, []);
+
+    /**
+     * releaseCameraLock — Releases the silently held camera stream.
+     * Called before biometric face scan (which opens front camera) and on all exit paths.
+     */
+    const releaseCameraLock = useCallback(() => {
+        if (silentCameraLockRef.current) {
+            console.log('[CameraLock] Releasing silent camera lock.');
+            silentCameraLockRef.current.getTracks().forEach((track) => track.stop());
+            silentCameraLockRef.current = null;
+            setCameraLockActive(false);
+        }
+    }, []);
 
     // Check Device Owner & Anti-Escape Overlay status on launch
     const [overlayStatus, setOverlayStatus] = useState({ checked: false, canDraw: true });
@@ -175,10 +216,11 @@ function QrScannerApp() {
         try {
             await verifyLecturerEmergencyPin(activeSessionId, lecturerPinInput.trim(), deviceIdentity?.deviceId, user?.uid);
             console.log('[Kiosk] Session PIN verified via Cloud Function. Releasing device from Kiosk Lock Task mode...');
-            try { localStorage.removeItem('smartattend_kiosk_session_state'); } catch (_) {}
+            try { localStorage.removeItem('smartattend_kiosk_session_state'); } catch (_) { }
+            releaseCameraLock();
             releaseAllMediaTracks();
-            await Kiosk.stopKioskMode().catch(() => {});
-            await Kiosk.clearAttendanceRestrictions().catch(() => {});
+            await Kiosk.stopKioskMode().catch(() => { });
+            await Kiosk.clearAttendanceRestrictions().catch(() => { });
             setShowPinModal(false);
             navigate('/student', { replace: true });
         } catch (err) {
@@ -199,9 +241,10 @@ function QrScannerApp() {
         }
 
         return () => {
+            releaseCameraLock();
             releaseAllMediaTracks();
         };
-    }, []);
+    }, [releaseCameraLock]);
 
     // Student Database Record Lookup for Facial Biometrics
     const lookupStudentBiometrics = useCallback(async (roll) => {
@@ -238,6 +281,13 @@ function QrScannerApp() {
             if (sEmailDoc.exists()) candidateDocs.push(sEmailDoc.data());
 
             let merged = { rollNo: targetRoll, name: loggedInName };
+            const authDesc = normalizeDescriptor(profile?.faceDescriptor);
+            if (authDesc && Array.isArray(authDesc) && authDesc.length === 128) {
+                merged.faceDescriptor = authDesc;
+                merged.faceRegistered = true;
+            }
+            if (profile?.photoURL) merged.photoURL = profile.photoURL;
+
             for (const docData of candidateDocs) {
                 if (docData.name && !isGenericName(docData.name, targetRoll)) merged.name = docData.name;
                 if (docData.fullName && !isGenericName(docData.fullName, targetRoll)) merged.fullName = docData.fullName;
@@ -255,7 +305,7 @@ function QrScannerApp() {
         } finally {
             setLookingUpStudent(false);
         }
-    }, [loggedInRollNo, loggedInName, user]);
+    }, [loggedInRollNo, loggedInName, user, profile]);
 
     // Authoritative Session Countdown Timer
     useEffect(() => {
@@ -294,10 +344,11 @@ function QrScannerApp() {
                 } catch (e) {
                     console.warn('Fail safe unlock notice:', e);
                 }
-                try { localStorage.removeItem('smartattend_kiosk_session_state'); } catch (_) {}
+                try { localStorage.removeItem('smartattend_kiosk_session_state'); } catch (_) { }
+                releaseCameraLock();
                 releaseAllMediaTracks();
-                await Kiosk.stopKioskMode().catch(() => {});
-                await Kiosk.clearAttendanceRestrictions().catch(() => {});
+                await Kiosk.stopKioskMode().catch(() => { });
+                await Kiosk.clearAttendanceRestrictions().catch(() => { });
                 navigate('/student', { replace: true });
             }
         };
@@ -337,7 +388,7 @@ function QrScannerApp() {
         } else if (scanState === 'IDLE' || (autoReleaseAt && Date.now() >= autoReleaseAt)) {
             try {
                 localStorage.removeItem('smartattend_kiosk_session_state');
-            } catch (_) {}
+            } catch (_) { }
         }
     }, [activeSessionId, sessionStartAt, kioskEndsAt, attendanceSubmittedAt, autoReleaseAt, scanState, activeQr2Token, submissionDetails, loggedInRollNo]);
 
@@ -363,8 +414,8 @@ function QrScannerApp() {
                     setScanState(parsed.scanState || 'KIOSK_WAITING_QR2');
 
                     // Re-enforce native Lock Task Mode & DevicePolicyManager restrictions
-                    Kiosk.startKioskMode().catch(() => {});
-                    Kiosk.setAttendanceRestrictions().catch(() => {});
+                    Kiosk.startKioskMode().catch(() => { });
+                    Kiosk.setAttendanceRestrictions().catch(() => { });
                 } else {
                     localStorage.removeItem('smartattend_kiosk_session_state');
                 }
@@ -407,7 +458,7 @@ function QrScannerApp() {
 
         const handleViolationTrigger = (source) => {
             console.warn(`[Kiosk Guardian] Tab switch or App minimize detected via ${source}!`);
-            
+
             // Record violation event to Firestore audit trail
             if (activeSessionId) {
                 recordSessionViolation(activeSessionId, user?.uid, loggedInRollNo, `APP_LEAVE_${source}`);
@@ -415,18 +466,15 @@ function QrScannerApp() {
 
             setViolationCount((prev) => {
                 const nextCount = prev + 1;
-                if (nextCount >= 2) {
-                    console.error('[Kiosk Guardian] Max violations exceeded. Disqualifying attendance session.');
-                    try { localStorage.removeItem(`smartattend_qr1_auth_${activeSessionId}`); } catch (_) {}
-                    try { sessionStorage.removeItem(`smartattend_qr1_auth_${activeSessionId}`); } catch (_) {}
+                if (nextCount >= 1) {
+                    console.error('[Kiosk Guardian] Security violation detected (count = 1). Disqualifying attendance session.');
+                    try { localStorage.removeItem(`smartattend_qr1_auth_${activeSessionId}`); } catch (_) { }
+                    try { sessionStorage.removeItem(`smartattend_qr1_auth_${activeSessionId}`); } catch (_) { }
                     releaseAllMediaTracks();
-                    // Keep Kiosk locked to prevent student from escaping!
-                    Kiosk.startKioskMode().catch(() => {});
-                    setErrorMessage('❌ Attendance Disqualified: App switching / leaving the app was detected. Device remains locked in Kiosk mode until Lecturer unlocks.');
+                    Kiosk.startKioskMode().catch(() => { });
+                    setErrorMessage('❌ Attendance Disqualified: Security violation detected (App switch / backgrounding). This attempt has been logged in Firebase for Lecturer & Admin audit review.');
                     setScanState('DISQUALIFIED');
                     setSupervisionViolation(false);
-                } else {
-                    setSupervisionViolation(true);
                 }
                 return nextCount;
             });
@@ -470,13 +518,84 @@ function QrScannerApp() {
         document.addEventListener('visibilitychange', handleVisibilityChange);
         window.addEventListener('blur', handleBlur);
 
-        return () => {
-            if (appStateHandle && typeof appStateHandle.remove === 'function') {
-                appStateHandle.remove();
+        // ── Anti-Proxy Web Guardian Hardening ────────────────────────────────
+        // 1. Block keyboard shortcuts that open DevTools, new tabs, or reveal source
+        const handleKeyDown = (e) => {
+            const key = e.key;
+            const ctrl = e.ctrlKey || e.metaKey;
+            const shift = e.shiftKey;
+            // Block: F12, Ctrl+Shift+I, Ctrl+Shift+J, Ctrl+U, Ctrl+S, Ctrl+A, Ctrl+P, Ctrl+T, Ctrl+W
+            if (
+                key === 'F12' ||
+                (ctrl && shift && (key === 'I' || key === 'i' || key === 'J' || key === 'j')) ||
+                (ctrl && !shift && (key === 'u' || key === 'U' || key === 's' || key === 'S' ||
+                    key === 'a' || key === 'A' || key === 'p' || key === 'P' ||
+                    key === 't' || key === 'T' || key === 'w' || key === 'W'))
+            ) {
+                e.preventDefault();
+                e.stopPropagation();
+                console.warn('[AntiProxy] Blocked keyboard shortcut:', key);
             }
+        };
+
+        // 2. Block right-click (prevents inspect element)
+        const handleContextMenu = (e) => {
+            e.preventDefault();
+            return false;
+        };
+
+        // 3. Block text selection during attendance session
+        document.body.style.userSelect = 'none';
+        document.body.style.webkitUserSelect = 'none';
+
+        // 4. DevTools detection — check every 1 second if window dimensions reveal docked DevTools
+        let devToolsCheckInterval = null;
+        if (!isNativeApp) {
+            const DEVTOOLS_THRESHOLD = 160;
+            devToolsCheckInterval = setInterval(() => {
+                const widthDiff = window.outerWidth - window.innerWidth;
+                const heightDiff = window.outerHeight - window.innerHeight;
+                if (widthDiff > DEVTOOLS_THRESHOLD || heightDiff > DEVTOOLS_THRESHOLD) {
+                    handleViolationTrigger('DEVTOOLS_OPENED');
+                }
+            }, 1000);
+        }
+
+        // 5. iOS native: screen capture / recording detection → immediate disqualify
+        let iosScreenCaptureCleanup = null;
+        if (isNativeApp && isIOSDevice()) {
+            addScreenCaptureListener((captureData) => {
+                if (captureData.isCaptured) {
+                    console.error('[AntiProxy] Screen recording/capture detected on iOS — disqualifying.');
+                    if (activeSessionId) {
+                        recordSessionViolation(activeSessionId, user?.uid, loggedInRollNo, 'SCREEN_CAPTURE_DETECTED');
+                    }
+                    // Immediate disqualification — no warning
+                    try { localStorage.removeItem(`smartattend_qr1_auth_${activeSessionId}`); } catch (_) { }
+                    try { sessionStorage.removeItem(`smartattend_qr1_auth_${activeSessionId}`); } catch (_) { }
+                    releaseAllMediaTracks();
+                    Kiosk.startKioskMode().catch(() => { });
+                    setErrorMessage('❌ Screen recording detected and blocked. Attendance Disqualified. Device remains locked until Lecturer unlocks.');
+                    setScanState('DISQUALIFIED');
+                }
+            }).then((cleanup) => { iosScreenCaptureCleanup = cleanup; });
+        }
+
+        document.addEventListener('keydown', handleKeyDown, true);
+        document.addEventListener('contextmenu', handleContextMenu);
+        // ─────────────────────────────────────────────────────────────────────
+
+        return () => {
+            if (appStateHandle && typeof appStateHandle.remove === 'function') appStateHandle.remove();
             if (typeof iosAppSwitchCleanup === 'function') iosAppSwitchCleanup();
+            if (typeof iosScreenCaptureCleanup === 'function') iosScreenCaptureCleanup();
+            if (devToolsCheckInterval) clearInterval(devToolsCheckInterval);
             document.removeEventListener('visibilitychange', handleVisibilityChange);
             window.removeEventListener('blur', handleBlur);
+            document.removeEventListener('keydown', handleKeyDown, true);
+            document.removeEventListener('contextmenu', handleContextMenu);
+            document.body.style.userSelect = '';
+            document.body.style.webkitUserSelect = '';
         };
     }, [scanState, isNativeApp, activeSessionId, user, loggedInRollNo]);
 
@@ -534,10 +653,11 @@ function QrScannerApp() {
             // If lecturer ends the session in real-time
             if (data.status === 'CLOSED' || data.phase === 'CLOSED' || data.isClosed === true) {
                 console.log('[Kiosk] Session marked as CLOSED by Lecturer. Automatically unlocking Kiosk mode...');
-                try { localStorage.removeItem('smartattend_kiosk_session_state'); } catch (_) {}
+                try { localStorage.removeItem('smartattend_kiosk_session_state'); } catch (_) { }
+                releaseCameraLock();
                 releaseAllMediaTracks();
-                Kiosk.stopKioskMode().catch(() => {});
-                Kiosk.clearAttendanceRestrictions().catch(() => {});
+                Kiosk.stopKioskMode().catch(() => { });
+                Kiosk.clearAttendanceRestrictions().catch(() => { });
                 navigate('/student', { replace: true });
             }
         });
@@ -553,10 +673,11 @@ function QrScannerApp() {
         const unsubAuth = subscribeToStudentAuthorization(activeSessionId, studentIdentifier, (authData) => {
             if (authData && (authData.released === true || authData.status === 'RELEASED')) {
                 console.log('[Kiosk] Individual device release authorized by Lecturer. Unlocking Kiosk mode...');
-                try { localStorage.removeItem('smartattend_kiosk_session_state'); } catch (_) {}
+                try { localStorage.removeItem('smartattend_kiosk_session_state'); } catch (_) { }
+                releaseCameraLock();
                 releaseAllMediaTracks();
-                Kiosk.stopKioskMode().catch(() => {});
-                Kiosk.clearAttendanceRestrictions().catch(() => {});
+                Kiosk.stopKioskMode().catch(() => { });
+                Kiosk.clearAttendanceRestrictions().catch(() => { });
                 navigate('/student', { replace: true });
             }
         });
@@ -650,6 +771,14 @@ function QrScannerApp() {
                 console.warn('[Kiosk] Notice starting kiosk mode:', kioskErr);
             }
 
+            // Acquire silent rear camera lock — blocks all other apps from using camera
+            // Must happen AFTER kiosk starts and BEFORE setting KIOSK_WAITING_QR2 state
+            await acquireCameraLock();
+            // Device Owner: also apply OS-level camera policy (strongest possible lock)
+            try { await Kiosk.disableCamera(); } catch (_) { }
+            // Device Owner: disable screen capture/recording at OS level
+            try { await Kiosk.setScreenCaptureDisabled({ disabled: true }); } catch (_) { }
+
             // Pre-fetch student biometric template
             try {
                 await lookupStudentBiometrics(result.rollNo || loggedInRollNo);
@@ -704,6 +833,11 @@ function QrScannerApp() {
 
             // Ensure biometrics are loaded
             await lookupStudentBiometrics(result.rollNo || loggedInRollNo);
+
+            // Release silent camera lock before biometric — front camera needs to open
+            releaseCameraLock();
+            // Device Owner: re-enable OS-level camera policy so front camera can be used for face scan
+            try { await Kiosk.enableCamera(); } catch (_) { }
 
             // Explicitly release previous QR camera tracks to avoid camera resource collision
             releaseAllMediaTracks();
@@ -1034,6 +1168,67 @@ function QrScannerApp() {
             </div>
         );
     };
+
+    // =========================================================================
+    // UI VIEW -1: STRICT ANDROID WEB BROWSER BLOCK SCREEN
+    // =========================================================================
+    if (!isNativeApp && !isIOSDevice()) {
+        return (
+            <div style={{
+                maxWidth: '540px',
+                margin: '40px auto',
+                padding: '36px 24px',
+                background: '#ffffff',
+                borderRadius: '28px',
+                border: '2px solid #ef4444',
+                boxShadow: '0 25px 50px -12px rgba(239, 68, 68, 0.25)',
+                textAlign: 'center',
+                color: '#0f172a'
+            }}>
+                <div style={{
+                    width: '80px',
+                    height: '80px',
+                    borderRadius: '50%',
+                    background: '#fee2e2',
+                    color: '#dc2626',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: '2.5rem',
+                    marginBottom: '20px'
+                }}>
+                    <FaExclamationTriangle />
+                </div>
+                <h2 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#991b1b', margin: '0 0 10px' }}>
+                    Android Web Attendance Blocked
+                </h2>
+                <p style={{ fontSize: '0.95rem', color: '#475569', lineHeight: 1.5, margin: '0 0 24px' }}>
+                    System Policy strictly prohibits attendance marking from Android web browsers. SmartAttend requires OS-level Kiosk Lock Task protection. You MUST download and use the official SmartAttend Android APK app.
+                </p>
+                <a
+                    href="/app-release.apk"
+                    download="SmartAttend-v2.0.apk"
+                    style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '10px',
+                        width: '100%',
+                        padding: '16px 24px',
+                        borderRadius: '16px',
+                        background: 'linear-gradient(135deg, #dc2626, #991b1b)',
+                        color: '#ffffff',
+                        textDecoration: 'none',
+                        fontWeight: 800,
+                        fontSize: '1.05rem',
+                        boxShadow: '0 8px 20px rgba(220, 38, 38, 0.35)'
+                    }}
+                >
+                    <FaDownload /> Download SmartAttend Android APK (.apk)
+                </a>
+            </div>
+        );
+    }
 
     // =========================================================================
     // UI VIEW 0: iOS GUIDED ACCESS LOCK REQUIRED SCREEN
@@ -1905,7 +2100,6 @@ function QrScannerApp() {
                 <div style={{ marginBottom: '16px' }}>
                     <button
                         type="button"
-                        onClick={() => fileInputRef.current?.click()}
                         disabled={scanningFile || scanState !== 'IDLE'}
                         style={{
                             display: 'inline-flex',
@@ -1927,7 +2121,7 @@ function QrScannerApp() {
                         {scanningFile ? (
                             <><FaSpinner className="fa-spin" /> Decoding QR Code...</>
                         ) : (
-                            <><FaCamera /> Snap / Upload QR Photo</>
+                            <><FaCamera /> Scan QR Photo</>
                         )}
                     </button>
                 </div>
@@ -2039,6 +2233,47 @@ function QrScannerApp() {
                     </div>
                 )}
             </div>
+
+            {/* Android Web Browser Native APK Download Notice */}
+            {!isNativeApp && !isIOSDevice() && (
+                <div style={{
+                    marginTop: '16px',
+                    padding: '16px',
+                    borderRadius: '16px',
+                    background: '#fef3c7',
+                    border: '1px solid #fde68a',
+                    color: '#92400e',
+                    fontSize: '0.9rem',
+                    textAlign: 'center'
+                }}>
+                    <div style={{ fontWeight: 800, marginBottom: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                        <FaExclamationTriangle /> Android Web Browser Detected
+                    </div>
+                    <p style={{ margin: '0 0 12px 0', fontSize: '0.84rem', lineHeight: 1.45 }}>
+                        Attendance security requires OS-level Kiosk Lock Task mode. Please install the official SmartAttend Android app.
+                    </p>
+                    <a
+                        href="/app-release.apk"
+                        download="SmartAttend-v2.0.apk"
+                        style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '8px',
+                            padding: '10px 18px',
+                            borderRadius: '12px',
+                            background: '#15803d',
+                            color: '#ffffff',
+                            textDecoration: 'none',
+                            fontWeight: 700,
+                            fontSize: '0.88rem',
+                            boxShadow: '0 4px 12px rgba(21, 128, 61, 0.25)'
+                        }}
+                    >
+                        <FaDownload /> Download SmartAttend APK (.apk)
+                    </a>
+                </div>
+            )}
 
             {/* Loading or Error States */}
             {scanState === 'AUTHORIZING_QR1' && (

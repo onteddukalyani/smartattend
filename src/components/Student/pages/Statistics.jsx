@@ -1,9 +1,8 @@
-import React, { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { Link } from "react-router-dom";
 import {
     collection,
     doc,
-    getDoc,
     getDocs,
     onSnapshot,
     query,
@@ -36,8 +35,8 @@ import { db } from "../../../firebase";
 import { useAuth } from "../../authcontext";
 import { downloadExcel } from "../../../DownloadExcel";
 import { useTableSort, SortIcon } from "../../Common/useTableSort";
-import { getCandidateRolls, computeStudentMetrics } from "../studentAttendanceHelper";
-import { isGenericName, normalizeBranchName } from "../../../utils/studentDataHelper";
+import { getCandidateRolls, computeStudentMetrics, parseTimestampMillis } from "../studentAttendanceHelper";
+import { isGenericName } from "../../../utils/studentDataHelper";
 import "./Statistics.css";
 
 export default function Statistics() {
@@ -59,7 +58,6 @@ export default function Statistics() {
     useEffect(() => {
         if (!activeRollNo) return;
         const cleanEmail = (user?.email || "").toLowerCase().trim();
-        const prefix = cleanEmail ? cleanEmail.split("@")[0].toLowerCase().trim() : activeRollNo.toLowerCase().trim();
 
         const unsubs = [];
 
@@ -73,7 +71,9 @@ export default function Statistics() {
                     if (isGenericName(resolvedName, activeRollNo, cleanEmail) && !isGenericName(d.displayName, activeRollNo, cleanEmail)) resolvedName = String(d.displayName).trim();
                     if (!resolvedName || isGenericName(resolvedName, activeRollNo, cleanEmail)) resolvedName = (!isGenericName(d.name, activeRollNo, cleanEmail) ? d.name : null) || (!isGenericName(d.fullName, activeRollNo, cleanEmail) ? d.fullName : null) || prev?.name || "";
 
-                    const branch = normalizeBranchName(d.branch || prev?.branch || d.department || "CSE");
+                    const branch = (d.branch && String(d.branch).toLowerCase() !== "general")
+                        ? d.branch
+                        : (prev?.branch || d.department || "CSE");
 
                     const semester = (d.semester !== undefined && d.semester !== null && String(d.semester).trim() !== "")
                         ? String(d.semester).trim()
@@ -131,7 +131,7 @@ export default function Statistics() {
 
     const studentName = fetchedStudentData?.name || profile?.name || activeRollNo || "Student";
     const rawBranch = fetchedStudentData?.branch || profile?.branch || fetchedStudentData?.department || profile?.department;
-    const studentBranch = normalizeBranchName(rawBranch || "CSE");
+    const studentBranch = (rawBranch && String(rawBranch).toLowerCase() !== "general") ? rawBranch : "CSE";
     const studentSemester = (fetchedStudentData?.semester !== undefined && fetchedStudentData?.semester !== null && String(fetchedStudentData?.semester).trim() !== "")
         ? String(fetchedStudentData.semester).trim()
         : (profile?.semester ? String(profile.semester).trim() : "1");
@@ -176,11 +176,8 @@ export default function Statistics() {
     // 3. Real-time Attendance Records listener
     useEffect(() => {
         if (!candidateRolls || candidateRolls.length === 0) {
-            setLoading(false);
             return;
         }
-
-        setLoading(true);
 
         const recordsQ = query(
             collection(db, "attendance_records"),
@@ -230,9 +227,12 @@ export default function Statistics() {
     const metrics = useMemo(() => {
         return computeStudentMetrics(courses, sessions, records, {
             branch: studentBranch,
-            semester: studentSemester
+            semester: studentSemester,
+            candidateRolls,
+            rollNo: activeRollNo,
+            email: user?.email
         });
-    }, [courses, sessions, records, studentBranch, studentSemester]);
+    }, [courses, sessions, records, studentBranch, studentSemester, candidateRolls, activeRollNo, user?.email]);
 
     // Filtered records for table
     const filteredRecords = useMemo(() => {
@@ -593,7 +593,7 @@ export default function Statistics() {
                     </div>
                 </div>
 
-                {loading ? (
+                {loading && candidateRolls.length > 0 ? (
                     <div className="stats-loading">
                         <div className="stats-spinner" />
                         <p>Loading attendance data...</p>
@@ -631,7 +631,8 @@ export default function Statistics() {
                             </thead>
                             <tbody>
                                 {sortedRecords.map((r, index) => {
-                                    const dateObj = r.submittedAt ? new Date(r.submittedAt) : null;
+                                    const submittedAtMillis = parseTimestampMillis(r.submittedAt);
+                                    const dateObj = submittedAtMillis ? new Date(submittedAtMillis) : null;
                                     const formattedDate = dateObj
                                         ? dateObj.toLocaleDateString("en-US", {
                                             month: "short",

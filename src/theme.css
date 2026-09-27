@@ -321,12 +321,11 @@ textarea {
     color: var(--text-main);
 }
 
-.dashboard-page p,
+
 .qrpage p,
 .student-form p,
 .attendance-data-page p,
-.settings-page p,
-.active-sessions-page p {
+.settings-page p{
     color: var(--text-muted);
 }
 
@@ -1591,4 +1590,4 @@ th.sortable-th:hover {
 
 th.sortable-th:active {
     transform: scale(0.99);
-}
+}

@@ -247,6 +247,11 @@ public class KioskPlugin extends Plugin {
                         dpm.addUserRestriction(admin, UserManager.DISALLOW_APPS_CONTROL);
                         dpm.addUserRestriction(admin, UserManager.DISALLOW_FACTORY_RESET);
                         dpm.addUserRestriction(admin, UserManager.DISALLOW_SYSTEM_ERROR_DIALOGS);
+
+                        // 5. Disable camera system-wide for ALL other apps (Device Owner only)
+                        // This is an OS-level policy — no other app can access ANY camera on the device
+                        dpm.setCameraDisabled(admin, true);
+                        Log.d(TAG, "[CameraPolicy] Camera disabled system-wide via DevicePolicyManager.");
                     }
 
                     JSObject ret = new JSObject();
@@ -291,6 +296,10 @@ public class KioskPlugin extends Plugin {
                         dpm.clearUserRestriction(admin, UserManager.DISALLOW_APPS_CONTROL);
                         dpm.clearUserRestriction(admin, UserManager.DISALLOW_FACTORY_RESET);
                         dpm.clearUserRestriction(admin, UserManager.DISALLOW_SYSTEM_ERROR_DIALOGS);
+
+                        // Re-enable camera for all apps after attendance session ends
+                        dpm.setCameraDisabled(admin, false);
+                        Log.d(TAG, "[CameraPolicy] Camera re-enabled system-wide via DevicePolicyManager.");
                     }
 
                     JSObject ret = new JSObject();
@@ -305,6 +314,111 @@ public class KioskPlugin extends Plugin {
         } catch (Exception e) {
             call.reject("Error: " + e.getMessage());
         }
+    }
+
+    /**
+     * disableCamera — Disables camera system-wide using DevicePolicyManager (Device Owner only).
+     * On non-Device Owner devices, camera is already blocked by the JS-level MediaStream lock.
+     */
+    @PluginMethod
+    public void disableCamera(PluginCall call) {
+        Activity activity = getActivity();
+        if (activity == null) { call.reject("Activity is null"); return; }
+        activity.runOnUiThread(() -> {
+            try {
+                DevicePolicyManager dpm = (DevicePolicyManager) activity.getSystemService(Context.DEVICE_POLICY_SERVICE);
+                ComponentName admin = new ComponentName(activity, AdminReceiver.class);
+                String pkg = activity.getPackageName();
+                boolean isOwner = (dpm != null && dpm.isDeviceOwnerApp(pkg));
+                if (isOwner) {
+                    dpm.setCameraDisabled(admin, true);
+                    Log.d(TAG, "[CameraPolicy] Camera disabled system-wide (explicit call).");
+                }
+                JSObject ret = new JSObject();
+                ret.put("success", true);
+                ret.put("isDeviceOwner", isOwner);
+                ret.put("cameraDisabled", isOwner);
+                ret.put("message", isOwner ? "Camera disabled system-wide." : "JS-level lock active (not Device Owner).");
+                call.resolve(ret);
+            } catch (Exception e) {
+                Log.e(TAG, "disableCamera error: " + e.getMessage(), e);
+                call.reject("disableCamera failed: " + e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * enableCamera — Re-enables camera system-wide after attendance session ends (Device Owner only).
+     */
+    @PluginMethod
+    public void enableCamera(PluginCall call) {
+        Activity activity = getActivity();
+        if (activity == null) { call.reject("Activity is null"); return; }
+        activity.runOnUiThread(() -> {
+            try {
+                DevicePolicyManager dpm = (DevicePolicyManager) activity.getSystemService(Context.DEVICE_POLICY_SERVICE);
+                ComponentName admin = new ComponentName(activity, AdminReceiver.class);
+                String pkg = activity.getPackageName();
+                boolean isOwner = (dpm != null && dpm.isDeviceOwnerApp(pkg));
+                if (isOwner) {
+                    dpm.setCameraDisabled(admin, false);
+                    Log.d(TAG, "[CameraPolicy] Camera re-enabled system-wide (explicit call).");
+                }
+                JSObject ret = new JSObject();
+                ret.put("success", true);
+                ret.put("isDeviceOwner", isOwner);
+                ret.put("cameraEnabled", true);
+                call.resolve(ret);
+            } catch (Exception e) {
+                Log.e(TAG, "enableCamera error: " + e.getMessage(), e);
+                call.reject("enableCamera failed: " + e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * setScreenCaptureDisabled — Device Owner: blocks screen recording + screenshots at OS level.
+     * Combined with FLAG_SECURE (set in startKioskInternal), this is the strongest possible
+     * screen protection on Android.
+     */
+    @PluginMethod
+    public void setScreenCaptureDisabled(PluginCall call) {
+        Activity activity = getActivity();
+        if (activity == null) { call.reject("Activity is null"); return; }
+        boolean disabled = call.getBoolean("disabled", true);
+        activity.runOnUiThread(() -> {
+            try {
+                DevicePolicyManager dpm = (DevicePolicyManager) activity.getSystemService(Context.DEVICE_POLICY_SERVICE);
+                ComponentName admin = new ComponentName(activity, AdminReceiver.class);
+                String pkg = activity.getPackageName();
+                boolean isOwner = (dpm != null && dpm.isDeviceOwnerApp(pkg));
+
+                // FLAG_SECURE: prevents screenshots and screen recording in this app's window
+                Window window = activity.getWindow();
+                if (window != null) {
+                    if (disabled) {
+                        window.addFlags(WindowManager.LayoutParams.FLAG_SECURE);
+                    } else {
+                        window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE);
+                    }
+                }
+
+                // Device Owner: also disable screen capture across the ENTIRE device
+                if (isOwner && Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                    dpm.setScreenCaptureDisabled(admin, disabled);
+                    Log.d(TAG, "[ScreenCapture] Screen capture " + (disabled ? "disabled" : "enabled") + " system-wide.");
+                }
+
+                JSObject ret = new JSObject();
+                ret.put("success", true);
+                ret.put("isDeviceOwner", isOwner);
+                ret.put("screenCaptureDisabled", disabled);
+                call.resolve(ret);
+            } catch (Exception e) {
+                Log.e(TAG, "setScreenCaptureDisabled error: " + e.getMessage(), e);
+                call.reject("setScreenCaptureDisabled failed: " + e.getMessage());
+            }
+        });
     }
 
     @PluginMethod

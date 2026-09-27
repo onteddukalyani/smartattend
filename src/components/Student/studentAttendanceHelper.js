@@ -3,8 +3,6 @@
  * Ensures 100% consistency across Student Dashboard, Courses, and Statistics.
  */
 
-import { normalizeBranchName } from "../../utils/studentDataHelper";
-
 export function normalizeCode(str) {
     if (!str) return "";
     return String(str).toUpperCase().replace(/[^A-Z0-9]/g, "").trim();
@@ -13,6 +11,7 @@ export function normalizeCode(str) {
 export function parseTimestampMillis(ts) {
     if (!ts) return 0;
     if (typeof ts === "number") return ts;
+    if (ts instanceof Date) return ts.getTime();
     if (typeof ts === "string") {
         const parsed = Date.parse(ts);
         return isNaN(parsed) ? 0 : parsed;
@@ -22,6 +21,27 @@ export function parseTimestampMillis(ts) {
     if (typeof ts.seconds === "number") return ts.seconds * 1000 + (ts.nanoseconds ? Math.floor(ts.nanoseconds / 1000000) : 0);
     if (ts._seconds) return ts._seconds * 1000;
     return 0;
+}
+
+function isStudentEnrolledInCourse(course, studentIdentifiers) {
+    const roster = [
+        ...(Array.isArray(course.enrolledStudents) ? course.enrolledStudents : []),
+        ...(Array.isArray(course.students) ? course.students : [])
+    ];
+
+    return roster.some((entry) => {
+        const identifiers = entry && typeof entry === "object"
+            ? [entry.rollNo, entry.rollNumber, entry.studentId, entry.uid, entry.email, entry.id]
+            : [entry];
+
+        return identifiers.some((value) => {
+            const identifier = String(value || "").trim().toUpperCase();
+            if (!identifier) return false;
+            if (studentIdentifiers.has(identifier)) return true;
+            const emailPrefix = identifier.split("@")[0];
+            return emailPrefix !== identifier && studentIdentifiers.has(emailPrefix);
+        });
+    });
 }
 
 export function getCandidateRolls(user, profile, fetchedStudentData = null) {
@@ -82,9 +102,17 @@ export function computeStudentMetrics(coursesDocs = [], sessionsDocs = [], recor
         if (id) sessionMap.set(id, s);
     });
 
-    const candidateSet = new Set((studentProfile.candidateRolls || []).map((r) => String(r).toUpperCase().trim()));
-    if (studentProfile.rollNo) candidateSet.add(String(studentProfile.rollNo).toUpperCase().trim());
-    if (studentProfile.email) candidateSet.add(String(studentProfile.email).split("@")[0].toUpperCase().trim());
+    const candidateSet = new Set();
+    const addStudentIdentifier = (value) => {
+        const identifier = String(value || "").trim().toUpperCase();
+        if (!identifier) return;
+        candidateSet.add(identifier);
+        const emailPrefix = identifier.split("@")[0];
+        if (emailPrefix !== identifier) candidateSet.add(emailPrefix);
+    };
+    (studentProfile.candidateRolls || []).forEach(addStudentIdentifier);
+    addStudentIdentifier(studentProfile.rollNo);
+    addStudentIdentifier(studentProfile.email);
 
     // 2. Enrich and sort attendance records (combining attendance_records AND session.attendees array)
     const recordsMap = new Map();
@@ -93,7 +121,10 @@ export function computeStudentMetrics(coursesDocs = [], sessionsDocs = [], recor
         const session = sessionMap.get(rec.sessionId) || {};
         const rawCourse = rec.courseCode || session.courseCode || rec.classCode || session.classCode || "General";
         const cleanCourse = (rawCourse === "N/A" || !rawCourse) ? "General" : rawCourse.trim();
-        const key = rec.id || `${rec.sessionId}_${rec.rollNo || ""}`;
+        const recordRoll = String(rec.rollNo || rec.rollNumber || "").trim().toUpperCase();
+        const key = rec.sessionId && recordRoll
+            ? `${String(rec.sessionId)}_${recordRoll}`
+            : rec.id || `${rec.sessionId || "session"}_${recordRoll}`;
 
         recordsMap.set(key, {
             ...rec,
@@ -110,22 +141,29 @@ export function computeStudentMetrics(coursesDocs = [], sessionsDocs = [], recor
         sessionsDocs.forEach((s) => {
             if (Array.isArray(s.attendees)) {
                 s.attendees.forEach((att) => {
-                    const roll = (att.rollNo || att.roll || att.studentId || "").toUpperCase().trim();
-                    const email = (att.studentEmail || att.email || "").split("@")[0].toUpperCase().trim();
-                    if (roll && (candidateSet.has(roll) || (email && candidateSet.has(email)))) {
-                        const key = att.id || `${s.id}_${roll}`;
+                    const attendee = att && typeof att === "object" ? att : {};
+                    const rollValue = typeof att === "string" || typeof att === "number"
+                        ? att
+                        : attendee.rollNo || attendee.roll || attendee.studentId;
+                    const roll = String(rollValue || "").toUpperCase().trim();
+                    const email = String(attendee.studentEmail || attendee.email || "").split("@")[0].toUpperCase().trim();
+                    if ((roll && candidateSet.has(roll)) || (email && candidateSet.has(email))) {
+                        const attendeeIdentity = roll || email;
+                        const key = s.id
+                            ? `${String(s.id)}_${attendeeIdentity}`
+                            : attendee.id || `session_${attendeeIdentity}`;
                         if (!recordsMap.has(key)) {
                             const rawCourse = s.courseCode || s.classCode || "General";
                             const cleanCourse = (rawCourse === "N/A" || !rawCourse) ? "General" : rawCourse.trim();
                             recordsMap.set(key, {
                                 id: key,
                                 sessionId: s.id,
-                                rollNo: roll,
+                                rollNo: roll || email,
                                 courseCode: cleanCourse,
                                 classCode: s.classCode || cleanCourse,
                                 roomNo: s.roomNo || "N/A",
                                 lecturerName: s.lecturerName || "Faculty",
-                                submittedAt: att.submittedAt || att.timestamp || s.createdAt || Date.now()
+                                submittedAt: attendee.submittedAt || attendee.timestamp || s.createdAt || Date.now()
                             });
                         }
                     }
@@ -142,18 +180,21 @@ export function computeStudentMetrics(coursesDocs = [], sessionsDocs = [], recor
     // 3. Build comprehensive course catalog
     // Start with official courses collection
     const courseMap = new Map();
+    const enrolledCourseCodes = new Set();
 
     coursesDocs.forEach((c) => {
+        if (!isStudentEnrolledInCourse(c, candidateSet)) return;
         const rawCode = (c.courseCode || c.code || c.id || "").trim().toUpperCase();
         const norm = normalizeCode(rawCode);
         if (norm) {
+            enrolledCourseCodes.add(norm);
             courseMap.set(norm, {
                 id: c.id || rawCode,
                 courseCode: rawCode,
                 courseName: c.courseName || c.name || rawCode,
                 lecturerName: c.lecturerName || c.faculty || "Assigned Faculty",
                 lecturerEmail: c.lecturerEmail || "",
-                department: normalizeBranchName(c.department || c.dept || ""),
+                department: c.department || c.dept || "",
                 semester: c.semester || "",
                 batch: c.batch || "",
                 defaultRoom: c.defaultRoom || c.roomNo || "Main Hall",
@@ -168,14 +209,14 @@ export function computeStudentMetrics(coursesDocs = [], sessionsDocs = [], recor
     sessionsDocs.forEach((s) => {
         const sCourse = (s.courseCode || s.classCode || "").trim().toUpperCase();
         const norm = normalizeCode(sCourse);
-        if (norm && !courseMap.has(norm)) {
+        if (norm && enrolledCourseCodes.has(norm) && !courseMap.has(norm)) {
             courseMap.set(norm, {
                 id: sCourse,
                 courseCode: sCourse,
                 courseName: sCourse,
                 lecturerName: s.lecturerName || "Faculty",
                 lecturerEmail: s.lecturerEmail || s.ownerEmail || "",
-                department: normalizeBranchName(s.department || studentProfile.branch || studentProfile.department || "CSE"),
+                department: s.department || studentProfile.branch || studentProfile.department || "General",
                 semester: s.semester || studentProfile.semester || "1",
                 batch: s.batch || studentProfile.batch || "2025",
                 defaultRoom: s.roomNo || "N/A",
@@ -188,14 +229,14 @@ export function computeStudentMetrics(coursesDocs = [], sessionsDocs = [], recor
     enrichedRecords.forEach((r) => {
         const rCourse = (r.courseCode || r.classCode || "").trim().toUpperCase();
         const norm = normalizeCode(rCourse);
-        if (norm && !courseMap.has(norm) && norm !== "GENERAL" && norm !== "NA") {
+        if (norm && enrolledCourseCodes.has(norm) && !courseMap.has(norm) && norm !== "GENERAL" && norm !== "NA") {
             courseMap.set(norm, {
                 id: rCourse,
                 courseCode: rCourse,
                 courseName: rCourse,
                 lecturerName: r.lecturerName || "Faculty",
                 lecturerEmail: "",
-                department: normalizeBranchName(studentProfile.branch || studentProfile.department || "CSE"),
+                department: studentProfile.branch || studentProfile.department || "General",
                 semester: studentProfile.semester || "1",
                 batch: studentProfile.batch || "2025",
                 defaultRoom: r.roomNo || "N/A",

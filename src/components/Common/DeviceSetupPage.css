@@ -1,0 +1,342 @@
+.device-setup-page {
+  box-sizing: border-box;
+  width: min(100%, 920px);
+  min-height: calc(100vh - 88px);
+  margin: 0 auto;
+  padding: 28px 24px 100px;
+  color: var(--text-main, #172033);
+}
+
+.device-setup-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 24px;
+  padding: 8px 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted, #58667d);
+  font: inherit;
+  font-size: 0.88rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.device-setup-header {
+  margin-bottom: 24px;
+}
+
+.device-setup-kicker,
+.role-guide-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #087e8b;
+  font-size: 0.74rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.device-setup-header h1 {
+  margin: 8px 0;
+  color: var(--text-main, #172033);
+  font-size: clamp(1.6rem, 4vw, 2.2rem);
+  line-height: 1.15;
+}
+
+.device-setup-header p {
+  margin: 0;
+  color: var(--text-muted, #66758a);
+  line-height: 1.55;
+}
+
+.device-platform-tabs {
+  display: inline-flex;
+  gap: 4px;
+  margin-bottom: 16px;
+  padding: 4px;
+  border: 1px solid var(--border, #d8e0e8);
+  border-radius: 10px;
+  background: var(--surface-soft, #f2f6f7);
+}
+
+.device-platform-tabs button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-width: 128px;
+  padding: 10px 14px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-muted, #58667d);
+  font: inherit;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.device-platform-tabs button.active {
+  background: var(--surface, #ffffff);
+  color: #087e8b;
+  box-shadow: 0 1px 4px rgba(20, 42, 55, 0.12);
+}
+
+.device-instructions {
+  padding: 24px;
+  border: 1px solid var(--border, #d8e0e8);
+  border-radius: 12px;
+  background: var(--surface, #ffffff);
+  box-shadow: 0 8px 24px rgba(22, 42, 55, 0.06);
+}
+
+.device-instructions-heading {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 20px;
+}
+
+.device-instructions-heading > svg {
+  flex: 0 0 auto;
+  width: 48px;
+  height: 48px;
+  padding: 12px;
+  box-sizing: border-box;
+  border-radius: 10px;
+  background: #e5f5f5;
+  color: #087e8b;
+  font-size: 1.45rem;
+}
+
+.device-instructions-heading.android > svg {
+  background: #e8f5e9;
+  color: #2e7d32;
+}
+
+.device-instructions-heading h2 {
+  margin: 0 0 3px;
+  color: var(--text-main, #172033);
+  font-size: 1.2rem;
+}
+
+.device-instructions-heading p {
+  margin: 0;
+  color: var(--text-muted, #66758a);
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+
+.device-apk-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  margin: 0 0 18px;
+  padding: 11px 16px;
+  border-radius: 8px;
+  background: #287d45;
+  color: #ffffff;
+  font-weight: 750;
+  text-decoration: none;
+}
+
+.device-instruction-list {
+  display: grid;
+  gap: 13px;
+  margin: 0;
+  padding-left: 24px;
+  color: var(--text-main, #29384b);
+  line-height: 1.55;
+}
+
+.device-instruction-list li {
+  padding-left: 4px;
+}
+
+.device-instruction-list li::marker {
+  color: #087e8b;
+  font-weight: 800;
+}
+
+.device-setup-note,
+.device-setup-caveat {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 20px;
+  padding: 13px 14px;
+  border: 1px solid #c8e4e7;
+  border-radius: 8px;
+  background: #f0f9fa;
+  color: #315b63;
+  font-size: 0.86rem;
+  line-height: 1.5;
+}
+
+.device-setup-note svg {
+  flex: 0 0 auto;
+  margin-top: 2px;
+  color: #087e8b;
+}
+
+.device-setup-caveat {
+  display: block;
+  margin-bottom: 0;
+  border-color: #ead9b6;
+  background: #fffaf0;
+  color: #6d5527;
+}
+
+.role-guide-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10050;
+  display: grid;
+  place-items: center;
+  overflow-y: auto;
+  padding: 20px;
+  background: rgba(12, 24, 32, 0.64);
+}
+
+.role-guide-dialog {
+  box-sizing: border-box;
+  width: min(100%, 680px);
+  max-height: min(90vh, 820px);
+  overflow-y: auto;
+  padding: 28px;
+  border: 1px solid var(--border, #d8e0e8);
+  border-radius: 12px;
+  background: var(--surface, #ffffff);
+  color: var(--text-main, #172033);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.24);
+}
+
+.role-guide-dialog h2 {
+  margin: 8px 0;
+  font-size: 1.55rem;
+  line-height: 1.2;
+}
+
+.role-guide-intro {
+  margin: 0 0 16px;
+  color: var(--text-muted, #66758a);
+  line-height: 1.5;
+}
+
+.role-guide-steps {
+  display: grid;
+  gap: 10px;
+  margin: 0 0 18px;
+  padding-left: 24px;
+  line-height: 1.5;
+}
+
+.role-guide-steps li::marker {
+  color: #087e8b;
+  font-weight: 800;
+}
+
+.role-guide-device-link {
+  display: inline-flex;
+  margin-bottom: 18px;
+  color: #087e8b;
+  font-weight: 750;
+  text-underline-offset: 3px;
+}
+
+.role-guide-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding-top: 16px;
+  border-top: 1px solid var(--border, #d8e0e8);
+}
+
+.role-guide-primary,
+.role-guide-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  padding: 9px 13px;
+  border: 1px solid #087e8b;
+  border-radius: 7px;
+  background: #087e8b;
+  color: #ffffff;
+  font: inherit;
+  font-size: 0.86rem;
+  font-weight: 750;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.role-guide-secondary {
+  background: transparent;
+  color: #087e8b;
+}
+
+[data-theme="midnight"] .device-instructions,
+[data-theme="midnight"] .role-guide-dialog {
+  background: #131b2e;
+  border-color: #2b3b54;
+  color: #edf3f8;
+}
+
+[data-theme="midnight"] .device-setup-header h1,
+[data-theme="midnight"] .device-instructions-heading h2,
+[data-theme="midnight"] .role-guide-dialog h2 {
+  color: #edf3f8;
+}
+
+[data-theme="midnight"] .device-instruction-list {
+  color: #d5deea;
+}
+
+[data-theme="midnight"] .device-platform-tabs {
+  background: #0f172a;
+  border-color: #2b3b54;
+}
+
+[data-theme="midnight"] .device-platform-tabs button.active {
+  background: #1e293b;
+  color: #67d3d6;
+}
+
+@media (max-width: 640px) {
+  .device-setup-page {
+    padding: 18px 14px calc(96px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .device-instructions,
+  .role-guide-dialog {
+    padding: 19px 16px;
+  }
+
+  .device-platform-tabs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  .device-platform-tabs button {
+    min-width: 0;
+  }
+
+  .role-guide-overlay {
+    align-items: end;
+    padding: 10px;
+  }
+
+  .role-guide-dialog {
+    max-height: 94vh;
+    border-radius: 12px 12px 8px 8px;
+  }
+
+  .role-guide-actions > * {
+    flex: 1 1 100%;
+  }
+}

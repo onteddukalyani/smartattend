@@ -7,7 +7,8 @@ import {
     FaHandPointRight,
     FaCheckCircle,
     FaMobileAlt,
-    FaInfoCircle
+    FaInfoCircle,
+    FaExclamationTriangle
 } from 'react-icons/fa';
 import { isGuidedAccessEnabled, addGuidedAccessListener } from '../services/guidedAccessService';
 import './GuidedAccessRequired.css';
@@ -98,6 +99,26 @@ export function GuidedAccessRequired({ onEnabled }) {
                 <p className="ga-subtitle">
                     To ensure attendance integrity on iPhone, please turn on <strong>Guided Access</strong> before proceeding to QR 2.
                 </p>
+
+                {/* Zero Tolerance Warning Banner */}
+                <div style={{
+                    margin: '16px 0 20px 0',
+                    padding: '14px 16px',
+                    borderRadius: '16px',
+                    background: '#fee2e2',
+                    border: '1.5px solid #fca5a5',
+                    color: '#991b1b',
+                    fontSize: '0.88rem',
+                    textAlign: 'left',
+                    lineHeight: '1.45'
+                }}>
+                    <div style={{ fontWeight: 800, marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <FaExclamationTriangle style={{ fontSize: '1.2rem', color: '#dc2626' }} /> ZERO-TOLERANCE SECURITY WARNING
+                    </div>
+                    <div>
+                        <strong>1 Violation = Attendance Disqualified!</strong> If you switch apps, minimize Safari/PWA, or take a screen capture during scanning, your attempt will be <strong>IMMEDIATELY CANCELLED</strong> and logged in Firebase for Lecturer &amp; Admin audit.
+                    </div>
+                </div>
 
                 {/* iPhone Vector Graphic with Animated Triple-Click Highlight */}
                 <div className="ga-illustration-wrap">

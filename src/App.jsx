@@ -1,4 +1,4 @@
-import React, { useEffect, lazy, Suspense } from "react";
+import { useEffect, lazy, Suspense } from "react";
 import {
   Routes,
   Route,
@@ -33,6 +33,9 @@ const ActiveSessions = lazy(() => import("./components/Lecturer/pages/ActiveSess
 const StudentsList = lazy(() => import("./components/Common/StudentsList"));
 const LecturerCourses = lazy(() => import("./components/Common/CoursesManager"));
 const AddStudent = lazy(() => import("./components/Admin/pages/AddStudent"));
+const ReadOnlyAdminList = lazy(() => import("./components/Admin/pages/ManageAdmins"));
+const ReadOnlyLecturerList = lazy(() => import("./components/Admin/pages/ManageLecturers"));
+const DeviceSetupPage = lazy(() => import("./components/Common/DeviceSetupPage"));
 
 // Student lazy imports
 const StudentDashboard = lazy(() => import("./components/Student/StudentDashboard"));
@@ -296,10 +299,13 @@ function App() {
             <Route path="classes/*" element={<SessionAttendanceData />} />
             <Route path="active-sessions" element={<ActiveSessions />} />
             <Route path="students" element={<StudentsList />} />
+            <Route path="device-setup" element={<DeviceSetupPage />} />
             <Route path="students/add" element={<AddStudent />} />
             <Route path="students/bulk" element={<AddStudent />} />
             <Route path="add-student" element={<AddStudent />} />
             <Route path="courses" element={<LecturerCourses />} />
+            <Route path="admins" element={<ReadOnlyAdminList readOnly />} />
+            <Route path="lecturers" element={<ReadOnlyLecturerList readOnly />} />
             <Route path="scanqr" element={<QrScannerApp />} />
           </Route>
           <Route path="*" element={<Navigate to="/lecturer" replace />} />
@@ -329,6 +335,7 @@ function App() {
             <Route path="mark-attendance" element={<QrScannerApp />} />
             <Route path="statistics" element={<Statistics />} />
             <Route path="settings" element={<Settings />} />
+            <Route path="device-setup" element={<DeviceSetupPage />} />
           </Route>
           <Route path="*" element={<Navigate to="/student" replace />} />
         </Routes>
@@ -356,4 +363,4 @@ function App() {
   );
 }
 
-export default App;
+export default App;

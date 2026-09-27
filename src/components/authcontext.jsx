@@ -24,6 +24,7 @@ import {
   logoutUser as firebaseLogoutUser
 } from "../firebase";
 import { isGenericName } from "../utils/studentDataHelper";
+import { reportUserVerificationComplaint } from "../services/notificationsService";
 
 const AuthContext = createContext(null);
 
@@ -260,6 +261,22 @@ export const AuthProvider = ({ children }) => {
         };
       }
 
+      // Auto-provision basic student session context if students collection is empty or document was deleted
+      if (rollFromEmail && rollFromEmail.length >= 3) {
+        return {
+          id: rollFromEmail.toUpperCase(),
+          rollNo: rollFromEmail.toUpperCase(),
+          name: rollFromEmail.toUpperCase(),
+          email: cleanEmail,
+          branch: "CSE",
+          semester: "1",
+          role: "student",
+          status: "active",
+          faceRegistered: false,
+          biometricEnrolled: false
+        };
+      }
+
       return null;
     } catch (err) {
       console.error("Error looking up user in system:", err);
@@ -294,7 +311,7 @@ export const AuthProvider = ({ children }) => {
     const resolvedName = databaseName || (databaseRole === "student" ? (cleanRollNo || "Student") : prefix);
 
     // Use profile photo from database if present, or fallback to photo from the login email (Google account)
-    const resolvedPhoto = registeredUser.photoURL || registeredUser.photo || registeredUser.image || registeredUser.avatar || registeredUser.profilePic || currentUser.photoURL || "";
+    const resolvedPhoto = registeredUser.photoURL || registeredUser.photo || registeredUser.image || registeredUser.avatar || registeredUser.profilePic || currentUser.photoURL || currentUser.providerData?.[0]?.photoURL || "";
 
     // Strict biometrics check: If removed by admin or invalid vector, immediately mark false
     const hasFaceRemoval = Boolean(
@@ -471,7 +488,12 @@ export const AuthProvider = ({ children }) => {
     const registeredUser = await lookupUserInSystem(cleanEmail);
 
     if (!registeredUser) {
-      // User is completely unregistered - kick out immediately, do NOT save to database
+      // User is completely unregistered - report complaint to Admin & Lecturer and kick out immediately
+      await reportUserVerificationComplaint(
+        { email: cleanEmail, name: currentUser.displayName || "Unknown User" },
+        "Unregistered user attempted access to platform",
+        "GOOGLE_LOGIN"
+      );
       await firebaseLogoutUser();
       throw new Error(
         `Access Denied: This Google account (${currentUser.email}) is not registered in the system. Only pre-registered students and staff can log in. Please contact the administrator to get your account registered.`
@@ -480,6 +502,11 @@ export const AuthProvider = ({ children }) => {
 
     // Check account status & approval
     if (registeredUser.status === "disabled") {
+      await reportUserVerificationComplaint(
+        { email: cleanEmail, name: registeredUser.name, rollNo: registeredUser.rollNo },
+        "Disabled account attempted login",
+        "DEACTIVATED_LOGIN"
+      );
       await firebaseLogoutUser();
       throw new Error(
         `Access Denied: Your account (${currentUser.email}) has been deactivated by the administrator.`
@@ -487,6 +514,11 @@ export const AuthProvider = ({ children }) => {
     }
 
     if (registeredUser.approved === false) {
+      await reportUserVerificationComplaint(
+        { email: cleanEmail, name: registeredUser.name, rollNo: registeredUser.rollNo },
+        "Unapproved account attempted login",
+        "PENDING_APPROVAL_LOGIN"
+      );
       await firebaseLogoutUser();
       throw new Error(
         `Access Denied: Your account (${currentUser.email}) is pending approval by the institution administrator.`
@@ -496,6 +528,11 @@ export const AuthProvider = ({ children }) => {
     // Role verification
     const databaseRole = normalizeRole(registeredUser.role);
     if (databaseRole !== selected) {
+      await reportUserVerificationComplaint(
+        { email: cleanEmail, name: registeredUser.name, rollNo: registeredUser.rollNo },
+        `Role Mismatch: User selected "${selected}" but registered as "${databaseRole}"`,
+        "ROLE_MISMATCH_LOGIN"
+      );
       await firebaseLogoutUser();
       throw new Error(
         `Role Mismatch: You selected "${selected}", but your account is registered as "${databaseRole}". Please select "${databaseRole}" to log in.`
@@ -519,7 +556,7 @@ export const AuthProvider = ({ children }) => {
     const resolvedName = databaseName || (databaseRole === "student" ? (cleanRollNo || "Student") : prefix);
 
     // Use profile photo from database if present, or fallback to photo from the login email (Google account)
-    const resolvedPhoto = registeredUser.photoURL || registeredUser.photo || registeredUser.image || registeredUser.avatar || registeredUser.profilePic || currentUser.photoURL || "";
+    const resolvedPhoto = registeredUser.photoURL || registeredUser.photo || registeredUser.image || registeredUser.avatar || registeredUser.profilePic || currentUser.photoURL || currentUser.providerData?.[0]?.photoURL || "";
 
     const enrichedProfile = {
       id: registeredUser.id || cleanRollNo || cleanEmail,
@@ -581,20 +618,17 @@ export const AuthProvider = ({ children }) => {
     if (role === "student") {
       if (rollNo) {
         promises.push(setDoc(doc(db, "students", rollNo), updatePayload, { merge: true }));
-        promises.push(setDoc(doc(db, "users", rollNo), updatePayload, { merge: true }));
       }
     } else if (role === "lecturer") {
-      const lectId = profile?.id || prefix || cleanEmail;
-      promises.push(setDoc(doc(db, "lecturers", lectId), updatePayload, { merge: true }));
-      promises.push(setDoc(doc(db, "users", lectId), updatePayload, { merge: true }));
+      const lectId = (profile?.email || cleanEmail || prefix).toLowerCase().trim();
+      if (lectId) {
+        promises.push(setDoc(doc(db, "lecturers", lectId), updatePayload, { merge: true }));
+      }
     } else if (role === "admin") {
-      const adminId = profile?.id || prefix || cleanEmail;
-      promises.push(setDoc(doc(db, "admins", adminId), updatePayload, { merge: true }));
-      promises.push(setDoc(doc(db, "users", adminId), updatePayload, { merge: true }));
-    }
-
-    if (cleanEmail) {
-      promises.push(setDoc(doc(db, "authorizedUsers", cleanEmail), updatePayload, { merge: true }).catch(() => { }));
+      const adminId = (profile?.email || cleanEmail || prefix).toLowerCase().trim();
+      if (adminId) {
+        promises.push(setDoc(doc(db, "admins", adminId), updatePayload, { merge: true }));
+      }
     }
 
     await Promise.all(promises);
@@ -691,40 +725,17 @@ export const AuthProvider = ({ children }) => {
     if (role === "student") {
       if (rollNo) {
         promises.push(setDoc(doc(db, "students", rollNo), photoPayload, { merge: true }));
-        promises.push(setDoc(doc(db, "users", rollNo), photoPayload, { merge: true }));
-      }
-      if (prefix && prefix !== rollNo.toLowerCase()) {
-        promises.push(setDoc(doc(db, "students", prefix), photoPayload, { merge: true }).catch(() => { }));
-        promises.push(setDoc(doc(db, "users", prefix), photoPayload, { merge: true }).catch(() => { }));
       }
     } else if (role === "lecturer") {
-      const lectId = profile?.id || prefix || cleanEmail;
-      promises.push(setDoc(doc(db, "lecturers", lectId), photoPayload, { merge: true }));
-      promises.push(setDoc(doc(db, "users", lectId), photoPayload, { merge: true }));
-      if (prefix && prefix !== lectId) {
-        promises.push(setDoc(doc(db, "lecturers", prefix), photoPayload, { merge: true }).catch(() => { }));
-      }
-      if (cleanEmail && cleanEmail !== lectId) {
-        promises.push(setDoc(doc(db, "lecturers", cleanEmail), photoPayload, { merge: true }).catch(() => { }));
+      const lectId = (profile?.email || cleanEmail || prefix).toLowerCase().trim();
+      if (lectId) {
+        promises.push(setDoc(doc(db, "lecturers", lectId), photoPayload, { merge: true }));
       }
     } else if (role === "admin") {
-      const adminId = profile?.id || prefix || cleanEmail;
-      promises.push(setDoc(doc(db, "admins", adminId), photoPayload, { merge: true }));
-      promises.push(setDoc(doc(db, "users", adminId), photoPayload, { merge: true }));
-      if (prefix && prefix !== adminId) {
-        promises.push(setDoc(doc(db, "admins", prefix), photoPayload, { merge: true }).catch(() => { }));
+      const adminId = (profile?.email || cleanEmail || prefix).toLowerCase().trim();
+      if (adminId) {
+        promises.push(setDoc(doc(db, "admins", adminId), photoPayload, { merge: true }));
       }
-      if (cleanEmail && cleanEmail !== adminId) {
-        promises.push(setDoc(doc(db, "admins", cleanEmail), photoPayload, { merge: true }).catch(() => { }));
-      }
-    }
-
-    if (user?.uid) {
-      promises.push(setDoc(doc(db, "users", user.uid), photoPayload, { merge: true }).catch(() => { }));
-    }
-
-    if (cleanEmail) {
-      promises.push(setDoc(doc(db, "authorizedUsers", cleanEmail), photoPayload, { merge: true }).catch(() => { }));
     }
 
     if (auth?.currentUser) {
@@ -779,40 +790,17 @@ export const AuthProvider = ({ children }) => {
     if (role === "student") {
       if (rollNo) {
         promises.push(setDoc(doc(db, "students", rollNo), clearPayload, { merge: true }));
-        promises.push(setDoc(doc(db, "users", rollNo), clearPayload, { merge: true }));
-      }
-      if (prefix && prefix !== rollNo.toLowerCase()) {
-        promises.push(setDoc(doc(db, "students", prefix), clearPayload, { merge: true }).catch(() => { }));
-        promises.push(setDoc(doc(db, "users", prefix), clearPayload, { merge: true }).catch(() => { }));
       }
     } else if (role === "lecturer") {
-      const lectId = profile?.id || prefix || cleanEmail;
-      promises.push(setDoc(doc(db, "lecturers", lectId), clearPayload, { merge: true }));
-      promises.push(setDoc(doc(db, "users", lectId), clearPayload, { merge: true }));
-      if (prefix && prefix !== lectId) {
-        promises.push(setDoc(doc(db, "lecturers", prefix), clearPayload, { merge: true }).catch(() => { }));
-      }
-      if (cleanEmail && cleanEmail !== lectId) {
-        promises.push(setDoc(doc(db, "lecturers", cleanEmail), clearPayload, { merge: true }).catch(() => { }));
+      const lectId = (profile?.email || cleanEmail || prefix).toLowerCase().trim();
+      if (lectId) {
+        promises.push(setDoc(doc(db, "lecturers", lectId), clearPayload, { merge: true }));
       }
     } else if (role === "admin") {
-      const adminId = profile?.id || prefix || cleanEmail;
-      promises.push(setDoc(doc(db, "admins", adminId), clearPayload, { merge: true }));
-      promises.push(setDoc(doc(db, "users", adminId), clearPayload, { merge: true }));
-      if (prefix && prefix !== adminId) {
-        promises.push(setDoc(doc(db, "admins", prefix), clearPayload, { merge: true }).catch(() => { }));
+      const adminId = (profile?.email || cleanEmail || prefix).toLowerCase().trim();
+      if (adminId) {
+        promises.push(setDoc(doc(db, "admins", adminId), clearPayload, { merge: true }));
       }
-      if (cleanEmail && cleanEmail !== adminId) {
-        promises.push(setDoc(doc(db, "admins", cleanEmail), clearPayload, { merge: true }).catch(() => { }));
-      }
-    }
-
-    if (user?.uid) {
-      promises.push(setDoc(doc(db, "users", user.uid), clearPayload, { merge: true }).catch(() => { }));
-    }
-
-    if (cleanEmail) {
-      promises.push(setDoc(doc(db, "authorizedUsers", cleanEmail), clearPayload, { merge: true }).catch(() => { }));
     }
 
     if (auth?.currentUser) {

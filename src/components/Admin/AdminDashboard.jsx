@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import { useState, useEffect } from "react";
 import { Routes, Route } from "react-router-dom";
 
 import AdminNavbar from "./AdminNavbar";
@@ -16,12 +16,27 @@ import InstitutionSettings from "./pages/InstitutionSettings";
 import AdminProfile from "./pages/AdminProfile";
 import ManageCourses from "../Common/CoursesManager";
 import Settings from "../Common/Settings";
+import DeviceSetupPage, { RoleFirstLoginGuide } from "../Common/DeviceSetupPage";
 import ClassesData, { SessionAttendanceData } from "../Lecturer/pages/SessionData";
+import NotificationHistoryModal from "../Student/NotificationHistoryModal";
+import { subscribeToFacultyNotifications } from "../../services/notificationsService";
 import "./AdminDashboard.css";
 import BottomNav from "./BottomNav";
 
 const AdminDashboard = () => {
   const [sidebarOpen, setSidebarOpen] = useState(window.innerWidth > 900);
+  const [facultyNotifs, setFacultyNotifs] = useState([]);
+  const [showNotifModal, setShowNotifModal] = useState(false);
+
+  useEffect(() => {
+    const unsub = subscribeToFacultyNotifications((newNotifs) => {
+      setFacultyNotifs(newNotifs || []);
+    });
+    return () => unsub();
+  }, []);
+
+  const unreadCount = facultyNotifs.filter(n => !n.read).length;
+
   return (
     <div
       className={`admin-layout ${sidebarOpen ? "sidebar-is-open" : "sidebar-is-closed"
@@ -29,7 +44,11 @@ const AdminDashboard = () => {
     >
       <AdminSidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       <div className="admin-main">
-        <AdminNavbar onMenuClick={() => setSidebarOpen((prev) => !prev)} />
+        <AdminNavbar
+          onMenuClick={() => setSidebarOpen((prev) => !prev)}
+          unreadCount={unreadCount}
+          onNotifClick={() => setShowNotifModal(true)}
+        />
         <main className="admin-content">
           <Routes>
             <Route index element={<AdminOverview />} />
@@ -53,13 +72,23 @@ const AdminDashboard = () => {
             <Route path="attendance-sessions/*" element={<SessionAttendanceData />} />
             <Route path="institution" element={<InstitutionSettings />} />
             <Route path="settings" element={<Settings />} />
+            <Route path="device-setup" element={<DeviceSetupPage />} />
             <Route path="profile" element={<AdminProfile />} />
           </Routes>
         </main>
       </div>
       <BottomNav />
+      <RoleFirstLoginGuide role="admin" basePath="/admin" />
+
+      {/* Faculty & Admin Audit Logs Modal */}
+      <NotificationHistoryModal
+        isOpen={showNotifModal}
+        onClose={() => setShowNotifModal(false)}
+        notifications={facultyNotifs}
+        isFaculty={true}
+      />
     </div>
   );
 };
 
-export default AdminDashboard;
+export default AdminDashboard;

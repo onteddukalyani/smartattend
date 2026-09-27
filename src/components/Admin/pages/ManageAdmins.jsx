@@ -34,9 +34,10 @@ import { downloadExcel } from "../../../DownloadExcel";
 import ProfilePhotoModal from "../../Common/ProfilePhotoModal";
 import "./ManageAdmins.css";
 
-const ManageAdmins = () => {
+const ManageAdmins = ({ readOnly = false }) => {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const canModifyAdmins = !readOnly;
   const [admins, setAdmins] = useState([]);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all"); // "all" | "active" | "disabled"
@@ -205,6 +206,10 @@ const ManageAdmins = () => {
   };
 
   const toggleStatus = (adminUser) => {
+    if (readOnly) {
+      alert("View-only access: admin management is read-only for lecturers.");
+      return;
+    }
     const newStatus = adminUser.status === "active" ? "disabled" : "active";
     if (adminUser.email?.toLowerCase() === user?.email?.toLowerCase() && newStatus === "disabled") {
       alert("⚠️ You cannot disable your own active administrator account.");
@@ -214,6 +219,10 @@ const ManageAdmins = () => {
   };
 
   const removeAdmin = async (adminUser) => {
+    if (readOnly) {
+      alert("View-only access: admin management is read-only for lecturers.");
+      return;
+    }
     if (adminUser.email?.toLowerCase() === user?.email?.toLowerCase()) {
       alert("⚠️ You cannot delete your own logged-in administrator account.");
       return;
@@ -300,11 +309,13 @@ const ManageAdmins = () => {
         <div className="hero-content">
           <div className="hero-badge">
             <FaShieldAlt className="hero-badge-icon" />
-            <span>SECURITY &amp; ACCESS GOVERNANCE</span>
+            <span>{readOnly ? "READ-ONLY ACCESS" : "SECURITY & ACCESS GOVERNANCE"}</span>
           </div>
-          <h1>Manage Administrators</h1>
+          <h1>{readOnly ? "Administrator List" : "Manage Administrators"}</h1>
           <p>
-            Configure administrative privileges, security roles, system credentials, and Google account authorizations.
+            {readOnly
+              ? "You can view the institution admin directory, but you cannot modify administrator records."
+              : "Configure administrative privileges, security roles, system credentials, and Google account authorizations."}
           </p>
         </div>
 
@@ -320,15 +331,17 @@ const ManageAdmins = () => {
             <span>Export Excel</span>
           </button>
 
-          <button
-            type="button"
-            className="hero-btn add-admin-btn"
-            onClick={() => navigate("/admin/admins/add")}
-            title="Add a new administrator"
-          >
-            <FaUserPlus className="btn-icon" />
-            <span>Add Admin</span>
-          </button>
+          {!readOnly && (
+            <button
+              type="button"
+              className="hero-btn add-admin-btn"
+              onClick={() => navigate("/admin/admins/add")}
+              title="Add a new administrator"
+            >
+              <FaUserPlus className="btn-icon" />
+              <span>Add Admin</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -591,40 +604,46 @@ const ManageAdmins = () => {
                       </td>
 
                       <td>
-                        <div className="admin-actions-cell">
-                          <button
-                            type="button"
-                            className={`action-btn ${adminUser.status === "active" ? "btn-disable" : "btn-enable"}`}
-                            disabled={isBusy || isCurrent}
-                            onClick={() => toggleStatus(adminUser)}
-                            title={
-                              isCurrent
-                                ? "You cannot disable your own active account"
-                                : adminUser.status === "active"
-                                ? "Disable administrator access"
-                                : "Enable administrator access"
-                            }
-                          >
-                            {adminUser.status === "active" ? <FaUserSlash /> : <FaUserCheck />}
-                            <span className="action-btn-text">
-                              {adminUser.status === "active" ? "Disable" : "Enable"}
-                            </span>
-                          </button>
+                        {readOnly ? (
+                          <div className="admin-actions-cell">
+                            <span style={{ color: "#64748b", fontWeight: 700, fontSize: "0.82rem" }}>View Only</span>
+                          </div>
+                        ) : (
+                          <div className="admin-actions-cell">
+                            <button
+                              type="button"
+                              className={`action-btn ${adminUser.status === "active" ? "btn-disable" : "btn-enable"}`}
+                              disabled={isBusy || isCurrent}
+                              onClick={() => toggleStatus(adminUser)}
+                              title={
+                                isCurrent
+                                  ? "You cannot disable your own active account"
+                                  : adminUser.status === "active"
+                                  ? "Disable administrator access"
+                                  : "Enable administrator access"
+                              }
+                            >
+                              {adminUser.status === "active" ? <FaUserSlash /> : <FaUserCheck />}
+                              <span className="action-btn-text">
+                                {adminUser.status === "active" ? "Disable" : "Enable"}
+                              </span>
+                            </button>
 
-                          <button
-                            type="button"
-                            className="action-btn btn-delete"
-                            disabled={isBusy || isCurrent}
-                            onClick={() => removeAdmin(adminUser)}
-                            title={
-                              isCurrent
-                                ? "You cannot delete your own active account"
-                                : "Remove administrator permanently"
-                            }
-                          >
-                            <FaTrashAlt />
-                          </button>
-                        </div>
+                            <button
+                              type="button"
+                              className="action-btn btn-delete"
+                              disabled={isBusy || isCurrent}
+                              onClick={() => removeAdmin(adminUser)}
+                              title={
+                                isCurrent
+                                  ? "You cannot delete your own active account"
+                                  : "Remove administrator permanently"
+                              }
+                            >
+                              <FaTrashAlt />
+                            </button>
+                          </div>
+                        )}
                       </td>
                     </tr>
                   );

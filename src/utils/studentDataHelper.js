@@ -187,6 +187,11 @@ export function extractCanonicalRoll(data, docId) {
  * Merges multi-collection document snapshots into a unified, deduplicated student array.
  */
 export function mergeAllStudentRecords(authDocs = [], studentsDocs = [], usersDocs = []) {
+    // If students collection in Firestore is empty (0 docs), return empty array so UI immediately reflects database state
+    if (Array.isArray(studentsDocs) && studentsDocs.length === 0) {
+        return [];
+    }
+
     const allRawDocs = [];
 
     const addDoc = (docSnap) => {
@@ -372,17 +377,17 @@ export async function deleteStudentRecordCompletely(student) {
         ].filter((k) => k && k.length > 0 && !GENERIC_IDENTIFIERS.has(k.toLowerCase()))
     );
 
-    const collections = ["students", "users", "authorizedUsers"];
+    const collections = ["students", "users", "authorizedUsers", "devices"];
     const deletePromises = [];
 
-    // 1. Delete all direct keys across all 3 collections
+    // 1. Delete all direct keys across all primary collections
     for (const coll of collections) {
         for (const key of candidateKeys) {
             deletePromises.push(deleteDoc(doc(db, coll, key)).catch(() => {}));
         }
     }
 
-    // 2. Query any docs by rollNo or email fields across all 3 collections
+    // 2. Query any docs by rollNo, email, or uid fields across primary collections
     const queryPromises = [];
     for (const coll of collections) {
         if (roll && !GENERIC_IDENTIFIERS.has(roll.toLowerCase())) {
@@ -394,6 +399,9 @@ export async function deleteStudentRecordCompletely(student) {
         }
         if (constructedEmail && constructedEmail !== email) {
             queryPromises.push(getDocs(query(collection(db, coll), where("email", "==", constructedEmail))).catch(() => ({ docs: [] })));
+        }
+        if (uid) {
+            queryPromises.push(getDocs(query(collection(db, coll), where("uid", "==", uid))).catch(() => ({ docs: [] })));
         }
     }
 
@@ -408,5 +416,71 @@ export async function deleteStudentRecordCompletely(student) {
         }
     }
 
+    // 3. Remove student from all enrolled courses
+    try {
+        const coursesSnap = await getDocs(collection(db, "courses"));
+        coursesSnap.docs.forEach((courseDoc) => {
+            const data = courseDoc.data();
+            const enrolled = Array.isArray(data.students) ? data.students : (Array.isArray(data.enrolledStudents) ? data.enrolledStudents : []);
+            
+            const updatedEnrolled = enrolled.filter((s) => {
+                const sRoll = typeof s === "string" ? s.toUpperCase().trim() : (s.rollNo || s.rollNumber || "").toUpperCase().trim();
+                return !candidateKeys.has(sRoll);
+            });
+
+            if (updatedEnrolled.length !== enrolled.length) {
+                deletePromises.push(setDoc(doc(db, "courses", courseDoc.id), {
+                    students: updatedEnrolled,
+                    enrolledStudents: updatedEnrolled,
+                    updatedAt: Date.now()
+                }, { merge: true }));
+            }
+        });
+    } catch (_) {}
+
     await Promise.all(deletePromises);
+}
+
+/**
+ * Purges any orphaned student documents in users/ or authorizedUsers/ 
+ * if students collection was manually wiped or if student records are unlinked.
+ */
+export async function purgeOrphanedStudentDocuments() {
+    try {
+        const [studentsSnap, usersSnap, authSnap] = await Promise.all([
+            getDocs(collection(db, "students")).catch(() => ({ docs: [] })),
+            getDocs(collection(db, "users")).catch(() => ({ docs: [] })),
+            getDocs(collection(db, "authorizedUsers")).catch(() => ({ docs: [] }))
+        ]);
+
+        const validStudentRolls = new Set();
+        studentsSnap.docs.forEach((docSnap) => {
+            const data = docSnap.data();
+            const roll = (data.rollNo || docSnap.id || "").toUpperCase().trim();
+            if (roll) validStudentRolls.add(roll);
+        });
+
+        // If students collection is completely empty (0 docs), clean up lingering student role docs in users/ & authorizedUsers/
+        if (studentsSnap.docs.length === 0) {
+            const deletePromises = [];
+            usersSnap.docs.forEach((docSnap) => {
+                const data = docSnap.data();
+                if (data.role === "student" || (data.rollNo && isStudentDocument(data, docSnap.id))) {
+                    deletePromises.push(deleteDoc(doc(db, "users", docSnap.id)).catch(() => {}));
+                }
+            });
+            authSnap.docs.forEach((docSnap) => {
+                const data = docSnap.data();
+                if (data.role === "student" || (data.rollNo && isStudentDocument(data, docSnap.id))) {
+                    deletePromises.push(deleteDoc(doc(db, "authorizedUsers", docSnap.id)).catch(() => {}));
+                }
+            });
+            await Promise.all(deletePromises);
+            return { purgedCount: deletePromises.length };
+        }
+        return { purgedCount: 0 };
+    } catch (err) {
+        console.error("Error purging orphaned student documents:", err);
+        return { purgedCount: 0, error: err.message };
+    }
 }

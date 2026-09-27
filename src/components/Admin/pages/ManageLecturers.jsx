@@ -39,9 +39,10 @@ import { normalizeBranchName } from "../../../utils/studentDataHelper";
 
 import "./ManageLecturers.css";
 
-const ManageLecturers = () => {
+const ManageLecturers = ({ readOnly = false }) => {
   const navigate = useNavigate();
   const [lecturers, setLecturers] = useState([]);
+  const canModifyLecturers = !readOnly;
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all"); // "all" | "active" | "pending" | "disabled"
   const [departmentFilter, setDepartmentFilter] = useState("all");
@@ -255,6 +256,10 @@ const ManageLecturers = () => {
   };
 
   const approveLecturer = async (lecturer) => {
+    if (readOnly) {
+      alert("View-only access: lecturer management is read-only for lecturers.");
+      return;
+    }
     const confirmed = window.confirm(
       `Approve ${lecturer.name || lecturer.email} as a lecturer?`
     );
@@ -268,6 +273,10 @@ const ManageLecturers = () => {
   };
 
   const rejectLecturer = async (lecturer) => {
+    if (readOnly) {
+      alert("View-only access: lecturer management is read-only for lecturers.");
+      return;
+    }
     const confirmed = window.confirm(
       `Remove approval for ${lecturer.name || lecturer.email}?`
     );
@@ -281,6 +290,10 @@ const ManageLecturers = () => {
   };
 
   const toggleStatus = async (lecturer) => {
+    if (readOnly) {
+      alert("View-only access: lecturer management is read-only for lecturers.");
+      return;
+    }
     const currentlyActive = lecturer.status === "active";
     const newStatus = currentlyActive ? "disabled" : "active";
 
@@ -290,6 +303,10 @@ const ManageLecturers = () => {
   };
 
   const removeLecturer = async (lecturer) => {
+    if (readOnly) {
+      alert("View-only access: lecturer management is read-only for lecturers.");
+      return;
+    }
     const confirmed = window.confirm(
       `Are you sure you want to delete ${lecturer.name || lecturer.email}? This will revoke their access to SmartAttend.`
     );
@@ -396,11 +413,13 @@ const ManageLecturers = () => {
         <div className="hero-content">
           <div className="hero-badge">
             <FaChalkboardTeacher className="hero-badge-icon" />
-            <span>FACULTY &amp; TEACHING STAFF DIRECTORY</span>
+            <span>{readOnly ? "READ-ONLY DIRECTORY" : "FACULTY & TEACHING STAFF DIRECTORY"}</span>
           </div>
-          <h1>Manage Lecturers</h1>
+          <h1>{readOnly ? "Lecturer List" : "Manage Lecturers"}</h1>
           <p>
-            Manage lecturers and click any lecturer to view their teaching activity and classes conducted.
+            {readOnly
+              ? "You can review the faculty directory and course ownership information, but you cannot modify lecturer records."
+              : "Manage lecturers and click any lecturer to view their teaching activity and classes conducted."}
           </p>
         </div>
 
@@ -416,25 +435,29 @@ const ManageLecturers = () => {
             <span>Export Excel</span>
           </button>
 
-          <button
-            type="button"
-            className="hero-btn bulk-btn"
-            onClick={() => navigate("/admin/lecturers/add")}
-            title="Bulk upload lecturers via Excel / CSV"
-          >
-            <FaFileExcel className="btn-icon" />
-            <span>Bulk Upload</span>
-          </button>
+          {!readOnly && (
+            <>
+              <button
+                type="button"
+                className="hero-btn bulk-btn"
+                onClick={() => navigate("/admin/lecturers/add")}
+                title="Bulk upload lecturers via Excel / CSV"
+              >
+                <FaFileExcel className="btn-icon" />
+                <span>Bulk Upload</span>
+              </button>
 
-          <button
-            type="button"
-            className="hero-btn add-lecturer-btn"
-            onClick={() => navigate("/admin/lecturers/add")}
-            title="Add a new faculty member"
-          >
-            <FaUserPlus className="btn-icon" />
-            <span>Add Lecturer</span>
-          </button>
+              <button
+                type="button"
+                className="hero-btn add-lecturer-btn"
+                onClick={() => navigate("/admin/lecturers/add")}
+                title="Add a new faculty member"
+              >
+                <FaUserPlus className="btn-icon" />
+                <span>Add Lecturer</span>
+              </button>
+            </>
+          )}
         </div>
       </div>
 

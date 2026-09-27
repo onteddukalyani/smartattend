@@ -117,6 +117,12 @@ export function isCourseAssignedToLecturer(course, user, profile) {
   return false;
 }
 
+export function canManageCourse(course, user, profile, isAdminOverride = false) {
+  if (isAdminOverride || profile?.role === "admin") return true;
+  if (profile?.role !== "lecturer") return false;
+  return isCourseAssignedToLecturer(course, user, profile);
+}
+
 export default function CoursesManager() {
   const { user, profile } = useAuth();
   const navigate = useNavigate();
@@ -124,6 +130,7 @@ export default function CoursesManager() {
 
   const isCurrentAdmin = location.pathname.startsWith("/admin") || profile?.role === "admin" || profile?.role === "administrator";
   const isCurrentLecturer = location.pathname.startsWith("/lecturer") || profile?.role === "lecturer";
+  const canManageCourseForUser = (course = null) => canManageCourse(course, user, profile, isCurrentAdmin);
 
   // Data States
   const [courses, setCourses] = useState([]);
@@ -151,6 +158,7 @@ export default function CoursesManager() {
   const [formData, setFormData] = useState({
     code: "",
     name: "",
+    classCode: "C003",
     department: "CSE",
     semester: "4",
     credits: "4",
@@ -162,6 +170,8 @@ export default function CoursesManager() {
 
   // Roster Management Inside Modal State
   const [rosterSearch, setRosterSearch] = useState("");
+  const [availableStudentSearch, setAvailableStudentSearch] = useState("");
+  const [showAvailableStudents, setShowAvailableStudents] = useState(false);
   const [rosterBatchFilter, setRosterBatchFilter] = useState("all");
   const [selectedStudentsToAdd, setSelectedStudentsToAdd] = useState([]);
   const [savingRoster, setSavingRoster] = useState(false);
@@ -259,11 +269,17 @@ export default function CoursesManager() {
 
   // Handle Opening Add/Edit Modal
   const handleOpenAddEditModal = (course = null) => {
+    if (course && !canManageCourseForUser(course)) {
+      alert("You can only edit courses assigned to your lecturer profile.");
+      return;
+    }
+
     if (course) {
       setEditingCourse(course);
       setFormData({
         code: course.code || "",
         name: course.name || "",
+        classCode: course.classCode || course.classNumber || "C003",
         department: course.department || "CSE",
         semester: String(course.semester || "4"),
         credits: String(course.credits || "4"),
@@ -275,6 +291,7 @@ export default function CoursesManager() {
       setFormData({
         code: "",
         name: "",
+        classCode: "C003",
         department: profile?.department || "CSE",
         semester: "4",
         credits: "4",
@@ -294,11 +311,17 @@ export default function CoursesManager() {
       return;
     }
 
+    if (!isCurrentAdmin && editingCourse && !canManageCourseForUser(editingCourse)) {
+      setFormError("You can only update courses assigned to your lecturer profile.");
+      return;
+    }
+
     setSavingCourse(true);
     setFormError("");
 
     try {
       const cleanCode = normalizeCode(formData.code);
+      const cleanClassCode = (formData.classCode || "C003").trim().toUpperCase();
       const docId = editingCourse ? editingCourse.id : cleanCode;
       const courseRef = doc(db, "courses", docId);
 
@@ -319,6 +342,8 @@ export default function CoursesManager() {
       const payload = {
         code: cleanCode,
         name: formData.name.trim(),
+        classCode: cleanClassCode,
+        classNumber: cleanClassCode,
         department: normalizeCourseDepartment(formData.department),
         semester: parseInt(formData.semester, 10) || 4,
         credits: parseInt(formData.credits, 10) || 4,
@@ -346,6 +371,10 @@ export default function CoursesManager() {
 
   // Handle Deleting Course
   const handleDeleteCourse = async (course) => {
+    if (!isCurrentAdmin) {
+      alert("Only admins can delete courses.");
+      return;
+    }
     if (!window.confirm(`Are you sure you want to delete course "${course.code} - ${course.name}"? This action cannot be undone.`)) {
       return;
     }
@@ -358,15 +387,25 @@ export default function CoursesManager() {
 
   // Open Roster Management Modal
   const handleOpenRosterModal = (course) => {
+    if (!isCurrentAdmin && !canManageCourseForUser(course)) {
+      alert("You can only manage students for courses assigned to your lecturer profile.");
+      return;
+    }
     setSelectedCourseForRoster(course);
     setSelectedStudentsToAdd([]);
     setRosterSearch("");
+    setAvailableStudentSearch("");
+    setShowAvailableStudents(false);
     setShowRosterModal(true);
   };
 
   // Remove Student from Course Roster
   const handleRemoveStudentFromCourse = async (rollNo) => {
     if (!selectedCourseForRoster) return;
+    if (!isCurrentAdmin && !canManageCourseForUser(selectedCourseForRoster)) {
+      alert("You can only remove students from courses assigned to your lecturer profile.");
+      return;
+    }
     if (!window.confirm(`Remove student ${rollNo} from ${selectedCourseForRoster.code}?`)) return;
 
     try {
@@ -390,10 +429,14 @@ export default function CoursesManager() {
   // Add Selected Students to Course
   const handleAddStudentsToCourse = async () => {
     if (!selectedCourseForRoster || selectedStudentsToAdd.length === 0) return;
+    if (!isCurrentAdmin && !canManageCourseForUser(selectedCourseForRoster)) {
+      alert("You can only add students to courses assigned to your lecturer profile.");
+      return;
+    }
     setSavingRoster(true);
     try {
       const currentList = Array.isArray(selectedCourseForRoster.enrolledStudents) ? selectedCourseForRoster.enrolledStudents : [];
-      const existingRollSet = new Set(currentList.map((s) => String(typeof s === "string" ? s : s.rollNo || "").toUpperCase().trim()));
+      const existingRollSet = new Set(currentList.map((s) => String(typeof s === "string" ? s : s.rollNo || s.rollNumber || "").toUpperCase().trim()));
 
       const additions = selectedStudentsToAdd.filter((r) => !existingRollSet.has(String(r).toUpperCase().trim()));
       const updatedList = [...currentList, ...additions];
@@ -415,29 +458,46 @@ export default function CoursesManager() {
   // Batch Add All Students of Branch / Batch
   const handleBatchAddBranchStudents = async () => {
     if (!selectedCourseForRoster) return;
+    if (!isCurrentAdmin && !canManageCourseForUser(selectedCourseForRoster)) {
+      alert("You can only batch-enroll students for courses assigned to your lecturer profile.");
+      return;
+    }
     const dept = selectedCourseForRoster.department || "CSE";
-    const matching = allStudents.filter((s) => {
-      const b = (s.branch || s.department || "").toUpperCase().trim();
-      return b === dept.toUpperCase().trim();
+    const normalizeRoll = (value) => String(value || "").split("@")[0].toUpperCase().trim();
+    const matchingByRoll = new Map();
+    allStudents.forEach((student) => {
+      const branch = String(student.branch || student.department || "").toUpperCase().trim();
+      const roll = normalizeRoll(student.rollNo || student.rollNumber || student.id);
+      if (branch === dept.toUpperCase().trim() && roll && !matchingByRoll.has(roll)) {
+        matchingByRoll.set(roll, student);
+      }
     });
+    const matching = Array.from(matchingByRoll.values());
 
     if (matching.length === 0) {
       alert(`No registered students found in department ${dept}.`);
       return;
     }
 
-    if (!window.confirm(`Add all ${matching.length} students from ${dept} to ${selectedCourseForRoster.code}?`)) return;
+    if (!window.confirm(`Add all ${matching.length} unique students from ${dept} to ${selectedCourseForRoster.code}?`)) return;
 
     setSavingRoster(true);
     try {
       const currentList = Array.isArray(selectedCourseForRoster.enrolledStudents) ? selectedCourseForRoster.enrolledStudents : [];
-      const existingRollSet = new Set(currentList.map((s) => String(typeof s === "string" ? s : s.rollNo || "").toUpperCase().trim()));
+      const existingRollSet = new Set();
+      const uniqueCurrentList = currentList.filter((student) => {
+        const roll = normalizeRoll(typeof student === "string" ? student : student?.rollNo || student?.rollNumber);
+        if (!roll) return true;
+        if (existingRollSet.has(roll)) return false;
+        existingRollSet.add(roll);
+        return true;
+      });
 
       const additions = matching
-        .map((s) => (s.rollNo || s.rollNumber || s.id || "").toUpperCase().trim())
+        .map((student) => normalizeRoll(student.rollNo || student.rollNumber || student.id))
         .filter((r) => r && !existingRollSet.has(r));
 
-      const updatedList = [...currentList, ...additions];
+      const updatedList = [...uniqueCurrentList, ...additions];
 
       await setDoc(doc(db, "courses", selectedCourseForRoster.id), {
         enrolledStudents: updatedList,
@@ -473,6 +533,18 @@ export default function CoursesManager() {
 
     downloadExcel(exportData, `${selectedCourseForRoster.code}_Enrolled_Students.xlsx`);
   };
+
+  const enrolledRollSet = new Set((selectedCourseForRoster?.enrolledStudents || []).map((student) =>
+    String(typeof student === "string" ? student : student?.rollNo || student?.rollNumber || "").trim().toUpperCase()
+  ));
+  const availableStudents = allStudents.filter((student) => {
+    const roll = String(student.rollNo || student.rollNumber || student.id || "").trim();
+    if (!roll || enrolledRollSet.has(roll.toUpperCase())) return false;
+    if (!availableStudentSearch.trim()) return true;
+    const query = availableStudentSearch.toLowerCase().trim();
+    return [roll, student.name, student.fullName, student.email, student.branch, student.department]
+      .some((value) => String(value || "").toLowerCase().includes(query));
+  });
 
   return (
     <div className="courses-manager">
@@ -707,22 +779,30 @@ export default function CoursesManager() {
       ) : (
         <div className="cm-courses-grid">
           {filteredCourses.map((course) => {
-            const enrolledCount = Array.isArray(course.enrolledStudents) ? course.enrolledStudents.length : 0;
+            const courseCode = course.code || course.courseCode || course.id || "Course";
+            const courseName = course.name || course.courseName || course.title || `Untitled course (${courseCode})`;
+            const enrolledStudents = Array.isArray(course.enrolledStudents) ? course.enrolledStudents : [];
+            const enrolledCount = new Set(enrolledStudents
+              .map((student) => String(typeof student === "string" ? student : student?.rollNo || student?.rollNumber || "").trim().toUpperCase())
+              .filter(Boolean)).size;
             const isAssigned = isCourseAssignedToLecturer(course, user, profile);
 
             return (
-              <div key={course.id || course.code} className="cm-course-card">
+              <div key={course.id || course.code || courseCode} className="cm-course-card">
                 <div>
                   <div className="cm-course-card-top">
                     <span className="cm-course-code-badge">
-                      <FaBookOpen /> {course.code}
+                      <FaBookOpen /> {courseCode}
+                    </span>
+                    <span className="cm-course-code-badge" style={{ background: "rgba(99, 102, 241, 0.1)", color: "#6366f1" }}>
+                      <FaLayerGroup /> Class: {course.classCode || course.classNumber || "C003"}
                     </span>
                     <span className="cm-course-dept-badge">
                       {normalizeCourseDepartment(course.department)} · Sem {course.semester || 4}
                     </span>
                   </div>
 
-                  <h3 className="cm-course-title">{course.name}</h3>
+                  <h3 className="cm-course-title">{courseName}</h3>
 
                   <div className="cm-course-meta-row">
                     <span className="cm-meta-item">
@@ -749,9 +829,9 @@ export default function CoursesManager() {
                 </div>
 
                 <div className="cm-course-actions">
-                  {isCurrentLecturer && (
+                  {isCurrentLecturer && canManageCourseForUser(course) && (
                     <Link
-                      to={`/lecturer/lecturerpage?course=${encodeURIComponent(course.code)}`}
+                      to={`/lecturer/lecturerpage?course=${encodeURIComponent(courseCode)}`}
                       className="cm-btn cm-btn-primary cm-btn-sm"
                       title="Launch 2-Phase Attendance Session"
                     >
@@ -759,23 +839,28 @@ export default function CoursesManager() {
                     </Link>
                   )}
 
-                  <button
-                    type="button"
-                    className="cm-btn cm-btn-secondary cm-btn-sm"
-                    onClick={() => handleOpenRosterModal(course)}
-                    title="Manage Enrolled Students"
-                  >
-                    <FaUsers /> Students ({enrolledCount})
-                  </button>
+                  {(isCurrentAdmin || canManageCourseForUser(course)) && (
+                    <button
+                      type="button"
+                      className="cm-btn cm-btn-secondary cm-btn-sm"
+                      onClick={() => handleOpenRosterModal(course)}
+                      title="Manage Enrolled Students"
+                    >
+                      <FaUsers /> Students ({enrolledCount})
+                    </button>
+                  )}
 
-                  <button
-                    type="button"
-                    className="cm-btn cm-btn-secondary cm-btn-sm"
-                    onClick={() => handleOpenAddEditModal(course)}
-                    title="Edit Course"
-                  >
-                    <FaEdit />
-                  </button>
+                  {(isCurrentAdmin || canManageCourseForUser(course)) && (
+                    <button
+                      type="button"
+                      className="cm-btn cm-btn-secondary cm-btn-sm cm-course-action-edit"
+                      onClick={() => handleOpenAddEditModal(course)}
+                      title="Edit Course"
+                      aria-label={`Edit ${courseName}`}
+                    >
+                      <FaEdit /> <span>Edit</span>
+                    </button>
+                  )}
 
                   {isCurrentAdmin && (
                     <button
@@ -827,6 +912,17 @@ export default function CoursesManager() {
                       value={formData.code}
                       onChange={(e) => setFormData((p) => ({ ...p, code: e.target.value.toUpperCase() }))}
                       disabled={Boolean(editingCourse)}
+                      required
+                    />
+                  </div>
+                  <div className="cm-form-group">
+                    <label>Class Number / Code *</label>
+                    <input
+                      type="text"
+                      className="cm-form-input"
+                      placeholder="e.g. C003"
+                      value={formData.classCode}
+                      onChange={(e) => setFormData((p) => ({ ...p, classCode: e.target.value.toUpperCase() }))}
                       required
                     />
                   </div>
@@ -980,6 +1076,17 @@ export default function CoursesManager() {
                 <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                   <button
                     type="button"
+                    className="cm-btn cm-btn-primary cm-btn-sm"
+                    onClick={() => {
+                      setShowAvailableStudents((visible) => !visible);
+                      setSelectedStudentsToAdd([]);
+                    }}
+                    aria-expanded={showAvailableStudents}
+                  >
+                    <FaUserPlus /> Add Students
+                  </button>
+                  <button
+                    type="button"
                     className="cm-btn cm-btn-secondary cm-btn-sm"
                     onClick={handleExportRoster}
                   >
@@ -995,6 +1102,61 @@ export default function CoursesManager() {
                   </button>
                 </div>
               </div>
+
+              {showAvailableStudents && (
+                <section className="cm-available-students" aria-label="Add students to this course">
+                  <div className="cm-available-header">
+                    <div>
+                      <h3>Add students to {selectedCourseForRoster.code || selectedCourseForRoster.id}</h3>
+                      <p>Select registered students who are not already enrolled.</p>
+                    </div>
+                    <div className="cm-available-actions">
+                      <div className="cm-search-wrap">
+                        <FaSearch />
+                        <input
+                          type="search"
+                          className="cm-search-input"
+                          placeholder="Search name, roll number, email..."
+                          value={availableStudentSearch}
+                          onChange={(e) => setAvailableStudentSearch(e.target.value)}
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        className="cm-btn cm-btn-primary cm-btn-sm"
+                        onClick={handleAddStudentsToCourse}
+                        disabled={savingRoster || selectedStudentsToAdd.length === 0}
+                      >
+                        <FaUserPlus /> Add Selected ({selectedStudentsToAdd.length})
+                      </button>
+                    </div>
+                  </div>
+                  <div className="cm-available-list">
+                    {availableStudents.length === 0 ? (
+                      <p className="cm-available-empty">No un-enrolled registered students match this search.</p>
+                    ) : availableStudents.map((student) => {
+                      const roll = String(student.rollNo || student.rollNumber || student.id || "").trim();
+                      const checked = selectedStudentsToAdd.includes(roll);
+                      return (
+                        <label className="cm-available-student" key={roll}>
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => setSelectedStudentsToAdd((selected) =>
+                              checked ? selected.filter((item) => item !== roll) : [...selected, roll]
+                            )}
+                          />
+                          <span className="cm-available-student-info">
+                            <strong>{student.name || student.fullName || "Unnamed student"}</strong>
+                            <span>{roll}{student.email ? ` · ${student.email}` : ""}</span>
+                          </span>
+                          <span className="cm-available-student-dept">{student.branch || student.department || "—"}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </section>
+              )}
 
               {/* Enrolled Students Table */}
               <div className="cm-roster-table-wrap">
@@ -1021,7 +1183,7 @@ export default function CoursesManager() {
                         return (
                           <tr>
                             <td colSpan={5} style={{ textAlign: "center", padding: "30px", color: "var(--text-muted, #64748b)" }}>
-                              No enrolled students found. Use "Batch Enroll" to add all students in department.
+                              No students are enrolled in this course yet. Use "Add Students" to choose students or batch enroll the department.
                             </td>
                           </tr>
                         );

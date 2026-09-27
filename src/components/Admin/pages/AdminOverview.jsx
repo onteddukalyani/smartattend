@@ -9,7 +9,9 @@ import {
   FaHistory,
   FaCheckCircle,
   FaChalkboard,
-  FaSyncAlt
+  FaSyncAlt,
+  FaAndroid,
+  FaDownload
 } from "react-icons/fa";
 import { collection, getDocs, query, where, onSnapshot } from "firebase/firestore";
 import { db } from "../../../firebase";
@@ -241,26 +243,50 @@ const AdminOverview = () => {
           <h1>Admin Dashboard</h1>
           <p>Manage IIIT Dharwad attendance, users, faculty, and system access.</p>
         </div>
-        <button
-          onClick={fetchOverviewData}
-          disabled={loading}
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: "0.5rem",
-            padding: "0.6rem 1.2rem",
-            borderRadius: "8px",
-            background: "linear-gradient(135deg, #4f46e5 0%, #3730a3 100%)",
-            color: "#ffffff",
-            border: "none",
-            fontWeight: "600",
-            cursor: loading ? "not-allowed" : "pointer",
-            boxShadow: "0 4px 12px rgba(79, 70, 229, 0.3)"
-          }}
-          title="Refresh statistics and data"
-        >
-          <FaSyncAlt className={loading ? "fa-spin" : ""} /> Refresh
-        </button>
+        <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+          <a
+            href={import.meta.env.VITE_ANDROID_APK_URL?.trim() || "/app-release.apk"}
+            download="SmartAttend-release.apk"
+            target="_blank"
+            rel="noreferrer"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "0.5rem",
+              padding: "0.6rem 1.2rem",
+              borderRadius: "8px",
+              background: "linear-gradient(135deg, #10b981 0%, #047857 100%)",
+              color: "#ffffff",
+              textDecoration: "none",
+              fontWeight: "600",
+              boxShadow: "0 4px 12px rgba(16, 185, 129, 0.3)"
+            }}
+            title="Download signed SmartAttend Android APK for testing"
+          >
+            <FaAndroid /> Download APK (.apk)
+          </a>
+
+          <button
+            onClick={fetchOverviewData}
+            disabled={loading}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "0.5rem",
+              padding: "0.6rem 1.2rem",
+              borderRadius: "8px",
+              background: "linear-gradient(135deg, #4f46e5 0%, #3730a3 100%)",
+              color: "#ffffff",
+              border: "none",
+              fontWeight: "600",
+              cursor: loading ? "not-allowed" : "pointer",
+              boxShadow: "0 4px 12px rgba(79, 70, 229, 0.3)"
+            }}
+            title="Refresh statistics and data"
+          >
+            <FaSyncAlt className={loading ? "fa-spin" : ""} /> Refresh
+          </button>
+        </div>
       </div>
 
       {/* Statistics */}
