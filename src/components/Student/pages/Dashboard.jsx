@@ -287,15 +287,9 @@ export default function StudentDashboard() {
         });
     }, [courses, sessions, records, studentBranch, studentSemester, candidateRolls, activeRollNo, user?.email]);
 
-    // Initial Face Biometric Enrollment Handler (Student Side - One-time registration only)
+    // Initial Face Biometric Enrollment Handler (Student Side)
     const handleEnrollStudentFace = async (enrollData) => {
         if (!enrollData || !enrollData.faceDescriptor || !activeRollNo) return;
-
-        if (hasFaceRegistered) {
-            alert("🔒 Your facial biometrics are already registered and locked. Only a Lecturer or Administrator can update or reset your biometric data.");
-            setShowFaceModal(false);
-            return;
-        }
 
         try {
             setFaceSaving(true);
@@ -596,13 +590,7 @@ export default function StudentDashboard() {
                             </span>
                             <span
                                 className="student-sub-badge"
-                                onClick={() => {
-                                    if (hasFaceRegistered) {
-                                        setShowLockedFaceModal(true);
-                                    } else {
-                                        setShowFaceModal(true);
-                                    }
-                                }}
+                                onClick={() => setShowFaceModal(true)}
                                 style={{
                                     cursor: "pointer",
                                     background: hasFaceRegistered ? "#dcfce7" : "#fef3c7",
@@ -613,10 +601,10 @@ export default function StudentDashboard() {
                                     alignItems: "center",
                                     gap: "5px"
                                 }}
-                                title={hasFaceRegistered ? "Facial biometrics registered and secured in database (Protected)" : "Click to register your face biometrics"}
+                                title={hasFaceRegistered ? "Facial biometrics registered. Click to view or re-enroll face camera" : "Click to register your face biometrics"}
                             >
                                 {hasFaceRegistered ? (
-                                    <><FaLock size={11} /> Face Registered (Protected)</>
+                                    <><FaCheckCircle size={11} /> Face Enrolled (Click to Re-enroll)</>
                                 ) : (
                                     <><FaCamera size={11} /> Face Pending (Click to Enroll)</>
                                 )}
@@ -1194,31 +1182,56 @@ export default function StudentDashboard() {
                             </p>
                         </div>
 
-                        <button
-                            type="button"
-                            onClick={() => setShowLockedFaceModal(false)}
-                            style={{
-                                padding: "11px 24px",
-                                borderRadius: "12px",
-                                background: "linear-gradient(135deg, #6366f1, #4f46e5)",
-                                color: "#ffffff",
-                                border: "none",
-                                fontWeight: 700,
-                                fontSize: "0.92rem",
-                                cursor: "pointer",
-                                width: "100%",
-                                marginTop: "16px",
-                                boxShadow: "0 4px 12px rgba(99, 102, 241, 0.25)"
-                            }}
-                        >
-                            Understood
-                        </button>
+                        <div style={{ display: "flex", gap: "10px", marginTop: "16px", flexWrap: "wrap" }}>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setShowLockedFaceModal(false);
+                                    setShowFaceModal(true);
+                                }}
+                                style={{
+                                    flex: 1,
+                                    minWidth: "160px",
+                                    padding: "11px 16px",
+                                    borderRadius: "12px",
+                                    background: "linear-gradient(135deg, #6366f1, #4f46e5)",
+                                    color: "#ffffff",
+                                    border: "none",
+                                    fontWeight: 700,
+                                    fontSize: "0.9rem",
+                                    cursor: "pointer",
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                    gap: "8px",
+                                    boxShadow: "0 4px 12px rgba(99, 102, 241, 0.25)"
+                                }}
+                            >
+                                <FaCamera /> Re-enroll Face Camera
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setShowLockedFaceModal(false)}
+                                style={{
+                                    padding: "11px 20px",
+                                    borderRadius: "12px",
+                                    background: "var(--surface-soft, #f1f5f9)",
+                                    color: "var(--text-main, #334155)",
+                                    border: "1px solid var(--border, #cbd5e1)",
+                                    fontWeight: 700,
+                                    fontSize: "0.9rem",
+                                    cursor: "pointer"
+                                }}
+                            >
+                                Close
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}
 
             {/* 6. Initial Face Biometrics Registration Modal */}
-            {showFaceModal && !hasFaceRegistered && (
+            {showFaceModal && (
                 <div className="modal-backdrop" onClick={() => setShowFaceModal(false)} style={{
                     position: "fixed",
                     top: 0,
@@ -1272,7 +1285,7 @@ export default function StudentDashboard() {
                                 <FaCamera /> Biometric AI Recognition
                             </div>
                             <h2 style={{ margin: "0 0 6px", fontSize: "1.35rem", fontWeight: 800, color: "var(--text-main, #0f172a)" }}>
-                                Register Facial Biometrics
+                                {hasFaceRegistered ? "Update / Re-enroll Facial Biometrics" : "Register Facial Biometrics"}
                             </h2>
                             <p style={{ margin: 0, fontSize: "0.88rem", color: "var(--text-muted, #64748b)" }}>
                                 Roll Number: <strong style={{ color: "#6366f1" }}>{activeRollNo}</strong> • Student: <strong>{studentName}</strong>

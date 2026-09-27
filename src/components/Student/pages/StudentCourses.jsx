@@ -487,7 +487,7 @@ export default function StudentCourses() {
                                     </div>
                                     <div className="sc-info-row">
                                         <FaDoorOpen className="sc-info-icon" />
-                                        <span className="sc-info-text">Room: {course.defaultRoom || "Main Hall"}</span>
+                                        <span className="sc-info-text">Room: {course.defaultRoom || "C003"}</span>
                                         {course.credits && (
                                             <span className="sc-credits-pill">
                                                 <FaLayerGroup /> {course.credits} Credits
@@ -596,7 +596,7 @@ export default function StudentCourses() {
                                     </div>
                                     <div className="sc-strip-content">
                                         <span className="sc-strip-label">Default Lecture Hall</span>
-                                        <span className="sc-strip-val">{selectedCourseModal.defaultRoom || "Main Hall"}</span>
+                                        <span className="sc-strip-val">{selectedCourseModal.defaultRoom || "C003"}</span>
                                     </div>
                                 </div>
                                 <div className="sc-modal-strip-item">

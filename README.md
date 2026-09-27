@@ -126,7 +126,7 @@ SmartAttend is configured with automated Capacitor build scripts that bundle web
 ```bash
 npm run build:apk
 ```
-> Outputs: `SmartAttend-debug.apk` in the project root.
+> Outputs: `SmartAttend-release.apk` in the project root.
 
 ### 📦 Build Signed Release APK
 ```bash

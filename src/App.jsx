@@ -42,6 +42,7 @@ const StudentDashboard = lazy(() => import("./components/Student/StudentDashboar
 const StudentDashboardView = lazy(() => import("./components/Student/pages/Dashboard"));
 const Statistics = lazy(() => import("./components/Student/pages/Statistics"));
 const StudentCourses = lazy(() => import("./components/Student/pages/StudentCourses"));
+const FaceEnrollPage = lazy(() => import("./components/Student/pages/FaceEnrollPage"));
 
 const PageLoadingFallback = () => (
   <div style={{
@@ -336,6 +337,8 @@ function App() {
             <Route path="statistics" element={<Statistics />} />
             <Route path="settings" element={<Settings />} />
             <Route path="device-setup" element={<DeviceSetupPage />} />
+            <Route path="face-enroll" element={<FaceEnrollPage />} />
+            <Route path="register-face" element={<FaceEnrollPage />} />
           </Route>
           <Route path="*" element={<Navigate to="/student" replace />} />
         </Routes>

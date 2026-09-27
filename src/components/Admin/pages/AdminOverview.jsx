@@ -245,10 +245,8 @@ const AdminOverview = () => {
         </div>
         <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
           <a
-            href={import.meta.env.VITE_ANDROID_APK_URL?.trim() || "/app-release.apk"}
+            href={import.meta.env.VITE_ANDROID_APK_URL?.trim() || "/SmartAttend-release.apk"}
             download="SmartAttend-release.apk"
-            target="_blank"
-            rel="noreferrer"
             style={{
               display: "inline-flex",
               alignItems: "center",

@@ -3,7 +3,8 @@ import {
     FaGraduationCap,
     FaSignOutAlt,
     FaTimes,
-    FaBookOpen
+    FaBookOpen,
+    FaCamera
 } from "react-icons/fa";
 import { MdQrCodeScanner } from "react-icons/md";
 import { BsBarChart } from "react-icons/bs";
@@ -18,6 +19,7 @@ function Sidebar({ hidden, onClose }) {
     const menu = [
         { icon: <FaHome />, text: "Dashboard", path: "/student" },
         { icon: <FaBookOpen />, text: "My Courses", path: "/student/courses" },
+        { icon: <FaCamera />, text: "Face Registration", path: "/student/face-enroll" },
         { icon: <MdQrCodeScanner />, text: "Mark Attendance", path: "/student/mark-attendance" },
         { icon: <BsBarChart />, text: "My Attendance", path: "/student/statistics" },
         { icon: <FaCog />, text: "Settings", path: "/student/settings" },

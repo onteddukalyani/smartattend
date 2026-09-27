@@ -1206,8 +1206,8 @@ function QrScannerApp() {
                     System Policy strictly prohibits attendance marking from Android web browsers. SmartAttend requires OS-level Kiosk Lock Task protection. You MUST download and use the official SmartAttend Android APK app.
                 </p>
                 <a
-                    href="/app-release.apk"
-                    download="SmartAttend-v2.0.apk"
+                    href="/SmartAttend-release.apk"
+                    download="SmartAttend-release.apk"
                     style={{
                         display: 'inline-flex',
                         alignItems: 'center',
@@ -2253,8 +2253,8 @@ function QrScannerApp() {
                         Attendance security requires OS-level Kiosk Lock Task mode. Please install the official SmartAttend Android app.
                     </p>
                     <a
-                        href="/app-release.apk"
-                        download="SmartAttend-v2.0.apk"
+                        href="/SmartAttend-release.apk"
+                        download="SmartAttend-release.apk"
                         style={{
                             display: 'inline-flex',
                             alignItems: 'center',

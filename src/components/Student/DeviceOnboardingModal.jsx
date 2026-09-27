@@ -21,7 +21,7 @@ import { detectDeviceType } from '../../utils/deviceDetection';
 import { sendFacultyNotification, sendStudentNotification } from '../../services/notificationsService';
 import './DeviceOnboardingModal.css';
 
-const ANDROID_APK_URL = import.meta.env.VITE_ANDROID_APK_URL?.trim() || '';
+const ANDROID_APK_URL = import.meta.env.VITE_ANDROID_APK_URL?.trim() || '/SmartAttend-release.apk';
 
 /**
  * DeviceOnboardingModal
@@ -256,8 +256,7 @@ export function DeviceOnboardingModal({ isOpen, onClose }) {
                                 {ANDROID_APK_URL ? (
                                     <a
                                         href={ANDROID_APK_URL}
-                                        target="_blank"
-                                        rel="noreferrer"
+                                        download="SmartAttend-release.apk"
                                         className="device-action-btn btn-apk-download"
                                     >
                                         <FaDownload /> Download SmartAttend Android APK (.apk)

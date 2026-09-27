@@ -355,10 +355,8 @@ function Dashboard() {
                                     <FaEnvelope /> {user?.email || "Faculty Account"}
                                 </span>
                                 <a
-                                    href={import.meta.env.VITE_ANDROID_APK_URL?.trim() || "/app-release.apk"}
+                                    href={import.meta.env.VITE_ANDROID_APK_URL?.trim() || "/SmartAttend-release.apk"}
                                     download="SmartAttend-release.apk"
-                                    target="_blank"
-                                    rel="noreferrer"
                                     className="lecturer-badge pill-apk"
                                     title="Download signed SmartAttend Android APK for testing"
                                 >

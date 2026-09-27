@@ -638,10 +638,8 @@ function Settings() {
                             </div>
                             <div className="st-detail-value">
                                 <a
-                                    href={import.meta.env.VITE_ANDROID_APK_URL?.trim() || "/app-release.apk"}
+                                    href={import.meta.env.VITE_ANDROID_APK_URL?.trim() || "/SmartAttend-release.apk"}
                                     download="SmartAttend-release.apk"
-                                    target="_blank"
-                                    rel="noreferrer"
                                     className="st-role-pill"
                                     style={{
                                         background: "linear-gradient(135deg, #2563eb, #1d4ed8)",

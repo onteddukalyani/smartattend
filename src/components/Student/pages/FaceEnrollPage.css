@@ -1,0 +1,133 @@
+.face-enroll-page {
+    padding: 24px 20px;
+    max-width: 820px;
+    margin: 0 auto;
+    width: 100%;
+}
+
+.face-enroll-top-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 20px;
+    gap: 12px;
+}
+
+.face-enroll-top-bar .back-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 16px;
+    border-radius: 10px;
+    border: 1px solid var(--border, #cbd5e1);
+    background: var(--surface, #ffffff);
+    color: var(--text-main, #334155);
+    font-weight: 700;
+    font-size: 0.88rem;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.face-enroll-top-bar .back-btn:hover {
+    background: var(--surface-soft, #f8fafc);
+    border-color: var(--accent, #6366f1);
+    color: var(--accent, #6366f1);
+}
+
+.face-enroll-top-bar .top-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 14px;
+    border-radius: 20px;
+    background: rgba(99, 102, 241, 0.12);
+    color: #6366f1;
+    font-weight: 700;
+    font-size: 0.82rem;
+}
+
+.face-enroll-card {
+    background: var(--surface, #ffffff);
+    border: 1px solid var(--border, #e2e8f0);
+    border-radius: 24px;
+    padding: 28px 24px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.05);
+}
+
+.face-enroll-header {
+    text-align: center;
+    margin-bottom: 24px;
+}
+
+.face-enroll-icon {
+    width: 52px;
+    height: 52px;
+    border-radius: 16px;
+    background: linear-gradient(135deg, #6366f1, #4f46e5);
+    color: #ffffff;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.5rem;
+    margin-bottom: 12px;
+    box-shadow: 0 8px 20px rgba(99, 102, 241, 0.28);
+}
+
+.face-enroll-header h1 {
+    margin: 0 0 6px;
+    font-size: 1.5rem;
+    font-weight: 800;
+    color: var(--text-main, #0f172a);
+}
+
+.face-enroll-header p {
+    margin: 0;
+    font-size: 0.92rem;
+    color: var(--text-muted, #64748b);
+}
+
+.face-enroll-camera-wrap {
+    margin: 0 auto;
+}
+
+.face-enroll-status-saving {
+    margin-top: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    color: var(--accent, #6366f1);
+    font-weight: 700;
+    font-size: 0.95rem;
+}
+
+.face-enroll-status-success {
+    margin-top: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 14px 20px;
+    border-radius: 12px;
+    background: #dcfce7;
+    color: #15803d;
+    font-weight: 700;
+    font-size: 0.95rem;
+    text-align: center;
+}
+
+[data-theme="midnight"] .face-enroll-card {
+    background: #111827;
+    border-color: #1f2937;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+}
+
+[data-theme="midnight"] .face-enroll-top-bar .back-btn {
+    background: #1e293b;
+    border-color: #334155;
+    color: #e2e8f0;
+}
+
+[data-theme="midnight"] .face-enroll-header h1 {
+    color: #f8fafc;
+}

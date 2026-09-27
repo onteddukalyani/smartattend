@@ -12,7 +12,7 @@ import { useAuth } from "../authcontext";
 import { isIOSDevice } from "../../services/guidedAccessService";
 import "./DeviceSetupPage.css";
 
-const ANDROID_APK_URL = import.meta.env.VITE_ANDROID_APK_URL?.trim() || "/app-release.apk";
+const ANDROID_APK_URL = import.meta.env.VITE_ANDROID_APK_URL?.trim() || "/SmartAttend-release.apk";
 
 function getRoleHome(pathname) {
   if (pathname.startsWith("/admin")) return "/admin";
@@ -172,8 +172,8 @@ export default function DeviceSetupPage() {
           </div>
 
           {ANDROID_APK_URL ? (
-            <a className="device-apk-link" href={ANDROID_APK_URL} target="_blank" rel="noreferrer">
-              <FaDownload /> Download SmartAttend APK
+            <a className="device-apk-link" href={ANDROID_APK_URL} download="SmartAttend-release.apk">
+              <FaDownload /> Download SmartAttend APK (.apk)
             </a>
           ) : (
             <div className="device-setup-note">

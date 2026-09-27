@@ -22,7 +22,7 @@ try {
   if (fs.existsSync(stalePublicAssets)) {
     try {
       fs.rmSync(stalePublicAssets, { recursive: true, force: true });
-    } catch (e) {}
+    } catch (e) { }
   }
 
   // 2. Sync Capacitor
@@ -49,28 +49,36 @@ try {
 
   // Remove any previous output APKs to guarantee fresh build
   if (fs.existsSync(srcApk)) {
-    try { fs.unlinkSync(srcApk); } catch (_) {}
+    try { fs.unlinkSync(srcApk); } catch (_) { }
   }
   if (fs.existsSync(destApk)) {
-    try { fs.unlinkSync(destApk); } catch (_) {}
+    try { fs.unlinkSync(destApk); } catch (_) { }
   }
 
   const gradlewCmd = process.platform === 'win32' ? '.\\gradlew.bat' : './gradlew';
   try {
     execSync(`${gradlewCmd} --stop`, { cwd: androidDir, stdio: 'ignore' });
-  } catch (_) {}
+  } catch (_) { }
 
   console.log('\n🔨 Step 3/3: Compiling Android APK (with --rerun-tasks to force fresh packaging)...');
   execSync(`${gradlewCmd} assembleDebug --no-daemon --rerun-tasks`, { cwd: androidDir, stdio: 'inherit' });
 
-  // 4. Copy to Root
+  // 4. Copy to Root and public/ for direct web download
   if (fs.existsSync(srcApk)) {
     fs.copyFileSync(srcApk, destApk);
+
+    const publicDir = path.join(rootDir, 'public');
+    if (fs.existsSync(publicDir)) {
+      fs.copyFileSync(srcApk, path.join(publicDir, 'SmartAttend-release.apk'));
+      fs.copyFileSync(srcApk, path.join(publicDir, 'app-release.apk'));
+    }
+
     const stats = fs.statSync(destApk);
     const sizeMb = (stats.size / (1024 * 1024)).toFixed(2);
     console.log(`\n========================================`);
     console.log(`✅ Build Complete!`);
     console.log(`📁 Updated APK created: SmartAttend-debug.apk (${sizeMb} MB)`);
+    console.log(`📁 Copied to public/ for direct web browser download`);
     console.log(`📲 Ready to install on your Android device!`);
     console.log(`========================================\n`);
   } else {

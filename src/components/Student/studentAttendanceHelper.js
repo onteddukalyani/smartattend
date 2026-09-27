@@ -197,7 +197,7 @@ export function computeStudentMetrics(coursesDocs = [], sessionsDocs = [], recor
                 department: c.department || c.dept || "",
                 semester: c.semester || "",
                 batch: c.batch || "",
-                defaultRoom: c.defaultRoom || c.roomNo || "Main Hall",
+                defaultRoom: c.defaultRoom || c.roomNo || "C003",
                 credits: c.credits || 3,
                 description: c.description || "",
                 ...c
@@ -322,7 +322,7 @@ export function computeStudentMetrics(coursesDocs = [], sessionsDocs = [], recor
                 id: s.id,
                 courseCode: s.courseCode || course.courseCode,
                 topic: s.topic || s.courseName || course.courseName,
-                roomNo: s.roomNo || course.defaultRoom || "Main Hall",
+                roomNo: s.roomNo || course.defaultRoom || "C003",
                 lecturerName: s.lecturerName || course.lecturerName || "Faculty",
                 createdAt: s.createdAt || s.timestamp || Date.now(),
                 isPresent,
