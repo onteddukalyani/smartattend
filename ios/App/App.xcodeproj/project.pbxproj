@@ -17,6 +17,8 @@
 		50B271D11FEDC1A000F3C39B /* public in Resources */ = {isa = PBXBuildFile; fileRef = 50B271D01FEDC1A000F3C39B /* public */; };
 		9582B6832FE993A70072D4E8 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9582B6822FE993A50072D4E8 /* SceneDelegate.swift */; };
 		958DCC812FE993A50072D4E8 /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = 958DCC802FE993A50072D4E8 /* GoogleService-Info.plist */; };
+		9582B6902FE993A70072D4E8 /* GuidedAccessPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9582B68E2FE993A50072D4E8 /* GuidedAccessPlugin.swift */; };
+		9582B6912FE993A70072D4E8 /* GuidedAccessPlugin.m in Sources */ = {isa = PBXBuildFile; fileRef = 9582B68F2FE993A50072D4E8 /* GuidedAccessPlugin.m */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -32,6 +34,8 @@
 		9582B6822FE993A50072D4E8 /* SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
 		958DCC722DB07C7200EA8C5F /* debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = debug.xcconfig; path = ../debug.xcconfig; sourceTree = SOURCE_ROOT; };
 		958DCC802FE993A50072D4E8 /* GoogleService-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "GoogleService-Info.plist"; sourceTree = "<group>"; };
+		9582B68E2FE993A50072D4E8 /* GuidedAccessPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GuidedAccessPlugin.swift; sourceTree = "<group>"; };
+		9582B68F2FE993A50072D4E8 /* GuidedAccessPlugin.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = GuidedAccessPlugin.m; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -76,6 +80,8 @@
 				504EC3131FED79650016851F /* Info.plist */,
 				2FAD9762203C412B000D30F8 /* config.xml */,
 				50B271D01FEDC1A000F3C39B /* public */,
+				9582B68E2FE993A50072D4E8 /* GuidedAccessPlugin.swift */,
+				9582B68F2FE993A50072D4E8 /* GuidedAccessPlugin.m */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -151,6 +157,7 @@
 				50379B232058CBB4000EE86E /* capacitor.config.json in Resources */,
 				504EC30D1FED79650016851F /* Main.storyboard in Resources */,
 				2FAD9763203C412B000D30F8 /* config.xml in Resources */,
+				958DCC812FE993A50072D4E8 /* GoogleService-Info.plist in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -163,6 +170,8 @@
 			files = (
 				504EC3081FED79650016851F /* AppDelegate.swift in Sources */,
 				9582B6832FE993A70072D4E8 /* SceneDelegate.swift in Sources */,
+				9582B6902FE993A70072D4E8 /* GuidedAccessPlugin.swift in Sources */,
+				9582B6912FE993A70072D4E8 /* GuidedAccessPlugin.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -311,6 +320,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = "$(inherited) -ObjC";
 				OTHER_SWIFT_FLAGS = "$(inherited) \"-D\" \"COCOAPODS\" \"-DDEBUG\"";
 				PRODUCT_BUNDLE_IDENTIFIER = com.smartattend.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -333,6 +343,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = "$(inherited) -ObjC";
 				PRODUCT_BUNDLE_IDENTIFIER = com.smartattend.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "";

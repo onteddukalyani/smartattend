@@ -66,11 +66,29 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>com.smartattend.app</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>com.googleusercontent.apps.313754116452-v5akn067agbugb9a065eajs10rusl584</string>
+				<string>com.smartattend.app</string>
+			</array>
+		</dict>
+	</array>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>NSCameraUsageDescription</key>
 	<string>SmartAttend requires camera access for QR code scanning and student facial biometric verification.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>SmartAttend uses the microphone during biometric and audio liveness verification.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>SmartAttend allows uploading student profile and biometric photos from your library.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>SmartAttend allows saving student reports, attendance data, and QR codes to your photos.</string>
 </dict>
 </plist>

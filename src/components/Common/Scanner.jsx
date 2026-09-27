@@ -36,7 +36,7 @@ import {
 import { db } from '../../firebase';
 import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import FaceScanner, { releaseAllMediaTracks } from '../Lecturer/pages/FaceScanner';
-import { isIOSDevice, isGuidedAccessEnabled } from '../../services/guidedAccessService';
+import { isIOSDevice, isGuidedAccessEnabled, addAppSwitchListener } from '../../services/guidedAccessService';
 import GuidedAccessRequired, { GuidedAccessExitNotice } from '../GuidedAccessRequired';
 
 /**
@@ -432,22 +432,49 @@ function QrScannerApp() {
             });
         };
 
+        let appStateHandle = null;
+        if (isNativeApp) {
+            CapacitorApp.addListener('appStateChange', ({ isActive }) => {
+                if (!isActive) {
+                    handleViolationTrigger('APP_BACKGROUNDED');
+                }
+            }).then((h) => {
+                appStateHandle = h;
+            });
+        }
+
+        // iOS-specific: subscribe to native GuidedAccessPlugin appSwitchDetected events.
+        // WILL_RESIGN_ACTIVE fires as soon as the student starts swiping up — earlier than appStateChange.
+        let iosAppSwitchCleanup = null;
+        if (isNativeApp && isIOSDevice()) {
+            addAppSwitchListener((switchData) => {
+                // Only flag WILL_RESIGN_ACTIVE once per gesture to avoid double-counting
+                if (switchData.event === 'WILL_RESIGN_ACTIVE') {
+                    handleViolationTrigger('IOS_RESIGN_ACTIVE');
+                }
+            }).then((cleanup) => {
+                iosAppSwitchCleanup = cleanup;
+            });
+        }
+
         const handleVisibilityChange = () => {
-            if (!isNativeApp && (document.hidden || document.visibilityState === 'hidden')) {
+            if (document.hidden || document.visibilityState === 'hidden') {
                 handleViolationTrigger('VISIBILITY_CHANGE');
             }
         };
 
         const handleBlur = () => {
-            if (!isNativeApp) {
-                handleViolationTrigger('WINDOW_BLUR');
-            }
+            handleViolationTrigger('WINDOW_BLUR');
         };
 
         document.addEventListener('visibilitychange', handleVisibilityChange);
         window.addEventListener('blur', handleBlur);
 
         return () => {
+            if (appStateHandle && typeof appStateHandle.remove === 'function') {
+                appStateHandle.remove();
+            }
+            if (typeof iosAppSwitchCleanup === 'function') iosAppSwitchCleanup();
             document.removeEventListener('visibilitychange', handleVisibilityChange);
             window.removeEventListener('blur', handleBlur);
         };

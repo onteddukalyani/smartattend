@@ -2,6 +2,11 @@
   "appId": "com.smartattend.app",
   "appName": "SmartAttend",
   "webDir": "dist",
+  "ios": {
+    "contentInset": "always",
+    "scheme": "SmartAttend",
+    "preferredContentMode": "mobile"
+  },
   "plugins": {
     "FirebaseAuthentication": {
       "skipNativeAuth": false,
