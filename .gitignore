@@ -9,8 +9,8 @@ lerna-debug.log*
 
 node_modules
 dist
-dist-ssr
 *.local
+.firebase
 
 # Editor directories and files
 .vscode/*
@@ -32,3 +32,9 @@ dist-ssr
 public/*.apk
 dist/*.apk
 android/app/build/
+
+# Explicitly track distributable APKs
+!SmartAttend-release.apk
+!SmartAttend-debug.apk
+!public/SmartAttend-release.apk
+!public/SmartAttend-debug.apk

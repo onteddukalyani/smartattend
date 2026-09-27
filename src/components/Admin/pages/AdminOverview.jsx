@@ -15,6 +15,7 @@ import {
 } from "react-icons/fa";
 import { collection, getDocs, query, where, onSnapshot } from "firebase/firestore";
 import { db } from "../../../firebase";
+import { getApkDownloadUrl } from "../../../utils/apkUrl";
 import "./AdminOverview.css";
 
 const AdminOverview = () => {
@@ -245,7 +246,7 @@ const AdminOverview = () => {
         </div>
         <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
           <a
-            href={import.meta.env.VITE_ANDROID_APK_URL?.trim() || "/SmartAttend-release.apk"}
+            href={getApkDownloadUrl()}
             download="SmartAttend-release.apk"
             style={{
               display: "inline-flex",

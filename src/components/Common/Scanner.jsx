@@ -38,6 +38,7 @@ import { db } from '../../firebase';
 import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import FaceScanner, { releaseAllMediaTracks } from '../Lecturer/pages/FaceScanner';
 import { isIOSDevice, isGuidedAccessEnabled, addAppSwitchListener, addScreenCaptureListener } from '../../services/guidedAccessService';
+import { getApkDownloadUrl } from '../../utils/apkUrl';
 import GuidedAccessRequired, { GuidedAccessExitNotice } from '../GuidedAccessRequired';
 import { isGenericName, normalizeDescriptor } from '../../utils/studentDataHelper';
 
@@ -1206,7 +1207,7 @@ function QrScannerApp() {
                     System Policy strictly prohibits attendance marking from Android web browsers. SmartAttend requires OS-level Kiosk Lock Task protection. You MUST download and use the official SmartAttend Android APK app.
                 </p>
                 <a
-                    href="/SmartAttend-release.apk"
+                    href={getApkDownloadUrl()}
                     download="SmartAttend-release.apk"
                     style={{
                         display: 'inline-flex',
@@ -1911,9 +1912,8 @@ function QrScannerApp() {
                             <FaExternalLinkAlt /> Open in SmartAttend App
                         </button>
                         <a
-                            href="http://10.0.10.251:8080/SmartAttend-debug.apk"
-                            target="_blank"
-                            rel="noopener noreferrer"
+                            href={getApkDownloadUrl()}
+                            download="SmartAttend-release.apk"
                             style={{
                                 width: '100%',
                                 padding: '9px 16px',
@@ -2253,7 +2253,7 @@ function QrScannerApp() {
                         Attendance security requires OS-level Kiosk Lock Task mode. Please install the official SmartAttend Android app.
                     </p>
                     <a
-                        href="/SmartAttend-release.apk"
+                        href={getApkDownloadUrl()}
                         download="SmartAttend-release.apk"
                         style={{
                             display: 'inline-flex',

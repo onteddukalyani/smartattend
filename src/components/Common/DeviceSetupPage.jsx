@@ -10,9 +10,10 @@ import {
 } from "react-icons/fa";
 import { useAuth } from "../authcontext";
 import { isIOSDevice } from "../../services/guidedAccessService";
+import { getApkDownloadUrl } from "../../utils/apkUrl";
 import "./DeviceSetupPage.css";
 
-const ANDROID_APK_URL = import.meta.env.VITE_ANDROID_APK_URL?.trim() || "/SmartAttend-release.apk";
+const ANDROID_APK_URL = getApkDownloadUrl();
 
 function getRoleHome(pathname) {
   if (pathname.startsWith("/admin")) return "/admin";

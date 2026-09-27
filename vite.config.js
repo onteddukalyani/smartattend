@@ -7,7 +7,20 @@ export default defineConfig({
   base: '/',
   plugins: [
     react(),
-    babel({ presets: [reactCompilerPreset()] })
+    babel({ presets: [reactCompilerPreset()] }),
+    {
+      name: 'apk-mime-type',
+      configureServer(server) {
+        server.middlewares.use((req, res, next) => {
+          if (req.url && req.url.endsWith('.apk')) {
+            res.setHeader('Content-Type', 'application/vnd.android.package-archive');
+            const filename = req.url.split('/').pop().split('?')[0] || 'SmartAttend-release.apk';
+            res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+          }
+          next();
+        });
+      }
+    }
   ],
   build: {
     target: 'es2020',

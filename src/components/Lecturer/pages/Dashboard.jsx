@@ -13,6 +13,7 @@ import { useAuth } from "../../authcontext";
 import ProfilePhotoModal from "../../Common/ProfilePhotoModal";
 import ViolationReviewModal from "../../Common/ViolationReviewModal";
 import { normalizeBranchName } from "../../../utils/studentDataHelper";
+import { getApkDownloadUrl } from "../../../utils/apkUrl";
 
 function Dashboard() {
     const { user, profile, updateProfilePhoto, deleteProfilePhoto } = useAuth();
@@ -355,7 +356,7 @@ function Dashboard() {
                                     <FaEnvelope /> {user?.email || "Faculty Account"}
                                 </span>
                                 <a
-                                    href={import.meta.env.VITE_ANDROID_APK_URL?.trim() || "/SmartAttend-release.apk"}
+                                    href={getApkDownloadUrl()}
                                     download="SmartAttend-release.apk"
                                     className="lecturer-badge pill-apk"
                                     title="Download signed SmartAttend Android APK for testing"

@@ -7,10 +7,13 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootDir = path.join(__dirname, '..');
-const apkPath = path.join(rootDir, 'SmartAttend-debug.apk');
+const releaseApkPath = path.join(rootDir, 'SmartAttend-release.apk');
+const debugApkPath = path.join(rootDir, 'SmartAttend-debug.apk');
+const apkPath = fs.existsSync(releaseApkPath) ? releaseApkPath : debugApkPath;
+const apkFileName = path.basename(apkPath);
 
 if (!fs.existsSync(apkPath)) {
-  console.error('❌ Error: SmartAttend-debug.apk not found in project root directory.');
+  console.error('❌ Error: Neither SmartAttend-release.apk nor SmartAttend-debug.apk found in project root directory.');
   process.exit(1);
 }
 
@@ -32,16 +35,28 @@ function getLocalIpAddresses() {
 }
 
 const server = http.createServer((req, res) => {
-  const url = req.url || '/';
+  const url = req.url ? req.url.split('?')[0] : '/';
 
-  if (url === '/SmartAttend-debug.apk' || url === '/download' || url === '/app.apk') {
+  if (
+    url === '/SmartAttend-release.apk' ||
+    url === '/SmartAttend-debug.apk' ||
+    url === '/download' ||
+    url === '/app.apk' ||
+    url.endsWith('.apk')
+  ) {
+    const requestedFile = url.endsWith('release.apk') && fs.existsSync(releaseApkPath)
+      ? releaseApkPath
+      : apkPath;
+    const currentStats = fs.statSync(requestedFile);
+    const downloadName = path.basename(requestedFile);
+
     res.writeHead(200, {
       'Content-Type': 'application/vnd.android.package-archive',
-      'Content-Disposition': 'attachment; filename="SmartAttend-debug.apk"',
-      'Content-Length': stats.size,
+      'Content-Disposition': `attachment; filename="${downloadName}"`,
+      'Content-Length': currentStats.size,
       'Access-Control-Allow-Origin': '*'
     });
-    const stream = fs.createReadStream(apkPath);
+    const stream = fs.createReadStream(requestedFile);
     stream.pipe(res);
     return;
   }
@@ -131,9 +146,8 @@ const server = http.createServer((req, res) => {
       <div class="card">
         <div class="icon">📲</div>
         <h1>SmartAttend Android App</h1>
-        <p>Lecturer-Controlled MDM Attendance App with FaceIO Biometrics</p>
-        <div class="badge">Size: ${sizeMb} MB &bull; Version: 1.0 Debug</div>
-        <a href="/SmartAttend-debug.apk" class="btn" download="SmartAttend-debug.apk">
+        <div class="badge">Size: ${sizeMb} MB &bull; ${apkFileName}</div>
+        <a href="/${apkFileName}" class="btn" download="${apkFileName}">
           ⬇️ Download APK (${sizeMb} MB)
         </a>
         <div class="instructions">

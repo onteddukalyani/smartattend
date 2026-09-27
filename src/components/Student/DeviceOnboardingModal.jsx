@@ -19,9 +19,10 @@ import { useAuth } from '../authcontext';
 import { isGuidedAccessEnabled } from '../../services/guidedAccessService';
 import { detectDeviceType } from '../../utils/deviceDetection';
 import { sendFacultyNotification, sendStudentNotification } from '../../services/notificationsService';
+import { getApkDownloadUrl } from '../../utils/apkUrl';
 import './DeviceOnboardingModal.css';
 
-const ANDROID_APK_URL = import.meta.env.VITE_ANDROID_APK_URL?.trim() || '/SmartAttend-release.apk';
+const ANDROID_APK_URL = getApkDownloadUrl();
 
 /**
  * DeviceOnboardingModal

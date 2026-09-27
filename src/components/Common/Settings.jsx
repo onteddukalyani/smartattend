@@ -32,8 +32,8 @@ import { doc, onSnapshot } from "firebase/firestore";
 import { db } from "../../firebase";
 import { useAuth } from "../authcontext";
 import ProfilePhotoModal from "./ProfilePhotoModal";
-import DeviceOnboardingModal from "../Student/DeviceOnboardingModal";
 import { normalizeBranchName } from "../../utils/studentDataHelper";
+import { getApkDownloadUrl } from "../../utils/apkUrl";
 import "./Settings.css";
 
 function Settings() {
@@ -638,7 +638,7 @@ function Settings() {
                             </div>
                             <div className="st-detail-value">
                                 <a
-                                    href={import.meta.env.VITE_ANDROID_APK_URL?.trim() || "/SmartAttend-release.apk"}
+                                    href={getApkDownloadUrl()}
                                     download="SmartAttend-release.apk"
                                     className="st-role-pill"
                                     style={{
