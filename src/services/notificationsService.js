@@ -107,7 +107,14 @@ export function subscribeToFacultyNotifications(callback) {
         ...doc.data()
       }));
       callback(notifs);
-    }, (err) => console.warn("Faculty notifications subscription notice:", err));
+    }, (err) => {
+      if (err?.code === 'permission-denied') {
+        console.info("[Faculty Notifications] Awaiting permissions...");
+      } else {
+        console.warn("Faculty notifications subscription notice:", err);
+      }
+      callback([]);
+    });
   } catch (err) {
     console.warn("Error subscribing to faculty notifications:", err);
     return () => {};

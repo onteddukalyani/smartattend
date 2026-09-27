@@ -481,6 +481,13 @@ export async function submitVerifiedAttendance(sessionId, qr2Token, biometricDat
     }
   }
 
+  const studentDeviceType = (
+    localStorage.getItem("smartattend_student_device_type") ||
+    authData.deviceType ||
+    currentUser?.deviceType ||
+    "unknown"
+  ).toLowerCase();
+
   const attendanceRecord = {
     id: recordId,
     sessionId: sessionId,
@@ -497,6 +504,7 @@ export async function submitVerifiedAttendance(sessionId, qr2Token, biometricDat
     lecturerName: session?.lecturerName || "",
     lecturerEmail: session?.lecturerEmail || "",
     ownerId: session?.ownerId || "",
+    deviceType: studentDeviceType,
     faceVerified: true,
     faceMatchConfidence: biometricData?.confidence || 100,
     faceDistance: biometricData?.distance !== undefined ? Number(biometricData.distance.toFixed(4)) : null,
@@ -525,6 +533,7 @@ export async function submitVerifiedAttendance(sessionId, qr2Token, biometricDat
         fullName: studentName,
         email: studentEmail,
         studentEmail: studentEmail,
+        deviceType: studentDeviceType,
         faceVerified: true,
         faceMatchConfidence: biometricData?.confidence || 100,
         submittedAt: now,

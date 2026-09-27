@@ -331,13 +331,13 @@ export function DeviceOnboardingModal({ isOpen, onClose }) {
                             <div className="step-card">
                                 <div className="step-num">1</div>
                                 <div className="step-text">
-                                    Open Safari $\rightarrow$ Tap Share Icon $\rightarrow$ Select <span className="step-highlight">Add to Home Screen</span> (PWA Mode).
+                                    Open Safari <span className="step-arrow" aria-hidden="true">→</span> Tap Share Icon <span className="step-arrow" aria-hidden="true">→</span> Select <span className="step-highlight">Add to Home Screen</span> (PWA Mode).
                                 </div>
                             </div>
                             <div className="step-card">
                                 <div className="step-num">2</div>
                                 <div className="step-text">
-                                    Go to <span className="step-highlight">iOS Settings</span> $\rightarrow$ <span className="step-highlight">Accessibility</span> $\rightarrow$ <span className="step-highlight">Guided Access</span> $\rightarrow$ Turn <strong>ON</strong> and set a passcode.
+                                    Go to <span className="step-highlight">iOS Settings</span> <span className="step-arrow" aria-hidden="true">→</span> <span className="step-highlight">Accessibility</span> <span className="step-arrow" aria-hidden="true">→</span> <span className="step-highlight">Guided Access</span> <span className="step-arrow" aria-hidden="true">→</span> Turn <strong>ON</strong> and set a passcode.
                                 </div>
                             </div>
                             <div className="step-card">

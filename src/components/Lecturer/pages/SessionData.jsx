@@ -563,6 +563,7 @@ export function SessionAttendanceData() {
                                     rollNo: roll,
                                     fullName: att.fullName || att.name || att.studentName || "Student",
                                     studentEmail: att.studentEmail || att.email || "",
+                                    deviceType: att.deviceType || "",
                                     submittedAt: att.submittedAt || att.timestamp || att.time || sessData.createdAt,
                                     faceVerified: att.faceVerified ?? true
                                 });
@@ -695,11 +696,22 @@ export function SessionAttendanceData() {
                                         <td>{recordDateTime.dateStr}</td>
                                         <td>{recordDateTime.timeStr}</td>
                                         <td>
-                                            {record.faceVerified ? (
-                                                <span style={{ color: "#10b981", fontWeight: 700, fontSize: "0.82rem" }}>✅ Face Verified</span>
-                                            ) : (
-                                                <span style={{ color: "#6366f1", fontWeight: 700, fontSize: "0.82rem" }}>📱 QR Verified</span>
-                                            )}
+                                            <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                                                {record.faceVerified ? (
+                                                    <span style={{ color: "#10b981", fontWeight: 700, fontSize: "0.82rem" }}>✅ Face Verified</span>
+                                                ) : (
+                                                    <span style={{ color: "#6366f1", fontWeight: 700, fontSize: "0.82rem" }}>📱 QR Verified</span>
+                                                )}
+                                                {record.deviceType && (
+                                                    <span style={{
+                                                        fontSize: "0.72rem",
+                                                        fontWeight: 700,
+                                                        color: record.deviceType === "android" ? "#059669" : record.deviceType === "ios" ? "#0284c7" : "#64748b"
+                                                    }}>
+                                                        {record.deviceType === "android" ? "🤖 Android APK" : record.deviceType === "ios" ? "🍎 iPhone iOS" : record.deviceType}
+                                                    </span>
+                                                )}
+                                            </div>
                                         </td>
                                         <td onClick={(e) => e.stopPropagation()}>
                                             <button

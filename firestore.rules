@@ -31,6 +31,18 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
+    match /faculty_notifications/{notificationId} {
+      allow read, write: if true;
+    }
+
+    match /user_complaints/{complaintId} {
+      allow read, write: if true;
+    }
+
+    match /student_notifications/{studentRollNo}/{document=**} {
+      allow read, write: if true;
+    }
+
     // =========================================================================
     // ATTENDANCE SESSIONS & SECURITY TOKENS
     // =========================================================================

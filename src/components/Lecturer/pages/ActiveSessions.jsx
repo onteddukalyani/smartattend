@@ -99,8 +99,14 @@ function ActiveSessions() {
                     <div className="active-sessions-grid">
                         {activeSessions.map((session) => (
                             <Link to={`/lecturer/attendance-sessions/${session.id}`} className="active-session-card" key={session.id}>
-                                <QRCodeCanvas value={`${window.location.origin}/student/mark-attendance?session=${encodeURIComponent(session.id)}`} size={140} />
+                                <div className="active-session-qr-wrap">
+                                    <QRCodeCanvas value={`${window.location.origin}/student/mark-attendance?session=${encodeURIComponent(session.id)}`} size={135} />
+                                </div>
                                 <div className="active-session-meta">
+                                    <div className="active-session-tag-row">
+                                        <span className="active-session-live-tag">● LIVE</span>
+                                        {session.batch && <span className="active-session-batch-tag">Batch {session.batch}</span>}
+                                    </div>
                                     <strong>{session.courseCode || session.classCode || "Class"}</strong>
                                     <span>Room {session.roomNo || "N/A"} · {session.classCode || "CSE"}</span>
                                     <small className="active-session-expiry">

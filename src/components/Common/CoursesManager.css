@@ -410,15 +410,15 @@
    --------------------------------------------------------- */
 .cm-courses-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  gap: 18px;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 390px), 1fr));
+  gap: 22px;
 }
 
 .cm-course-card {
   background: var(--surface, #ffffff);
   border: 1px solid var(--border, #e2e8f0);
   border-radius: 20px;
-  padding: 20px 22px;
+  padding: 22px 24px;
   box-shadow: 0 4px 18px rgba(0, 0, 0, 0.03);
   display: flex;
   flex-direction: column;
@@ -426,6 +426,7 @@
   position: relative;
   overflow: hidden;
   transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  box-sizing: border-box;
 }
 
 .cm-course-card:hover {
@@ -444,16 +445,17 @@
 .cm-toolbar,
 .cm-toolbar-left,
 .cm-header,
-.cm-header-actions,
-.cm-stats-grid {
+.cm-header-actions {
   display: flex;
 }
 
 .cm-course-card-top {
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 10px;
-  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 14px;
 }
 
 .cm-course-meta-row {
@@ -481,14 +483,6 @@
   flex: 0 0 auto;
 }
 
-.cm-course-card-top {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 10px;
-  margin-bottom: 12px;
-}
-
 .cm-course-code-badge {
   display: inline-flex;
   align-items: center;
@@ -498,9 +492,10 @@
   border: 1px solid rgba(99, 102, 241, 0.28);
   border-radius: 10px;
   color: #4f46e5;
-  font-size: 0.86rem;
+  font-size: 0.84rem;
   font-weight: 800;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
 }
 
 [data-theme="midnight"] .cm-course-code-badge {
@@ -509,15 +504,18 @@
 }
 
 .cm-course-dept-badge {
-  font-size: 0.72rem;
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.74rem;
   font-weight: 750;
-  padding: 4px 9px;
+  padding: 5px 10px;
   border-radius: 999px;
   background: var(--surface-soft, #f1f5f9);
   color: var(--text-muted, #64748b);
   border: 1px solid var(--border, #e2e8f0);
   text-transform: uppercase;
   letter-spacing: 0.03em;
+  white-space: nowrap;
 }
 
 .cm-course-title {
@@ -1063,31 +1061,101 @@
     width: 100%;
   }
 
+  /* Stats summary cards stacked one by one vertically down on mobile */
   .cm-stats-grid {
-    grid-template-columns: repeat(2, 1fr);
+    display: grid !important;
+    grid-template-columns: 1fr !important;
     gap: 10px;
     margin-bottom: 16px;
+    overflow-x: visible;
   }
 
   .cm-stat-card {
-    padding: 12px 14px;
-    gap: 10px;
-    border-radius: 14px;
+    width: 100%;
+    min-width: 0;
+    padding: 16px 20px;
+    border-radius: 16px;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    gap: 8px;
   }
 
   .cm-stat-icon {
-    width: 38px;
-    height: 38px;
-    font-size: 1.1rem;
-    border-radius: 10px;
+    width: 48px;
+    height: 48px;
+    font-size: 1.35rem;
+    border-radius: 14px;
+    flex-shrink: 0;
+    margin: 0 auto;
+  }
+
+  .cm-stat-data {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    min-width: 0;
   }
 
   .cm-stat-label {
-    font-size: 0.65rem;
+    font-size: 0.74rem;
+    font-weight: 750;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-muted, #64748b);
+    margin-bottom: 2px;
   }
 
   .cm-stat-value {
-    font-size: 1.3rem;
+    font-size: 1.65rem;
+    font-weight: 850;
+    color: var(--text-main, #0f172a);
+    line-height: 1.1;
+  }
+
+  /* Course Card Top Badges on mobile */
+  .cm-course-card-top {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 10px;
+  }
+
+  .cm-course-code-badge,
+  .cm-course-dept-badge {
+    flex-shrink: 0;
+    white-space: nowrap;
+    font-size: 0.78rem;
+    padding: 4px 9px;
+  }
+
+  /* Course Card Actions in ONE single row on mobile */
+  .cm-course-actions {
+    display: flex;
+    align-items: center;
+    flex-wrap: nowrap;
+    gap: 6px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    padding-top: 10px;
+  }
+
+  .cm-course-actions::-webkit-scrollbar {
+    display: none;
+  }
+
+  .cm-course-actions .cm-btn {
+    flex: 1 0 auto;
+    white-space: nowrap;
+    font-size: 0.78rem;
+    padding: 7px 10px;
   }
 
   .cm-toolbar {
@@ -1107,16 +1175,24 @@
 
   .cm-scope-tabs {
     width: 100%;
-    display: grid;
-    grid-template-columns: 1fr 1fr;
+    display: flex;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
     box-sizing: border-box;
   }
 
+  .cm-scope-tabs::-webkit-scrollbar {
+    display: none;
+  }
+
   .cm-scope-btn {
+    flex: 1;
     justify-content: center;
     font-size: 0.8rem;
     padding: 7px 8px;
     text-align: center;
+    white-space: nowrap;
   }
 
   .cm-tabs {

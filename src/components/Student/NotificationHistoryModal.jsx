@@ -73,36 +73,32 @@ export function NotificationHistoryModal({
             <div className="notif-modal-card">
                 {/* Header */}
                 <div className="notif-modal-header">
-                    <div className="notif-modal-title-group">
+                    <button className="notif-modal-close-btn" onClick={onClose} aria-label="Close">
+                        <FaTimes />
+                    </button>
+
+                    <div className="notif-header-center">
                         <div className="notif-header-icon">
                             <FaBell />
                         </div>
-                        <div>
-                            <h2 className="notif-modal-title">
-                                {isFaculty ? 'Faculty Audit Logs & Security Alerts' : 'Notification History & Logs'}
-                            </h2>
-                            <p className="notif-modal-subtitle">
-                                {isFaculty
-                                    ? (unreadCount > 0 ? `${unreadCount} unread system security alert(s)` : 'Real-time student & anti-proxy audit log stream')
-                                    : (unreadCount > 0 ? `${unreadCount} unread update(s) from Faculty & Admin` : 'All Faculty & Admin updates')}
-                            </p>
-                        </div>
-                    </div>
-
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <h2 className="notif-modal-title">
+                            {isFaculty ? 'Faculty Audit Logs & Security Alerts' : 'Notification History & Logs'}
+                        </h2>
+                        <p className="notif-modal-subtitle">
+                            {isFaculty
+                                ? (unreadCount > 0 ? `${unreadCount} unread system security alert(s)` : 'Real-time student & anti-proxy audit log stream')
+                                : (unreadCount > 0 ? `${unreadCount} unread update(s) from Faculty & Admin` : 'All Faculty & Admin updates')}
+                        </p>
                         {unreadCount > 0 && (
                             <button
                                 type="button"
-                                className="notif-action-btn btn-action-secondary"
+                                className="notif-action-btn btn-action-secondary notif-mark-all-btn"
                                 onClick={handleMarkAllRead}
                                 title="Mark all as read"
                             >
-                                <FaCheck /> Mark All Read
+                                <FaCheck /> <span>Mark All Read</span>
                             </button>
                         )}
-                        <button className="notif-modal-close-btn" onClick={onClose} aria-label="Close">
-                            <FaTimes />
-                        </button>
                     </div>
                 </div>
 
@@ -127,11 +123,9 @@ export function NotificationHistoryModal({
                                 className={`notif-item-card ${!n.read ? 'unread' : ''}`}
                             >
                                 <div className="notif-item-header">
-                                    <div>
-                                        <div className="notif-item-title">
-                                            {n.title}
-                                            {getTypeBadge(n.type)}
-                                        </div>
+                                    <div className="notif-item-title-wrap">
+                                        <h4 className="notif-item-title">{n.title}</h4>
+                                        {getTypeBadge(n.type)}
                                     </div>
                                     <span className="notif-item-time">
                                         {n.createdAt ? new Date(n.createdAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Just now'}
@@ -143,7 +137,7 @@ export function NotificationHistoryModal({
                                 <div className="notif-item-actions">
                                     <span className="notif-sender-pill">By {n.senderName || 'System'}</span>
 
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <div className="notif-item-btns">
                                         {/* Actionable Button: Device Reset (Student) */}
                                         {!isFaculty && n.type === 'DEVICE_RESET' && onOpenDeviceModal && (
                                             <button
@@ -155,7 +149,7 @@ export function NotificationHistoryModal({
                                                     onOpenDeviceModal();
                                                 }}
                                             >
-                                                <FaMobileAlt /> Set Up Device Now
+                                                <FaMobileAlt /> Set Up Device
                                             </button>
                                         )}
 
@@ -170,7 +164,7 @@ export function NotificationHistoryModal({
                                                     onOpenFaceModal();
                                                 }}
                                             >
-                                                <FaCamera /> Enroll Face Now
+                                                <FaCamera /> Enroll Face
                                             </button>
                                         )}
 

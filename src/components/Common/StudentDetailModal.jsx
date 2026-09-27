@@ -19,7 +19,12 @@ import {
   FaSave,
   FaRedo,
   FaTrashAlt,
-  FaShieldAlt
+  FaShieldAlt,
+  FaMobileAlt,
+  FaAndroid,
+  FaApple,
+  FaLock,
+  FaUnlock
 } from "react-icons/fa";
 import { collection, getDocs, query, where, doc, setDoc, deleteDoc, deleteField, onSnapshot } from "firebase/firestore";
 import { db } from "../../firebase";
@@ -30,6 +35,7 @@ import { LiveFaceEnrollment } from "./LiveFaceEnrollment";
 import ProfilePhotoModal from "./ProfilePhotoModal";
 import { removeStudentFaceAndBiometrics, removeStudentPhotoOnly, checkDuplicateFaceBiometrics } from "../../utils/biometricManager";
 import { deleteStudentRecordCompletely, normalizeBranchName } from "../../utils/studentDataHelper";
+import { sendStudentNotification } from "../../services/notificationsService";
 import "./StudentDetailModal.css";
 
 const StudentDetailModal = ({ student, onClose, onUpdate }) => {
@@ -350,6 +356,61 @@ const StudentDetailModal = ({ student, onClose, onUpdate }) => {
     }
   };
 
+  const [resettingDevice, setResettingDevice] = useState(false);
+
+  const handleResetDeviceLock = async () => {
+    if (!isStaff) {
+      alert("Only faculty lecturers and administrators have permission to reset student device locks.");
+      return;
+    }
+
+    const cleanRoll = String(currentStudent.rollNo || currentStudent.id || "").trim().toUpperCase();
+    const studentName = currentStudent.name || currentStudent.rollNo || "this student";
+
+    const confirmed = window.confirm(
+      `🔓 Reset Device Lock?\n\nAre you sure you want to reset the registered device selection for ${studentName} (${cleanRoll})?\n\nThis will allow the student to select a new device type (Android APK or iPhone Guided Access) on their next sign-in.`
+    );
+    if (!confirmed) return;
+
+    try {
+      setResettingDevice(true);
+      const resetPayload = {
+        deviceType: deleteField(),
+        deviceTypeLocked: false,
+        deviceResetAt: Date.now()
+      };
+
+      await setDoc(doc(db, "students", cleanRoll), resetPayload, { merge: true });
+      await setDoc(doc(db, "users", cleanRoll), resetPayload, { merge: true }).catch(() => {});
+
+      const updated = {
+        ...currentStudent,
+        deviceType: null,
+        deviceTypeLocked: false,
+        deviceResetAt: Date.now()
+      };
+      setCurrentStudent(updated);
+      onUpdate?.(updated);
+
+      // Notify student in real-time
+      const actorName = profile?.name || profile?.email || "Faculty/Admin";
+      await sendStudentNotification(
+        cleanRoll,
+        "Device Lock Reset",
+        `Your registered device lock was reset by ${actorName}. You can now select a new device type (Android APK or iPhone Guided Access) on your dashboard.`,
+        "DEVICE_RESET",
+        actorName
+      );
+
+      alert(`✅ Device lock for ${studentName} (${cleanRoll}) has been successfully reset!`);
+    } catch (err) {
+      console.error("Error resetting device lock:", err);
+      alert("Failed to reset device lock: " + err.message);
+    } finally {
+      setResettingDevice(false);
+    }
+  };
+
   const handleDeleteStudent = async () => {
     if (!isStaff) {
       alert("Only faculty lecturers and administrators have permission to delete student records.");
@@ -436,6 +497,11 @@ const StudentDetailModal = ({ student, onClose, onUpdate }) => {
               <span className="badge-branch">
                 {normalizeBranchName(currentStudent.branch || "CSE")} {currentStudent.semester ? `• Sem ${currentStudent.semester}` : ""}
               </span>
+              {currentStudent.deviceType && (
+                <span className={`badge-device ${currentStudent.deviceType}`}>
+                  {currentStudent.deviceType === "android" ? <FaAndroid /> : <FaApple />} {currentStudent.deviceType === "android" ? "Android APK" : "iPhone iOS"}
+                </span>
+              )}
             </div>
           </div>
         </div>
@@ -580,6 +646,122 @@ const StudentDetailModal = ({ student, onClose, onUpdate }) => {
                         <FaCamera /> {showFaceEnroll ? "Hide Camera" : (isFaceEnrolled ? "Re-enroll Face" : "Enroll Face")}
                       </button>
                     </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Registered Device & Security Mode */}
+              <div className="info-row">
+                <FaMobileAlt
+                  className="info-icon"
+                  style={{
+                    color: currentStudent.deviceType === "android" ? "#10b981" : currentStudent.deviceType === "ios" ? "#0284c7" : "#f59e0b"
+                  }}
+                />
+                <div style={{ flex: 1 }}>
+                  <label>Registered Device & Mode</label>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "8px" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                      {currentStudent.deviceType === "android" ? (
+                        <span
+                          className="device-detail-tag android"
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: "6px",
+                            padding: "4px 10px",
+                            borderRadius: "8px",
+                            background: "rgba(16, 185, 129, 0.12)",
+                            color: "#10b981",
+                            fontWeight: 700,
+                            fontSize: "0.84rem",
+                            border: "1px solid rgba(16, 185, 129, 0.25)"
+                          }}
+                        >
+                          <FaAndroid /> Android (APK Mode)
+                        </span>
+                      ) : currentStudent.deviceType === "ios" ? (
+                        <span
+                          className="device-detail-tag ios"
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: "6px",
+                            padding: "4px 10px",
+                            borderRadius: "8px",
+                            background: "rgba(2, 132, 199, 0.12)",
+                            color: "#0284c7",
+                            fontWeight: 700,
+                            fontSize: "0.84rem",
+                            border: "1px solid rgba(2, 132, 199, 0.25)"
+                          }}
+                        >
+                          <FaApple /> iPhone (Guided Access)
+                        </span>
+                      ) : (
+                        <span
+                          className="device-detail-tag unlocked"
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: "6px",
+                            padding: "4px 10px",
+                            borderRadius: "8px",
+                            background: "rgba(245, 158, 11, 0.12)",
+                            color: "#d97706",
+                            fontWeight: 700,
+                            fontSize: "0.84rem",
+                            border: "1px solid rgba(245, 158, 11, 0.25)"
+                          }}
+                        >
+                          <FaUnlock /> Not Registered / Unset
+                        </span>
+                      )}
+
+                      {currentStudent.deviceTypeLocked && (
+                        <span
+                          title="Locked: Student cannot mark attendance on an unapproved device without faculty reset"
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: "4px",
+                            fontSize: "0.76rem",
+                            background: "rgba(99, 102, 241, 0.12)",
+                            color: "#6366f1",
+                            border: "1px solid rgba(99, 102, 241, 0.25)",
+                            borderRadius: "6px",
+                            padding: "3px 8px",
+                            fontWeight: 700
+                          }}
+                        >
+                          <FaLock size={10} /> Locked
+                        </span>
+                      )}
+                    </div>
+
+                    {isStaff && currentStudent.deviceType && (
+                      <button
+                        type="button"
+                        onClick={handleResetDeviceLock}
+                        disabled={resettingDevice}
+                        title="Faculty Action: Reset device lock so student can register a new phone"
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: "5px",
+                          fontSize: "0.78rem",
+                          fontWeight: 700,
+                          padding: "5px 12px",
+                          borderRadius: "8px",
+                          background: "rgba(14, 165, 233, 0.12)",
+                          color: "#0284c7",
+                          border: "1px solid rgba(14, 165, 233, 0.3)",
+                          cursor: resettingDevice ? "not-allowed" : "pointer"
+                        }}
+                      >
+                        <FaMobileAlt /> {resettingDevice ? "Resetting..." : "Reset Device Lock"}
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>

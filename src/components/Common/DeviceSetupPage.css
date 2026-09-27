@@ -154,6 +154,26 @@
   padding-left: 4px;
 }
 
+.device-step-tag {
+  display: inline-block;
+  font-weight: 750;
+  color: var(--text-main, #0f172a);
+  background: var(--surface-soft, #f1f5f9);
+  padding: 1px 7px;
+  border-radius: 6px;
+  border: 1px solid var(--border, #e2e8f0);
+}
+
+.device-path-arrow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #087e8b;
+  font-weight: 800;
+  margin: 0 4px;
+  font-size: 0.95rem;
+}
+
 .device-instruction-list li::marker {
   color: #087e8b;
   font-weight: 800;

@@ -311,6 +311,10 @@ export function mergeAllStudentRecords(authDocs = [], studentsDocs = [], usersDo
         const gender = data.gender || existing.gender || "";
         const semester = (data.semester && String(data.semester).trim() && String(data.semester).trim() !== "1") ? String(data.semester).trim() : (existing.semester || data.semester || "1");
         const status = (data.status === "inactive" || existing.status === "inactive") ? "inactive" : (data.status || existing.status || "active");
+        const deviceType = data.deviceType || existing.deviceType || null;
+        const deviceTypeLocked = Boolean(data.deviceTypeLocked ?? existing.deviceTypeLocked ?? false);
+        const deviceSelectedAt = data.deviceSelectedAt || existing.deviceSelectedAt || null;
+        const deviceResetAt = data.deviceResetAt || existing.deviceResetAt || null;
 
         studentsMap.set(canonicalRoll, {
             ...existing,
@@ -326,6 +330,10 @@ export function mergeAllStudentRecords(authDocs = [], studentsDocs = [], usersDo
             phone: phone,
             gender: gender,
             status: status,
+            deviceType: deviceType,
+            deviceTypeLocked: deviceTypeLocked,
+            deviceSelectedAt: deviceSelectedAt,
+            deviceResetAt: deviceResetAt,
             faceRegistered: faceRegistered,
             biometricEnrolled: biometricEnrolled,
             hasFaceRegistered: hasFaceRegistered,

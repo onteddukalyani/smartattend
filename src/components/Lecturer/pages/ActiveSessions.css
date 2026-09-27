@@ -1,9 +1,9 @@
 /* =========================================
-   ACTIVE SESSIONS PAGE - CLEAN MODERN STYLES
+   ACTIVE SESSIONS PAGE - RESPONSIVE & CLEAN
    ========================================= */
 
 .active-sessions-page {
-    padding: clamp(20px, 3vw, 36px) clamp(16px, 3vw, 32px);
+    padding: clamp(20px, 3vw, 36px) clamp(14px, 3vw, 32px);
     max-width: 1300px;
     margin: 0 auto;
     box-sizing: border-box;
@@ -19,7 +19,7 @@
 .active-sessions-panel {
     width: 100%;
     box-sizing: border-box;
-    padding: 28px;
+    padding: clamp(18px, 3vw, 32px);
     background: var(--surface, #ffffff);
     border: 1px solid var(--border, #e2e8f0);
     border-radius: 22px;
@@ -49,7 +49,7 @@
 
 .active-sessions-heading h2 {
     margin: 0;
-    font-size: 1.55rem;
+    font-size: clamp(1.3rem, 3vw, 1.65rem);
     font-weight: 800;
     color: var(--text-main, #0f172a);
 }
@@ -57,6 +57,7 @@
 .new-session-link {
     display: inline-flex;
     align-items: center;
+    justify-content: center;
     gap: 8px;
     padding: 10px 18px;
     background: linear-gradient(135deg, #6366f1, #4f46e5);
@@ -67,6 +68,7 @@
     font-weight: 750;
     box-shadow: 0 4px 14px rgba(99, 102, 241, 0.3);
     transition: all 0.2s ease;
+    white-space: nowrap;
 }
 
 .new-session-link:hover {
@@ -76,19 +78,25 @@
 
 /* Empty State */
 .active-empty-box {
-    padding: 44px 20px;
+    padding: 48px 24px;
     background: var(--surface-soft, #f8fafc);
     border: 1.5px dashed var(--border, #cbd5e1);
-    border-radius: 18px;
+    border-radius: 20px;
     text-align: center;
     margin: 16px 0 28px;
     color: var(--text-muted, #64748b);
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    justify-content: center !important;
 }
 
 .active-empty-icon {
-    font-size: 2.8rem;
-    color: #a5b4fc;
-    margin-bottom: 12px;
+    font-size: 3.4rem;
+    color: #6366f1;
+    margin: 0 auto 16px auto !important;
+    display: block !important;
+    flex-shrink: 0;
 }
 
 .active-empty-box h3 {
@@ -129,16 +137,19 @@
 /* Live Session Card Grid */
 .active-sessions-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 310px), 1fr));
     gap: 18px;
     margin-bottom: 28px;
 }
 
 .active-session-card {
     display: flex;
+    flex-direction: column;
     align-items: center;
-    gap: 18px;
-    padding: 18px 20px;
+    justify-content: center;
+    text-align: center;
+    gap: 16px;
+    padding: 24px 20px;
     background: var(--surface, #ffffff);
     border: 1px solid var(--border, #e2e8f0);
     border-radius: 18px;
@@ -146,6 +157,7 @@
     text-decoration: none;
     box-shadow: 0 2px 10px rgba(0, 0, 0, 0.02);
     transition: all 0.22s ease;
+    box-sizing: border-box;
 }
 
 .active-session-card:hover {
@@ -154,31 +166,77 @@
     box-shadow: 0 10px 25px rgba(0, 0, 0, 0.06);
 }
 
+.active-session-qr-wrap {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    margin: 0 auto;
+}
+
 .active-session-card canvas {
-    flex-shrink: 0;
     padding: 8px;
-    background: #ffffff;
+    background: #ffffff !important;
     border: 1px solid #e2e8f0;
     border-radius: 14px;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+    display: block;
+    margin: 0 auto;
 }
 
 .active-session-meta {
     display: flex;
     flex-direction: column;
-    gap: 5px;
+    align-items: center;
+    text-align: center;
+    gap: 6px;
     min-width: 0;
+    width: 100%;
+}
+
+.active-session-tag-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-bottom: 2px;
+}
+
+.active-session-live-tag {
+    font-size: 0.68rem;
+    font-weight: 800;
+    color: #059669;
+    background: rgba(16, 185, 129, 0.12);
+    padding: 2px 8px;
+    border-radius: 99px;
+    letter-spacing: 0.04em;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.active-session-batch-tag {
+    font-size: 0.68rem;
+    font-weight: 750;
+    color: #6366f1;
+    background: rgba(99, 102, 241, 0.1);
+    padding: 2px 7px;
+    border-radius: 6px;
 }
 
 .active-session-meta strong {
-    font-size: 1.15rem;
+    font-size: 1.12rem;
     font-weight: 800;
     color: var(--text-main, #0f172a);
+    line-height: 1.25;
+    word-break: break-word;
 }
 
 .active-session-meta span {
-    font-size: 0.85rem;
+    font-size: 0.84rem;
     color: var(--text-muted, #64748b);
+    line-height: 1.35;
+    word-break: break-word;
 }
 
 .active-session-expiry {
@@ -187,12 +245,14 @@
     gap: 5px;
     margin-top: 4px;
     padding: 4px 10px;
-    background: rgba(16, 185, 129, 0.1);
-    color: #059669;
+    background: rgba(16, 185, 129, 0.12) !important;
+    color: #059669 !important;
+    border: none !important;
     border-radius: 999px;
-    font-size: 0.76rem;
+    font-size: 0.74rem;
     font-weight: 750;
     width: fit-content;
+    white-space: nowrap;
 }
 
 /* Recent Sessions Section */
@@ -207,6 +267,8 @@
     justify-content: space-between;
     align-items: center;
     margin-bottom: 16px;
+    gap: 12px;
+    flex-wrap: wrap;
 }
 
 .active-recent-header h3 {
@@ -221,6 +283,7 @@
     color: #6366f1;
     font-weight: 700;
     text-decoration: none;
+    white-space: nowrap;
 }
 
 .active-view-all-link:hover {
@@ -229,7 +292,7 @@
 
 .active-recent-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 250px), 1fr));
     gap: 14px;
 }
 
@@ -243,6 +306,7 @@
     color: inherit;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.02);
     transition: all 0.2s ease;
+    box-sizing: border-box;
 }
 
 .active-recent-card:hover {
@@ -255,6 +319,7 @@
     display: flex;
     justify-content: space-between;
     align-items: flex-start;
+    gap: 8px;
     margin-bottom: 6px;
 }
 
@@ -262,15 +327,19 @@
     font-size: 0.95rem;
     color: #6366f1;
     font-weight: 750;
+    line-height: 1.25;
+    word-break: break-word;
 }
 
 .active-recent-badge {
-    font-size: 0.74rem;
+    font-size: 0.72rem;
     padding: 2px 8px;
     border-radius: 6px;
     background: rgba(99, 102, 241, 0.08);
     color: #4f46e5;
     font-weight: 700;
+    white-space: nowrap;
+    flex-shrink: 0;
 }
 
 .active-recent-details {
@@ -279,10 +348,11 @@
     display: flex;
     gap: 8px;
     margin-bottom: 6px;
+    flex-wrap: wrap;
 }
 
 .active-recent-time {
-    font-size: 0.75rem;
+    font-size: 0.74rem;
     color: var(--text-muted, #94a3b8);
 }
 
@@ -314,8 +384,19 @@
     color: #f8fafc;
 }
 
+[data-theme="midnight"] .active-session-batch-tag {
+    background: rgba(99, 102, 241, 0.2);
+    color: #a5b4fc;
+}
+
+[data-theme="midnight"] .active-recent-card:hover,
+[data-theme="midnight"] .active-session-card:hover {
+    border-color: #818cf8;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
 /* ---------------------------------------------------------
-   Responsive
+   Responsive Optimizations
    --------------------------------------------------------- */
 @media (max-width: 800px) {
     .active-sessions-page {
@@ -339,6 +420,38 @@
     }
 
     .active-sessions-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 520px) {
+    .active-session-card {
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+        padding: 20px 16px;
+        gap: 14px;
+    }
+
+    .active-session-qr-wrap {
+        width: 100%;
+    }
+
+    .active-session-meta {
+        align-items: center;
+        text-align: center;
+        width: 100%;
+    }
+
+    .active-session-tag-row {
+        justify-content: center;
+    }
+
+    .active-session-expiry {
+        margin: 4px auto 0;
+    }
+
+    .active-recent-grid {
         grid-template-columns: 1fr;
     }
 }

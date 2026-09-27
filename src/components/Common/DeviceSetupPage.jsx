@@ -202,7 +202,7 @@ export default function DeviceSetupPage() {
 
           <ol className="device-instruction-list">
             <li>Open the SmartAttend website in Safari. Tap Share, then <strong>Add to Home Screen</strong>.</li>
-            <li>Open iPhone Settings → Accessibility → Guided Access. Turn it on and set a passcode.</li>
+            <li>Open <span className="device-step-tag">iPhone Settings</span> <span className="device-path-arrow">→</span> <span className="device-step-tag">Accessibility</span> <span className="device-path-arrow">→</span> <span className="device-step-tag">Guided Access</span>. Turn it on and set a passcode.</li>
             <li>Launch SmartAttend from the Home Screen icon and sign in with your student account.</li>
             <li>Before scanning attendance QR codes, triple-click the Side button (or Home button on supported older devices) and tap Start.</li>
             <li>After the lecturer ends the attendance flow, triple-click again and enter your Guided Access passcode to exit.</li>

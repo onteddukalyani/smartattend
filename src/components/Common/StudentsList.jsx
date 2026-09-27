@@ -28,7 +28,11 @@ import {
     FaTrashAlt,
     FaUserTimes,
     FaSpinner,
-    FaMobileAlt
+    FaMobileAlt,
+    FaAndroid,
+    FaApple,
+    FaLock,
+    FaUnlock
 } from "react-icons/fa";
 import StudentDetailModal from "./StudentDetailModal";
 import { useTableSort, SortIcon } from "./useTableSort";
@@ -43,6 +47,7 @@ function StudentsList() {
     const [branchFilter, setBranchFilter] = useState("ALL");
     const [faceFilter, setFaceFilter] = useState("ALL");
     const [statusFilter, setStatusFilter] = useState("ALL");
+    const [deviceFilter, setDeviceFilter] = useState("ALL"); // 'ALL' | 'ANDROID' | 'IOS' | 'UNLOCKED'
     const [viewMode, setViewMode] = useState("table"); // 'table' | 'cards'
     const [loading, setLoading] = useState(true);
     const [actionLoading, setActionLoading] = useState(null);
@@ -267,6 +272,9 @@ function StudentsList() {
         const enrolled = students.filter(checkHasFace).length;
         const pending = total - enrolled;
         const active = students.filter((s) => (s.status || "active").toLowerCase() === "active").length;
+        const android = students.filter((s) => s.deviceType === "android").length;
+        const ios = students.filter((s) => s.deviceType === "ios").length;
+        const unlocked = students.filter((s) => !s.deviceType).length;
         const enrolledPct = total > 0 ? Math.round((enrolled / total) * 100) : 0;
 
         return {
@@ -274,6 +282,9 @@ function StudentsList() {
             enrolled,
             pending,
             active,
+            android,
+            ios,
+            unlocked,
             enrolledPct
         };
     }, [students]);
@@ -316,19 +327,26 @@ function StudentsList() {
                 (statusFilter === "ACTIVE" && (student.status || "active").toLowerCase() === "active") ||
                 (statusFilter === "INACTIVE" && (student.status || "active").toLowerCase() !== "active");
 
-            return matchesSearch && matchesBranch && matchesFace && matchesStatus;
+            const matchesDevice =
+                deviceFilter === "ALL" ||
+                (deviceFilter === "ANDROID" && student.deviceType === "android") ||
+                (deviceFilter === "IOS" && student.deviceType === "ios") ||
+                (deviceFilter === "UNLOCKED" && !student.deviceType);
+
+            return matchesSearch && matchesBranch && matchesFace && matchesStatus && matchesDevice;
         });
-    }, [students, search, branchFilter, faceFilter, statusFilter]);
+    }, [students, search, branchFilter, faceFilter, statusFilter, deviceFilter]);
 
     const { sortedItems: sortedStudents, sortConfig, requestSort } = useTableSort(filteredStudents, "rollNo", "asc");
 
-    const hasActiveFilters = search !== "" || branchFilter !== "ALL" || faceFilter !== "ALL" || statusFilter !== "ALL";
+    const hasActiveFilters = search !== "" || branchFilter !== "ALL" || faceFilter !== "ALL" || statusFilter !== "ALL" || deviceFilter !== "ALL";
 
     const clearAllFilters = () => {
         setSearch("");
         setBranchFilter("ALL");
         setFaceFilter("ALL");
         setStatusFilter("ALL");
+        setDeviceFilter("ALL");
     };
 
     return (
@@ -547,6 +565,36 @@ function StudentsList() {
                         </div>
                     </div>
 
+                    <div className="filter-group">
+                        <span className="filter-group-label"><FaMobileAlt /> Device:</span>
+                        <div className="chips-list">
+                            <button
+                                className={`filter-chip ${deviceFilter === "ALL" ? "active" : ""}`}
+                                onClick={() => setDeviceFilter("ALL")}
+                            >
+                                All
+                            </button>
+                            <button
+                                className={`filter-chip chip-android ${deviceFilter === "ANDROID" ? "active" : ""}`}
+                                onClick={() => setDeviceFilter("ANDROID")}
+                            >
+                                <FaAndroid /> Android ({stats.android})
+                            </button>
+                            <button
+                                className={`filter-chip chip-ios ${deviceFilter === "IOS" ? "active" : ""}`}
+                                onClick={() => setDeviceFilter("IOS")}
+                            >
+                                <FaApple /> iPhone ({stats.ios})
+                            </button>
+                            <button
+                                className={`filter-chip ${deviceFilter === "UNLOCKED" ? "active" : ""}`}
+                                onClick={() => setDeviceFilter("UNLOCKED")}
+                            >
+                                <FaUnlock /> Unset ({stats.unlocked})
+                            </button>
+                        </div>
+                    </div>
+
                     {hasActiveFilters && (
                         <button
                             className="clear-filters-btn"
@@ -707,6 +755,21 @@ function StudentsList() {
                                                     <div className="student-info-text">
                                                         <strong className="student-name" title={student.name || "Student"}>{student.name || "Student"}</strong>
                                                         <span className="student-email">{student.email || `${(student.rollNo || "").toLowerCase()}@iiitdwd.ac.in`}</span>
+                                                        <div className="student-device-subrow">
+                                                            {student.deviceType === "android" ? (
+                                                                <span className="student-device-pill android" title="Registered to Android APK mode (Locked)">
+                                                                    <FaAndroid size={11} /> Android APK 🔒
+                                                                </span>
+                                                            ) : student.deviceType === "ios" ? (
+                                                                <span className="student-device-pill ios" title="Registered to iPhone Guided Access mode (Locked)">
+                                                                    <FaApple size={11} /> iPhone iOS 🔒
+                                                                </span>
+                                                            ) : (
+                                                                <span className="student-device-pill unlocked" title="No device locked yet">
+                                                                    <FaUnlock size={10} /> Device Unset
+                                                                </span>
+                                                            )}
+                                                        </div>
                                                     </div>
                                                 </div>
                                             </td>
@@ -866,6 +929,22 @@ function StudentsList() {
                                         ) : (
                                             <span className="face-badge pending mini">
                                                 <FaCamera /> Pending
+                                            </span>
+                                        )}
+                                    </div>
+                                    <div className="card-detail-item">
+                                        <span className="detail-label">Device</span>
+                                        {student.deviceType === "android" ? (
+                                            <span className="student-device-pill android mini" title="Android APK Mode">
+                                                <FaAndroid size={10} /> Android 🔒
+                                            </span>
+                                        ) : student.deviceType === "ios" ? (
+                                            <span className="student-device-pill ios mini" title="iPhone Guided Access Mode">
+                                                <FaApple size={10} /> iPhone 🔒
+                                            </span>
+                                        ) : (
+                                            <span className="student-device-pill unlocked mini" title="No device registered yet">
+                                                <FaUnlock size={9} /> Unset
                                             </span>
                                         )}
                                     </div>

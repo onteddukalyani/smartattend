@@ -557,6 +557,60 @@
     box-shadow: 0 2px 8px rgba(245, 158, 11, 0.25);
 }
 
+.filter-chip.chip-android.active {
+    background: #10b981;
+    border-color: #10b981;
+    box-shadow: 0 2px 8px rgba(16, 185, 129, 0.25);
+}
+
+.filter-chip.chip-ios.active {
+    background: #0284c7;
+    border-color: #0284c7;
+    box-shadow: 0 2px 8px rgba(2, 132, 199, 0.25);
+}
+
+.student-device-subrow {
+    margin-top: 4px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.student-device-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: 6px;
+    font-size: 0.73rem;
+    font-weight: 700;
+    line-height: 1.25;
+    letter-spacing: 0.01em;
+}
+
+.student-device-pill.android {
+    background: rgba(16, 185, 129, 0.12);
+    color: #10b981;
+    border: 1px solid rgba(16, 185, 129, 0.25);
+}
+
+.student-device-pill.ios {
+    background: rgba(2, 132, 199, 0.12);
+    color: #0284c7;
+    border: 1px solid rgba(2, 132, 199, 0.25);
+}
+
+.student-device-pill.unlocked {
+    background: rgba(245, 158, 11, 0.12);
+    color: #d97706;
+    border: 1px solid rgba(245, 158, 11, 0.25);
+}
+
+.student-device-pill.mini {
+    font-size: 0.72rem;
+    padding: 2px 6px;
+}
+
 .clear-filters-btn {
     display: inline-flex;
     align-items: center;
