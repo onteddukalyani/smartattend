@@ -195,6 +195,8 @@ export const AuthProvider = ({ children }) => {
       ].filter(Boolean);
 
       const studentFallback = (!qStudentRoll.empty ? qStudentRoll.docs[0].data() : (!qStudentEmail.empty ? qStudentEmail.docs[0].data() : null));
+      let authoritativeName = "";
+      let authoritativeBranch = "";
       let authoritativeSemester = "";
       if (studentFallback) {
         if (studentFallback.semester) authoritativeSemester = String(studentFallback.semester).trim();

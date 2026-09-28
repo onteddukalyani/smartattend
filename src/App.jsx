@@ -242,11 +242,7 @@ function App() {
     return (
       <Suspense fallback={<PageLoadingFallback />}>
         <Routes>
-          <Route
-            path="/student-form"
-            element={<StudentForm />}
-          />
-
+          <Route path="/student-form" element={<StudentForm />} />
           <Route
             path="/admin/*"
             element={
@@ -255,16 +251,26 @@ function App() {
               </ProtectedRoute>
             }
           />
-
-          <Route
-            path="*"
-            element={
-              <Navigate
-                to="/admin"
-                replace
-              />
-            }
-          />
+          {/* Top-Level Aliases for Admin */}
+          <Route path="/attendance" element={<Navigate to="/admin/attendance" replace />} />
+          <Route path="/violations" element={<Navigate to="/admin/attendance" replace />} />
+          <Route path="/courses" element={<Navigate to="/admin/courses" replace />} />
+          <Route path="/classes" element={<Navigate to="/admin/classes" replace />} />
+          <Route path="/classes/:sessionId" element={<Navigate to="/admin/classes" replace />} />
+          <Route path="/attendance-sessions" element={<Navigate to="/admin/attendance-sessions" replace />} />
+          <Route path="/attendance-sessions/:sessionId" element={<Navigate to="/admin/attendance-sessions" replace />} />
+          <Route path="/students" element={<Navigate to="/admin/students" replace />} />
+          <Route path="/students/add" element={<Navigate to="/admin/students/add" replace />} />
+          <Route path="/lecturers" element={<Navigate to="/admin/lecturers" replace />} />
+          <Route path="/lecturers/add" element={<Navigate to="/admin/lecturers/add" replace />} />
+          <Route path="/admins" element={<Navigate to="/admin/admins" replace />} />
+          <Route path="/admins/add" element={<Navigate to="/admin/admins/add" replace />} />
+          <Route path="/institution" element={<Navigate to="/admin/institution" replace />} />
+          <Route path="/settings" element={<Navigate to="/admin/settings" replace />} />
+          <Route path="/device-setup" element={<Navigate to="/admin/device-setup" replace />} />
+          <Route path="/profile" element={<Navigate to="/admin/profile" replace />} />
+          <Route path="/scanqr" element={<Navigate to="/admin/classes" replace />} />
+          <Route path="*" element={<Navigate to="/admin" replace />} />
         </Routes>
       </Suspense>
     );
@@ -291,6 +297,7 @@ function App() {
             <Route path="student-form" element={<StudentForm />} />
             <Route path="settings" element={<Settings />} />
             <Route path="attendance-data" element={<AttendanceData />} />
+            <Route path="violations" element={<AttendanceData />} />
             <Route path="facedetection" element={<FaceScanner />} />
             <Route path="attendance-sessions" element={<ClassesData />} />
             <Route path="attendance-sessions/:sessionId" element={<SessionAttendanceData />} />
@@ -308,7 +315,25 @@ function App() {
             <Route path="admins" element={<ReadOnlyAdminList readOnly />} />
             <Route path="lecturers" element={<ReadOnlyLecturerList readOnly />} />
             <Route path="scanqr" element={<QrScannerApp />} />
+            <Route path="face-enroll" element={<FaceEnrollPage />} />
+            <Route path="register-face" element={<FaceEnrollPage />} />
           </Route>
+
+          {/* Top-Level Aliases for Lecturer */}
+          <Route path="/scanqr" element={<Navigate to="/lecturer/scanqr" replace />} />
+          <Route path="/courses" element={<Navigate to="/lecturer/courses" replace />} />
+          <Route path="/classes" element={<Navigate to="/lecturer/attendance-sessions" replace />} />
+          <Route path="/classes/:sessionId" element={<Navigate to="/lecturer/attendance-sessions" replace />} />
+          <Route path="/attendance-sessions" element={<Navigate to="/lecturer/attendance-sessions" replace />} />
+          <Route path="/attendance-sessions/:sessionId" element={<Navigate to="/lecturer/attendance-sessions" replace />} />
+          <Route path="/attendance-data" element={<Navigate to="/lecturer/attendance-data" replace />} />
+          <Route path="/violations" element={<Navigate to="/lecturer/violations" replace />} />
+          <Route path="/students" element={<Navigate to="/lecturer/students" replace />} />
+          <Route path="/active-sessions" element={<Navigate to="/lecturer/active-sessions" replace />} />
+          <Route path="/lecturerpage" element={<Navigate to="/lecturer/lecturerpage" replace />} />
+          <Route path="/facedetection" element={<Navigate to="/lecturer/facedetection" replace />} />
+          <Route path="/settings" element={<Navigate to="/lecturer/settings" replace />} />
+          <Route path="/device-setup" element={<Navigate to="/lecturer/device-setup" replace />} />
           <Route path="*" element={<Navigate to="/lecturer" replace />} />
         </Routes>
       </Suspense>
@@ -334,12 +359,26 @@ function App() {
             <Route index element={<StudentDashboardView />} />
             <Route path="courses" element={<StudentCourses />} />
             <Route path="mark-attendance" element={<QrScannerApp />} />
+            <Route path="scanqr" element={<QrScannerApp />} />
             <Route path="statistics" element={<Statistics />} />
             <Route path="settings" element={<Settings />} />
             <Route path="device-setup" element={<DeviceSetupPage />} />
             <Route path="face-enroll" element={<FaceEnrollPage />} />
             <Route path="register-face" element={<FaceEnrollPage />} />
+            <Route path="live-face-enroll" element={<FaceEnrollPage />} />
           </Route>
+
+          {/* Top-Level Aliases for Student */}
+          <Route path="/scanqr" element={<Navigate to="/student/mark-attendance" replace />} />
+          <Route path="/mark-attendance" element={<Navigate to="/student/mark-attendance" replace />} />
+          <Route path="/face-enroll" element={<Navigate to="/student/face-enroll" replace />} />
+          <Route path="/register-face" element={<Navigate to="/student/face-enroll" replace />} />
+          <Route path="/live-face-enroll" element={<Navigate to="/student/face-enroll" replace />} />
+          <Route path="/courses" element={<Navigate to="/student/courses" replace />} />
+          <Route path="/statistics" element={<Navigate to="/student/statistics" replace />} />
+          <Route path="/attendance" element={<Navigate to="/student/statistics" replace />} />
+          <Route path="/settings" element={<Navigate to="/student/settings" replace />} />
+          <Route path="/device-setup" element={<Navigate to="/student/device-setup" replace />} />
           <Route path="*" element={<Navigate to="/student" replace />} />
         </Routes>
       </Suspense>

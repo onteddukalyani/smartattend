@@ -67,13 +67,29 @@ const Login = () => {
       const pendingRedirect = sessionStorage.getItem("smartattend_redirect_after_login");
 
       if (roleTarget === "admin" || roleTarget === "administrator" || roleTarget === "superadmin") {
-        navigate("/admin", { replace: true });
-      } else if (roleTarget === "lecturer" || roleTarget === "faculty") {
-        navigate("/lecturer", { replace: true });
-      } else {
-        if (pendingRedirect && pendingRedirect.includes("mark-attendance")) {
+        if (pendingRedirect && pendingRedirect.startsWith("/admin")) {
           sessionStorage.removeItem("smartattend_redirect_after_login");
           navigate(pendingRedirect, { replace: true });
+        } else {
+          navigate("/admin", { replace: true });
+        }
+      } else if (roleTarget === "lecturer" || roleTarget === "faculty") {
+        if (pendingRedirect && pendingRedirect.startsWith("/lecturer")) {
+          sessionStorage.removeItem("smartattend_redirect_after_login");
+          navigate(pendingRedirect, { replace: true });
+        } else {
+          navigate("/lecturer", { replace: true });
+        }
+      } else {
+        if (pendingRedirect && (pendingRedirect.includes("mark-attendance") || pendingRedirect.includes("scanqr") || pendingRedirect.includes("session="))) {
+          sessionStorage.removeItem("smartattend_redirect_after_login");
+          let target = pendingRedirect;
+          if (target.startsWith("/scanqr")) {
+            target = target.replace("/scanqr", "/student/mark-attendance");
+          } else if (!target.startsWith("/student/")) {
+            target = `/student/${target.replace(/^\//, "")}`;
+          }
+          navigate(target, { replace: true });
         } else {
           navigate("/student", { replace: true });
         }

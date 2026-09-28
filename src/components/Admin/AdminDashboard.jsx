@@ -18,6 +18,11 @@ import ManageCourses from "../Common/CoursesManager";
 import Settings from "../Common/Settings";
 import DeviceSetupPage, { RoleFirstLoginGuide } from "../Common/DeviceSetupPage";
 import ClassesData, { SessionAttendanceData } from "../Lecturer/pages/SessionData";
+import FaceScanner from "../Lecturer/pages/FaceScanner";
+import LecturerPage from "../Lecturer/pages/Generateqr";
+import ActiveSessions from "../Lecturer/pages/ActiveSessions";
+import QrScannerApp from "../Common/Scanner";
+import FaceEnrollPage from "../Student/pages/FaceEnrollPage";
 import NotificationHistoryModal from "../Student/NotificationHistoryModal";
 import { subscribeToFacultyNotifications } from "../../services/notificationsService";
 import "./AdminDashboard.css";
@@ -63,6 +68,8 @@ const AdminDashboard = () => {
             <Route path="lecturers/add" element={<AddLecturer />} />
             <Route path="add-lecturer" element={<AddLecturer />} />
             <Route path="attendance" element={<AttendanceOverview />} />
+            <Route path="violations" element={<AttendanceOverview />} />
+            <Route path="attendance-data" element={<AttendanceOverview />} />
             <Route path="courses" element={<ManageCourses />} />
             <Route path="classes" element={<ClassesData />} />
             <Route path="classes/:sessionId" element={<SessionAttendanceData />} />
@@ -70,6 +77,12 @@ const AdminDashboard = () => {
             <Route path="attendance-sessions" element={<ClassesData />} />
             <Route path="attendance-sessions/:sessionId" element={<SessionAttendanceData />} />
             <Route path="attendance-sessions/*" element={<SessionAttendanceData />} />
+            <Route path="active-sessions" element={<ActiveSessions />} />
+            <Route path="lecturerpage" element={<LecturerPage />} />
+            <Route path="facedetection" element={<FaceScanner />} />
+            <Route path="scanqr" element={<QrScannerApp />} />
+            <Route path="face-enroll" element={<FaceEnrollPage />} />
+            <Route path="register-face" element={<FaceEnrollPage />} />
             <Route path="institution" element={<InstitutionSettings />} />
             <Route path="settings" element={<Settings />} />
             <Route path="device-setup" element={<DeviceSetupPage />} />

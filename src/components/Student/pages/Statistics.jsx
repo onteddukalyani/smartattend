@@ -294,7 +294,7 @@ export default function Statistics() {
                                     <FaUserCheck /> Face Biometric Active
                                 </span>
                             ) : (
-                                <Link to="/student" className="stats-pill status-face-pending" title="Click to enroll face on Dashboard">
+                                <Link to="/student/face-enroll" className="stats-pill status-face-pending" title="Click to enroll face biometric">
                                     <FaCamera /> Face Biometric Pending
                                 </Link>
                             )}
@@ -453,7 +453,7 @@ export default function Statistics() {
                                 <p className="stats-target-desc">
                                     Register your face biometric to enable instant verification during live class sessions.
                                 </p>
-                                <Link to="/student" className="stats-face-action-link">
+                                <Link to="/student/face-enroll" className="stats-face-action-link">
                                     Register Face Now <FaArrowRight />
                                 </Link>
                             </div>
