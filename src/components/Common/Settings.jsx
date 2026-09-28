@@ -32,6 +32,7 @@ import { doc, onSnapshot } from "firebase/firestore";
 import { db } from "../../firebase";
 import { useAuth } from "../authcontext";
 import ProfilePhotoModal from "./ProfilePhotoModal";
+import DeviceOnboardingModal from "../Student/DeviceOnboardingModal";
 import { normalizeBranchName } from "../../utils/studentDataHelper";
 import { getApkDownloadUrl } from "../../utils/apkUrl";
 import "./Settings.css";

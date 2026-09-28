@@ -25,10 +25,12 @@ import QrScannerApp from "../Common/Scanner";
 import FaceEnrollPage from "../Student/pages/FaceEnrollPage";
 import NotificationHistoryModal from "../Student/NotificationHistoryModal";
 import { subscribeToFacultyNotifications } from "../../services/notificationsService";
+import { useAuth } from "../authcontext";
 import "./AdminDashboard.css";
 import BottomNav from "./BottomNav";
 
 const AdminDashboard = () => {
+  const { user } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(window.innerWidth > 900);
   const [facultyNotifs, setFacultyNotifs] = useState([]);
   const [showNotifModal, setShowNotifModal] = useState(false);
@@ -36,7 +38,7 @@ const AdminDashboard = () => {
   useEffect(() => {
     const unsub = subscribeToFacultyNotifications((newNotifs) => {
       setFacultyNotifs(newNotifs || []);
-    });
+    }, "admin");
     return () => unsub();
   }, []);
 
@@ -99,6 +101,8 @@ const AdminDashboard = () => {
         onClose={() => setShowNotifModal(false)}
         notifications={facultyNotifs}
         isFaculty={true}
+        role="admin"
+        currentUser={user}
       />
     </div>
   );

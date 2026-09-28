@@ -16,6 +16,7 @@ import {
 
 import { db } from "../../../firebase";
 import { useAuth } from "../../authcontext";
+import { sendFacultyNotification } from "../../../services/notificationsService";
 
 import "./InstitutionSettings.css";
 
@@ -97,6 +98,16 @@ const InstitutionSettings = () => {
           updatedBy: user?.uid || null
         },
         { merge: true }
+      );
+
+      await sendFacultyNotification(
+        "⚙️ Institutional Settings Updated",
+        `Institution attendance policies (session duration: ${settings.sessionDuration}m, QR refresh: ${settings.qrRefreshInterval}s) were modified by ${user?.email || 'Admin'}.`,
+        "SYSTEM_UPDATE",
+        "",
+        user?.email || "Admin",
+        {},
+        "faculty"
       );
 
       setMessage(

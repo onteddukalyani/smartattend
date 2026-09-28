@@ -258,6 +258,18 @@ const StudentDetailModal = ({ student, onClose, onUpdate }) => {
       setCurrentStudent(updatedStudent);
       onUpdate?.(updatedStudent);
 
+      // Immediately notify student
+      const actorName = profile?.name || profile?.email || "Faculty/Admin";
+      if (cleanRoll) {
+        await sendStudentNotification(
+          cleanRoll,
+          "Face Biometrics Updated ✅",
+          `Your face biometric template was updated and enrolled by ${actorName}.`,
+          "BIOMETRIC_UPDATE",
+          actorName
+        );
+      }
+
       setFaceSuccessMsg("✅ Face biometric enrolled & synchronized successfully across database!");
       setTimeout(() => {
         setShowFaceEnroll(false);
@@ -303,6 +315,19 @@ const StudentDetailModal = ({ student, onClose, onUpdate }) => {
       setCurrentStudent(updatedStudent);
       onUpdate?.(updatedStudent);
 
+      // Immediately notify student
+      const actorName = profile?.name || profile?.email || "Faculty/Admin";
+      const cleanRoll = String(studentRoll).trim().toUpperCase();
+      if (cleanRoll) {
+        await sendStudentNotification(
+          cleanRoll,
+          "Face Biometrics Cleared ⚠️",
+          `Your registered facial biometrics were cleared by ${actorName}. Please log in and re-enroll your biometrics from your dashboard.`,
+          "BIOMETRIC_UPDATE",
+          actorName
+        );
+      }
+
       setShowFaceEnroll(false);
       setFaceSuccessMsg("🗑️ Registered facial biometric data and photo have been completely removed.");
       setTimeout(() => {
@@ -343,6 +368,19 @@ const StudentDetailModal = ({ student, onClose, onUpdate }) => {
 
       setCurrentStudent(updatedStudent);
       onUpdate?.(updatedStudent);
+
+      // Immediately notify student
+      const actorName = profile?.name || profile?.email || "Faculty/Admin";
+      const cleanRoll = String(studentRoll).trim().toUpperCase();
+      if (cleanRoll) {
+        await sendStudentNotification(
+          cleanRoll,
+          "Profile Photo Removed",
+          `Your profile avatar photo was removed by ${actorName}.`,
+          "PROFILE_UPDATE",
+          actorName
+        );
+      }
 
       setFaceSuccessMsg("🗑️ Student photo has been deleted.");
       setTimeout(() => {
@@ -735,6 +773,26 @@ const StudentDetailModal = ({ student, onClose, onUpdate }) => {
                           }}
                         >
                           <FaLock size={10} /> Locked
+                        </span>
+                      )}
+
+                      {(currentStudent.deviceIp || currentStudent.registrationIp || currentStudent.lastAttendanceIp || currentStudent.lastLoginIp) && (
+                        <span
+                          title="Registered Device IP Address"
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: "4px",
+                            fontSize: "0.76rem",
+                            background: "rgba(100, 116, 139, 0.1)",
+                            color: "#475569",
+                            border: "1px solid rgba(100, 116, 139, 0.2)",
+                            borderRadius: "6px",
+                            padding: "3px 8px",
+                            fontWeight: 600
+                          }}
+                        >
+                          IP: {currentStudent.deviceIp || currentStudent.registrationIp || currentStudent.lastAttendanceIp || currentStudent.lastLoginIp}
                         </span>
                       )}
                     </div>

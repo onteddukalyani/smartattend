@@ -769,6 +769,11 @@ function StudentsList() {
                                                                     <FaUnlock size={10} /> Device Unset
                                                                 </span>
                                                             )}
+                                                            {(student.deviceIp || student.registrationIp || student.lastAttendanceIp || student.lastLoginIp) && (
+                                                                <span className="student-device-pill" style={{ background: 'rgba(100, 116, 139, 0.1)', color: '#475569', fontSize: '0.72rem', border: '1px solid rgba(100, 116, 139, 0.2)' }} title="Last Registered IP Address">
+                                                                    IP: {student.deviceIp || student.registrationIp || student.lastAttendanceIp || student.lastLoginIp}
+                                                                </span>
+                                                            )}
                                                         </div>
                                                     </div>
                                                 </div>

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import {
     FaAndroid,
@@ -10,14 +10,15 @@ import {
     FaTimes,
     FaInfoCircle,
     FaExternalLinkAlt,
-    FaLock
+    FaLock,
+    FaNetworkWired
 } from 'react-icons/fa';
 import { Capacitor } from '@capacitor/core';
 import { db } from '../../firebase';
 import { doc, setDoc } from 'firebase/firestore';
 import { useAuth } from '../authcontext';
 import { isGuidedAccessEnabled } from '../../services/guidedAccessService';
-import { detectDeviceType } from '../../utils/deviceDetection';
+import { detectDeviceType, getClientIpAddress, getDeviceDisplayName } from '../../utils/deviceDetection';
 import { sendFacultyNotification, sendStudentNotification } from '../../services/notificationsService';
 import { getApkDownloadUrl } from '../../utils/apkUrl';
 import './DeviceOnboardingModal.css';
@@ -27,9 +28,10 @@ const ANDROID_APK_URL = getApkDownloadUrl();
 /**
  * DeviceOnboardingModal
  * Asks student to select Android vs iPhone (iOS) device.
+ * - Auto-detects device hardware environment and IP address.
  * - Android: If browser, forces download/install of native APK (Lock Task Kiosk Mode).
  * - iPhone: Guides PWA Home Screen installation + iOS Guided Access setup.
- * - Immediately locks device selection (deviceTypeLocked: true) upon saving.
+ * - Immediately locks device selection (deviceTypeLocked: true) and saves device IP to Firebase.
  */
 export function DeviceOnboardingModal({ isOpen, onClose }) {
     const { user, profile } = useAuth();
@@ -47,6 +49,7 @@ export function DeviceOnboardingModal({ isOpen, onClose }) {
         }
     });
 
+    const [currentIp, setCurrentIp] = useState("Detecting IP...");
     const [gaVerified, setGaVerified] = useState(false);
     const [gaCheckLoading, setGaCheckLoading] = useState(false);
     const [saving, setSaving] = useState(false);
@@ -57,6 +60,17 @@ export function DeviceOnboardingModal({ isOpen, onClose }) {
             return false;
         }
     });
+
+    // Fetch client IP on mount
+    useEffect(() => {
+        let isMounted = true;
+        getClientIpAddress().then((ip) => {
+            if (isMounted) setCurrentIp(ip || "Unknown IP");
+        }).catch(() => {
+            if (isMounted) setCurrentIp("Unknown IP");
+        });
+        return () => { isMounted = false; };
+    }, []);
 
     if (!isOpen) return null;
 
@@ -81,13 +95,26 @@ export function DeviceOnboardingModal({ isOpen, onClose }) {
         setSaving(true);
         try {
             const studentName = profile?.name || user?.displayName || roll;
+            const detectedName = getDeviceDisplayName(detectedDevice);
+            const selectedName = getDeviceDisplayName(selectedDevice);
+            const ip = currentIp && currentIp !== "Detecting IP..." ? currentIp : await getClientIpAddress();
+
             await sendFacultyNotification(
-                'Student Device Type Mismatch Reported',
-                `Student ${studentName} (${roll}) selected ${selectedDevice} but this device was detected as ${detectedDevice}. Please verify the student's device setup.`,
+                '🚨 Student Device Type Mismatch Reported',
+                `Student ${studentName} (${roll}) selected ${selectedName} but current runtime was detected as ${detectedName}. IP Address: ${ip}. Hardware UserAgent: ${navigator.userAgent}.`,
                 'DEVICE_TYPE_MISMATCH',
                 roll,
                 studentName
             );
+
+            await sendStudentNotification(
+                roll,
+                '⚠️ Device Selection Warning',
+                `You selected ${selectedName}, but your active phone is detected as ${detectedName} (IP: ${ip}). A security review report has been logged.`,
+                'DEVICE_MISMATCH_WARNING',
+                'Device Security'
+            );
+
             try {
                 localStorage.setItem(mismatchReportKey, 'sent');
             } catch {
@@ -107,14 +134,26 @@ export function DeviceOnboardingModal({ isOpen, onClose }) {
         }
         setSaving(true);
         try {
+            const ip = currentIp && currentIp !== "Detecting IP..." ? currentIp : await getClientIpAddress();
             localStorage.setItem('smartattend_student_device_type', selectedDevice);
             localStorage.setItem('smartattend_student_device_locked', 'true');
+            if (ip && ip !== "Unknown IP") {
+                localStorage.setItem('smartattend_device_ip', ip);
+            }
 
             if (roll && db) {
                 const lockPayload = {
                     deviceType: selectedDevice,
+                    registeredDeviceType: selectedDevice,
+                    autoDetectedDeviceType: detectedDevice || (isNativeApp ? 'native' : 'web'),
                     deviceTypeLocked: true,
-                    deviceSelectedAt: Date.now()
+                    deviceIp: ip,
+                    registrationIp: ip,
+                    lastLoginIp: ip,
+                    deviceUserAgent: typeof navigator !== 'undefined' ? navigator.userAgent : '',
+                    devicePlatform: typeof navigator !== 'undefined' ? navigator.platform : '',
+                    deviceSelectedAt: Date.now(),
+                    deviceRegisteredAt: Date.now()
                 };
 
                 // Update students collection & users collection
@@ -127,7 +166,7 @@ export function DeviceOnboardingModal({ isOpen, onClose }) {
                 // Notify Faculty & Admin audit stream
                 await sendFacultyNotification(
                     'Device Type Selected & Locked',
-                    `Student ${studentName} (${roll}) registered and locked their device preference to ${deviceLabel}.`,
+                    `Student ${studentName} (${roll}) registered and locked their device preference to ${deviceLabel} (IP: ${ip}, Detected: ${detectedDevice || 'Web'}).`,
                     'DEVICE_LOCKED',
                     roll,
                     studentName
@@ -137,7 +176,7 @@ export function DeviceOnboardingModal({ isOpen, onClose }) {
                 await sendStudentNotification(
                     roll,
                     'Device Locked 🔒',
-                    `Your registered device type has been locked to ${deviceLabel}. Only a Lecturer or Admin can reset your device preference.`,
+                    `Your registered device type has been locked to ${deviceLabel} from IP ${ip}. Only a Lecturer or Admin can reset your device preference.`,
                     'DEVICE_LOCKED',
                     'System Security'
                 );
@@ -183,6 +222,25 @@ export function DeviceOnboardingModal({ isOpen, onClose }) {
                     <p className="device-modal-subtitle">
                         SmartAttend uses hardware security features (Android Kiosk / iOS Guided Access) to verify attendance.
                     </p>
+                    <div style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '8px',
+                        background: 'rgba(99, 102, 241, 0.08)',
+                        border: '1px solid rgba(99, 102, 241, 0.2)',
+                        padding: '6px 12px',
+                        borderRadius: '20px',
+                        fontSize: '0.82rem',
+                        color: '#4f46e5',
+                        fontWeight: '600',
+                        marginTop: '10px'
+                    }}>
+                        <FaNetworkWired size={12} />
+                        <span>Detected: <strong>{detectedDevice === 'android' ? 'Android Device' : detectedDevice === 'ios' ? 'iPhone (iOS)' : 'Web Platform'}</strong></span>
+                        <span style={{ opacity: 0.5 }}>|</span>
+                        <span>IP: <strong>{currentIp}</strong></span>
+                    </div>
                 </div>
 
                 {isLocked && (

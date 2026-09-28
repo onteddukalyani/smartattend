@@ -1,6 +1,12 @@
 import { defineConfig } from 'vite'
 import react, { reactCompilerPreset } from '@vitejs/plugin-react'
 import babel from '@rolldown/plugin-babel'
+import fs from 'fs'
+import path from 'path'
+import { fileURLToPath } from 'url'
+
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
 
 // https://vite.dev/config/
 export default defineConfig({
@@ -13,9 +19,13 @@ export default defineConfig({
       configureServer(server) {
         server.middlewares.use((req, res, next) => {
           if (req.url && req.url.endsWith('.apk')) {
-            res.setHeader('Content-Type', 'application/vnd.android.package-archive');
             const filename = req.url.split('/').pop().split('?')[0] || 'SmartAttend-release.apk';
-            res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+            const apkPath = path.join(__dirname, filename);
+            if (fs.existsSync(apkPath)) {
+              res.setHeader('Content-Type', 'application/vnd.android.package-archive');
+              res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+              return fs.createReadStream(apkPath).pipe(res);
+            }
           }
           next();
         });

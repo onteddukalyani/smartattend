@@ -5,42 +5,114 @@ service cloud.firestore {
 
     match /admins/{adminId} {
       allow read, write: if true;
+      match /{document=**} {
+        allow read, write: if true;
+      }
     }
 
     match /institution_settings/{docId} {
       allow read, write: if true;
+      match /{document=**} {
+        allow read, write: if true;
+      }
+    }
+
+    match /institution/{docId} {
+      allow read, write: if true;
+      match /{document=**} {
+        allow read, write: if true;
+      }
     }
 
     match /lecturers/{lecturerId} {
       allow read, write: if true;
+      match /{document=**} {
+        allow read, write: if true;
+      }
     }
 
     match /courses/{courseId} {
       allow read, write: if true;
+      match /{document=**} {
+        allow read, write: if true;
+      }
     }
 
     match /students/{studentId} {
       allow read, write: if true;
+      match /{document=**} {
+        allow read, write: if true;
+      }
     }
 
     match /users/{userId} {
       allow read, write: if true;
+      match /{document=**} {
+        allow read, write: if true;
+      }
     }
 
     match /authorizedUsers/{userId} {
       allow read, write: if true;
+      match /{document=**} {
+        allow read, write: if true;
+      }
     }
 
     match /faculty_notifications/{notificationId} {
       allow read, write: if true;
+      match /{document=**} {
+        allow read, write: if true;
+      }
+    }
+
+    match /admin_notifications/{notificationId} {
+      allow read, write: if true;
+      match /{document=**} {
+        allow read, write: if true;
+      }
+    }
+
+    match /lecturer_notifications/{notificationId} {
+      allow read, write: if true;
+      match /{document=**} {
+        allow read, write: if true;
+      }
+    }
+
+    match /broadcast_notifications/{notificationId} {
+      allow read, write: if true;
+      match /{document=**} {
+        allow read, write: if true;
+      }
     }
 
     match /user_complaints/{complaintId} {
       allow read, write: if true;
+      match /{document=**} {
+        allow read, write: if true;
+      }
     }
 
-    match /student_notifications/{studentRollNo}/{document=**} {
+    match /security_complaints/{complaintId} {
       allow read, write: if true;
+      match /{document=**} {
+        allow read, write: if true;
+      }
+    }
+
+    match /student_notifications/{studentRollNo} {
+      allow read, write: if true;
+      match /{document=**} {
+        allow read, write: if true;
+      }
+    }
+
+    match /notifications/{notificationId} {
+      allow read, write: if true;
+      match /{document=**} {
+        allow read, write: if true;
+      }
     }
 
     // =========================================================================
@@ -71,6 +143,9 @@ service cloud.firestore {
 
     match /attendance_records/{recordId} {
       allow read, write: if request.auth != null;
+      match /{document=**} {
+        allow read, write: if request.auth != null;
+      }
     }
   }
 }

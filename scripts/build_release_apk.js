@@ -13,6 +13,25 @@ const destApk = path.join(rootDir, 'SmartAttend-release.apk');
 console.log('\n🚀 Starting SmartAttend Signed Release APK build process...\n');
 
 try {
+  // 0. Clean any previous .apk files from public, dist, and native assets to prevent recursive bloat
+  const dirsToCleanApks = [
+    path.join(rootDir, 'public'),
+    path.join(rootDir, 'dist'),
+    path.join(androidDir, 'app', 'src', 'main', 'assets', 'public')
+  ];
+  for (const d of dirsToCleanApks) {
+    if (fs.existsSync(d)) {
+      try {
+        const files = fs.readdirSync(d);
+        for (const f of files) {
+          if (f.endsWith('.apk') || f.endsWith('.aab')) {
+            fs.unlinkSync(path.join(d, f));
+          }
+        }
+      } catch (_) {}
+    }
+  }
+
   // 1. Build Vite Web Assets
   console.log('📦 Step 1/3: Building Production Web Assets (vite build)...');
   execSync('npm run build', { cwd: rootDir, stdio: 'inherit' });
@@ -28,6 +47,18 @@ try {
   // 2. Sync Capacitor
   console.log('\n🔄 Step 2/3: Syncing Capacitor Android Assets...');
   execSync('npx cap sync android', { cwd: rootDir, stdio: 'inherit' });
+
+  // Ensure no .apk was copied into native assets
+  if (fs.existsSync(stalePublicAssets)) {
+    try {
+      const files = fs.readdirSync(stalePublicAssets);
+      for (const f of files) {
+        if (f.endsWith('.apk')) {
+          fs.unlinkSync(path.join(stalePublicAssets, f));
+        }
+      }
+    } catch (_) {}
+  }
 
   const cleanDirs = [
     path.join(rootDir, 'node_modules', '@capacitor', 'android', 'capacitor', 'build'),
@@ -62,15 +93,23 @@ try {
   console.log('\n🔨 Step 3/3: Compiling Signed Release APK (assembleRelease with --rerun-tasks)...');
   execSync(`${gradlewCmd} assembleRelease --no-daemon --rerun-tasks`, { cwd: androidDir, stdio: 'inherit' });
 
-  // 4. Copy to Root
+  // 4. Copy to Root and dist/
   if (fs.existsSync(srcApk)) {
     fs.copyFileSync(srcApk, destApk);
+    fs.copyFileSync(srcApk, path.join(rootDir, 'SmartAttend-debug.apk'));
+
+    const distDir = path.join(rootDir, 'dist');
+    if (fs.existsSync(distDir)) {
+      fs.copyFileSync(srcApk, path.join(distDir, 'SmartAttend-release.apk'));
+      fs.copyFileSync(srcApk, path.join(distDir, 'SmartAttend-debug.apk'));
+    }
+
     const stats = fs.statSync(destApk);
     const sizeMb = (stats.size / (1024 * 1024)).toFixed(2);
     console.log(`\n======================================================`);
     console.log(`✅ Signed Release APK Created Successfully!`);
     console.log(`📁 File: SmartAttend-release.apk (${sizeMb} MB)`);
-    console.log(`📲 Signed with release keystore for testing & direct distribution!`);
+    console.log(`📲 Lightweight, clean release APK ready for mobile distribution!`);
     console.log(`======================================================\n`);
   } else {
     console.error('\n❌ Could not find output APK at: ' + srcApk);

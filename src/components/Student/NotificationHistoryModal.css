@@ -1,6 +1,6 @@
 /* =========================================================
-   NOTIFICATION HISTORY & SECURITY AUDIT MODAL
-   Responsive, Clean, Dark-Mode Ready
+   NOTIFICATION HISTORY & UNIFIED DISPATCH MODAL
+   Responsive, Clean, Modern Design System
    ========================================================= */
 
 .notif-modal-overlay {
@@ -35,8 +35,8 @@
 .notif-modal-card {
     background: #ffffff;
     width: 100%;
-    max-width: 600px;
-    max-height: min(88vh, 760px);
+    max-width: 680px;
+    max-height: min(90vh, 820px);
     display: flex;
     flex-direction: column;
     border-radius: 22px;
@@ -49,13 +49,11 @@
 
 /* Header */
 .notif-modal-header {
-    padding: 24px 24px 18px;
+    padding: 20px 24px 14px;
     border-bottom: 1px solid #f1f5f9;
     display: flex;
     flex-direction: column;
     align-items: center;
-    justify-content: center;
-    text-align: center;
     background: #ffffff;
     position: relative;
     box-sizing: border-box;
@@ -69,27 +67,53 @@
     justify-content: center;
     text-align: center;
     width: 100%;
-    max-width: 440px;
+    max-width: 520px;
     margin: 0 auto;
 }
 
+.notif-header-top-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    width: 100%;
+    margin-bottom: 8px;
+}
+
 .notif-header-icon {
-    width: 50px;
-    height: 50px;
-    border-radius: 16px;
+    width: 46px;
+    height: 46px;
+    border-radius: 14px;
     background: #eff6ff;
     color: #2563eb;
     display: flex !important;
     align-items: center !important;
     justify-content: center !important;
-    font-size: 1.45rem;
-    margin: 0 auto 10px auto !important;
+    font-size: 1.35rem;
     box-shadow: 0 4px 12px rgba(37, 99, 235, 0.12);
 }
 
-.notif-header-icon svg {
-    display: block !important;
-    margin: 0 auto !important;
+.notif-sound-btn {
+    position: absolute;
+    right: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    padding: 6px 10px;
+    font-size: 0.85rem;
+    color: #64748b;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.notif-sound-btn:hover {
+    background: #e2e8f0;
+    color: #0f172a;
 }
 
 .notif-modal-title {
@@ -111,11 +135,13 @@
     text-align: center;
 }
 
-.notif-mark-all-btn {
-    margin-top: 10px;
-    display: inline-flex;
+.notif-top-actions-bar {
+    display: flex;
     align-items: center;
-    gap: 6px;
+    justify-content: center;
+    gap: 10px;
+    margin-top: 12px;
+    flex-wrap: wrap;
 }
 
 .notif-modal-close-btn {
@@ -139,6 +165,124 @@
 .notif-modal-close-btn:hover {
     background: #e2e8f0;
     color: #0f172a;
+}
+
+/* Filter Wrapper */
+.notif-filter-wrapper {
+    width: 100%;
+    margin-top: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.notif-search-container {
+    position: relative;
+    width: 100%;
+    display: flex;
+    align-items: center;
+}
+
+.notif-search-icon {
+    position: absolute;
+    left: 12px;
+    color: #94a3b8;
+    font-size: 0.85rem;
+    pointer-events: none;
+}
+
+.notif-search-input {
+    width: 100%;
+    padding: 8px 34px 8px 34px;
+    border: 1.5px solid #e2e8f0;
+    border-radius: 12px;
+    font-size: 0.85rem;
+    background: #f8fafc;
+    color: #0f172a;
+    outline: none;
+    transition: all 0.2s ease;
+    box-sizing: border-box;
+}
+
+.notif-search-input:focus {
+    border-color: #3b82f6;
+    background: #ffffff;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
+}
+
+.notif-search-clear {
+    position: absolute;
+    right: 10px;
+    background: none;
+    border: none;
+    color: #94a3b8;
+    cursor: pointer;
+    padding: 4px;
+    font-size: 0.8rem;
+}
+
+.notif-tabs-scroll {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    overflow-x: auto;
+    width: 100%;
+    padding-bottom: 2px;
+    scrollbar-width: none;
+}
+
+.notif-tabs-scroll::-webkit-scrollbar {
+    display: none;
+}
+
+.notif-tab-btn {
+    padding: 6px 12px;
+    border-radius: 20px;
+    border: 1px solid #e2e8f0;
+    background: #f8fafc;
+    color: #64748b;
+    font-size: 0.78rem;
+    font-weight: 700;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all 0.15s ease;
+    flex-shrink: 0;
+}
+
+.notif-tab-btn:hover {
+    background: #f1f5f9;
+    color: #0f172a;
+}
+
+.notif-tab-btn.active {
+    background: #0f172a;
+    color: #ffffff;
+    border-color: #0f172a;
+}
+
+/* Toast Banners */
+.notif-toast-banner {
+    padding: 10px 18px;
+    font-size: 0.85rem;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 10px 20px 0;
+    border-radius: 12px;
+    animation: notifFadeIn 0.2s ease-out;
+}
+
+.toast-success {
+    background: #dcfce7;
+    color: #15803d;
+    border: 1px solid #86efac;
+}
+
+.toast-error {
+    background: #fee2e2;
+    color: #b91c1c;
+    border: 1px solid #fca5a5;
 }
 
 /* Modal Body */
@@ -248,6 +392,19 @@
     word-break: break-word;
 }
 
+.notif-meta-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: #f1f5f9;
+    color: #334155;
+    font-size: 0.78rem;
+    font-weight: 600;
+    padding: 4px 10px;
+    border-radius: 8px;
+    align-self: flex-start;
+}
+
 /* Actions Row */
 .notif-item-actions {
     display: flex;
@@ -262,7 +419,11 @@
 .notif-sender-pill {
     font-size: 0.76rem;
     color: #64748b;
-    font-weight: 650;
+    font-weight: 600;
+}
+
+.notif-sender-pill strong {
+    color: #0f172a;
 }
 
 .notif-item-btns {
@@ -297,6 +458,17 @@
     transform: translateY(-1px);
 }
 
+.btn-action-approve {
+    background: linear-gradient(135deg, #ea580c 0%, #c2410c 100%);
+    color: #ffffff;
+    box-shadow: 0 3px 10px rgba(234, 88, 12, 0.25);
+}
+
+.btn-action-approve:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 5px 14px rgba(234, 88, 12, 0.35);
+}
+
 .btn-action-secondary {
     background: #f1f5f9;
     color: #475569;
@@ -307,212 +479,179 @@
     color: #0f172a;
 }
 
-/* Empty State */
-.notif-empty-state {
-    text-align: center;
-    padding: 48px 20px;
-    color: #64748b;
-    display: flex !important;
-    flex-direction: column !important;
-    align-items: center !important;
-    justify-content: center !important;
-    width: 100%;
-    margin: 0 auto;
-}
-
-.notif-empty-icon {
-    font-size: 3.2rem;
-    color: #cbd5e1;
-    margin: 0 auto 14px auto !important;
-    display: flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-}
-
-.notif-empty-icon svg {
-    display: block !important;
-    margin: 0 auto !important;
-}
-
-.notif-empty-state h3 {
-    margin: 0 0 6px;
-    font-size: 1.15rem;
-    font-weight: 800;
-    color: #0f172a;
-}
-
-.notif-empty-state p {
-    margin: 0;
-    font-size: 0.86rem;
-    line-height: 1.45;
-    max-width: 420px;
-    margin-left: auto;
-    margin-right: auto;
-}
-
-/* ---------------------------------------------------------
-   Dark Mode / Midnight Theme Support
-   --------------------------------------------------------- */
-[data-theme="midnight"] .notif-modal-card {
-    background: #0f172a;
-    border-color: #1e293b;
-    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.75);
-}
-
-[data-theme="midnight"] .notif-modal-header {
-    background: #0f172a;
-    border-color: #1e293b;
-}
-
-[data-theme="midnight"] .notif-header-icon {
-    background: rgba(37, 99, 235, 0.2);
-    color: #60a5fa;
-}
-
-[data-theme="midnight"] .notif-modal-title {
-    color: #f8fafc;
-}
-
-[data-theme="midnight"] .notif-modal-subtitle {
-    color: #94a3b8;
-}
-
-[data-theme="midnight"] .notif-modal-close-btn {
-    background: #1e293b;
-    color: #94a3b8;
-}
-
-[data-theme="midnight"] .notif-modal-close-btn:hover {
-    background: #334155;
-    color: #f8fafc;
-}
-
-[data-theme="midnight"] .notif-modal-body {
-    background: #0b1120;
-}
-
-[data-theme="midnight"] .notif-item-card {
-    background: #131d33;
-    border-color: #1e293b;
-}
-
-[data-theme="midnight"] .notif-item-card.unread {
-    background: #162444;
-    border-color: #3b82f6;
-    box-shadow: 0 4px 16px rgba(59, 130, 246, 0.15);
-}
-
-[data-theme="midnight"] .notif-item-title {
-    color: #f8fafc;
-}
-
-[data-theme="midnight"] .notif-item-time {
-    color: #94a3b8;
-}
-
-[data-theme="midnight"] .notif-item-msg {
-    color: #cbd5e1;
-}
-
-[data-theme="midnight"] .notif-item-actions {
-    border-color: #1e293b;
-}
-
-[data-theme="midnight"] .notif-sender-pill {
-    color: #94a3b8;
-}
-
-[data-theme="midnight"] .btn-action-secondary {
-    background: #1e293b;
-    color: #cbd5e1;
-}
-
-[data-theme="midnight"] .btn-action-secondary:hover {
-    background: #334155;
-    color: #ffffff;
-}
-
-[data-theme="midnight"] .notif-empty-state h3 {
-    color: #f8fafc;
-}
-
-[data-theme="midnight"] .notif-empty-state p {
-    color: #94a3b8;
-}
-
-[data-theme="midnight"] .notif-empty-icon {
+.btn-action-outline {
+    background: #ffffff;
+    border: 1.5px solid #cbd5e1;
     color: #334155;
 }
 
-/* ---------------------------------------------------------
-   Mobile Responsive Optimizations
-   --------------------------------------------------------- */
-@media (max-width: 580px) {
-    .notif-modal-card {
-        border-radius: 18px;
-        max-height: 90vh;
-    }
+.btn-action-outline:hover {
+    background: #f8fafc;
+    border-color: #94a3b8;
+}
 
-    .notif-modal-header {
-        padding: 14px 16px;
-        gap: 10px;
-    }
+.notif-delete-btn {
+    background: none;
+    border: none;
+    color: #94a3b8;
+    padding: 6px 8px;
+    cursor: pointer;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    transition: all 0.15s ease;
+}
 
-    .notif-header-icon {
-        width: 36px;
-        height: 36px;
-        font-size: 1.1rem;
-        border-radius: 10px;
-    }
+.notif-delete-btn:hover {
+    color: #ef4444;
+    background: #fee2e2;
+}
 
-    .notif-modal-title {
-        font-size: 1.02rem;
-    }
+/* Empty State */
+.notif-empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 40px 20px;
+    color: #64748b;
+}
 
-    .notif-modal-subtitle {
-        font-size: 0.75rem;
-    }
+.notif-empty-icon {
+    font-size: 2.5rem;
+    color: #cbd5e1;
+    margin-bottom: 12px;
+}
 
-    .notif-mark-all-btn {
-        padding: 5px 9px;
-        font-size: 0.74rem;
-    }
+.notif-empty-state h3 {
+    font-size: 1.1rem;
+    font-weight: 800;
+    color: #1e293b;
+    margin: 0 0 6px 0;
+}
 
-    .notif-modal-body {
-        padding: 12px 14px;
-        gap: 10px;
-    }
+.notif-empty-state p {
+    font-size: 0.85rem;
+    max-width: 360px;
+    line-height: 1.4;
+    margin: 0;
+}
 
-    .notif-item-card {
-        padding: 12px 13px;
-        border-radius: 14px;
-        gap: 7px;
-    }
+/* --- COMPOSER FORM --- */
+.notif-compose-card {
+    background: #ffffff;
+    border: 1.5px solid #e2e8f0;
+    border-radius: 18px;
+    padding: 18px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
 
-    .notif-item-header {
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 4px;
-    }
+.compose-header h3 {
+    font-size: 1.05rem;
+    font-weight: 800;
+    color: #0f172a;
+    margin: 0 0 4px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
 
-    .notif-item-time {
-        align-self: flex-start;
-        font-size: 0.7rem;
-    }
+.compose-header p {
+    font-size: 0.8rem;
+    color: #64748b;
+    margin: 0;
+}
 
-    .notif-item-actions {
-        flex-direction: column;
-        align-items: stretch;
-        gap: 8px;
-    }
+.compose-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
 
-    .notif-item-btns {
-        width: 100%;
-        justify-content: flex-end;
-    }
+.compose-field label {
+    font-size: 0.8rem;
+    font-weight: 750;
+    color: #334155;
+}
 
-    .notif-item-btns .notif-action-btn {
-        flex: 1;
-        justify-content: center;
+.compose-field input,
+.compose-field select,
+.compose-field textarea {
+    padding: 9px 12px;
+    border: 1.5px solid #cbd5e1;
+    border-radius: 10px;
+    font-size: 0.86rem;
+    font-family: inherit;
+    color: #0f172a;
+    background: #f8fafc;
+    outline: none;
+    transition: all 0.2s ease;
+    box-sizing: border-box;
+}
+
+.compose-field input:focus,
+.compose-field select:focus,
+.compose-field textarea:focus {
+    border-color: #3b82f6;
+    background: #ffffff;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
+}
+
+.compose-audience-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+    gap: 8px;
+}
+
+.audience-option {
+    border: 1.5px solid #e2e8f0;
+    background: #f8fafc;
+    border-radius: 10px;
+    padding: 8px 10px;
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: #475569;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.audience-option input[type="radio"] {
+    display: none;
+}
+
+.audience-option:hover {
+    border-color: #cbd5e1;
+    background: #f1f5f9;
+}
+
+.audience-option.selected {
+    border-color: #2563eb;
+    background: #eff6ff;
+    color: #1d4ed8;
+}
+
+.compose-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 6px;
+}
+
+.spin {
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    from {
+        transform: rotate(0deg);
+    }
+    to {
+        transform: rotate(360deg);
     }
 }

@@ -13,7 +13,8 @@ import {
   FaUserCircle,
   FaSignOutAlt,
   FaTimes,
-  FaGraduationCap
+  FaGraduationCap,
+  FaQrcode
 } from "react-icons/fa";
 import { useAuth } from "../authcontext";
 
@@ -32,6 +33,7 @@ const AdminSidebar = ({ isOpen, onClose }) => {
 
   const menuItems = [
     { path: "/admin", label: "Dashboard", icon: FaHome, end: true },
+    { path: "/admin/lecturerpage", label: "Generate QR", icon: FaQrcode },
     { path: "/admin/admins", label: "Manage Admins", icon: FaUserShield },
     { path: "/admin/lecturers", label: "Manage Lecturers", icon: FaChalkboardTeacher },
     { path: "/admin/students", label: "Manage Students", icon: FaUserGraduate },

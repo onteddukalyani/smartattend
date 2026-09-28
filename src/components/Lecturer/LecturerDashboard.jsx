@@ -18,7 +18,7 @@ function LecturerDashboard() {
   useEffect(() => {
     const unsub = subscribeToFacultyNotifications((newNotifs) => {
       setFacultyNotifs(newNotifs || []);
-    });
+    }, "lecturer");
     return () => unsub();
   }, []);
 
@@ -52,6 +52,8 @@ function LecturerDashboard() {
         onClose={() => setShowNotifModal(false)}
         notifications={facultyNotifs}
         isFaculty={true}
+        role="lecturer"
+        currentUser={user}
       />
     </div>
   )

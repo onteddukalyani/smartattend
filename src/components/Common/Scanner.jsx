@@ -41,6 +41,8 @@ import { isIOSDevice, isGuidedAccessEnabled, addAppSwitchListener, addScreenCapt
 import { getApkDownloadUrl } from '../../utils/apkUrl';
 import GuidedAccessRequired, { GuidedAccessExitNotice } from '../GuidedAccessRequired';
 import { isGenericName, normalizeDescriptor } from '../../utils/studentDataHelper';
+import { detectDeviceType, getClientIpAddress, getDeviceDisplayName, isDeviceMatching } from '../../utils/deviceDetection';
+import { sendFacultyNotification, sendStudentNotification, reportUserVerificationComplaint } from '../../services/notificationsService';
 
 /**
  * Stage 4: Student Two-Phase Attendance Scanner & Supervised Kiosk Controller
@@ -726,12 +728,77 @@ function QrScannerApp() {
         return { sessionId, qr1Token, qr2Token, phase };
     };
 
+    // Dual Verification: Auto-detect device and verify against registered device preference
+    const verifyDeviceIntegrity = useCallback(async (targetSessionId = '') => {
+        const registeredType = profile?.deviceType || profile?.registeredDeviceType || (typeof window !== 'undefined' ? localStorage.getItem('smartattend_student_device_type') : null);
+        const detectedType = detectDeviceType();
+
+        // If a device type is registered for this student, verify against current runtime
+        if (registeredType && !isDeviceMatching(registeredType, detectedType)) {
+            let clientIp = 'Unknown IP';
+            try {
+                clientIp = await getClientIpAddress();
+            } catch (_) {}
+
+            const regLabel = getDeviceDisplayName(registeredType);
+            const curLabel = getDeviceDisplayName(detectedType || 'web');
+
+            console.error(`[AntiProxy] Device mismatch: Registered as ${regLabel}, attempted from ${curLabel} (IP: ${clientIp})`);
+
+            // 1. Send real-time security alert to Faculty & Admins
+            try {
+                await sendFacultyNotification(
+                    `🚨 Anti-Proxy Alert: Device Mismatch for ${loggedInName} (${loggedInRollNo})`,
+                    `Student ${loggedInName} (${loggedInRollNo}) attempted attendance from an unauthorized device.\n• Registered Device: ${regLabel}\n• Attempted Device: ${curLabel}\n• IP Address: ${clientIp}\n• User-Agent: ${navigator.userAgent}\n• Session ID: ${targetSessionId || activeSessionId || 'Active Scan'}\n\nAttendance scan was blocked to prevent proxy.`,
+                    'DEVICE_MISMATCH_SECURITY_ALERT',
+                    loggedInRollNo,
+                    'Anti-Proxy Sentinel'
+                );
+            } catch (e) {
+                console.warn('Faculty notif notice:', e);
+            }
+
+            // 2. Send real-time notification to the Student
+            try {
+                await sendStudentNotification(
+                    loggedInRollNo,
+                    '🚨 Unauthorized Device Mismatch',
+                    `Attendance Blocked: Your account is registered with a ${regLabel}, but you attempted attendance using a ${curLabel} (IP: ${clientIp}).\n\nProxy attempts are strictly prohibited. If you changed your phone, please contact your Lecturer or Administrator to reset your device preference.`,
+                    'SECURITY_ALERT',
+                    'Anti-Proxy Sentinel'
+                );
+            } catch (e) {
+                console.warn('Student notif notice:', e);
+            }
+
+            // 3. Log security complaint
+            try {
+                await reportUserVerificationComplaint(
+                    { email: user?.email, rollNo: loggedInRollNo, name: loggedInName },
+                    `Device Mismatch: Registered as ${regLabel} but attempted attendance from ${curLabel} (IP: ${clientIp})`,
+                    'ATTENDANCE_SCANNER_DEVICE_GUARD'
+                );
+            } catch (e) {
+                console.warn('Complaint logging notice:', e);
+            }
+
+            const err = `❌ Device Mismatch Blocked: Your account is locked to a registered ${regLabel}. You cannot mark attendance from a ${curLabel} (IP: ${clientIp}). This unauthorized proxy attempt has been reported to your Lecturer and Administrator.`;
+            setErrorMessage(err);
+            return false;
+        }
+        return true;
+    }, [profile?.deviceType, profile?.registeredDeviceType, loggedInName, loggedInRollNo, user?.email, activeSessionId]);
+
     // 1. Process Phase 1 QR 1: Check-in & Start Lock Task Kiosk
     const handleProcessQR1 = async (sessionId, qr1Token) => {
         if (!user) {
             setErrorMessage('Please log in with your student account to authorize attendance.');
             return;
         }
+
+        // Strictly verify device platform integrity before proceeding
+        const deviceValid = await verifyDeviceIntegrity(sessionId);
+        if (!deviceValid) return;
 
         // Strictly verify overlay permission on personal Android devices before initiating Kiosk Lock
         if (isNativeApp && !deviceOwnerStatus.isDeviceOwner && !overlayStatus.canDraw) {
@@ -749,11 +816,16 @@ function QrScannerApp() {
         setErrorMessage('');
 
         try {
+            let clientIp = 'Unknown IP';
+            try { clientIp = await getClientIpAddress(); } catch (_) {}
+
             const studentProfileOverride = {
                 rollNo: loggedInRollNo,
                 name: loggedInName,
                 email: user.email || '',
                 deviceId: deviceIdentity?.deviceId || null,
+                deviceIp: clientIp,
+                deviceType: profile?.deviceType || profile?.registeredDeviceType || (typeof window !== 'undefined' ? localStorage.getItem('smartattend_student_device_type') : null),
                 isDeviceOwner: deviceOwnerStatus.isDeviceOwner
             };
 
@@ -812,6 +884,10 @@ function QrScannerApp() {
             setErrorMessage('Please log in to submit attendance.');
             return;
         }
+
+        // Strictly verify device platform integrity before validating QR2
+        const deviceValid = await verifyDeviceIntegrity(sessionId);
+        if (!deviceValid) return;
 
         // Prevent redundant QR 2 validations if already scanning biometrics or submitted
         if (scanState === 'VALIDATING_QR2' || scanState === 'BIOMETRIC_SCAN' || scanState === 'ATTENDANCE_SUCCESS') {
@@ -1171,62 +1247,146 @@ function QrScannerApp() {
     };
 
     // =========================================================================
+    // =========================================================================
     // UI VIEW -1: STRICT ANDROID WEB BROWSER BLOCK SCREEN
     // =========================================================================
-    if (!isNativeApp && !isIOSDevice()) {
+    const isAndroidDevice = typeof navigator !== 'undefined' && (/Android/i.test(navigator.userAgent) || detectDeviceType() === 'android');
+    if (!isNativeApp && isAndroidDevice) {
         return (
             <div style={{
                 maxWidth: '540px',
-                margin: '40px auto',
-                padding: '36px 24px',
-                background: '#ffffff',
-                borderRadius: '28px',
-                border: '2px solid #ef4444',
-                boxShadow: '0 25px 50px -12px rgba(239, 68, 68, 0.25)',
+                margin: '30px auto',
+                padding: '32px 24px',
+                background: 'var(--surface, #ffffff)',
+                borderRadius: '24px',
+                border: '1.5px solid #6366f1',
+                boxShadow: '0 25px 50px -12px rgba(99, 102, 241, 0.25)',
+                color: 'var(--text-main, #0f172a)',
                 textAlign: 'center',
-                color: '#0f172a'
+                position: 'relative'
             }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', marginBottom: '16px' }}>
+                    <button
+                        type="button"
+                        onClick={() => navigate('/student')}
+                        style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            background: 'transparent',
+                            border: 'none',
+                            color: 'var(--accent, #6366f1)',
+                            fontSize: '0.9rem',
+                            fontWeight: 700,
+                            cursor: 'pointer'
+                        }}
+                    >
+                        <FaArrowLeft /> Back to Dashboard
+                    </button>
+                </div>
+
                 <div style={{
-                    width: '80px',
-                    height: '80px',
+                    width: '76px',
+                    height: '76px',
                     borderRadius: '50%',
-                    background: '#fee2e2',
-                    color: '#dc2626',
-                    display: 'inline-flex',
+                    background: 'linear-gradient(135deg, #4338ca 0%, #6366f1 100%)',
+                    color: '#ffffff',
+                    display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    fontSize: '2.5rem',
+                    margin: '0 auto 16px',
+                    fontSize: '36px',
+                    boxShadow: '0 8px 24px rgba(99, 102, 241, 0.35)'
+                }}>
+                    <FaMobileAlt />
+                </div>
+
+                <div style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '6px 14px',
+                    borderRadius: '999px',
+                    background: '#fee2e2',
+                    color: '#dc2626',
+                    fontSize: '0.82rem',
+                    fontWeight: 800,
+                    marginBottom: '12px'
+                }}>
+                    <FaLock /> Android Web Attendance Blocked
+                </div>
+
+                <h2 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#0f172a', margin: '0 0 8px' }}>
+                    SmartAttend Android App Required
+                </h2>
+                <p style={{ fontSize: '0.9rem', color: '#475569', lineHeight: 1.5, margin: '0 0 20px' }}>
+                    Anti-proxy security requires attendance marking on Android devices to run inside the native <strong>SmartAttend Android App</strong> with hardware Lock Task protection. Marking attendance via mobile web browser is disabled.
+                </p>
+
+                <div style={{
+                    background: 'var(--surface-soft, #f8fafc)',
+                    border: '1.5px solid var(--border, #e2e8f0)',
+                    borderRadius: '16px',
+                    padding: '16px',
+                    textAlign: 'left',
                     marginBottom: '20px'
                 }}>
-                    <FaExclamationTriangle />
+                    <div style={{ fontWeight: 800, color: '#4338ca', fontSize: '0.86rem', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <FaShieldAlt /> Enforced Security Measures:
+                    </div>
+                    <ul style={{ margin: 0, paddingLeft: '18px', fontSize: '0.82rem', color: '#64748b', lineHeight: 1.5 }}>
+                        <li>Hardware-secured <strong>Lock Task Kiosk Mode</strong> to prevent proxy attendance</li>
+                        <li>Hardware-secured <strong>Live Facial Biometric</strong> verification</li>
+                        <li>Real-time Device Fingerprint & IP Sentinel Verification</li>
+                    </ul>
                 </div>
-                <h2 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#991b1b', margin: '0 0 10px' }}>
-                    Android Web Attendance Blocked
-                </h2>
-                <p style={{ fontSize: '0.95rem', color: '#475569', lineHeight: 1.5, margin: '0 0 24px' }}>
-                    System Policy strictly prohibits attendance marking from Android web browsers. SmartAttend requires OS-level Kiosk Lock Task protection. You MUST download and use the official SmartAttend Android APK app.
-                </p>
-                <a
-                    href={getApkDownloadUrl()}
-                    download="SmartAttend-release.apk"
-                    style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: '10px',
-                        width: '100%',
-                        padding: '16px 24px',
-                        borderRadius: '16px',
-                        background: 'linear-gradient(135deg, #dc2626, #991b1b)',
-                        color: '#ffffff',
-                        textDecoration: 'none',
-                        fontWeight: 800,
-                        fontSize: '1.05rem',
-                        boxShadow: '0 8px 20px rgba(220, 38, 38, 0.35)'
-                    }}
-                >
-                    <FaDownload /> Download SmartAttend Android APK (.apk)
-                </a>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    <button
+                        type="button"
+                        onClick={handleOpenInSmartAttendApp}
+                        style={{
+                            width: '100%',
+                            padding: '14px 20px',
+                            borderRadius: '14px',
+                            background: 'linear-gradient(135deg, #6366f1 0%, #4338ca 100%)',
+                            color: '#ffffff',
+                            border: 'none',
+                            fontWeight: 800,
+                            fontSize: '1rem',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '10px',
+                            boxShadow: '0 6px 20px rgba(99, 102, 241, 0.4)'
+                        }}
+                    >
+                        <FaExternalLinkAlt /> Open in SmartAttend App
+                    </button>
+
+                    <a
+                        href={getApkDownloadUrl()}
+                        download="SmartAttend-release.apk"
+                        style={{
+                            width: '100%',
+                            padding: '12px 20px',
+                            borderRadius: '14px',
+                            background: 'var(--surface-soft, #f1f5f9)',
+                            color: '#334155',
+                            border: '1.5px solid var(--border, #cbd5e1)',
+                            fontWeight: 700,
+                            fontSize: '0.9rem',
+                            textDecoration: 'none',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '8px'
+                        }}
+                    >
+                        <FaDownload /> Download SmartAttend Android APK (.apk)
+                    </a>
+                </div>
             </div>
         );
     }

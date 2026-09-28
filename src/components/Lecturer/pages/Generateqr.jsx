@@ -11,6 +11,7 @@ import {
     closeAttendanceSession,
     releaseIndividualStudentDevice
 } from "../../../services/sessionAuthService";
+import { sendFacultyNotification, sendBroadcastNotification } from "../../../services/notificationsService";
 import { useAuth } from "../../authcontext";
 import { isCourseAssignedToLecturer } from "../../Common/CoursesManager";
 import {
@@ -91,7 +92,8 @@ function GenerateQR() {
                     const matched = list.find((c) => (c.courseCode || c.code || "").toUpperCase() === targetCode.toUpperCase());
                     if (matched) {
                         setCourseCode(matched.courseCode || matched.code || targetCode);
-                        if (matched.defaultRoom && !roomNo) setRoomNo(matched.defaultRoom);
+                        const courseRoom = matched.defaultRoom || matched.roomNo || matched.room || matched.classroom || matched.classCode || matched.classNumber || "";
+                        if (courseRoom && !searchParams.get("roomNo")) setRoomNo(courseRoom);
                         if (matched.department && !classCode) setClassCode(matched.department);
                         if (matched.batch && (!batch || batch === "2025")) setBatch(matched.batch);
                     }
@@ -183,10 +185,13 @@ function GenerateQR() {
 
     const handleSelectCourse = (code) => {
         setCourseCode(code);
+        if (!code) return;
         const matched = availableCourses.find((c) => (c.courseCode || c.code || "").toUpperCase() === String(code).toUpperCase());
         if (matched) {
-            if (matched.defaultRoom && !roomNo) setRoomNo(matched.defaultRoom);
-            if (matched.department && !classCode) setClassCode(matched.department);
+            const courseRoom = matched.defaultRoom || matched.roomNo || matched.room || matched.classroom || matched.classCode || matched.classNumber || "C003";
+            setRoomNo(courseRoom);
+            if (matched.department) setClassCode(matched.department);
+            else if (matched.classCode) setClassCode(matched.classCode);
             if (matched.batch) setBatch(matched.batch);
         }
     };
@@ -196,8 +201,9 @@ function GenerateQR() {
         setCourseCode(val);
         const matched = availableCourses.find((c) => (c.courseCode || c.code || "").toUpperCase() === val.trim().toUpperCase());
         if (matched) {
-            if (matched.defaultRoom && !roomNo) setRoomNo(matched.defaultRoom);
-            if (matched.department && !classCode) setClassCode(matched.department);
+            const courseRoom = matched.defaultRoom || matched.roomNo || matched.room || matched.classroom || matched.classCode || matched.classNumber || "";
+            if (courseRoom) setRoomNo(courseRoom);
+            if (matched.department) setClassCode(matched.department);
             if (matched.batch) setBatch(matched.batch);
         }
     };
@@ -237,6 +243,25 @@ function GenerateQR() {
             setKioskEndsAt(result.kioskEndsAt);
             setPhase("PHASE_1");
             setElapsedSeconds(0);
+
+            // Real-time Faculty & Admin Alert
+            sendFacultyNotification(
+                `Attendance Session Started: ${courseCode.trim()} 🟢`,
+                `Lecturer ${lecturerInfo.name} initiated attendance session for course ${courseCode.trim()} in Room ${roomNo.trim()}.`,
+                "SESSION_STARTED",
+                "",
+                lecturerInfo.name
+            ).catch(() => {});
+
+            // Real-time Student Announcement
+            sendBroadcastNotification({
+                targetRoles: ["student"],
+                title: `🟢 Live Attendance: ${courseCode.trim()}`,
+                message: `Attendance session opened for ${courseCode.trim()} in Room ${roomNo.trim()}. Open SmartAttend app and scan the QR code before it expires.`,
+                type: "CLASS_UPDATE",
+                senderName: lecturerInfo.name,
+                senderRole: "lecturer"
+            }).catch(() => {});
         } catch (error) {
             console.error("Error creating attendance session:", error);
             setErrorMessage(error.message || "Could not create attendance session.");
@@ -279,6 +304,13 @@ function GenerateQR() {
         try {
             if (sessionId) {
                 await closeAttendanceSession(sessionId);
+                sendFacultyNotification(
+                    `Attendance Session Closed: ${courseCode || "Class"} 🔴`,
+                    `Attendance session for course ${courseCode || "Class"} was closed and all student devices unlocked.`,
+                    "SESSION_CLOSED",
+                    "",
+                    profile?.name || "Lecturer"
+                ).catch(() => {});
             }
         } catch (err) {
             console.error("Error closing session:", err);

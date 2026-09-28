@@ -27,6 +27,7 @@ import * as XLSX from "xlsx";
 import { db } from "../../../firebase";
 import { useTableSort, SortIcon } from "../../Common/useTableSort";
 import { normalizeBranchName } from "../../../utils/studentDataHelper";
+import { sendFacultyNotification } from "../../../services/notificationsService";
 import "./AddStudent.css";
 
 const AddLecturer = () => {
@@ -164,6 +165,17 @@ const AddLecturer = () => {
           createdAt: serverTimestamp()
         }, { merge: true });
       }
+
+      // 4. Notify Admins and Faculty
+      await sendFacultyNotification(
+        `👨‍🏫 New Lecturer Registered: ${form.name}`,
+        `Lecturer profile created for ${form.name} (${cleanEmail}) in department ${form.department || 'General'}.`,
+        "LECTURER_ADDED",
+        "",
+        "Admin Portal",
+        {},
+        "faculty"
+      );
 
       navigate("/admin/lecturers");
 
@@ -390,6 +402,18 @@ const AddLecturer = () => {
 
         await batch.commit();
         addedCount += chunk.length;
+      }
+
+      if (addedCount > 0) {
+        await sendFacultyNotification(
+          `👨‍🏫 Bulk Lecturer Import: ${addedCount} Registered`,
+          `Successfully registered ${addedCount} faculty members into the institution roster.`,
+          "LECTURER_ADDED",
+          "",
+          "Admin Portal",
+          {},
+          "faculty"
+        );
       }
 
       setBulkSummary({

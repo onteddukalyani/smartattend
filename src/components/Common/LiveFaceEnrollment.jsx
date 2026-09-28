@@ -7,11 +7,8 @@ import {
     FaSpinner,
     FaShieldAlt,
     FaVideo,
-    FaUpload,
     FaLock,
     FaInfoCircle,
-    FaCloudUploadAlt,
-    FaImage,
     FaArrowLeft,
     FaArrowRight,
     FaArrowUp,
@@ -53,8 +50,6 @@ export function LiveFaceEnrollment({
     const [statusType, setStatusType] = useState("ready");
     const [enrolledPhoto, setEnrolledPhoto] = useState(initialPhoto);
     const [capturedVector, setCapturedVector] = useState(null);
-    const [activeMode, setActiveMode] = useState("camera"); // "camera" or "upload"
-    const [isDragging, setIsDragging] = useState(false);
     const [flashEffect, setFlashEffect] = useState(false);
     const [duplicateError, setDuplicateError] = useState("");
     // Aadhaar KYC Interactive State
@@ -428,122 +423,6 @@ export function LiveFaceEnrollment({
         }
     };
 
-    // 6. Photo File Upload Handler
-    const processPhotoFile = async (file) => {
-        if (!file) return;
-        if (!file.type || !file.type.startsWith("image/")) {
-            setStatusMessage("⚠️ Please upload an image file (PNG, JPG, JPEG, WEBP).");
-            setStatusType("warning");
-            return;
-        }
-
-        setDuplicateError("");
-        setCapturing(true);
-        setStatusMessage("⚡ Extracting 128-D biometric vector from photo...");
-        setStatusType("capturing");
-
-        try {
-            if (!modelsLoaded) {
-                setStatusMessage("Loading AI recognition models...");
-                await loadAiModels();
-            }
-
-            const img = new Image();
-            const reader = new FileReader();
-
-            reader.onload = (readerEvent) => {
-                img.onload = async () => {
-                    try {
-                        const maxDim = 800;
-                        let width = img.naturalWidth || img.width;
-                        let height = img.naturalHeight || img.height;
-                        if (width > maxDim || height > maxDim) {
-                            if (width > height) {
-                                height = Math.round((height * maxDim) / width);
-                                width = maxDim;
-                            } else {
-                                width = Math.round((width * maxDim) / height);
-                                height = maxDim;
-                            }
-                        }
-
-                        const canvas = document.createElement("canvas");
-                        canvas.width = width;
-                        canvas.height = height;
-                        const ctx = canvas.getContext("2d");
-                        ctx.drawImage(img, 0, 0, width, height);
-
-                        const detection = await faceapi
-                            .detectSingleFace(canvas, new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.45 }))
-                            .withFaceLandmarks()
-                            .withFaceDescriptor();
-
-                        if (!detection) {
-                            setStatusMessage("❌ No clear face detected in photo. Please choose a well-lit photo looking directly at camera.");
-                            setStatusType("warning");
-                            setCapturing(false);
-                            return;
-                        }
-
-                        const descriptorArray = Array.from(detection.descriptor);
-
-                        // DUPLICATE BIOMETRICS CHECK
-                        setStatusMessage("🔍 Verifying biometric uniqueness...");
-                        const duplicateCheck = await checkDuplicateFaceBiometrics(descriptorArray, targetRollNo, targetEmail);
-
-                        if (duplicateCheck.isDuplicate && duplicateCheck.conflictStudent) {
-                            const cs = duplicateCheck.conflictStudent;
-                            const errText = `⛔ Duplicate Face Detected! This photo matches already registered student "${cs.name}" (Roll No: ${cs.rollNo}).`;
-                            setDuplicateError(errText);
-                            setStatusMessage(errText);
-                            setStatusType("warning");
-                            setCapturing(false);
-                            return;
-                        }
-
-                        const photoDataUrl = canvas.toDataURL("image/jpeg", 0.90);
-                        setEnrolledPhoto(photoDataUrl);
-                        setCapturedVector(descriptorArray);
-                        setStatusMessage("✅ Facial biometrics verified unique & registered successfully!");
-                        setStatusType("success");
-
-                        if (streamRef.current) {
-                            streamRef.current.getTracks().forEach((t) => t.stop());
-                            streamRef.current = null;
-                            setCameraActive(false);
-                        }
-
-                        if (onFaceEnrolled) {
-                            onFaceEnrolled({
-                                faceDescriptor: descriptorArray,
-                                photoURL: photoDataUrl,
-                                biometricEnrolled: true,
-                                livenessConfirmed: true,
-                                aadhaarVerified: true,
-                                enrolledAt: Date.now()
-                            });
-                        }
-                    } catch (detectErr) {
-                        console.error("Photo detect error:", detectErr);
-                        setStatusMessage("Error analyzing face from photo. Please try another photo.");
-                        setStatusType("warning");
-                    } finally {
-                        setCapturing(false);
-                    }
-                };
-
-                img.src = readerEvent.target.result;
-            };
-
-            reader.readAsDataURL(file);
-        } catch (err) {
-            console.error("Photo capture error:", err);
-            setStatusMessage("Failed to process photo.");
-            setStatusType("warning");
-            setCapturing(false);
-        }
-    };
-
     const handleRetake = () => {
         setEnrolledPhoto(null);
         setCapturedVector(null);
@@ -556,81 +435,20 @@ export function LiveFaceEnrollment({
         }
         setStatusMessage("🎯 Step 1/4: Look straight into the camera");
         setStatusType("ready");
-        if (fileInputRef.current) {
-            fileInputRef.current.value = "";
-        }
         if (onFaceEnrolled) {
             onFaceEnrolled(null);
         }
-        if (activeMode === "camera") {
-            startCameraStream();
-        }
+        startCameraStream();
     };
 
     return (
         <div className={`live-enrollment-card aadhaar-auth-card ${hideHeader ? "in-modal" : ""}`}>
-            {/* Hidden Photo File Input */}
-            <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                capture="user"
-                style={{ display: "none" }}
-                onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (file) processPhotoFile(file);
-                }}
-            />
-
-            {/* Mode Switcher Tabs */}
-            {!enrolledPhoto && (
-                <div className="lfe-mode-tabs-wrapper">
-                    <div className="lfe-mode-tabs">
-                        <button
-                            type="button"
-                            className={`lfe-mode-tab ${activeMode === "camera" ? "active" : ""}`}
-                            onClick={() => {
-                                setActiveMode("camera");
-                                if (!cameraActive && !enrolledPhoto) startCameraStream();
-                            }}
-                        >
-                            <FaIdCard /> Aadhaar KYC Camera
-                        </button>
-                        <button
-                            type="button"
-                            className={`lfe-mode-tab ${activeMode === "upload" ? "active" : ""}`}
-                            onClick={() => {
-                                setActiveMode("upload");
-                                if (streamRef.current) {
-                                    streamRef.current.getTracks().forEach((t) => t.stop());
-                                    streamRef.current = null;
-                                    setCameraActive(false);
-                                }
-                            }}
-                        >
-                            <FaUpload /> Upload Photo
-                        </button>
-                    </div>
-                </div>
-            )}
-
             {/* Viewport Container with Aadhaar Multi-Angle Radar HUD */}
             <div
-                className={`lfe-viewport-container aadhaar-viewport ${enrolledPhoto ? "enrolled" : ""} ${isAadhaarVerified ? "verified" : ""} ${capturing ? "capturing" : ""} ${flashEffect ? "flash" : ""} ${activeMode === "upload" && !cameraActive && !enrolledPhoto ? "upload-mode" : ""}`}
-                onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
-                onDragLeave={(e) => { e.preventDefault(); setIsDragging(false); }}
-                onDrop={(e) => {
-                    e.preventDefault();
-                    setIsDragging(false);
-                    const file = e.dataTransfer?.files?.[0];
-                    if (file) {
-                        setActiveMode("upload");
-                        processPhotoFile(file);
-                    }
-                }}
+                className={`lfe-viewport-container aadhaar-viewport ${enrolledPhoto ? "enrolled" : ""} ${isAadhaarVerified ? "verified" : ""} ${capturing ? "capturing" : ""} ${flashEffect ? "flash" : ""}`}
             >
                 {/* Aadhaar Circular Multi-Angle Compass Ring */}
-                {!enrolledPhoto && cameraActive && activeMode === "camera" && (
+                {!enrolledPhoto && cameraActive && (
                     <div className="aadhaar-compass-hud">
                         {/* 360 Progress SVG Ring */}
                         <svg className="aadhaar-ring-svg" viewBox="0 0 260 260">
@@ -693,44 +511,6 @@ export function LiveFaceEnrollment({
                             <span>Aadhaar-Grade Biometrics Enrolled</span>
                         </div>
                     </div>
-                ) : activeMode === "upload" && !cameraActive ? (
-                    /* UPLOAD DROPZONE */
-                    <div
-                        className="lfe-upload-dropzone"
-                        onClick={() => fileInputRef.current?.click()}
-                    >
-                        <div className="lfe-upload-icon-container">
-                            <FaCloudUploadAlt className="lfe-upload-hero-icon" />
-                        </div>
-                        <h4 className="lfe-upload-title">
-                            {isDragging ? "Drop your face photo here" : "Upload Face Photo"}
-                        </h4>
-                        <p className="lfe-upload-subtitle">
-                            Drag &amp; drop an image here, or click to browse
-                        </p>
-
-                        <div className="lfe-upload-guidelines">
-                            <span className="lfe-guide-badge"><FaCheckCircle /> Frontal Face</span>
-                            <span className="lfe-guide-badge"><FaCheckCircle /> Good Lighting</span>
-                            <span className="lfe-guide-badge"><FaCheckCircle /> High Clarity</span>
-                        </div>
-
-                        <button
-                            type="button"
-                            className="lfe-browse-btn"
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                fileInputRef.current?.click();
-                            }}
-                            disabled={capturing}
-                        >
-                            {capturing ? (
-                                <><FaSpinner className="fa-spin" /> Processing Photo...</>
-                            ) : (
-                                <><FaImage /> Browse Photo File</>
-                            )}
-                        </button>
-                    </div>
                 ) : (
                     /* CAMERA STREAM */
                     <>
@@ -764,30 +544,19 @@ export function LiveFaceEnrollment({
                                 </div>
                                 <h5>Aadhaar-Grade Face Authentication</h5>
                                 <p>Perform interactive multi-angle head movement (Front, Left, Right, Up) to verify biological liveness.</p>
-
                                 <div className="lfe-placeholder-btn-group">
                                     <button
                                         type="button"
                                         className="lfe-primary-cam-btn"
                                         onClick={startCameraStream}
                                         disabled={cameraLoading}
+                                        style={{ width: "100%", justifyContent: "center" }}
                                     >
                                         {cameraLoading ? (
                                             <><FaSpinner className="fa-spin" /> Starting Camera...</>
                                         ) : (
-                                            <><FaVideo /> Start Aadhaar Scan</>
+                                            <><FaVideo /> Start Live Aadhaar Scan</>
                                         )}
-                                    </button>
-
-                                    <button
-                                        type="button"
-                                        className="lfe-secondary-upload-btn"
-                                        onClick={() => {
-                                            setActiveMode("upload");
-                                            fileInputRef.current?.click();
-                                        }}
-                                    >
-                                        <FaUpload /> Upload Photo
                                     </button>
                                 </div>
 
@@ -814,7 +583,7 @@ export function LiveFaceEnrollment({
             </div>
 
             {/* Aadhaar Interactive Step Pills & Progress */}
-            {cameraActive && !enrolledPhoto && activeMode === "camera" && (
+            {cameraActive && !enrolledPhoto && (
                 <div className="aadhaar-steps-tray">
                     <div className="aadhaar-pills-row">
                         <span className={`aadhaar-pill ${checkpoints.CENTER ? "done" : currentStep === "CENTER" ? "current" : ""}`}>
@@ -851,7 +620,7 @@ export function LiveFaceEnrollment({
                     <span>{statusMessage}</span>
                 </div>
 
-                {cameraActive && !enrolledPhoto && activeMode === "camera" && (
+                {cameraActive && !enrolledPhoto && (
                     <span className="aadhaar-score-badge">
                         KYC Progress: <strong>{progress}%</strong>
                     </span>
@@ -891,19 +660,8 @@ export function LiveFaceEnrollment({
                             {capturing ? (
                                 <><FaSpinner className="fa-spin" /> Enrolling Biometrics...</>
                             ) : (
-                                <><FaCamera />  Capture Face Biometrics</>
+                                <><FaCamera /> Capture Face Biometrics</>
                             )}
-                        </button>
-
-                        <button
-                            type="button"
-                            className="lfe-secondary-upload-btn"
-                            onClick={() => {
-                                setActiveMode("upload");
-                                fileInputRef.current?.click();
-                            }}
-                        >
-                            <FaUpload /> Upload Photo
                         </button>
                     </div>
                 ) : null}

@@ -57,6 +57,8 @@ function StudentDashboard() {
                 onClose={() => setShowNotifModal(false)}
                 notifications={notifications}
                 studentRollNo={activeRollNo}
+                role="student"
+                currentUser={user}
                 onOpenDeviceModal={() => setShowDeviceModal(true)}
             />
 

@@ -22,6 +22,7 @@ import {
 import * as XLSX from "xlsx";
 import { db } from "../../../firebase";
 import { useTableSort, SortIcon } from "../../Common/useTableSort";
+import { sendFacultyNotification } from "../../../services/notificationsService";
 import "./AddStudent.css";
 
 const AddAdmin = () => {
@@ -113,6 +114,17 @@ const AddAdmin = () => {
       if (prefix !== cleanEmail) {
         await setDoc(doc(db, "users", cleanEmail), adminData, { merge: true });
       }
+
+      // 4. Notify all administrators
+      await sendFacultyNotification(
+        `🛡️ New Administrator Registered: ${form.name}`,
+        `Administrator account created for ${form.name} (${cleanEmail}) in department ${form.department || 'Administration'}.`,
+        "ADMIN_ADDED",
+        "",
+        "Admin Portal",
+        {},
+        "admin"
+      );
 
       alert(`✅ Administrator ${form.name} (${cleanEmail}) added successfully!`);
       navigate("/admin/admins");
@@ -263,6 +275,16 @@ const AddAdmin = () => {
       });
 
       await batch.commit();
+
+      await sendFacultyNotification(
+        `🛡️ Bulk Admin Import: ${validRows.length} Registered`,
+        `Successfully imported and registered ${validRows.length} administrator accounts in bulk.`,
+        "ADMIN_ADDED",
+        "",
+        "Admin Portal",
+        {},
+        "admin"
+      );
 
       setBulkSummary({
         total: parsedAdmins.length,

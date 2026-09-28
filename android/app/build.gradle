@@ -42,6 +42,14 @@ android {
             }
         }
     }
+    aaptOptions {
+        ignoreAssetsPattern "!*.apk:!*.aab"
+    }
+    packagingOptions {
+        resources {
+            excludes += ['**/*.apk', '**/*.aab']
+        }
+    }
 }
 
 repositories {

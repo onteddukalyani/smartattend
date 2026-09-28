@@ -2,6 +2,7 @@ import { httpsCallable } from "firebase/functions";
 import { doc, onSnapshot, collection, setDoc, getDoc, updateDoc, arrayUnion, increment, serverTimestamp } from "firebase/firestore";
 import { functions, db, auth } from "../firebase";
 import { sendFacultyNotification, sendStudentNotification, reportUserVerificationComplaint } from "./notificationsService";
+import { detectDeviceType, getClientIpAddress, getDeviceDisplayName, isDeviceMatching } from "../utils/deviceDetection";
 
 /**
  * Utility: Compute SHA-256 hash using Web Crypto API.
@@ -171,6 +172,45 @@ export async function authorizeStudentQR1(sessionId, qr1Token, studentProfileOve
     throw new Error("❌ QR 1 has expired! The 60-second check-in window is closed.");
   }
 
+  const detectedType = detectDeviceType() || "web";
+  let clientIp = studentProfileOverride?.deviceIp || (typeof window !== "undefined" ? localStorage.getItem("smartattend_device_ip") : null) || "Unknown IP";
+  if (!clientIp || clientIp === "Unknown IP") {
+    try {
+      clientIp = await getClientIpAddress();
+    } catch (_) {}
+  }
+
+  // Device Mismatch Protection Check
+  const registeredType = studentProfileOverride?.deviceType || (typeof window !== "undefined" ? localStorage.getItem("smartattend_student_device_type") : null);
+  if (registeredType && !isDeviceMatching(registeredType, detectedType)) {
+    const regLabel = getDeviceDisplayName(registeredType);
+    const curLabel = getDeviceDisplayName(detectedType);
+
+    await sendFacultyNotification(
+      `🚨 Anti-Proxy Alert: Device Mismatch for ${studentName} (${rollNo})`,
+      `Student ${studentName} (${rollNo}) attempted attendance from an unauthorized device.\n• Registered: ${regLabel}\n• Attempted: ${curLabel}\n• IP Address: ${clientIp}\n• Session: ${sessionId}\n\nAttendance check-in was blocked to prevent proxy.`,
+      "DEVICE_MISMATCH_SECURITY_ALERT",
+      rollNo,
+      "Anti-Proxy Sentinel"
+    );
+
+    await sendStudentNotification(
+      rollNo,
+      "🚨 Unauthorized Device Mismatch",
+      `Attendance Blocked: Your account is registered with a ${regLabel}, but you attempted attendance using a ${curLabel} (IP: ${clientIp}).\n\nIf you changed your phone, please contact your Lecturer or Administrator for device reset.`,
+      "SECURITY_ALERT",
+      "Anti-Proxy Sentinel"
+    );
+
+    await reportUserVerificationComplaint(
+      { email: studentEmail, rollNo: rollNo, name: studentName },
+      `Device Mismatch: Registered as ${regLabel} but attempted attendance from ${curLabel} (IP: ${clientIp})`,
+      "ATTENDANCE_PHASE_GATE"
+    );
+
+    throw new Error(`⛔ Device Mismatch: Your account is locked to a ${regLabel}. You cannot mark attendance from a ${curLabel} (IP: ${clientIp}).`);
+  }
+
   const authPayload = {
     studentUid: studentUid,
     studentEmail: studentEmail,
@@ -182,7 +222,11 @@ export async function authorizeStudentQR1(sessionId, qr1Token, studentProfileOve
     released: false,
     authorizedAt: now,
     sessionId: sessionId,
-    kioskEndsAt: kioskEndsAt
+    kioskEndsAt: kioskEndsAt,
+    deviceType: registeredType || detectedType,
+    detectedPlatform: detectedType,
+    deviceIp: clientIp,
+    userAgent: typeof navigator !== "undefined" ? navigator.userAgent : ""
   };
 
   // Always store local fallback token to guarantee gating
@@ -221,7 +265,9 @@ export async function authorizeStudentQR1(sessionId, qr1Token, studentProfileOve
     studentName: studentName,
     sessionStartAt: session?.sessionStartAt || now,
     qr1ExpiresAt: qr1ExpiresAt,
-    kioskEndsAt: kioskEndsAt
+    kioskEndsAt: kioskEndsAt,
+    deviceType: registeredType || detectedType,
+    deviceIp: clientIp
   };
 }
 
@@ -488,6 +534,14 @@ export async function submitVerifiedAttendance(sessionId, qr2Token, biometricDat
     "unknown"
   ).toLowerCase();
 
+  let clientIp = authData?.deviceIp || (typeof window !== "undefined" ? localStorage.getItem("smartattend_device_ip") : null) || "Unknown IP";
+  if (!clientIp || clientIp === "Unknown IP") {
+    try {
+      clientIp = await getClientIpAddress();
+    } catch (_) {}
+  }
+  const detectedPlatform = detectDeviceType() || "web";
+
   const attendanceRecord = {
     id: recordId,
     sessionId: sessionId,
@@ -505,6 +559,10 @@ export async function submitVerifiedAttendance(sessionId, qr2Token, biometricDat
     lecturerEmail: session?.lecturerEmail || "",
     ownerId: session?.ownerId || "",
     deviceType: studentDeviceType,
+    detectedPlatform: detectedPlatform,
+    deviceIp: clientIp,
+    lastLoginIp: clientIp,
+    userAgent: typeof navigator !== "undefined" ? navigator.userAgent : "",
     faceVerified: true,
     faceMatchConfidence: biometricData?.confidence || 100,
     faceDistance: biometricData?.distance !== undefined ? Number(biometricData.distance.toFixed(4)) : null,
@@ -522,6 +580,18 @@ export async function submitVerifiedAttendance(sessionId, qr2Token, biometricDat
   } catch (recErr) {
     console.warn("Attendance record write notice:", recErr.message);
   }
+
+  // Update student last seen IP and attendance timestamp
+  try {
+    if (rollNo && db) {
+      await setDoc(doc(db, "students", rollNo), {
+        lastAttendanceAt: now,
+        lastAttendanceIp: clientIp,
+        lastLoginIp: clientIp,
+        lastSessionId: sessionId
+      }, { merge: true });
+    }
+  } catch (_) {}
 
   try {
     const sessionRef = doc(db, "attendance_sessions", sessionId);
@@ -560,6 +630,17 @@ export async function submitVerifiedAttendance(sessionId, qr2Token, biometricDat
   } catch (authErr) {
     console.warn("Authorization update notice:", authErr.message);
   }
+
+  // Real-time Faculty & Admin notification
+  try {
+    await sendFacultyNotification(
+      `Attendance Verified: ${rollNo} (${session?.courseCode || 'Class'}) ✅`,
+      `Student ${studentName} (${rollNo}) marked verified biometric attendance for course ${session?.courseCode || 'Class'} in Room ${session?.roomNo || 'N/A'}.`,
+      "ATTENDANCE_SUCCESS",
+      rollNo,
+      studentName
+    );
+  } catch (_) {}
 
   return {
     success: true,

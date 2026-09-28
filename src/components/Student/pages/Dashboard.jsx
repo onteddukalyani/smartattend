@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef, useCallback } from "react";
 import { Link } from "react-router-dom";
 import {
     collection,
@@ -44,7 +44,8 @@ import { removeStudentPhotoOnly, checkDuplicateFaceBiometrics } from "../../../u
 import { getCandidateRolls, computeStudentMetrics, parseTimestampMillis } from "../studentAttendanceHelper";
 import { isGenericName, normalizeBranchName } from "../../../utils/studentDataHelper";
 import DeviceOnboardingModal from "../DeviceOnboardingModal";
-import { subscribeToStudentNotifications, markNotificationAsRead } from "../../../services/notificationsService";
+import { subscribeToStudentNotifications, markNotificationAsRead, sendFacultyNotification, sendStudentNotification, reportUserVerificationComplaint } from "../../../services/notificationsService";
+import { detectDeviceType, getClientIpAddress, getDeviceDisplayName, isDeviceMatching } from "../../../utils/deviceDetection";
 import "./Dashboard.css";
 
 export default function StudentDashboard() {
@@ -72,6 +73,12 @@ export default function StudentDashboard() {
             return false;
         }
     });
+
+    // Device Mismatch & Reset Request State
+    const [requestingReset, setRequestingReset] = useState(false);
+    const [resetRequestedMsg, setResetRequestedMsg] = useState("");
+    const [clientIpAddress, setClientIpAddress] = useState("");
+    const hasDispatchedMismatchAlertRef = useRef(false);
 
     // Face Biometric Registration Modal State
     const [showFaceModal, setShowFaceModal] = useState(false);
@@ -112,12 +119,52 @@ export default function StudentDashboard() {
     useEffect(() => {
         if (!activeRollNo) return;
 
-        const cleanEmail = (user?.email || "").toLowerCase().trim();
         const unsubs = [];
+        const cleanEmail = (user?.email || "").toLowerCase().trim();
+        const prevCanonicalStudentDocRef = { current: null };
+        const lastChangeNotifiedRef = { current: 0 };
 
-        const handleDocUpdate = (snap) => {
+        const handleDocUpdate = (snap, isCanonical = false) => {
             if (snap.exists()) {
                 const d = snap.data();
+
+                // Detect genuine database changes made by admin or lecturer only on the canonical students document
+                if (isCanonical) {
+                    const prev = prevCanonicalStudentDocRef.current;
+                    if (prev && Date.now() - lastChangeNotifiedRef.current > 5000) {
+                        const changes = [];
+                        if (d.name && prev.name && d.name !== prev.name && !isGenericName(d.name, activeRollNo, cleanEmail)) {
+                            changes.push(`Name changed to "${d.name}"`);
+                        }
+                        if (d.branch && prev.branch && d.branch !== prev.branch) {
+                            changes.push(`Branch updated to "${d.branch}"`);
+                        }
+                        if (d.semester !== undefined && prev.semester !== undefined && String(d.semester) !== String(prev.semester)) {
+                            changes.push(`Semester changed to ${d.semester}`);
+                        }
+                        if (d.deviceType !== undefined && prev.deviceType !== undefined && d.deviceType !== prev.deviceType) {
+                            changes.push(`Device lock updated to ${d.deviceType ? d.deviceType.toUpperCase() : "Unlocked"}`);
+                        }
+                        if (d.faceRemovedAt && !prev.faceRemovedAt) {
+                            changes.push("Facial biometrics removed");
+                        } else if (d.faceRegistered && !prev.faceRegistered) {
+                            changes.push("Facial biometrics enrolled");
+                        }
+
+                        if (changes.length > 0) {
+                            lastChangeNotifiedRef.current = Date.now();
+                            sendStudentNotification(
+                                activeRollNo,
+                                "Profile Details Updated 📝",
+                                `Your academic record in the database was modified: ${changes.join(" • ")}.`,
+                                "PROFILE_UPDATE",
+                                "Database Sentinel"
+                            ).catch(() => {});
+                        }
+                    }
+                    prevCanonicalStudentDocRef.current = { ...d };
+                }
+
                 setFetchedStudentData((prev) => {
                     let resolvedName = prev?.name;
                     if (isGenericName(resolvedName, activeRollNo, cleanEmail) && !isGenericName(d.name, activeRollNo, cleanEmail)) resolvedName = String(d.name).trim();
@@ -166,15 +213,15 @@ export default function StudentDashboard() {
             }
         };
 
-        // 1. Listen to students collection
-        unsubs.push(onSnapshot(doc(db, "students", activeRollNo), handleDocUpdate, (err) => console.warn("student doc snapshot error:", err)));
+        // 1. Listen to students collection (canonical doc)
+        unsubs.push(onSnapshot(doc(db, "students", activeRollNo), (snap) => handleDocUpdate(snap, true), (err) => console.warn("student doc snapshot notice:", err)));
 
         // 2. Listen to users collection
-        unsubs.push(onSnapshot(doc(db, "users", activeRollNo), handleDocUpdate, (err) => console.warn("user doc snapshot error:", err)));
+        unsubs.push(onSnapshot(doc(db, "users", activeRollNo), (snap) => handleDocUpdate(snap, false), (err) => console.warn("user doc snapshot notice:", err)));
 
         // 3. Listen to authorizedUsers collection
         if (cleanEmail) {
-            unsubs.push(onSnapshot(doc(db, "authorizedUsers", cleanEmail), handleDocUpdate, (err) => console.warn("authUser doc snapshot error:", err)));
+            unsubs.push(onSnapshot(doc(db, "authorizedUsers", cleanEmail), (snap) => handleDocUpdate(snap, false), (err) => console.warn("authUser doc snapshot notice:", err)));
         }
 
         return () => {
@@ -193,6 +240,96 @@ export default function StudentDashboard() {
         (!fetchedStudentData?.faceRemovedAt && Array.isArray(fetchedStudentData?.faceDescriptor) && fetchedStudentData.faceDescriptor.length === 128) ||
         (!profile?.faceRemovedAt && Array.isArray(profile?.faceDescriptor) && profile.faceDescriptor.length === 128)
     );
+
+    // Device Resolution & Mismatch Guard
+    const registeredDevice = fetchedStudentData?.deviceType || fetchedStudentData?.registeredDeviceType || profile?.deviceType || profile?.registeredDeviceType || currentDeviceType;
+    const detectedPlatform = detectDeviceType();
+    const isDeviceMismatch = Boolean(registeredDevice && !isDeviceMatching(registeredDevice, detectedPlatform));
+
+    // Fetch Client IP on Mount
+    useEffect(() => {
+        getClientIpAddress().then((ip) => {
+            if (ip) setClientIpAddress(ip);
+        }).catch(() => {});
+    }, []);
+
+    // Proactively alert Faculty & Student if device mismatch is detected
+    useEffect(() => {
+        if (isDeviceMismatch && activeRollNo && !hasDispatchedMismatchAlertRef.current) {
+            hasDispatchedMismatchAlertRef.current = true;
+            const regLabel = getDeviceDisplayName(registeredDevice);
+            const curLabel = getDeviceDisplayName(detectedPlatform || "web");
+
+            // 1. Alert Faculty & Admins in real-time
+            sendFacultyNotification(
+                `🚨 Anti-Proxy Alert: Device Mismatch for ${studentName} (${activeRollNo})`,
+                `Student ${studentName} (${activeRollNo}) is registered as ${regLabel}, but currently accessed Dashboard from ${curLabel} (IP: ${clientIpAddress || 'Detected'}). Attendance QR scan will be blocked until device lock is reset.`,
+                "DEVICE_MISMATCH_SECURITY_ALERT",
+                activeRollNo,
+                "Anti-Proxy Sentinel"
+            ).catch(() => {});
+
+            // 2. Alert Student in real-time
+            sendStudentNotification(
+                activeRollNo,
+                "⚠️ Device Registration Mismatch",
+                `Your account is locked to a registered ${regLabel}, but your current device is ${curLabel}. If you changed your phone, tap 'Request Admin to Reset Device' on your dashboard.`,
+                "SECURITY_ALERT",
+                "Anti-Proxy Sentinel"
+            ).catch(() => {});
+        }
+    }, [isDeviceMismatch, activeRollNo, registeredDevice, detectedPlatform, studentName, clientIpAddress]);
+
+    // Student Device Reset Request Handler
+    const handleRequestDeviceReset = async () => {
+        setRequestingReset(true);
+        try {
+            let clientIp = clientIpAddress;
+            if (!clientIp) {
+                try { clientIp = await getClientIpAddress(); } catch (_) {}
+            }
+            const regLabel = getDeviceDisplayName(registeredDevice);
+            const curLabel = getDeviceDisplayName(detectedPlatform || "web");
+
+            await sendFacultyNotification(
+                `📱 Device Reset Request from ${studentName} (${activeRollNo})`,
+                `Student ${studentName} (${activeRollNo}) has submitted a device registration reset request.\n• Registered Device: ${regLabel}\n• Current Device Detected: ${curLabel}\n• Client IP: ${clientIp || 'Unknown'}\n• User-Agent: ${navigator.userAgent}\n\nClick "Approve Device Reset" below to unlock student's device.`,
+                "DEVICE_RESET_REQUEST",
+                activeRollNo,
+                studentName,
+                {
+                    actionable: true,
+                    actionType: "RESET_DEVICE",
+                    studentRollNo: activeRollNo,
+                    detectedPlatform,
+                    registeredDevice
+                },
+                "faculty"
+            );
+
+            await reportUserVerificationComplaint(
+                { email: user?.email, rollNo: activeRollNo, name: studentName },
+                `Student submitted Device Reset Request: Registered as ${regLabel}, currently on ${curLabel} (IP: ${clientIp || 'Unknown'})`,
+                "STUDENT_DASHBOARD_RESET_REQUEST"
+            );
+
+            await sendStudentNotification(
+                activeRollNo,
+                "Device Reset Request Submitted 📨",
+                `Your request to reset your device lock from ${regLabel} to ${curLabel} has been submitted to Faculty & Admins. Once approved, you can select your new device.`,
+                "DEVICE_REQUEST",
+                "SmartAttend Sentinel"
+            );
+
+            setResetRequestedMsg("✅ Reset Request Sent! Faculty & Admins have been notified to unlock your device.");
+            setTimeout(() => setResetRequestedMsg(""), 6000);
+        } catch (err) {
+            console.error("Error submitting device reset request:", err);
+            alert("Failed to submit reset request: " + err.message);
+        } finally {
+            setRequestingReset(false);
+        }
+    };
 
     // Build candidate roll numbers to guarantee matching
     const candidateRolls = useMemo(() => {
@@ -334,6 +471,15 @@ export default function StudentDashboard() {
                 ...updatePayload,
                 faceRemovedAt: null
             }));
+
+            // Notify Faculty & Admins
+            sendFacultyNotification(
+                "Face Biometrics Enrolled 👤",
+                `Student ${studentName} (${activeRollNo}) registered facial biometrics via live Aadhaar scan.`,
+                "BIOMETRIC_UPDATE",
+                activeRollNo,
+                studentName
+            ).catch(() => {});
 
             setFaceSuccessMsg("✅ Face biometrics registered successfully! You can now mark attendance.");
             setTimeout(() => {
@@ -612,25 +758,27 @@ export default function StudentDashboard() {
                             <span
                                 className="student-sub-badge"
                                 onClick={() => {
-                                    if (currentDeviceType) {
-                                        alert(`🔒 Registered Device Locked!\n\nYour account is locked to "${currentDeviceType.toUpperCase()}". Only a Lecturer or Administrator can reset your registered device type.`);
+                                    if (registeredDevice) {
+                                        if (window.confirm(`🔒 Registered Device: ${getDeviceDisplayName(registeredDevice).toUpperCase()} (Locked)\n\nDetected Device: ${getDeviceDisplayName(detectedPlatform || 'web').toUpperCase()}\nIP Address: ${clientIpAddress || 'Detected'}\n\nWould you like to send a 1-click Reset Request to your Administrator/Faculty to unlock this device?`)) {
+                                            handleRequestDeviceReset();
+                                        }
                                     } else {
                                         setShowDeviceModal(true);
                                     }
                                 }}
                                 style={{
                                     cursor: "pointer",
-                                    background: currentDeviceType ? "#f1f5f9" : "#e0f2fe",
-                                    color: currentDeviceType ? "#334155" : "#0369a1",
-                                    border: currentDeviceType ? "1px solid #cbd5e1" : "1px solid #bae6fd",
+                                    background: isDeviceMismatch ? "#fee2e2" : (registeredDevice ? "#f1f5f9" : "#e0f2fe"),
+                                    color: isDeviceMismatch ? "#dc2626" : (registeredDevice ? "#334155" : "#0369a1"),
+                                    border: isDeviceMismatch ? "1px solid #fca5a5" : (registeredDevice ? "1px solid #cbd5e1" : "1px solid #bae6fd"),
                                     fontWeight: 700,
                                     display: "inline-flex",
                                     alignItems: "center",
                                     gap: "5px"
                                 }}
-                                title={currentDeviceType ? `Locked to ${currentDeviceType.toUpperCase()} (Managed by Lecturer/Admin)` : "Click to select your device type"}
+                                title={registeredDevice ? `Locked to ${getDeviceDisplayName(registeredDevice)} (Click to Request Reset)` : "Click to select your device type"}
                             >
-                                <FaMobileAlt size={11} /> Device: {currentDeviceType ? `${currentDeviceType.toUpperCase()} 🔒` : 'Select Device'}
+                                <FaMobileAlt size={11} /> Device: {registeredDevice ? `${getDeviceDisplayName(registeredDevice).toUpperCase()}${isDeviceMismatch ? ' ⚠️ (Mismatch)' : ' 🔒'}` : 'Select Device'}
                             </span>
                         </div>
                     </div>
@@ -643,6 +791,82 @@ export default function StudentDashboard() {
                     </Link>
                 </div>
             </div>
+
+            {/* Proactive Device Mismatch Alert Banner */}
+            {isDeviceMismatch && (
+                <div style={{
+                    marginBottom: "18px",
+                    padding: "16px 20px",
+                    borderRadius: "18px",
+                    background: "linear-gradient(135deg, #fff1f2 0%, #fee2e2 100%)",
+                    border: "1.5px solid #f87171",
+                    color: "#991b1b",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: "16px",
+                    boxShadow: "0 6px 18px rgba(239, 68, 68, 0.15)",
+                    flexWrap: "wrap"
+                }}>
+                    <div style={{ display: "flex", alignItems: "flex-start", gap: "12px", flex: "1 1 320px" }}>
+                        <div style={{
+                            width: "42px",
+                            height: "42px",
+                            borderRadius: "12px",
+                            background: "#dc2626",
+                            color: "#ffffff",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            fontSize: "1.25rem",
+                            flexShrink: 0
+                        }}>
+                            <FaExclamationTriangle />
+                        </div>
+                        <div>
+                            <div style={{ fontWeight: 800, fontSize: "0.98rem", marginBottom: "3px", color: "#991b1b" }}>
+                                🚨 Device Registration Mismatch Detected
+                            </div>
+                            <div style={{ fontSize: "0.86rem", color: "#7f1d1d", lineHeight: 1.45 }}>
+                                Your account is locked to a <strong>{getDeviceDisplayName(registeredDevice)}</strong>, but you are currently accessing from a <strong>{getDeviceDisplayName(detectedPlatform || 'web')}</strong> (IP: {clientIpAddress || 'Detected'}). Attendance scanning will be blocked on this device.
+                            </div>
+                            {resetRequestedMsg && (
+                                <div style={{ marginTop: "6px", fontSize: "0.84rem", fontWeight: 700, color: "#15803d" }}>
+                                    {resetRequestedMsg}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    <div style={{ display: "flex", alignItems: "center", gap: "10px", flexShrink: 0 }}>
+                        <button
+                            type="button"
+                            onClick={handleRequestDeviceReset}
+                            disabled={requestingReset}
+                            style={{
+                                padding: "10px 18px",
+                                borderRadius: "12px",
+                                background: "linear-gradient(135deg, #dc2626 0%, #b91c1c 100%)",
+                                color: "#ffffff",
+                                border: "none",
+                                fontWeight: 800,
+                                fontSize: "0.85rem",
+                                cursor: requestingReset ? "not-allowed" : "pointer",
+                                boxShadow: "0 4px 12px rgba(220, 38, 38, 0.3)",
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "6px"
+                            }}
+                        >
+                            {requestingReset ? (
+                                <><FaSpinner className="fa-spin" /> Submitting Request...</>
+                            ) : (
+                                <><FaSyncAlt /> Request Admin to Reset Device</>
+                            )}
+                        </button>
+                    </div>
+                </div>
+            )}
 
             {/* Real-Time Faculty & Admin Notifications Banner */}
             {notifications.filter((n) => !n.read).length > 0 && (

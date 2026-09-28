@@ -11,7 +11,8 @@ import {
   FaChalkboard,
   FaSyncAlt,
   FaAndroid,
-  FaDownload
+  FaDownload,
+  FaQrcode
 } from "react-icons/fa";
 import { collection, getDocs, query, where, onSnapshot } from "firebase/firestore";
 import { db } from "../../../firebase";
@@ -245,6 +246,26 @@ const AdminOverview = () => {
           <p>Manage IIIT Dharwad attendance, users, faculty, and system access.</p>
         </div>
         <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+          <button
+            onClick={() => navigate("/admin/lecturerpage")}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "0.5rem",
+              padding: "0.6rem 1.2rem",
+              borderRadius: "8px",
+              background: "linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)",
+              color: "#ffffff",
+              border: "none",
+              fontWeight: "600",
+              cursor: "pointer",
+              boxShadow: "0 4px 12px rgba(99, 102, 241, 0.3)"
+            }}
+            title="Generate 2-Phase Dynamic Attendance QR Code"
+          >
+            <FaQrcode /> Generate QR
+          </button>
+
           <a
             href={getApkDownloadUrl()}
             download="SmartAttend-release.apk"

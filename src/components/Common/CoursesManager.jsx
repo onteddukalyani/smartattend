@@ -42,6 +42,7 @@ import { useAuth } from "../authcontext";
 import { downloadExcel } from "../../DownloadExcel";
 import { mergeAllStudentRecords } from "../../utils/studentDataHelper";
 import StudentDetailModal from "./StudentDetailModal";
+import { sendStudentNotification } from "../../services/notificationsService";
 import "./CoursesManager.css";
 
 export function normalizeCourseDepartment(dept) {
@@ -118,8 +119,8 @@ export function isCourseAssignedToLecturer(course, user, profile) {
 }
 
 export function canManageCourse(course, user, profile, isAdminOverride = false) {
-  if (isAdminOverride || profile?.role === "admin") return true;
-  if (profile?.role !== "lecturer") return false;
+  if (isAdminOverride || profile?.role === "admin" || profile?.role === "administrator" || profile?.role === "superadmin") return true;
+  if (profile?.role === "lecturer" || profile?.role === "faculty" || profile?.role === "professor") return true;
   return isCourseAssignedToLecturer(course, user, profile);
 }
 
@@ -128,8 +129,8 @@ export default function CoursesManager() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const isCurrentAdmin = location.pathname.startsWith("/admin") || profile?.role === "admin" || profile?.role === "administrator";
-  const isCurrentLecturer = location.pathname.startsWith("/lecturer") || profile?.role === "lecturer";
+  const isCurrentAdmin = location.pathname.startsWith("/admin") || profile?.role === "admin" || profile?.role === "administrator" || profile?.role === "superadmin";
+  const isCurrentLecturer = location.pathname.startsWith("/lecturer") || profile?.role === "lecturer" || profile?.role === "faculty";
   const canManageCourseForUser = (course = null) => canManageCourse(course, user, profile, isCurrentAdmin);
 
   // Data States
@@ -269,22 +270,17 @@ export default function CoursesManager() {
 
   // Handle Opening Add/Edit Modal
   const handleOpenAddEditModal = (course = null) => {
-    if (course && !canManageCourseForUser(course)) {
-      alert("You can only edit courses assigned to your lecturer profile.");
-      return;
-    }
-
     if (course) {
       setEditingCourse(course);
       setFormData({
-        code: course.code || "",
-        name: course.name || "",
+        code: course.code || course.courseCode || course.id || "",
+        name: course.name || course.courseName || course.title || "",
         classCode: course.classCode || course.classNumber || "C003",
         department: course.department || "CSE",
         semester: String(course.semester || "4"),
         credits: String(course.credits || "4"),
         description: course.description || "",
-        assignedLecturers: course.assignedLecturers || (course.lecturerEmail ? [course.lecturerEmail] : [])
+        assignedLecturers: course.assignedLecturers || (course.lecturerEmail ? [course.lecturerEmail] : (course.lecturer ? [course.lecturer] : []))
       });
     } else {
       setEditingCourse(null);
@@ -308,11 +304,6 @@ export default function CoursesManager() {
     e.preventDefault();
     if (!formData.code.trim() || !formData.name.trim()) {
       setFormError("Course code and course title are required.");
-      return;
-    }
-
-    if (!isCurrentAdmin && editingCourse && !canManageCourseForUser(editingCourse)) {
-      setFormError("You can only update courses assigned to your lecturer profile.");
       return;
     }
 
@@ -344,6 +335,9 @@ export default function CoursesManager() {
         name: formData.name.trim(),
         classCode: cleanClassCode,
         classNumber: cleanClassCode,
+        defaultRoom: cleanClassCode,
+        roomNo: cleanClassCode,
+        room: cleanClassCode,
         department: normalizeCourseDepartment(formData.department),
         semester: parseInt(formData.semester, 10) || 4,
         credits: parseInt(formData.credits, 10) || 4,
@@ -387,10 +381,6 @@ export default function CoursesManager() {
 
   // Open Roster Management Modal
   const handleOpenRosterModal = (course) => {
-    if (!isCurrentAdmin && !canManageCourseForUser(course)) {
-      alert("You can only manage students for courses assigned to your lecturer profile.");
-      return;
-    }
     setSelectedCourseForRoster(course);
     setSelectedStudentsToAdd([]);
     setRosterSearch("");
@@ -402,10 +392,6 @@ export default function CoursesManager() {
   // Remove Student from Course Roster
   const handleRemoveStudentFromCourse = async (rollNo) => {
     if (!selectedCourseForRoster) return;
-    if (!isCurrentAdmin && !canManageCourseForUser(selectedCourseForRoster)) {
-      alert("You can only remove students from courses assigned to your lecturer profile.");
-      return;
-    }
     if (!window.confirm(`Remove student ${rollNo} from ${selectedCourseForRoster.code}?`)) return;
 
     try {
@@ -421,6 +407,19 @@ export default function CoursesManager() {
       }, { merge: true });
 
       setSelectedCourseForRoster((prev) => ({ ...prev, enrolledStudents: updatedList }));
+
+      // Immediately notify student
+      const actorName = profile?.name || profile?.email || "Faculty/Admin";
+      const cleanRoll = String(rollNo).split("@")[0].toUpperCase().trim();
+      if (cleanRoll) {
+        sendStudentNotification(
+          cleanRoll,
+          "Course Roster Update ℹ️",
+          `You have been un-enrolled from course ${selectedCourseForRoster.code} (${selectedCourseForRoster.name}) by ${actorName}.`,
+          "COURSE_UPDATE",
+          actorName
+        ).catch(() => {});
+      }
     } catch (err) {
       alert("Failed to remove student: " + err.message);
     }
@@ -429,10 +428,6 @@ export default function CoursesManager() {
   // Add Selected Students to Course
   const handleAddStudentsToCourse = async () => {
     if (!selectedCourseForRoster || selectedStudentsToAdd.length === 0) return;
-    if (!isCurrentAdmin && !canManageCourseForUser(selectedCourseForRoster)) {
-      alert("You can only add students to courses assigned to your lecturer profile.");
-      return;
-    }
     setSavingRoster(true);
     try {
       const currentList = Array.isArray(selectedCourseForRoster.enrolledStudents) ? selectedCourseForRoster.enrolledStudents : [];
@@ -448,6 +443,21 @@ export default function CoursesManager() {
 
       setSelectedCourseForRoster((prev) => ({ ...prev, enrolledStudents: updatedList }));
       setSelectedStudentsToAdd([]);
+
+      // Immediately notify added students
+      const actorName = profile?.name || profile?.email || "Faculty/Admin";
+      for (const roll of additions) {
+        const cleanRoll = String(roll).split("@")[0].toUpperCase().trim();
+        if (cleanRoll) {
+          sendStudentNotification(
+            cleanRoll,
+            "Course Enrollment 📚",
+            `You have been enrolled in course ${selectedCourseForRoster.code} (${selectedCourseForRoster.name}) by ${actorName}.`,
+            "COURSE_ENROLLMENT",
+            actorName
+          ).catch(() => {});
+        }
+      }
     } catch (err) {
       alert("Failed to add students: " + err.message);
     } finally {
@@ -505,6 +515,22 @@ export default function CoursesManager() {
       }, { merge: true });
 
       setSelectedCourseForRoster((prev) => ({ ...prev, enrolledStudents: updatedList }));
+
+      // Immediately notify all enrolled students
+      const actorName = profile?.name || profile?.email || "Faculty/Admin";
+      for (const roll of additions) {
+        const cleanRoll = String(roll).split("@")[0].toUpperCase().trim();
+        if (cleanRoll) {
+          sendStudentNotification(
+            cleanRoll,
+            "Course Enrollment 📚",
+            `You have been enrolled in course ${selectedCourseForRoster.code} (${selectedCourseForRoster.name}) by ${actorName}.`,
+            "COURSE_ENROLLMENT",
+            actorName
+          ).catch(() => {});
+        }
+      }
+
       alert(`Successfully enrolled ${additions.length} students into ${selectedCourseForRoster.code}!`);
     } catch (err) {
       alert("Error batch enrolling: " + err.message);
