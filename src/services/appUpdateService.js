@@ -3,8 +3,8 @@ import { db } from "../firebase";
 import { Capacitor } from "@capacitor/core";
 import { getApkDownloadUrl, GITHUB_RELEASE_APK_URL } from "../utils/apkUrl";
 
-export const CURRENT_APP_VERSION = "1.0.6";
-export const CURRENT_APP_VERSION_CODE = 6;
+export const CURRENT_APP_VERSION = "1.0.0";
+export const CURRENT_APP_VERSION_CODE = 1;
 export const APP_BUILD_DATE = "2026-10-01";
 
 const GITHUB_VERSION_JSON_URL = "https://raw.githubusercontent.com/onteddukalyani/smartattend/main/version.json";
