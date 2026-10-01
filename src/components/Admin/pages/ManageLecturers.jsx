@@ -745,7 +745,16 @@ const ManageLecturers = ({ readOnly = false }) => {
                       </td>
 
                       <td>
-                        <div className="classes-conducted-pill">
+                        <div
+                          className="classes-conducted-pill"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const filterName = lecturer.name || lecturer.email || "";
+                            navigate(`/admin/classes?lecturer=${encodeURIComponent(filterName)}`);
+                          }}
+                          style={{ cursor: "pointer" }}
+                          title={`Click to view all ${lecturer.classesConducted || 0} classes conducted by ${lecturer.name || "Faculty"}`}
+                        >
                           <FaCalendarAlt className="classes-pill-icon" />
                           <span className="classes-pill-count">{lecturer.classesConducted || 0}</span>
                           <span className="classes-pill-label">{lecturer.classesConducted === 1 ? "class" : "classes"}</span>
@@ -790,6 +799,20 @@ const ManageLecturers = ({ readOnly = false }) => {
                             title="View faculty teaching activity & details"
                           >
                             <FaEye />
+                          </button>
+
+                          {/* Direct View Classes button */}
+                          <button
+                            type="button"
+                            className="action-btn btn-view"
+                            onClick={() => {
+                              const filterName = lecturer.name || lecturer.email || "";
+                              navigate(`/admin/classes?lecturer=${encodeURIComponent(filterName)}`);
+                            }}
+                            title="Inspect all lecture classes by this faculty member"
+                            style={{ color: "#4f46e5" }}
+                          >
+                            <FaCalendarAlt />
                           </button>
 
                           {/* Approval toggles */}

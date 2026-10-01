@@ -24,6 +24,8 @@ import ActiveSessions from "../Lecturer/pages/ActiveSessions";
 import QrScannerApp from "../Common/Scanner";
 import FaceEnrollPage from "../Student/pages/FaceEnrollPage";
 import NotificationHistoryModal from "../Student/NotificationHistoryModal";
+import SupportFeedbackPage from "../Common/SupportFeedbackPage";
+import HelpSupportWidget from "../Common/HelpSupportWidget";
 import { subscribeToFacultyNotifications } from "../../services/notificationsService";
 import { useAuth } from "../authcontext";
 import "./AdminDashboard.css";
@@ -89,10 +91,15 @@ const AdminDashboard = () => {
             <Route path="settings" element={<Settings />} />
             <Route path="device-setup" element={<DeviceSetupPage />} />
             <Route path="profile" element={<AdminProfile />} />
+            <Route path="support" element={<SupportFeedbackPage />} />
+            <Route path="feedback" element={<SupportFeedbackPage />} />
+            <Route path="contact" element={<SupportFeedbackPage />} />
+            <Route path="tickets" element={<SupportFeedbackPage />} />
           </Routes>
         </main>
       </div>
       <BottomNav />
+      <HelpSupportWidget />
       <RoleFirstLoginGuide role="admin" basePath="/admin" />
 
       {/* Faculty & Admin Audit Logs Modal */}

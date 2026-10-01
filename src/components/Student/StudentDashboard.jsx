@@ -7,6 +7,7 @@ import BottomNav from './BottomNav';
 import Login from '../login';
 import NotificationHistoryModal from './NotificationHistoryModal';
 import DeviceOnboardingModal from './DeviceOnboardingModal';
+import HelpSupportWidget from '../Common/HelpSupportWidget';
 import { subscribeToStudentNotifications } from '../../services/notificationsService';
 
 function StudentDashboard() {
@@ -18,15 +19,16 @@ function StudentDashboard() {
 
     const emailRoll = (user?.email || "").split("@")[0].trim().toUpperCase();
     const activeRollNo = (profile?.rollNo || emailRoll || "").trim().toUpperCase();
+    const cleanEmail = (user?.email || "").toLowerCase().trim();
 
     // Subscribe to real-time notifications for the active student
     useEffect(() => {
-        if (!activeRollNo) return;
+        if (!activeRollNo && !cleanEmail) return;
         const unsub = subscribeToStudentNotifications(activeRollNo, (newNotifs) => {
             setNotifications(newNotifs || []);
-        });
+        }, cleanEmail);
         return () => unsub();
-    }, [activeRollNo]);
+    }, [activeRollNo, cleanEmail]);
 
     const unreadCount = notifications.filter(n => !n.read).length;
 
@@ -67,6 +69,9 @@ function StudentDashboard() {
                 isOpen={showDeviceModal}
                 onClose={() => setShowDeviceModal(false)}
             />
+
+            {/* Quick Floating Support & Feedback Widget */}
+            <HelpSupportWidget />
         </div>
     );
 }

@@ -171,7 +171,27 @@ function Dashboard() {
                         if ((record.submittedAt || 0) >= startOfTodayMs) {
                             attendanceToday += 1;
                         }
-                        if (record.status === "FLAGGED" || record.status === "VIOLATION" || record.hasViolation || record.violationReason) {
+                        const isReviewedOrResolved =
+                            record.reviewed === true ||
+                            record.excused === true ||
+                            record.resolved === true ||
+                            record.dismissed === true ||
+                            record.status === "APPROVED" ||
+                            record.status === "RESOLVED" ||
+                            record.status === "DISMISSED" ||
+                            record.status === "REJECTED" ||
+                            record.status === "ATTENDED" ||
+                            record.status === "PRESENT";
+
+                        const isPendingViolation =
+                            !isReviewedOrResolved &&
+                            (record.status === "FLAGGED" ||
+                             record.status === "FLAGGED_DISQUALIFIED" ||
+                             record.status === "VIOLATION" ||
+                             record.flagged === true ||
+                             record.hasViolation === true);
+
+                        if (isPendingViolation) {
                             violationsCount += 1;
                             violationsList.push({ id: recordDoc.id, ...record });
                         }

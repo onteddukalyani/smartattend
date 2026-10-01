@@ -5,19 +5,102 @@ import {
   addDoc,
   updateDoc,
   deleteDoc,
-  getDoc,
-  getDocs,
   onSnapshot,
   query,
-  where,
-  orderBy,
   limit,
   serverTimestamp
 } from "firebase/firestore";
 
-// In-Memory Subscriber Dispatchers for Local Fallback Events
+// In-Memory Subscriber Dispatchers
 const localStudentListeners = new Map();
 const localFacultyListeners = new Set();
+
+// Cross-tab storage sync handler
+if (typeof window !== "undefined") {
+  window.addEventListener("storage", (e) => {
+    if (e.key && e.key.startsWith("smartattend_notifs_student_")) {
+      const rollNo = e.key.replace("smartattend_notifs_student_", "");
+      const listeners = localStudentListeners.get(rollNo);
+      if (listeners && e.newValue) {
+        try {
+          const list = JSON.parse(e.newValue);
+          listeners.forEach(cb => { try { cb(list); } catch (_) {} });
+        } catch (_) {}
+      }
+    } else if (e.key === "smartattend_notifs_faculty") {
+      if (e.newValue) {
+        try {
+          const list = JSON.parse(e.newValue);
+          localFacultyListeners.forEach(cb => { try { cb(list); } catch (_) {} });
+        } catch (_) {}
+      }
+    } else if (e.key === "smartattend_notifs_broadcast_ping") {
+      try {
+        const facList = getLocalFacultyNotifs();
+        localFacultyListeners.forEach(cb => { try { cb(facList); } catch (_) {} });
+        localStudentListeners.forEach((listeners, rollKey) => {
+          const studList = getLocalStudentNotifs(rollKey);
+          listeners.forEach(cb => { try { cb(studList); } catch (_) {} });
+        });
+      } catch (_) {}
+    }
+  });
+}
+
+/**
+ * Extract millisecond timestamp from varied Firestore / Local formats
+ */
+export function getTimestampMs(item) {
+  if (!item) return Date.now();
+  if (typeof item.createdAt === "number" && !isNaN(item.createdAt) && item.createdAt > 0) {
+    return item.createdAt;
+  }
+  if (item.timestamp) {
+    if (typeof item.timestamp.toMillis === "function") return item.timestamp.toMillis();
+    if (typeof item.timestamp.toDate === "function") return item.timestamp.toDate().getTime();
+    if (typeof item.timestamp === "number" && !isNaN(item.timestamp)) return item.timestamp;
+    if (typeof item.timestamp === "string") {
+      const parsed = Date.parse(item.timestamp);
+      if (!isNaN(parsed)) return parsed;
+    }
+    if (item.timestamp.seconds) return item.timestamp.seconds * 1000;
+  }
+  if (typeof item.submittedAt === "number") return item.submittedAt;
+  return Date.now();
+}
+
+// Helper: Persistent Read & Deleted ID Sets
+function getReadNotifIds(storageKey) {
+  try {
+    const raw = localStorage.getItem(`smartattend_read_ids_${storageKey}`);
+    return raw ? new Set(JSON.parse(raw)) : new Set();
+  } catch (_) {
+    return new Set();
+  }
+}
+
+function saveReadNotifIds(storageKey, set) {
+  try {
+    const arr = Array.from(set).slice(-200);
+    localStorage.setItem(`smartattend_read_ids_${storageKey}`, JSON.stringify(arr));
+  } catch (_) {}
+}
+
+function getDeletedNotifIds(storageKey) {
+  try {
+    const raw = localStorage.getItem(`smartattend_del_ids_${storageKey}`);
+    return raw ? new Set(JSON.parse(raw)) : new Set();
+  } catch (_) {
+    return new Set();
+  }
+}
+
+function saveDeletedNotifIds(storageKey, set) {
+  try {
+    const arr = Array.from(set).slice(-200);
+    localStorage.setItem(`smartattend_del_ids_${storageKey}`, JSON.stringify(arr));
+  } catch (_) {}
+}
 
 function getLocalStudentNotifs(rollNo) {
   try {
@@ -30,7 +113,7 @@ function getLocalStudentNotifs(rollNo) {
 
 function saveLocalStudentNotifs(rollNo, list) {
   try {
-    localStorage.setItem(`smartattend_notifs_student_${rollNo}`, JSON.stringify(list.slice(0, 30)));
+    localStorage.setItem(`smartattend_notifs_student_${rollNo}`, JSON.stringify(list.slice(0, 60)));
   } catch (_) {}
 }
 
@@ -45,7 +128,7 @@ function getLocalFacultyNotifs() {
 
 function saveLocalFacultyNotifs(list) {
   try {
-    localStorage.setItem('smartattend_notifs_faculty', JSON.stringify(list.slice(0, 40)));
+    localStorage.setItem('smartattend_notifs_faculty', JSON.stringify(list.slice(0, 80)));
   } catch (_) {}
 }
 
@@ -95,18 +178,12 @@ export function playNotificationChime() {
       } catch (_) {}
     }, 600);
   } catch (_) {
-    // Audio autoplay restrictions or headless environment
+    // Autoplay or background environment
   }
 }
 
 /**
  * Send real-time notification to a specific student document
- * @param {string} studentRollNo - Target student roll number
- * @param {string} title - Notification title
- * @param {string} message - Notification details message
- * @param {string} type - Notification category type
- * @param {string} senderName - Name of Lecturer or Admin who made the change
- * @param {Object} metadata - Optional extra payload (courseId, sessionId, ip, etc.)
  */
 export async function sendStudentNotification(
   studentRollNo,
@@ -118,62 +195,72 @@ export async function sendStudentNotification(
 ) {
   if (!studentRollNo) return;
   const cleanRoll = String(studentRollNo).trim().toUpperCase();
+  const rollPrefix = cleanRoll.includes("@") ? cleanRoll.split("@")[0].trim().toUpperCase() : cleanRoll;
+  const nowMs = Date.now();
 
   const notifPayload = {
-    id: "loc_" + Date.now() + "_" + Math.random().toString(36).substring(2, 7),
+    id: "loc_" + nowMs + "_" + Math.random().toString(36).substring(2, 7),
     recipientRollNo: cleanRoll,
+    recipientRollPrefix: rollPrefix,
     recipientRole: "student",
     title: title,
     message: message,
     type: type,
     senderName: senderName,
     read: false,
-    createdAt: Date.now(),
+    createdAt: nowMs,
     timestamp: new Date().toISOString(),
     metadata: metadata || {}
   };
 
-  // 1. Always update local storage cache for instant UI feedback
-  const existing = getLocalStudentNotifs(cleanRoll);
-  const updated = [notifPayload, ...existing.filter(n => n.title !== title || Date.now() - n.createdAt > 3000)];
-  saveLocalStudentNotifs(cleanRoll, updated);
+  // 1. Update local storage caches for instant local feedback
+  const targetKeys = Array.from(new Set([cleanRoll, rollPrefix].filter(Boolean)));
+  targetKeys.forEach(r => {
+    const existing = getLocalStudentNotifs(r);
+    const updated = [notifPayload, ...existing.filter(n => n.title !== title || nowMs - getTimestampMs(n) > 3000)];
+    saveLocalStudentNotifs(r, updated);
 
-  const listeners = localStudentListeners.get(cleanRoll);
-  if (listeners) {
-    listeners.forEach(cb => {
-      try { cb(updated); } catch (_) {}
-    });
-  }
+    const listeners = localStudentListeners.get(r);
+    if (listeners) {
+      listeners.forEach(cb => { try { cb(updated); } catch (_) {} });
+    }
+  });
 
-  // 2. Dispatch to Firestore
-  try {
-    const notifRef = collection(db, "students", cleanRoll, "notifications");
-    await addDoc(notifRef, {
+  // 2. Dispatch to Firestore across all potential student collection endpoints
+  const writes = [
+    addDoc(collection(db, "students", cleanRoll, "notifications"), {
       ...notifPayload,
       timestamp: serverTimestamp()
-    });
-  } catch (err) {
-    try {
-      const fallbackRef = collection(db, "student_notifications", cleanRoll, "notifications");
-      await addDoc(fallbackRef, {
+    }).catch(() => {}),
+    addDoc(collection(db, "student_notifications", cleanRoll, "notifications"), {
+      ...notifPayload,
+      timestamp: serverTimestamp()
+    }).catch(() => {}),
+    addDoc(collection(db, "notifications"), {
+      ...notifPayload,
+      targetRoles: ["student", "all"],
+      timestamp: serverTimestamp()
+    }).catch(() => {})
+  ];
+
+  if (rollPrefix && rollPrefix !== cleanRoll) {
+    writes.push(
+      addDoc(collection(db, "students", rollPrefix, "notifications"), {
         ...notifPayload,
         timestamp: serverTimestamp()
-      });
-    } catch (_) {
-      // Local cache already preserved above
-    }
+      }).catch(() => {}),
+      addDoc(collection(db, "student_notifications", rollPrefix, "notifications"), {
+        ...notifPayload,
+        timestamp: serverTimestamp()
+      }).catch(() => {})
+    );
   }
+
+  await Promise.all(writes);
 }
 
 /**
  * Send real-time audit & activity notification to Lecturers & Admins
- * @param {string} title - Alert title
- * @param {string} message - Notification message
- * @param {string} type - Notification category type
- * @param {string} studentRollNo - Optional relevant student roll number
- * @param {string} senderName - Sender name or role
- * @param {Object} metadata - Optional metadata (actionable, courseId, ip, platform, etc.)
- * @param {string} targetRole - 'faculty' | 'admin' | 'lecturer' | 'all'
  */
 export async function sendFacultyNotification(
   title,
@@ -184,8 +271,9 @@ export async function sendFacultyNotification(
   metadata = {},
   targetRole = "faculty"
 ) {
+  const nowMs = Date.now();
   const notifPayload = {
-    id: "loc_fac_" + Date.now() + "_" + Math.random().toString(36).substring(2, 7),
+    id: "loc_fac_" + nowMs + "_" + Math.random().toString(36).substring(2, 7),
     title: title,
     message: message,
     type: type,
@@ -193,14 +281,14 @@ export async function sendFacultyNotification(
     studentRollNo: studentRollNo ? String(studentRollNo).trim().toUpperCase() : "",
     senderName: senderName,
     read: false,
-    createdAt: Date.now(),
+    createdAt: nowMs,
     timestamp: new Date().toISOString(),
     metadata: metadata || {}
   };
 
-  // 1. Update local storage cache for instant feedback
+  // 1. Update local storage cache
   const existing = getLocalFacultyNotifs();
-  const updated = [notifPayload, ...existing.filter(n => n.title !== title || Date.now() - n.createdAt > 3000)];
+  const updated = [notifPayload, ...existing.filter(n => n.title !== title || nowMs - getTimestampMs(n) > 3000)];
   saveLocalFacultyNotifs(updated);
 
   localFacultyListeners.forEach(cb => {
@@ -214,9 +302,14 @@ export async function sendFacultyNotification(
       ...notifPayload,
       timestamp: serverTimestamp()
     });
-  } catch (_) {
-    // Local cache already preserved above
-  }
+
+    const globalNotifRef = collection(db, "notifications");
+    await addDoc(globalNotifRef, {
+      ...notifPayload,
+      targetRoles: [targetRole, "faculty", "admin", "lecturer", "all"],
+      timestamp: serverTimestamp()
+    });
+  } catch (_) {}
 }
 
 /**
@@ -246,8 +339,7 @@ export async function sendLecturerNotification(
 }
 
 /**
- * Broadcast an announcement or critical notice to Students, Lecturers, and/or Admins
- * @param {Object} options - { targetRoles: ['student', 'lecturer', 'admin'], title, message, type, senderName, senderRole, metadata }
+ * Broadcast an announcement to Students, Lecturers, and/or Admins
  */
 export async function sendBroadcastNotification({
   targetRoles = ["student", "lecturer", "admin"],
@@ -258,40 +350,79 @@ export async function sendBroadcastNotification({
   senderRole = "admin",
   metadata = {}
 }) {
-  try {
-    const broadcastRef = collection(db, "broadcast_notifications");
-    await addDoc(broadcastRef, {
-      title,
-      message,
-      type,
-      targetRoles,
-      senderName,
-      senderRole,
-      createdAt: Date.now(),
-      timestamp: serverTimestamp(),
-      metadata: metadata || {}
+  const normalizedTargetRoles = Array.isArray(targetRoles) ? targetRoles.map(r => String(r).toLowerCase()) : ["student", "lecturer", "admin", "all", "everyone"];
+  const nowMs = Date.now();
+
+  const payload = {
+    id: "loc_broad_" + nowMs + "_" + Math.random().toString(36).substring(2, 7),
+    title,
+    message,
+    type: type || "BROADCAST_ANNOUNCEMENT",
+    targetRoles: normalizedTargetRoles,
+    senderName: senderName || (senderRole === "admin" ? "Campus Administrator" : "Course Lecturer"),
+    senderRole: senderRole || "admin",
+    isAnnouncement: true,
+    isBroadcast: true,
+    read: false,
+    createdAt: nowMs,
+    timestamp: new Date().toISOString(),
+    metadata: metadata || {}
+  };
+
+  // 1. Instantly dispatch to in-memory Student listeners & local student caches
+  if (normalizedTargetRoles.some(r => ["student", "students", "all", "everyone"].includes(r))) {
+    localStudentListeners.forEach((listeners, rollKey) => {
+      const existing = getLocalStudentNotifs(rollKey);
+      const updated = [payload, ...existing.filter(n => n.id !== payload.id && n.title !== payload.title)];
+      saveLocalStudentNotifs(rollKey, updated);
+      listeners.forEach(cb => { try { cb(updated); } catch (_) {} });
     });
+    try {
+      const existingAll = getLocalStudentNotifs("ALL");
+      saveLocalStudentNotifs("ALL", [payload, ...existingAll]);
+    } catch (_) {}
+  }
+
+  // 2. Instantly dispatch to in-memory Faculty/Admin listeners & local faculty caches
+  if (normalizedTargetRoles.some(r => ["faculty", "lecturer", "admin", "all", "everyone", "professors"].includes(r))) {
+    const existing = getLocalFacultyNotifs();
+    const updated = [payload, ...existing.filter(n => n.id !== payload.id && n.title !== payload.title)];
+    saveLocalFacultyNotifs(updated);
+    localFacultyListeners.forEach(cb => { try { cb(updated); } catch (_) {} });
+  }
+
+  // 3. Ping cross-tab storage
+  try {
+    localStorage.setItem("smartattend_notifs_broadcast_ping", JSON.stringify({ id: payload.id, time: nowMs }));
   } catch (_) {}
 
-  // Also log to faculty feed if target includes faculty/admin
-  if (targetRoles.includes("admin") || targetRoles.includes("lecturer")) {
-    const targetRole = targetRoles.includes("admin") && !targetRoles.includes("lecturer")
-      ? "admin"
-      : !targetRoles.includes("admin") && targetRoles.includes("lecturer")
-      ? "lecturer"
-      : "faculty";
+  // 4. Dispatch to Firestore collections in parallel: broadcast_notifications, announcements, and notifications
+  const writes = [
+    addDoc(collection(db, "broadcast_notifications"), {
+      ...payload,
+      timestamp: serverTimestamp()
+    }).catch(() => {}),
+    addDoc(collection(db, "announcements"), {
+      ...payload,
+      timestamp: serverTimestamp()
+    }).catch(() => {}),
+    addDoc(collection(db, "notifications"), {
+      ...payload,
+      timestamp: serverTimestamp()
+    }).catch(() => {})
+  ];
 
-    await sendFacultyNotification(
-      `📢 ${title}`,
-      message,
-      type,
-      "",
-      senderName,
-      metadata,
-      targetRole
+  if (normalizedTargetRoles.some(r => ["faculty", "lecturer", "admin", "all", "everyone"].includes(r))) {
+    writes.push(
+      addDoc(collection(db, "faculty_notifications"), {
+        ...payload,
+        targetRole: normalizedTargetRoles.includes("admin") && !normalizedTargetRoles.includes("lecturer") ? "admin" : "faculty",
+        timestamp: serverTimestamp()
+      }).catch(() => {})
     );
   }
 
+  await Promise.all(writes);
   return { success: true };
 }
 
@@ -311,8 +442,8 @@ export async function requestDeviceResetByStudent({
   try {
     // 1. Notify Admins and Lecturers with 1-click action metadata
     await sendFacultyNotification(
-      `📱 Device Reset Requested: ${cleanRoll}`,
-      `Student ${studentName || cleanRoll} (${cleanRoll}) requested a device reset.\nRegistered Platform: ${registeredDevice || 'None'}\nDetected Device: ${detectedPlatform || 'Unknown'}\nReason: ${reason}`,
+      `📱 Phone Reset Requested: ${cleanRoll}`,
+      `Student ${studentName || cleanRoll} (${cleanRoll}) requested a phone registration reset.\n• Registered Device: ${registeredDevice || 'None'}\n• Detected Device: ${detectedPlatform || 'Unknown'}\n• Reason: ${reason}`,
       "DEVICE_RESET_REQUEST",
       cleanRoll,
       studentName || cleanRoll,
@@ -330,8 +461,8 @@ export async function requestDeviceResetByStudent({
     // 2. Notify Student that request was queued
     await sendStudentNotification(
       cleanRoll,
-      "📨 Device Reset Request Sent",
-      `Your request to reset your device lock has been submitted to Administrators and Lecturers.\nYou will receive a confirmation alert once approved.`,
+      "📨 Phone Reset Request Sent",
+      `Your request to change your phone has been sent to your teacher and administrator. You will receive an update here once it is approved.`,
       "DEVICE_RESET_PENDING",
       "System Support"
     );
@@ -366,16 +497,16 @@ export async function approveDeviceResetAction(studentRollNo, approvedByName = "
     // Notify Student
     await sendStudentNotification(
       cleanRoll,
-      "✅ Device Lock Reset Approved",
-      `Your registered device lock has been approved and cleared by ${approvedByName}.\nPlease open SmartAttend on your current device to complete setup.`,
+      "✅ Phone Reset Approved",
+      `Your phone registration was approved and reset by ${approvedByName}. You can now open your dashboard to set up your new phone.`,
       "DEVICE_RESET",
       approvedByName
     );
 
     // Audit Log for faculty
     await sendFacultyNotification(
-      `⚡ Device Reset Approved: ${cleanRoll}`,
-      `Device lock for student ${cleanRoll} was successfully reset by ${approvedByName}.`,
+      `⚡ Phone Reset Approved: ${cleanRoll}`,
+      `Phone lock for student ${cleanRoll} was successfully reset by ${approvedByName}.`,
       "DEVICE_RESET_APPROVED",
       cleanRoll,
       approvedByName
@@ -394,133 +525,412 @@ export async function approveDeviceResetAction(studentRollNo, approvedByName = "
 
 /**
  * Subscribe to real-time notifications for a student
+ * Listens across: students/{roll}/notifications, student_notifications/{roll}/notifications, broadcast_notifications, announcements, and notifications
  */
-export function subscribeToStudentNotifications(studentRollNo, callback) {
-  if (!studentRollNo) return () => {};
-  const cleanRoll = String(studentRollNo).trim().toUpperCase();
+export function subscribeToStudentNotifications(studentRollNo, callback, studentEmail = "") {
+  if (!studentRollNo && !studentEmail) return () => {};
+  const cleanRoll = String(studentRollNo || studentEmail).trim().toUpperCase();
+  const cleanEmail = String(studentEmail || "").trim().toLowerCase();
+  const rollPrefix = cleanRoll.includes("@") ? cleanRoll.split("@")[0].trim().toUpperCase() : cleanRoll;
+  const emailPrefix = cleanEmail.includes("@") ? cleanEmail.split("@")[0].trim().toUpperCase() : "";
+
+  const allKeySet = new Set([cleanRoll, rollPrefix, cleanEmail, emailPrefix].filter(Boolean));
+  const primaryKey = rollPrefix || cleanRoll;
+
+  // Load persistent sets
+  const readSet = getReadNotifIds(primaryKey);
+  const deletedSet = getDeletedNotifIds(primaryKey);
 
   // Send initial local cache to callback immediately
-  const cached = getLocalStudentNotifs(cleanRoll);
-  callback(cached);
+  const initialCached = getLocalStudentNotifs(primaryKey)
+    .filter(n => !deletedSet.has(n.id))
+    .map(n => (readSet.has(n.id) ? { ...n, read: true } : n));
+  callback(initialCached);
 
-  // Register in-memory callback
-  if (!localStudentListeners.has(cleanRoll)) {
-    localStudentListeners.set(cleanRoll, new Set());
-  }
-  const set = localStudentListeners.get(cleanRoll);
-  set.add(callback);
+  // Register in-memory callback for all relevant roll aliases
+  allKeySet.forEach(k => {
+    if (!localStudentListeners.has(k)) {
+      localStudentListeners.set(k, new Set());
+    }
+    localStudentListeners.get(k).add(callback);
+  });
 
-  try {
-    const notifRef = collection(db, "students", cleanRoll, "notifications");
-    const q = query(notifRef, orderBy("createdAt", "desc"), limit(25));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const notifs = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
+  let remoteStudentNotifs = [];
+  let remoteBroadcastNotifs = [];
+  let remoteAnnouncements = [];
+  let remoteGlobalNotifs = [];
 
-      // Merge remote and local notifications without duplicates
-      const local = getLocalStudentNotifs(cleanRoll);
-      const combined = [...notifs];
-      local.forEach(l => {
-        if (!combined.some(c => c.id === l.id || (c.title === l.title && Math.abs((c.createdAt || 0) - (l.createdAt || 0)) < 4000))) {
-          combined.push(l);
-        }
-      });
-      combined.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-      saveLocalStudentNotifs(cleanRoll, combined);
-      callback(combined);
-    }, () => {
-      // Graceful fallback to local cache on permission restriction
-      callback(getLocalStudentNotifs(cleanRoll));
+  const mergeAndEmit = () => {
+    const currentReadSet = getReadNotifIds(primaryKey);
+    const currentDeletedSet = getDeletedNotifIds(primaryKey);
+
+    const all = [
+      ...remoteStudentNotifs,
+      ...remoteBroadcastNotifs,
+      ...remoteAnnouncements,
+      ...remoteGlobalNotifs
+    ];
+    const local = getLocalStudentNotifs(primaryKey);
+
+    local.forEach(l => {
+      if (!all.some(c => c.id === l.id || (c.title === l.title && Math.abs(getTimestampMs(c) - getTimestampMs(l)) < 4000))) {
+        all.push(l);
+      }
     });
 
-    return () => {
-      set.delete(callback);
-      if (typeof unsubscribe === "function") unsubscribe();
-    };
-  } catch (_) {
-    return () => { set.delete(callback); };
-  }
+    const combined = all
+      .filter(n => !currentDeletedSet.has(n.id))
+      .map(n => ({
+        ...n,
+        read: Boolean(n.read || currentReadSet.has(n.id))
+      }))
+      .sort((a, b) => {
+        const timeA = getTimestampMs(a);
+        const timeB = getTimestampMs(b);
+        return timeB - timeA;
+      });
+
+    allKeySet.forEach(k => saveLocalStudentNotifs(k, combined));
+
+    const listeners = localStudentListeners.get(primaryKey);
+    if (listeners) {
+      listeners.forEach(cb => {
+        try { cb(combined); } catch (_) {}
+      });
+    }
+  };
+
+  const unsubs = [];
+
+  // 1. Direct Student subcollection listeners (students/{k}/notifications and student_notifications/{k}/notifications)
+  allKeySet.forEach(k => {
+    try {
+      const notifRef = collection(db, "students", k, "notifications");
+      const unsub = onSnapshot(query(notifRef, limit(35)), (snapshot) => {
+        const docs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+        remoteStudentNotifs = [...remoteStudentNotifs.filter(r => !docs.some(d => d.id === r.id)), ...docs];
+        mergeAndEmit();
+      }, () => {});
+      unsubs.push(unsub);
+    } catch (_) {}
+
+    try {
+      const fbRef = collection(db, "student_notifications", k, "notifications");
+      const unsub = onSnapshot(query(fbRef, limit(35)), (snapshot) => {
+        const docs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+        remoteStudentNotifs = [...remoteStudentNotifs.filter(r => !docs.some(d => d.id === r.id)), ...docs];
+        mergeAndEmit();
+      }, () => {});
+      unsubs.push(unsub);
+    } catch (_) {}
+  });
+
+  // 2. Broadcast notifications collection listener
+  try {
+    const broadcastRef = collection(db, "broadcast_notifications");
+    const unsub = onSnapshot(query(broadcastRef, limit(40)), (snapshot) => {
+      remoteBroadcastNotifs = snapshot.docs
+        .map(d => ({
+          id: d.id,
+          ...d.data()
+        }))
+        .filter(n => {
+          const roles = (n.targetRoles || ["student", "all"]).map(r => String(r).toLowerCase());
+          return roles.includes("student") || roles.includes("all") || roles.includes("everyone") || roles.includes("students");
+        });
+      mergeAndEmit();
+    }, () => {});
+    unsubs.push(unsub);
+  } catch (_) {}
+
+  // 3. Announcements collection listener
+  try {
+    const announcementsRef = collection(db, "announcements");
+    const unsub = onSnapshot(query(announcementsRef, limit(40)), (snapshot) => {
+      remoteAnnouncements = snapshot.docs
+        .map(d => ({
+          id: d.id,
+          ...d.data()
+        }))
+        .filter(n => {
+          const roles = (n.targetRoles || ["student", "all"]).map(r => String(r).toLowerCase());
+          return roles.includes("student") || roles.includes("all") || roles.includes("everyone") || roles.includes("students");
+        });
+      mergeAndEmit();
+    }, () => {});
+    unsubs.push(unsub);
+  } catch (_) {}
+
+  // 4. Global notifications collection listener
+  try {
+    const globalRef = collection(db, "notifications");
+    const unsub = onSnapshot(query(globalRef, limit(40)), (snapshot) => {
+      remoteGlobalNotifs = snapshot.docs
+        .map(d => ({
+          id: d.id,
+          ...d.data()
+        }))
+        .filter(n => {
+          const targetRoll = (n.recipientRollNo || n.recipientRollPrefix || "").toUpperCase().trim();
+          if (targetRoll && (targetRoll === cleanRoll || targetRoll === rollPrefix || targetRoll === emailPrefix)) return true;
+          const roles = (n.targetRoles || []).map(r => String(r).toLowerCase());
+          return roles.length === 0 || roles.includes("student") || roles.includes("all") || roles.includes("everyone") || roles.includes("students");
+        });
+      mergeAndEmit();
+    }, () => {});
+    unsubs.push(unsub);
+  } catch (_) {}
+
+  return () => {
+    allKeySet.forEach(k => {
+      if (localStudentListeners.has(k)) {
+        localStudentListeners.get(k).delete(callback);
+      }
+    });
+    unsubs.forEach(u => {
+      if (typeof u === "function") {
+        try { u(); } catch (_) {}
+      }
+    });
+  };
 }
 
 /**
  * Subscribe to real-time notifications for Lecturers & Admins
  */
 export function subscribeToFacultyNotifications(callback, roleFilter = "faculty") {
+  const readSet = getReadNotifIds("faculty");
+  const deletedSet = getDeletedNotifIds("faculty");
+
   // Send initial local cache immediately
-  const cached = getLocalFacultyNotifs();
-  let filteredLocal = cached;
-  if (roleFilter === "admin") {
-    filteredLocal = cached.filter(n => !n.targetRole || n.targetRole === "admin" || n.targetRole === "faculty" || n.targetRole === "all");
-  } else if (roleFilter === "lecturer") {
-    filteredLocal = cached.filter(n => !n.targetRole || n.targetRole === "lecturer" || n.targetRole === "faculty" || n.targetRole === "all");
+  const initialCached = getLocalFacultyNotifs()
+    .filter(n => !deletedSet.has(n.id))
+    .map(n => (readSet.has(n.id) ? { ...n, read: true } : n));
+
+  let filteredLocal = initialCached;
+  const filterRoleNorm = String(roleFilter).toLowerCase();
+
+  if (filterRoleNorm === "admin") {
+    filteredLocal = initialCached.filter(n => {
+      const targetRole = String(n.targetRole || "faculty").toLowerCase();
+      const roles = (n.targetRoles || []).map(r => String(r).toLowerCase());
+      return targetRole === "admin" || targetRole === "faculty" || targetRole === "all" || roles.includes("admin") || roles.includes("all") || roles.includes("faculty") || roles.includes("everyone");
+    });
+  } else if (filterRoleNorm === "lecturer") {
+    filteredLocal = initialCached.filter(n => {
+      const targetRole = String(n.targetRole || "faculty").toLowerCase();
+      const roles = (n.targetRoles || []).map(r => String(r).toLowerCase());
+      return targetRole === "lecturer" || targetRole === "faculty" || targetRole === "all" || roles.includes("lecturer") || roles.includes("all") || roles.includes("faculty") || roles.includes("everyone");
+    });
   }
   callback(filteredLocal);
 
   localFacultyListeners.add(callback);
 
-  try {
-    const facultyNotifRef = collection(db, "faculty_notifications");
-    const q = query(facultyNotifRef, orderBy("createdAt", "desc"), limit(35));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const allNotifs = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
+  let remoteFacultyNotifs = [];
+  let remoteBroadcastNotifs = [];
+  let remoteAnnouncements = [];
+  let remoteGlobalNotifs = [];
 
-      // Merge remote and local without duplicates
-      const local = getLocalFacultyNotifs();
-      const combined = [...allNotifs];
-      local.forEach(l => {
-        if (!combined.some(c => c.id === l.id || (c.title === l.title && Math.abs((c.createdAt || 0) - (l.createdAt || 0)) < 4000))) {
-          combined.push(l);
-        }
-      });
-      combined.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-      saveLocalFacultyNotifs(combined);
+  const mergeAndEmitFaculty = () => {
+    const currentReadSet = getReadNotifIds("faculty");
+    const currentDeletedSet = getDeletedNotifIds("faculty");
 
-      let filtered = combined;
-      if (roleFilter === "admin") {
-        filtered = combined.filter(n => !n.targetRole || n.targetRole === "admin" || n.targetRole === "faculty" || n.targetRole === "all");
-      } else if (roleFilter === "lecturer") {
-        filtered = combined.filter(n => !n.targetRole || n.targetRole === "lecturer" || n.targetRole === "faculty" || n.targetRole === "all");
+    const all = [
+      ...remoteFacultyNotifs,
+      ...remoteBroadcastNotifs,
+      ...remoteAnnouncements,
+      ...remoteGlobalNotifs
+    ];
+    const local = getLocalFacultyNotifs();
+
+    local.forEach(l => {
+      if (!all.some(c => c.id === l.id || (c.title === l.title && Math.abs(getTimestampMs(c) - getTimestampMs(l)) < 4000))) {
+        all.push(l);
       }
-
-      callback(filtered);
-    }, () => {
-      // Graceful fallback to local cache
-      callback(filteredLocal);
     });
 
-    return () => {
-      localFacultyListeners.delete(callback);
-      if (typeof unsubscribe === "function") unsubscribe();
-    };
-  } catch (_) {
-    return () => { localFacultyListeners.delete(callback); };
-  }
+    const combined = all
+      .filter(n => !currentDeletedSet.has(n.id))
+      .map(n => ({
+        ...n,
+        read: Boolean(n.read || currentReadSet.has(n.id))
+      }))
+      .sort((a, b) => {
+        const timeA = getTimestampMs(a);
+        const timeB = getTimestampMs(b);
+        return timeB - timeA;
+      });
+
+    saveLocalFacultyNotifs(combined);
+
+    localFacultyListeners.forEach(cb => {
+      let filtered = combined;
+      if (filterRoleNorm === "admin") {
+        filtered = combined.filter(n => {
+          const targetRole = String(n.targetRole || "faculty").toLowerCase();
+          const roles = (n.targetRoles || []).map(r => String(r).toLowerCase());
+          return targetRole === "admin" || targetRole === "faculty" || targetRole === "all" || roles.includes("admin") || roles.includes("all") || roles.includes("faculty") || roles.includes("everyone");
+        });
+      } else if (filterRoleNorm === "lecturer") {
+        filtered = combined.filter(n => {
+          const targetRole = String(n.targetRole || "faculty").toLowerCase();
+          const roles = (n.targetRoles || []).map(r => String(r).toLowerCase());
+          return targetRole === "lecturer" || targetRole === "faculty" || targetRole === "all" || roles.includes("lecturer") || roles.includes("all") || roles.includes("faculty") || roles.includes("everyone");
+        });
+      }
+      try { cb(filtered); } catch (_) {}
+    });
+  };
+
+  const unsubs = [];
+
+  // 1. Faculty Notifications collection
+  try {
+    const facultyNotifRef = collection(db, "faculty_notifications");
+    const unsub = onSnapshot(query(facultyNotifRef, limit(40)), (snapshot) => {
+      remoteFacultyNotifs = snapshot.docs.map(d => ({
+        id: d.id,
+        ...d.data()
+      }));
+      mergeAndEmitFaculty();
+    }, () => {});
+    unsubs.push(unsub);
+  } catch (_) {}
+
+  // 2. Broadcast Notifications collection
+  try {
+    const broadcastRef = collection(db, "broadcast_notifications");
+    const unsub = onSnapshot(query(broadcastRef, limit(40)), (snapshot) => {
+      remoteBroadcastNotifs = snapshot.docs.map(d => ({
+        id: d.id,
+        ...d.data()
+      }));
+      mergeAndEmitFaculty();
+    }, () => {});
+    unsubs.push(unsub);
+  } catch (_) {}
+
+  // 3. Announcements collection
+  try {
+    const announcementsRef = collection(db, "announcements");
+    const unsub = onSnapshot(query(announcementsRef, limit(40)), (snapshot) => {
+      remoteAnnouncements = snapshot.docs.map(d => ({
+        id: d.id,
+        ...d.data()
+      }));
+      mergeAndEmitFaculty();
+    }, () => {});
+    unsubs.push(unsub);
+  } catch (_) {}
+
+  // 4. Global Notifications collection
+  try {
+    const globalRef = collection(db, "notifications");
+    const unsub = onSnapshot(query(globalRef, limit(40)), (snapshot) => {
+      remoteGlobalNotifs = snapshot.docs.map(d => ({
+        id: d.id,
+        ...d.data()
+      }));
+      mergeAndEmitFaculty();
+    }, () => {});
+    unsubs.push(unsub);
+  } catch (_) {}
+
+  return () => {
+    localFacultyListeners.delete(callback);
+    unsubs.forEach(u => {
+      if (typeof u === "function") {
+        try { u(); } catch (_) {}
+      }
+    });
+  };
 }
 
 /**
  * Mark a student notification as read
  */
 export async function markNotificationAsRead(studentRollNo, notificationId) {
-  if (!studentRollNo || !notificationId) return;
-  const cleanRoll = String(studentRollNo).trim().toUpperCase();
+  if (!notificationId) return;
+  const cleanRoll = studentRollNo ? String(studentRollNo).trim().toUpperCase() : "STUDENT";
+  const rollPrefix = cleanRoll.includes("@") ? cleanRoll.split("@")[0].trim().toUpperCase() : cleanRoll;
 
-  // Update local cache
-  const local = getLocalStudentNotifs(cleanRoll);
-  const updated = local.map(n => n.id === notificationId ? { ...n, read: true } : n);
-  saveLocalStudentNotifs(cleanRoll, updated);
+  // 1. Update persistent read set
+  const readSet = getReadNotifIds(cleanRoll);
+  readSet.add(notificationId);
+  saveReadNotifIds(cleanRoll, readSet);
 
-  try {
-    const notifDocRef = doc(db, "students", cleanRoll, "notifications", notificationId);
-    await updateDoc(notifDocRef, {
-      read: true,
-      readAt: Date.now()
-    });
-  } catch (_) {}
+  if (rollPrefix && rollPrefix !== cleanRoll) {
+    const prefixSet = getReadNotifIds(rollPrefix);
+    prefixSet.add(notificationId);
+    saveReadNotifIds(rollPrefix, prefixSet);
+  }
+
+  // 2. Update local caches
+  [cleanRoll, rollPrefix].forEach(r => {
+    if (!r) return;
+    const local = getLocalStudentNotifs(r);
+    const updated = local.map(n => n.id === notificationId ? { ...n, read: true } : n);
+    saveLocalStudentNotifs(r, updated);
+
+    const listeners = localStudentListeners.get(r);
+    if (listeners) {
+      listeners.forEach(cb => { try { cb(updated); } catch (_) {} });
+    }
+  });
+
+  // 3. Attempt Firestore doc updates
+  if (studentRollNo && !notificationId.startsWith("loc_")) {
+    const updates = [
+      updateDoc(doc(db, "students", cleanRoll, "notifications", notificationId), { read: true, readAt: Date.now() }).catch(() => {}),
+      updateDoc(doc(db, "student_notifications", cleanRoll, "notifications", notificationId), { read: true, readAt: Date.now() }).catch(() => {}),
+      updateDoc(doc(db, "notifications", notificationId), { read: true, readAt: Date.now() }).catch(() => {})
+    ];
+    if (rollPrefix && rollPrefix !== cleanRoll) {
+      updates.push(
+        updateDoc(doc(db, "students", rollPrefix, "notifications", notificationId), { read: true, readAt: Date.now() }).catch(() => {})
+      );
+    }
+    await Promise.all(updates);
+  }
+}
+
+/**
+ * Mark all student notifications as read
+ */
+export async function markAllStudentNotificationsRead(studentRollNo, notifIds = []) {
+  const cleanRoll = studentRollNo ? String(studentRollNo).trim().toUpperCase() : "STUDENT";
+  const rollPrefix = cleanRoll.includes("@") ? cleanRoll.split("@")[0].trim().toUpperCase() : cleanRoll;
+
+  const readSet = getReadNotifIds(cleanRoll);
+  notifIds.forEach(id => { if (id) readSet.add(id); });
+  saveReadNotifIds(cleanRoll, readSet);
+
+  if (rollPrefix && rollPrefix !== cleanRoll) {
+    const prefixSet = getReadNotifIds(rollPrefix);
+    notifIds.forEach(id => { if (id) prefixSet.add(id); });
+    saveReadNotifIds(rollPrefix, prefixSet);
+  }
+
+  [cleanRoll, rollPrefix].forEach(r => {
+    if (!r) return;
+    const local = getLocalStudentNotifs(r);
+    const updated = local.map(n => ({ ...n, read: true }));
+    saveLocalStudentNotifs(r, updated);
+
+    const listeners = localStudentListeners.get(r);
+    if (listeners) {
+      listeners.forEach(cb => { try { cb(updated); } catch (_) {} });
+    }
+  });
+
+  if (studentRollNo) {
+    for (const id of notifIds) {
+      if (!id || id.startsWith("loc_")) continue;
+      updateDoc(doc(db, "students", cleanRoll, "notifications", id), { read: true, readAt: Date.now() }).catch(() => {});
+      updateDoc(doc(db, "notifications", id), { read: true, readAt: Date.now() }).catch(() => {});
+    }
+  }
 }
 
 /**
@@ -529,18 +939,41 @@ export async function markNotificationAsRead(studentRollNo, notificationId) {
 export async function markFacultyNotificationAsRead(notificationId) {
   if (!notificationId) return;
 
-  // Update local cache
+  const readSet = getReadNotifIds("faculty");
+  readSet.add(notificationId);
+  saveReadNotifIds("faculty", readSet);
+
   const local = getLocalFacultyNotifs();
   const updated = local.map(n => n.id === notificationId ? { ...n, read: true } : n);
   saveLocalFacultyNotifs(updated);
 
-  try {
-    const notifDocRef = doc(db, "faculty_notifications", notificationId);
-    await updateDoc(notifDocRef, {
-      read: true,
-      readAt: Date.now()
-    });
-  } catch (_) {}
+  localFacultyListeners.forEach(cb => { try { cb(updated); } catch (_) {} });
+
+  if (!notificationId.startsWith("loc_")) {
+    updateDoc(doc(db, "faculty_notifications", notificationId), { read: true, readAt: Date.now() }).catch(() => {});
+    updateDoc(doc(db, "notifications", notificationId), { read: true, readAt: Date.now() }).catch(() => {});
+  }
+}
+
+/**
+ * Mark all faculty notifications as read
+ */
+export async function markAllFacultyNotificationsRead(notifIds = []) {
+  const readSet = getReadNotifIds("faculty");
+  notifIds.forEach(id => { if (id) readSet.add(id); });
+  saveReadNotifIds("faculty", readSet);
+
+  const local = getLocalFacultyNotifs();
+  const updated = local.map(n => ({ ...n, read: true }));
+  saveLocalFacultyNotifs(updated);
+
+  localFacultyListeners.forEach(cb => { try { cb(updated); } catch (_) {} });
+
+  for (const id of notifIds) {
+    if (!id || id.startsWith("loc_")) continue;
+    updateDoc(doc(db, "faculty_notifications", id), { read: true, readAt: Date.now() }).catch(() => {});
+    updateDoc(doc(db, "notifications", id), { read: true, readAt: Date.now() }).catch(() => {});
+  }
 }
 
 /**
@@ -549,35 +982,61 @@ export async function markFacultyNotificationAsRead(notificationId) {
 export async function deleteFacultyNotification(notificationId) {
   if (!notificationId) return;
 
+  const deletedSet = getDeletedNotifIds("faculty");
+  deletedSet.add(notificationId);
+  saveDeletedNotifIds("faculty", deletedSet);
+
   const local = getLocalFacultyNotifs();
   const updated = local.filter(n => n.id !== notificationId);
   saveLocalFacultyNotifs(updated);
 
-  try {
-    const notifDocRef = doc(db, "faculty_notifications", notificationId);
-    await deleteDoc(notifDocRef);
-  } catch (_) {}
+  localFacultyListeners.forEach(cb => { try { cb(updated); } catch (_) {} });
+
+  if (!notificationId.startsWith("loc_")) {
+    deleteDoc(doc(db, "faculty_notifications", notificationId)).catch(() => {});
+    deleteDoc(doc(db, "notifications", notificationId)).catch(() => {});
+  }
 }
 
 /**
  * Delete a student notification
  */
 export async function deleteStudentNotification(studentRollNo, notificationId) {
-  if (!studentRollNo || !notificationId) return;
-  const cleanRoll = String(studentRollNo).trim().toUpperCase();
+  if (!notificationId) return;
+  const cleanRoll = studentRollNo ? String(studentRollNo).trim().toUpperCase() : "STUDENT";
+  const rollPrefix = cleanRoll.includes("@") ? cleanRoll.split("@")[0].trim().toUpperCase() : cleanRoll;
 
-  const local = getLocalStudentNotifs(cleanRoll);
-  const updated = local.filter(n => n.id !== notificationId);
-  saveLocalStudentNotifs(cleanRoll, updated);
+  const deletedSet = getDeletedNotifIds(cleanRoll);
+  deletedSet.add(notificationId);
+  saveDeletedNotifIds(cleanRoll, deletedSet);
 
-  try {
-    const notifDocRef = doc(db, "students", cleanRoll, "notifications", notificationId);
-    await deleteDoc(notifDocRef);
-  } catch (_) {}
+  if (rollPrefix && rollPrefix !== cleanRoll) {
+    const prefixSet = getDeletedNotifIds(rollPrefix);
+    prefixSet.add(notificationId);
+    saveDeletedNotifIds(rollPrefix, prefixSet);
+  }
+
+  [cleanRoll, rollPrefix].forEach(r => {
+    if (!r) return;
+    const local = getLocalStudentNotifs(r);
+    const updated = local.filter(n => n.id !== notificationId);
+    saveLocalStudentNotifs(r, updated);
+
+    const listeners = localStudentListeners.get(r);
+    if (listeners) {
+      listeners.forEach(cb => { try { cb(updated); } catch (_) {} });
+    }
+  });
+
+  if (studentRollNo && !notificationId.startsWith("loc_")) {
+    deleteDoc(doc(db, "students", cleanRoll, "notifications", notificationId)).catch(() => {});
+    deleteDoc(doc(db, "student_notifications", cleanRoll, "notifications", notificationId)).catch(() => {});
+    deleteDoc(doc(db, "notifications", notificationId)).catch(() => {});
+  }
 }
 
 /**
- * Log a user verification complaint and dispatch high-priority alerts to Admins & Lecturers
+ * Log a user verification complaint and dispatch alerts to Admins & Lecturers
  */
 export async function reportUserVerificationComplaint(userDetails = {}, errorReason = "User verification failed", contextName = "SYSTEM_CHECK") {
   const email = (userDetails.email || userDetails.studentEmail || "").toLowerCase().trim();
@@ -604,7 +1063,7 @@ export async function reportUserVerificationComplaint(userDetails = {}, errorRea
   // Dispatch real-time alert to all Admins and Lecturers
   await sendFacultyNotification(
     `🚨 Security Alert: ${rollNo}`,
-    `User verification failed for ${userName} (${rollNo}).\nReason: ${errorReason}\nContext: ${contextName}\nLogged for Admin & Lecturer audit.`,
+    `User verification alert for ${userName} (${rollNo}).\nReason: ${errorReason}\nContext: ${contextName}`,
     "USER_VERIFICATION_FAILURE",
     rollNo,
     "Security Guard",
@@ -621,8 +1080,8 @@ export async function reportUserVerificationComplaint(userDetails = {}, errorRea
   if (rollNo && rollNo !== "UNKNOWN") {
     await sendStudentNotification(
       rollNo,
-      "⚠️ User Verification Alert",
-      `Verification Warning: Your attempt was flagged by security.\nReason: ${errorReason}\nContext: ${contextName}\nAn incident report has been sent to your Course Lecturer & Administrator for review.`,
+      "⚠️ Security Alert",
+      `A security issue was detected with your recent attempt (${errorReason}). An alert has been shared with your teachers and administrators.`,
       "SECURITY_ALERT",
       "Security Guard",
       {

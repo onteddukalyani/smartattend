@@ -43,6 +43,7 @@ const StudentDashboardView = lazy(() => import("./components/Student/pages/Dashb
 const Statistics = lazy(() => import("./components/Student/pages/Statistics"));
 const StudentCourses = lazy(() => import("./components/Student/pages/StudentCourses"));
 const FaceEnrollPage = lazy(() => import("./components/Student/pages/FaceEnrollPage"));
+const SupportFeedbackPage = lazy(() => import("./components/Common/SupportFeedbackPage"));
 
 const PageLoadingFallback = () => (
   <div style={{
@@ -236,170 +237,537 @@ function App() {
   }
 
   /*
-   * ADMIN
+   * AUTHENTICATED USER (All roles unified under ProtectedRoute)
    */
-  if (profile.role === "admin") {
-    return (
-      <Suspense fallback={<PageLoadingFallback />}>
-        <Routes>
-          <Route path="/student-form" element={<StudentForm />} />
-          <Route
-            path="/admin/*"
-            element={
-              <ProtectedRoute allowedRole="admin">
-                <AdminDashboard />
-              </ProtectedRoute>
-            }
-          />
-          {/* Top-Level Aliases for Admin */}
-          <Route path="/attendance" element={<Navigate to="/admin/attendance" replace />} />
-          <Route path="/violations" element={<Navigate to="/admin/attendance" replace />} />
-          <Route path="/courses" element={<Navigate to="/admin/courses" replace />} />
-          <Route path="/classes" element={<Navigate to="/admin/classes" replace />} />
-          <Route path="/classes/:sessionId" element={<Navigate to="/admin/classes" replace />} />
-          <Route path="/attendance-sessions" element={<Navigate to="/admin/attendance-sessions" replace />} />
-          <Route path="/attendance-sessions/:sessionId" element={<Navigate to="/admin/attendance-sessions" replace />} />
-          <Route path="/students" element={<Navigate to="/admin/students" replace />} />
-          <Route path="/students/add" element={<Navigate to="/admin/students/add" replace />} />
-          <Route path="/lecturers" element={<Navigate to="/admin/lecturers" replace />} />
-          <Route path="/lecturers/add" element={<Navigate to="/admin/lecturers/add" replace />} />
-          <Route path="/admins" element={<Navigate to="/admin/admins" replace />} />
-          <Route path="/admins/add" element={<Navigate to="/admin/admins/add" replace />} />
-          <Route path="/institution" element={<Navigate to="/admin/institution" replace />} />
-          <Route path="/settings" element={<Navigate to="/admin/settings" replace />} />
-          <Route path="/device-setup" element={<Navigate to="/admin/device-setup" replace />} />
-          <Route path="/profile" element={<Navigate to="/admin/profile" replace />} />
-          <Route path="/scanqr" element={<Navigate to="/admin/classes" replace />} />
-          <Route path="*" element={<Navigate to="/admin" replace />} />
-        </Routes>
-      </Suspense>
-    );
-  }
+  const currentRole = String(profile.role || "").trim().toLowerCase();
+  const defaultDashboard =
+    currentRole === "admin"
+      ? "/admin"
+      : currentRole === "lecturer"
+      ? "/lecturer"
+      : "/student";
 
-  /*
-   * LECTURER
-   */
-  if (profile.role === "lecturer") {
-    return (
-      <Suspense fallback={<PageLoadingFallback />}>
-        <Routes>
-          <Route path="/student-form" element={<StudentForm />} />
-          <Route
-            path="/lecturer"
-            element={
-              <ProtectedRoute allowedRole="lecturer">
-                <LecturerDashboard />
-              </ProtectedRoute>
-            }
-          >
-            <Route index element={<LecturerDashboardView />} />
-            <Route path="lecturerpage" element={<LecturerPage />} />
-            <Route path="student-form" element={<StudentForm />} />
-            <Route path="settings" element={<Settings />} />
-            <Route path="attendance-data" element={<AttendanceData />} />
-            <Route path="violations" element={<AttendanceData />} />
-            <Route path="facedetection" element={<FaceScanner />} />
-            <Route path="attendance-sessions" element={<ClassesData />} />
-            <Route path="attendance-sessions/:sessionId" element={<SessionAttendanceData />} />
-            <Route path="attendance-sessions/*" element={<SessionAttendanceData />} />
-            <Route path="classes" element={<ClassesData />} />
-            <Route path="classes/:sessionId" element={<SessionAttendanceData />} />
-            <Route path="classes/*" element={<SessionAttendanceData />} />
-            <Route path="active-sessions" element={<ActiveSessions />} />
-            <Route path="students" element={<StudentsList />} />
-            <Route path="device-setup" element={<DeviceSetupPage />} />
-            <Route path="students/add" element={<AddStudent />} />
-            <Route path="students/bulk" element={<AddStudent />} />
-            <Route path="add-student" element={<AddStudent />} />
-            <Route path="courses" element={<LecturerCourses />} />
-            <Route path="admins" element={<ReadOnlyAdminList readOnly />} />
-            <Route path="lecturers" element={<ReadOnlyLecturerList readOnly />} />
-            <Route path="scanqr" element={<QrScannerApp />} />
-            <Route path="face-enroll" element={<FaceEnrollPage />} />
-            <Route path="register-face" element={<FaceEnrollPage />} />
-          </Route>
-
-          {/* Top-Level Aliases for Lecturer */}
-          <Route path="/scanqr" element={<Navigate to="/lecturer/scanqr" replace />} />
-          <Route path="/courses" element={<Navigate to="/lecturer/courses" replace />} />
-          <Route path="/classes" element={<Navigate to="/lecturer/attendance-sessions" replace />} />
-          <Route path="/classes/:sessionId" element={<Navigate to="/lecturer/attendance-sessions" replace />} />
-          <Route path="/attendance-sessions" element={<Navigate to="/lecturer/attendance-sessions" replace />} />
-          <Route path="/attendance-sessions/:sessionId" element={<Navigate to="/lecturer/attendance-sessions" replace />} />
-          <Route path="/attendance-data" element={<Navigate to="/lecturer/attendance-data" replace />} />
-          <Route path="/violations" element={<Navigate to="/lecturer/violations" replace />} />
-          <Route path="/students" element={<Navigate to="/lecturer/students" replace />} />
-          <Route path="/active-sessions" element={<Navigate to="/lecturer/active-sessions" replace />} />
-          <Route path="/lecturerpage" element={<Navigate to="/lecturer/lecturerpage" replace />} />
-          <Route path="/facedetection" element={<Navigate to="/lecturer/facedetection" replace />} />
-          <Route path="/settings" element={<Navigate to="/lecturer/settings" replace />} />
-          <Route path="/device-setup" element={<Navigate to="/lecturer/device-setup" replace />} />
-          <Route path="*" element={<Navigate to="/lecturer" replace />} />
-        </Routes>
-      </Suspense>
-    );
-  }
-
-  /*
-   * STUDENT
-   */
-  if (profile.role === "student") {
-    return (
-      <Suspense fallback={<PageLoadingFallback />}>
-        <Routes>
-          <Route path="/student-form" element={<StudentForm />} />
-          <Route
-            path="/student"
-            element={
-              <ProtectedRoute allowedRole="student">
-                <StudentDashboard />
-              </ProtectedRoute>
-            }
-          >
-            <Route index element={<StudentDashboardView />} />
-            <Route path="courses" element={<StudentCourses />} />
-            <Route path="mark-attendance" element={<QrScannerApp />} />
-            <Route path="scanqr" element={<QrScannerApp />} />
-            <Route path="statistics" element={<Statistics />} />
-            <Route path="settings" element={<Settings />} />
-            <Route path="device-setup" element={<DeviceSetupPage />} />
-            <Route path="face-enroll" element={<FaceEnrollPage />} />
-            <Route path="register-face" element={<FaceEnrollPage />} />
-            <Route path="live-face-enroll" element={<FaceEnrollPage />} />
-          </Route>
-
-          {/* Top-Level Aliases for Student */}
-          <Route path="/scanqr" element={<Navigate to="/student/mark-attendance" replace />} />
-          <Route path="/mark-attendance" element={<Navigate to="/student/mark-attendance" replace />} />
-          <Route path="/face-enroll" element={<Navigate to="/student/face-enroll" replace />} />
-          <Route path="/register-face" element={<Navigate to="/student/face-enroll" replace />} />
-          <Route path="/live-face-enroll" element={<Navigate to="/student/face-enroll" replace />} />
-          <Route path="/courses" element={<Navigate to="/student/courses" replace />} />
-          <Route path="/statistics" element={<Navigate to="/student/statistics" replace />} />
-          <Route path="/attendance" element={<Navigate to="/student/statistics" replace />} />
-          <Route path="/settings" element={<Navigate to="/student/settings" replace />} />
-          <Route path="/device-setup" element={<Navigate to="/student/device-setup" replace />} />
-          <Route path="*" element={<Navigate to="/student" replace />} />
-        </Routes>
-      </Suspense>
-    );
-  }
-
-  /*
-   * Unknown role
-   */
   return (
     <Suspense fallback={<PageLoadingFallback />}>
       <Routes>
+        {/* Public / Common Routes */}
+        <Route path="/student-form" element={<StudentForm />} />
+        <Route path="/login" element={<Navigate to={defaultDashboard} replace />} />
+
+        {/* ==========================================
+            1. ADMIN PORTAL (Strictly for Admin role)
+           ========================================== */}
         <Route
-          path="*"
+          path="/admin/*"
+          element={
+            <ProtectedRoute allowedRole="admin">
+              <AdminDashboard />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* ==========================================
+            2. LECTURER PORTAL (Strictly for Lecturer role)
+           ========================================== */}
+        <Route
+          path="/lecturer"
+          element={
+            <ProtectedRoute allowedRole="lecturer">
+              <LecturerDashboard />
+            </ProtectedRoute>
+          }
+        >
+          <Route index element={<LecturerDashboardView />} />
+          <Route path="lecturerpage" element={<LecturerPage />} />
+          <Route path="student-form" element={<StudentForm />} />
+          <Route path="settings" element={<Settings />} />
+          <Route path="attendance-data" element={<AttendanceData />} />
+          <Route path="violations" element={<AttendanceData />} />
+          <Route path="facedetection" element={<FaceScanner />} />
+          <Route path="attendance-sessions" element={<ClassesData />} />
+          <Route path="attendance-sessions/:sessionId" element={<SessionAttendanceData />} />
+          <Route path="attendance-sessions/*" element={<SessionAttendanceData />} />
+          <Route path="classes" element={<ClassesData />} />
+          <Route path="classes/:sessionId" element={<SessionAttendanceData />} />
+          <Route path="classes/*" element={<SessionAttendanceData />} />
+          <Route path="active-sessions" element={<ActiveSessions />} />
+          <Route path="students" element={<StudentsList />} />
+          <Route path="device-setup" element={<DeviceSetupPage />} />
+          <Route path="students/add" element={<AddStudent />} />
+          <Route path="students/bulk" element={<AddStudent />} />
+          <Route path="add-student" element={<AddStudent />} />
+          <Route path="courses" element={<LecturerCourses />} />
+          <Route path="admins" element={<ReadOnlyAdminList readOnly />} />
+          <Route path="lecturers" element={<ReadOnlyLecturerList readOnly />} />
+          <Route path="scanqr" element={<QrScannerApp />} />
+          <Route path="face-enroll" element={<FaceEnrollPage />} />
+          <Route path="register-face" element={<FaceEnrollPage />} />
+          <Route path="support" element={<SupportFeedbackPage />} />
+          <Route path="feedback" element={<SupportFeedbackPage />} />
+          <Route path="contact" element={<SupportFeedbackPage />} />
+          <Route path="help" element={<SupportFeedbackPage />} />
+        </Route>
+
+        {/* Nested Wildcard for /lecturer/* so role mismatch screen renders on deep URL access */}
+        <Route
+          path="/lecturer/*"
+          element={
+            <ProtectedRoute allowedRole="lecturer">
+              <Navigate to="/lecturer" replace />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* ==========================================
+            3. STUDENT PORTAL (Strictly for Student role)
+           ========================================== */}
+        <Route
+          path="/student"
+          element={
+            <ProtectedRoute allowedRole="student">
+              <StudentDashboard />
+            </ProtectedRoute>
+          }
+        >
+          <Route index element={<StudentDashboardView />} />
+          <Route path="courses" element={<StudentCourses />} />
+          <Route path="mark-attendance" element={<QrScannerApp />} />
+          <Route path="scanqr" element={<QrScannerApp />} />
+          <Route path="statistics" element={<Statistics />} />
+          <Route path="settings" element={<Settings />} />
+          <Route path="device-setup" element={<DeviceSetupPage />} />
+          <Route path="face-enroll" element={<FaceEnrollPage />} />
+          <Route path="register-face" element={<FaceEnrollPage />} />
+          <Route path="live-face-enroll" element={<FaceEnrollPage />} />
+          <Route path="support" element={<SupportFeedbackPage />} />
+          <Route path="feedback" element={<SupportFeedbackPage />} />
+          <Route path="contact" element={<SupportFeedbackPage />} />
+          <Route path="help" element={<SupportFeedbackPage />} />
+        </Route>
+
+        {/* Nested Wildcard for /student/* so role mismatch screen renders on deep URL access */}
+        <Route
+          path="/student/*"
+          element={
+            <ProtectedRoute allowedRole="student">
+              <Navigate to="/student" replace />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* ==========================================
+            4. TOP-LEVEL SHORTCUT ALIASES (Role-Aware)
+           ========================================== */}
+        <Route
+          path="/courses"
           element={
             <Navigate
-              to="/login"
+              to={
+                currentRole === "admin"
+                  ? "/admin/courses"
+                  : currentRole === "lecturer"
+                  ? "/lecturer/courses"
+                  : "/student/courses"
+              }
               replace
             />
           }
         />
+        <Route
+          path="/classes"
+          element={
+            <Navigate
+              to={
+                currentRole === "admin"
+                  ? "/admin/classes"
+                  : currentRole === "lecturer"
+                  ? "/lecturer/attendance-sessions"
+                  : "/student/courses"
+              }
+              replace
+            />
+          }
+        />
+        <Route
+          path="/classes/:sessionId"
+          element={
+            <Navigate
+              to={
+                currentRole === "admin"
+                  ? "/admin/classes"
+                  : currentRole === "lecturer"
+                  ? "/lecturer/attendance-sessions"
+                  : "/student/courses"
+              }
+              replace
+            />
+          }
+        />
+        <Route
+          path="/attendance-sessions"
+          element={
+            <Navigate
+              to={
+                currentRole === "admin"
+                  ? "/admin/attendance-sessions"
+                  : currentRole === "lecturer"
+                  ? "/lecturer/attendance-sessions"
+                  : "/student/statistics"
+              }
+              replace
+            />
+          }
+        />
+        <Route
+          path="/attendance-sessions/:sessionId"
+          element={
+            <Navigate
+              to={
+                currentRole === "admin"
+                  ? "/admin/attendance-sessions"
+                  : currentRole === "lecturer"
+                  ? "/lecturer/attendance-sessions"
+                  : "/student/statistics"
+              }
+              replace
+            />
+          }
+        />
+        <Route
+          path="/attendance"
+          element={
+            <Navigate
+              to={
+                currentRole === "admin"
+                  ? "/admin/attendance"
+                  : currentRole === "lecturer"
+                  ? "/lecturer/attendance-data"
+                  : "/student/statistics"
+              }
+              replace
+            />
+          }
+        />
+        <Route
+          path="/attendance-data"
+          element={
+            <Navigate
+              to={
+                currentRole === "admin"
+                  ? "/admin/attendance"
+                  : currentRole === "lecturer"
+                  ? "/lecturer/attendance-data"
+                  : "/student/statistics"
+              }
+              replace
+            />
+          }
+        />
+        <Route
+          path="/violations"
+          element={
+            <Navigate
+              to={
+                currentRole === "admin"
+                  ? "/admin/violations"
+                  : currentRole === "lecturer"
+                  ? "/lecturer/violations"
+                  : "/student/statistics"
+              }
+              replace
+            />
+          }
+        />
+        <Route
+          path="/scanqr"
+          element={
+            <Navigate
+              to={
+                currentRole === "student"
+                  ? "/student/mark-attendance"
+                  : currentRole === "lecturer"
+                  ? "/lecturer/scanqr"
+                  : "/admin/classes"
+              }
+              replace
+            />
+          }
+        />
+        <Route
+          path="/mark-attendance"
+          element={
+            <Navigate
+              to={
+                currentRole === "student"
+                  ? "/student/mark-attendance"
+                  : currentRole === "lecturer"
+                  ? "/lecturer/scanqr"
+                  : "/admin/classes"
+              }
+              replace
+            />
+          }
+        />
+        <Route
+          path="/face-enroll"
+          element={
+            <Navigate
+              to={
+                currentRole === "student"
+                  ? "/student/face-enroll"
+                  : currentRole === "lecturer"
+                  ? "/lecturer/face-enroll"
+                  : "/admin/face-enroll"
+              }
+              replace
+            />
+          }
+        />
+        <Route
+          path="/register-face"
+          element={
+            <Navigate
+              to={
+                currentRole === "student"
+                  ? "/student/face-enroll"
+                  : currentRole === "lecturer"
+                  ? "/lecturer/face-enroll"
+                  : "/admin/face-enroll"
+              }
+              replace
+            />
+          }
+        />
+        <Route
+          path="/live-face-enroll"
+          element={
+            <Navigate
+              to={
+                currentRole === "student"
+                  ? "/student/face-enroll"
+                  : currentRole === "lecturer"
+                  ? "/lecturer/face-enroll"
+                  : "/admin/face-enroll"
+              }
+              replace
+            />
+          }
+        />
+        <Route
+          path="/statistics"
+          element={
+            <Navigate
+              to={
+                currentRole === "student"
+                  ? "/student/statistics"
+                  : currentRole === "lecturer"
+                  ? "/lecturer/attendance-data"
+                  : "/admin/attendance"
+              }
+              replace
+            />
+          }
+        />
+        <Route
+          path="/students"
+          element={
+            <Navigate
+              to={
+                currentRole === "admin"
+                  ? "/admin/students"
+                  : currentRole === "lecturer"
+                  ? "/lecturer/students"
+                  : "/student"
+              }
+              replace
+            />
+          }
+        />
+        <Route
+          path="/students/add"
+          element={
+            <Navigate
+              to={
+                currentRole === "admin"
+                  ? "/admin/students/add"
+                  : currentRole === "lecturer"
+                  ? "/lecturer/students/add"
+                  : "/student"
+              }
+              replace
+            />
+          }
+        />
+        <Route
+          path="/lecturers"
+          element={
+            <Navigate
+              to={
+                currentRole === "admin"
+                  ? "/admin/lecturers"
+                  : currentRole === "lecturer"
+                  ? "/lecturer/lecturers"
+                  : "/student"
+              }
+              replace
+            />
+          }
+        />
+        <Route
+          path="/admins"
+          element={
+            <Navigate
+              to={
+                currentRole === "admin"
+                  ? "/admin/admins"
+                  : currentRole === "lecturer"
+                  ? "/lecturer/admins"
+                  : "/student"
+              }
+              replace
+            />
+          }
+        />
+        <Route
+          path="/active-sessions"
+          element={
+            <Navigate
+              to={
+                currentRole === "admin"
+                  ? "/admin/active-sessions"
+                  : currentRole === "lecturer"
+                  ? "/lecturer/active-sessions"
+                  : "/student"
+              }
+              replace
+            />
+          }
+        />
+        <Route
+          path="/settings"
+          element={
+            <Navigate
+              to={
+                currentRole === "admin"
+                  ? "/admin/settings"
+                  : currentRole === "lecturer"
+                  ? "/lecturer/settings"
+                  : "/student/settings"
+              }
+              replace
+            />
+          }
+        />
+        <Route
+          path="/device-setup"
+          element={
+            <Navigate
+              to={
+                currentRole === "admin"
+                  ? "/admin/device-setup"
+                  : currentRole === "lecturer"
+                  ? "/lecturer/device-setup"
+                  : "/student/device-setup"
+              }
+              replace
+            />
+          }
+        />
+        <Route
+          path="/support"
+          element={
+            <Navigate
+              to={
+                currentRole === "admin"
+                  ? "/admin/support"
+                  : currentRole === "lecturer"
+                  ? "/lecturer/support"
+                  : "/student/support"
+              }
+              replace
+            />
+          }
+        />
+        <Route
+          path="/feedback"
+          element={
+            <Navigate
+              to={
+                currentRole === "admin"
+                  ? "/admin/support"
+                  : currentRole === "lecturer"
+                  ? "/lecturer/support"
+                  : "/student/support"
+              }
+              replace
+            />
+          }
+        />
+        <Route
+          path="/contact"
+          element={
+            <Navigate
+              to={
+                currentRole === "admin"
+                  ? "/admin/support"
+                  : currentRole === "lecturer"
+                  ? "/lecturer/support"
+                  : "/student/support"
+              }
+              replace
+            />
+          }
+        />
+        <Route
+          path="/contact-us"
+          element={
+            <Navigate
+              to={
+                currentRole === "admin"
+                  ? "/admin/support"
+                  : currentRole === "lecturer"
+                  ? "/lecturer/support"
+                  : "/student/support"
+              }
+              replace
+            />
+          }
+        />
+        <Route
+          path="/help"
+          element={
+            <Navigate
+              to={
+                currentRole === "admin"
+                  ? "/admin/support"
+                  : currentRole === "lecturer"
+                  ? "/lecturer/support"
+                  : "/student/support"
+              }
+              replace
+            />
+          }
+        />
+        <Route path="/institution" element={<Navigate to="/admin/institution" replace />} />
+        <Route
+          path="/profile"
+          element={
+            <Navigate
+              to={
+                currentRole === "admin"
+                  ? "/admin/profile"
+                  : currentRole === "lecturer"
+                  ? "/lecturer/settings"
+                  : "/student/settings"
+              }
+              replace
+            />
+          }
+        />
+
+        {/* Fallback to user's registered home dashboard */}
+        <Route path="/" element={<Navigate to={defaultDashboard} replace />} />
+        <Route path="*" element={<Navigate to={defaultDashboard} replace />} />
       </Routes>
     </Suspense>
   );

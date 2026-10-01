@@ -25,14 +25,17 @@ import {
 } from 'react-icons/fa';
 import {
     markNotificationAsRead,
+    markAllStudentNotificationsRead,
     markFacultyNotificationAsRead,
+    markAllFacultyNotificationsRead,
     deleteFacultyNotification,
     deleteStudentNotification,
     approveDeviceResetAction,
     sendBroadcastNotification,
     sendStudentNotification,
     sendFacultyNotification,
-    playNotificationChime
+    playNotificationChime,
+    getTimestampMs
 } from '../../services/notificationsService';
 import './NotificationHistoryModal.css';
 
@@ -55,6 +58,11 @@ export function NotificationHistoryModal({
     const effectiveRole = isFaculty ? (role === 'admin' ? 'admin' : 'lecturer') : 'student';
 
     // State
+    const [localNotifications, setLocalNotifications] = useState(notifications || []);
+    useEffect(() => {
+        setLocalNotifications(notifications || []);
+    }, [notifications]);
+
     const [activeTab, setActiveTab] = useState('all'); // 'all' | 'security' | 'attendance' | 'accounts' | 'announcements' | 'compose'
     const [searchQuery, setSearchQuery] = useState('');
     const [soundEnabled, setSoundEnabled] = useState(true);
@@ -73,37 +81,42 @@ export function NotificationHistoryModal({
     const [sendingBroadcast, setSendingBroadcast] = useState(false);
 
     // Audio chime on new notification arrival
-    const prevCountRef = useRef(notifications.length);
+    const prevCountRef = useRef((notifications || []).length);
     useEffect(() => {
-        if (notifications.length > prevCountRef.current && soundEnabled && isOpen) {
+        const count = (notifications || []).length;
+        if (count > prevCountRef.current && soundEnabled && isOpen) {
             playNotificationChime();
         }
-        prevCountRef.current = notifications.length;
-    }, [notifications.length, soundEnabled, isOpen]);
+        prevCountRef.current = count;
+    }, [notifications, soundEnabled, isOpen]);
 
-    const unreadCount = (notifications || []).filter(n => !n.read).length;
+    const unreadCount = (localNotifications || []).filter(n => !n.read).length;
 
     // Filter by Category Tab & Search Query
     const filteredNotifications = useMemo(() => {
-        let list = [...notifications];
+        let list = [...(localNotifications || [])];
 
         // Tab Filter
         if (activeTab === 'security') {
             list = list.filter(n =>
-                ['DEVICE_RESET_REQUEST', 'DEVICE_RESET', 'DEVICE_LOCKED', 'ANTI_PROXY_VIOLATION', 'VIOLATION_DECISION', 'SECURITY_ALERT', 'USER_VERIFICATION_FAILURE'].includes(n.type) ||
+                ['DEVICE_RESET_REQUEST', 'DEVICE_RESET', 'DEVICE_LOCKED', 'DEVICE_MISMATCH_WARNING', 'ANTI_PROXY_VIOLATION', 'VIOLATION_DECISION', 'SECURITY_ALERT', 'USER_VERIFICATION_FAILURE'].includes(n.type) ||
                 n.metadata?.actionable
             );
         } else if (activeTab === 'attendance') {
             list = list.filter(n =>
-                ['ATTENDANCE_SUCCESS', 'ATTENDANCE_UPDATE', 'ATTENDANCE_RECORDED', 'SESSION_STARTED', 'SESSION_CLOSED'].includes(n.type)
+                ['ATTENDANCE_SUCCESS', 'ATTENDANCE_UPDATE', 'ATTENDANCE_RECORDED', 'SESSION_STARTED', 'SESSION_CLOSED', 'COURSE_ENROLLMENT', 'COURSE_UPDATE'].includes(n.type)
             );
         } else if (activeTab === 'accounts') {
             list = list.filter(n =>
-                ['PROFILE_UPDATE', 'BIOMETRICS_CLEARED', 'BIOMETRICS_REGISTERED', 'STUDENT_ADDED', 'LECTURER_ADDED', 'ADMIN_ADDED'].includes(n.type)
+                ['PROFILE_UPDATE', 'BIOMETRICS_CLEARED', 'BIOMETRICS_REGISTERED', 'BIOMETRIC_UPDATE', 'STUDENT_ADDED', 'LECTURER_ADDED', 'ADMIN_ADDED'].includes(n.type)
             );
         } else if (activeTab === 'announcements') {
             list = list.filter(n =>
-                ['BROADCAST_ANNOUNCEMENT', 'ANNOUNCEMENT', 'SYSTEM_UPDATE', 'SYSTEM_NOTICE', 'GENERAL_NOTICE', 'CLASS_UPDATE'].includes(n.type)
+                ['BROADCAST_ANNOUNCEMENT', 'ANNOUNCEMENT', 'ANNOUNCEMENTS', 'SYSTEM_UPDATE', 'SYSTEM_NOTICE', 'GENERAL_NOTICE', 'CLASS_UPDATE', 'CAMPUS_NOTICE', 'FACULTY_ANNOUNCEMENT', 'URGENT_NOTICE', 'ADMIN_ALERT', 'LECTURER_ALERT'].includes(n.type) ||
+                n.isAnnouncement ||
+                n.isBroadcast ||
+                Boolean(n.targetRoles && n.targetRoles.length > 0) ||
+                (n.title && (n.title.toLowerCase().includes('announcement') || n.title.toLowerCase().includes('notice') || n.title.toLowerCase().includes('broadcast') || n.title.toLowerCase().includes('live attendance')))
             );
         }
 
@@ -119,60 +132,82 @@ export function NotificationHistoryModal({
         }
 
         return list;
-    }, [notifications, activeTab, searchQuery]);
+    }, [localNotifications, activeTab, searchQuery]);
 
     const getTypeBadge = (type) => {
         switch (type) {
             case 'DEVICE_RESET_REQUEST':
                 return <span className="notif-type-tag type-violation" style={{ background: '#ffedd5', color: '#c2410c', border: '1px solid #fed7aa' }}><FaMobileAlt /> Reset Requested</span>;
             case 'DEVICE_LOCKED':
-                return <span className="notif-type-tag type-device" style={{ background: '#e0f2fe', color: '#0369a1' }}><FaLock /> Device Locked</span>;
+                return <span className="notif-type-tag type-device" style={{ background: '#e0f2fe', color: '#0369a1' }}><FaLock /> Phone Registered</span>;
             case 'DEVICE_RESET':
             case 'DEVICE_RESET_APPROVED':
-                return <span className="notif-type-tag type-device"><FaMobileAlt /> Device Reset</span>;
+                return <span className="notif-type-tag type-device"><FaMobileAlt /> Phone Reset</span>;
             case 'BIOMETRICS_CLEARED':
             case 'BIOMETRICS_REGISTERED':
-                return <span className="notif-type-tag type-biometric"><FaCamera /> Biometrics</span>;
+            case 'BIOMETRIC_UPDATE':
+                return <span className="notif-type-tag type-biometric"><FaCamera /> Face Photo</span>;
             case 'VIOLATION_DECISION':
             case 'ANTI_PROXY_VIOLATION':
-                return <span className="notif-type-tag type-violation"><FaExclamationTriangle /> Anti-Proxy</span>;
+                return <span className="notif-type-tag type-violation"><FaExclamationTriangle /> Security Check</span>;
             case 'SECURITY_ALERT':
             case 'USER_VERIFICATION_FAILURE':
-                return <span className="notif-type-tag type-violation" style={{ background: '#fee2e2', color: '#b91c1c', border: '1px solid #fca5a5' }}><FaShieldAlt /> Security Alert</span>;
+            case 'DEVICE_MISMATCH_WARNING':
+                return <span className="notif-type-tag type-violation" style={{ background: '#fee2e2', color: '#b91c1c', border: '1px solid #fca5a5' }}><FaShieldAlt /> Security Notice</span>;
             case 'SESSION_STARTED':
             case 'SESSION_CLOSED':
             case 'ATTENDANCE_SUCCESS':
+            case 'ATTENDANCE_UPDATE':
+            case 'ATTENDANCE_RECORDED':
                 return <span className="notif-type-tag type-attendance" style={{ background: '#dcfce7', color: '#15803d', border: '1px solid #bbf7d0' }}><FaCheck /> Attendance</span>;
             case 'PROFILE_UPDATE':
-                return <span className="notif-type-tag type-profile"><FaUserEdit /> Profile Update</span>;
+                return <span className="notif-type-tag type-profile"><FaUserEdit /> Profile</span>;
             case 'BROADCAST_ANNOUNCEMENT':
             case 'ANNOUNCEMENT':
+            case 'GENERAL_NOTICE':
                 return <span className="notif-type-tag type-announcement" style={{ background: '#fdf4ff', color: '#a21caf', border: '1px solid #f5d0fe' }}><FaBullhorn /> Announcement</span>;
+            case 'CLASS_UPDATE':
+                return <span className="notif-type-tag type-attendance" style={{ background: '#ecfdf5', color: '#047857', border: '1px solid #a7f3d0' }}><FaBullhorn /> Academic Notice</span>;
+            case 'SYSTEM_UPDATE':
+            case 'SYSTEM_NOTICE':
+                return <span className="notif-type-tag type-device" style={{ background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe' }}><FaShieldAlt /> System Notice</span>;
+            case 'COURSE_ENROLLMENT':
+            case 'COURSE_UPDATE':
+                return <span className="notif-type-tag type-attendance"><FaCheck /> Class Course</span>;
             default:
-                return <span className="notif-type-tag type-device"><FaShieldAlt /> System Audit</span>;
+                return <span className="notif-type-tag type-device"><FaShieldAlt /> Update</span>;
         }
     };
 
     const handleRead = async (notifId) => {
+        setLocalNotifications(prev => prev.map(n => n.id === notifId ? { ...n, read: true } : n));
+        const notif = (localNotifications || []).find(n => n.id === notifId);
+        const targetRoll = notif?.recipientRollNo || studentRollNo;
         if (isFaculty || effectiveRole !== 'student') {
             await markFacultyNotificationAsRead(notifId);
         } else {
-            await markNotificationAsRead(studentRollNo, notifId);
+            await markNotificationAsRead(targetRoll, notifId);
         }
     };
 
     const handleDelete = async (notifId) => {
+        setLocalNotifications(prev => prev.filter(n => n.id !== notifId));
+        const notif = (localNotifications || []).find(n => n.id === notifId);
+        const targetRoll = notif?.recipientRollNo || studentRollNo;
         if (isFaculty || effectiveRole !== 'student') {
             await deleteFacultyNotification(notifId);
         } else {
-            await deleteStudentNotification(studentRollNo, notifId);
+            await deleteStudentNotification(targetRoll, notifId);
         }
     };
 
     const handleMarkAllRead = async () => {
-        const unread = notifications.filter(n => !n.read);
-        for (const n of unread) {
-            await handleRead(n.id);
+        const unreadIds = (localNotifications || []).filter(n => !n.read).map(n => n.id);
+        setLocalNotifications(prev => prev.map(n => ({ ...n, read: true })));
+        if (isFaculty || effectiveRole !== 'student') {
+            await markAllFacultyNotificationsRead(unreadIds);
+        } else {
+            await markAllStudentNotificationsRead(studentRollNo, unreadIds);
         }
     };
 
@@ -218,6 +253,7 @@ export function NotificationHistoryModal({
         setSendingBroadcast(true);
 
         try {
+            const nowMs = Date.now();
             if (composerForm.targetAudience === 'specific') {
                 const targetRoll = composerForm.specificRoll.trim().toUpperCase();
                 if (!targetRoll) {
@@ -240,11 +276,23 @@ export function NotificationHistoryModal({
                     targetRoll,
                     senderName
                 );
+                const localItem = {
+                    id: "loc_notif_" + nowMs,
+                    title: composerForm.title.trim(),
+                    message: composerForm.message.trim(),
+                    type: composerForm.urgency,
+                    senderName,
+                    senderRole: effectiveRole,
+                    studentRollNo: targetRoll,
+                    createdAt: nowMs,
+                    read: false
+                };
+                setLocalNotifications(prev => [localItem, ...prev]);
             } else {
-                let targetRoles = ['student', 'lecturer', 'admin'];
-                if (composerForm.targetAudience === 'student') targetRoles = ['student'];
-                else if (composerForm.targetAudience === 'lecturer') targetRoles = ['lecturer'];
-                else if (composerForm.targetAudience === 'admin') targetRoles = ['admin'];
+                let targetRoles = ['student', 'lecturer', 'faculty', 'admin', 'all'];
+                if (composerForm.targetAudience === 'student') targetRoles = ['student', 'all'];
+                else if (composerForm.targetAudience === 'lecturer') targetRoles = ['lecturer', 'faculty', 'all'];
+                else if (composerForm.targetAudience === 'admin') targetRoles = ['admin', 'all'];
 
                 await sendBroadcastNotification({
                     targetRoles,
@@ -254,9 +302,24 @@ export function NotificationHistoryModal({
                     senderName,
                     senderRole: effectiveRole
                 });
+
+                const localItem = {
+                    id: "loc_broad_" + nowMs,
+                    title: composerForm.title.trim(),
+                    message: composerForm.message.trim(),
+                    type: composerForm.urgency,
+                    senderName,
+                    senderRole: effectiveRole,
+                    targetRoles,
+                    isAnnouncement: true,
+                    isBroadcast: true,
+                    createdAt: nowMs,
+                    read: false
+                };
+                setLocalNotifications(prev => [localItem, ...prev]);
             }
 
-            setSuccessMessage('🚀 Notification broadcast transmitted successfully in real-time!');
+            setSuccessMessage('🚀 Announcement broadcast transmitted successfully in real-time!');
             setComposerForm({
                 targetAudience: effectiveRole === 'admin' ? 'all' : 'student',
                 specificRoll: '',
@@ -265,9 +328,9 @@ export function NotificationHistoryModal({
                 urgency: 'GENERAL_NOTICE'
             });
             setTimeout(() => {
-                setActiveTab('all');
+                setActiveTab('announcements');
                 setSuccessMessage('');
-            }, 2000);
+            }, 1500);
         } catch (err) {
             setErrorMessage(`Failed to send notification: ${err.message}`);
         } finally {
@@ -305,8 +368,8 @@ export function NotificationHistoryModal({
                             {effectiveRole === 'admin'
                                 ? 'Admin Notification & Security Center'
                                 : effectiveRole === 'lecturer'
-                                ? 'Faculty Audit Logs & Class Updates'
-                                : 'Student Notifications & Activity Feed'}
+                                    ? 'Faculty Audit Logs & Class Updates'
+                                    : 'Student Notifications & Activity Feed'}
                         </h2>
 
                         <p className="notif-modal-subtitle">
@@ -366,28 +429,28 @@ export function NotificationHistoryModal({
                                     className={`notif-tab-btn ${activeTab === 'all' ? 'active' : ''}`}
                                     onClick={() => setActiveTab('all')}
                                 >
-                                    All ({notifications.length})
+                                    All ({localNotifications.length})
                                 </button>
                                 <button
                                     type="button"
                                     className={`notif-tab-btn ${activeTab === 'security' ? 'active' : ''}`}
                                     onClick={() => setActiveTab('security')}
                                 >
-                                    🚨 Security & Anti-Proxy
+                                    🔒 Security Alerts
                                 </button>
                                 <button
                                     type="button"
                                     className={`notif-tab-btn ${activeTab === 'attendance' ? 'active' : ''}`}
                                     onClick={() => setActiveTab('attendance')}
                                 >
-                                    📋 Attendance & Sessions
+                                    📋 Attendance
                                 </button>
                                 <button
                                     type="button"
                                     className={`notif-tab-btn ${activeTab === 'accounts' ? 'active' : ''}`}
                                     onClick={() => setActiveTab('accounts')}
                                 >
-                                    👤 Biometrics & Profile
+                                    👤 Profile &amp; Photo
                                 </button>
                                 <button
                                     type="button"
@@ -490,7 +553,7 @@ export function NotificationHistoryModal({
                                     <label>Student Roll Number</label>
                                     <input
                                         type="text"
-                                        placeholder="e.g. 21B01A0501"
+                                        placeholder="e.g. 25BCS001"
                                         value={composerForm.specificRoll}
                                         onChange={(e) => setComposerForm({ ...composerForm, specificRoll: e.target.value })}
                                         required
@@ -562,11 +625,11 @@ export function NotificationHistoryModal({
                                 <div className="notif-empty-icon">
                                     <FaInbox />
                                 </div>
-                                <h3>No Notifications in this Category</h3>
+                                <h3>No Notifications</h3>
                                 <p>
                                     {effectiveRole !== 'student'
-                                        ? 'Real-time anti-proxy alerts, attendance updates, and student activity logs will appear here.'
-                                        : 'Any updates or actions performed by your Lecturers or Administrators will appear here in real-time.'}
+                                        ? 'Attendance updates, student alerts, and activity notices will appear here.'
+                                        : 'Updates from your teachers and administrators will appear here in real-time.'}
                                 </p>
                             </div>
                         ) : (
@@ -585,7 +648,7 @@ export function NotificationHistoryModal({
                                                 {getTypeBadge(n.type)}
                                             </div>
                                             <span className="notif-item-time">
-                                                {n.createdAt ? new Date(n.createdAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Just now'}
+                                                {new Date(getTimestampMs(n)).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                                             </span>
                                         </div>
 
@@ -595,6 +658,13 @@ export function NotificationHistoryModal({
                                         {n.studentRollNo && (
                                             <div className="notif-meta-pill">
                                                 <FaUserGraduate /> Student Roll: <strong>{n.studentRollNo}</strong>
+                                            </div>
+                                        )}
+
+                                        {/* Target audience pill if broadcast */}
+                                        {Array.isArray(n.targetRoles) && n.targetRoles.length > 0 && (
+                                            <div className="notif-meta-pill" style={{ background: '#f5f3ff', color: '#6d28d9', borderColor: '#ddd6fe' }}>
+                                                <FaBullhorn /> Target: <strong>{n.targetRoles.includes('student') ? (n.targetRoles.includes('lecturer') ? 'Everyone (All Roles)' : 'All Students') : (n.targetRoles.includes('lecturer') ? 'All Lecturers' : 'Admins')}</strong>
                                             </div>
                                         )}
 
@@ -637,7 +707,7 @@ export function NotificationHistoryModal({
                                                 )}
 
                                                 {/* Actionable Button: Biometrics Cleared (Student) */}
-                                                {effectiveRole === 'student' && n.type === 'BIOMETRICS_CLEARED' && onOpenFaceModal && (
+                                                {effectiveRole === 'student' && (n.type === 'BIOMETRICS_CLEARED' || n.type === 'BIOMETRIC_UPDATE') && onOpenFaceModal && (
                                                     <button
                                                         type="button"
                                                         className="notif-action-btn btn-action-primary"
@@ -659,7 +729,7 @@ export function NotificationHistoryModal({
                                                         onClick={() => handleRead(n.id)}
                                                         title="Mark as read"
                                                     >
-                                                        <FaCheck /> Dismiss
+                                                        <FaCheck /> Mark as Read
                                                     </button>
                                                 )}
 
@@ -686,3 +756,4 @@ export function NotificationHistoryModal({
 }
 
 export default NotificationHistoryModal;
+

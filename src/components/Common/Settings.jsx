@@ -26,13 +26,17 @@ import {
     FaCamera,
     FaTrashAlt,
     FaAndroid,
-    FaDownload
+    FaDownload,
+    FaHeadset,
+    FaCommentDots,
+    FaBug
 } from "react-icons/fa";
 import { doc, onSnapshot } from "firebase/firestore";
 import { db } from "../../firebase";
 import { useAuth } from "../authcontext";
 import ProfilePhotoModal from "./ProfilePhotoModal";
 import DeviceOnboardingModal from "../Student/DeviceOnboardingModal";
+import SupportFeedbackModal from "./SupportFeedbackModal";
 import { normalizeBranchName } from "../../utils/studentDataHelper";
 import { getApkDownloadUrl } from "../../utils/apkUrl";
 import "./Settings.css";
@@ -81,6 +85,10 @@ function Settings() {
 
     // Device Setup Modal State
     const [showDeviceModal, setShowDeviceModal] = useState(false);
+
+    // Support & Feedback Modal State
+    const [showSupportModal, setShowSupportModal] = useState(false);
+    const [supportModalTab, setSupportModalTab] = useState("feedback");
 
     useEffect(() => {
         document.documentElement.dataset.theme = theme;
@@ -226,6 +234,12 @@ function Settings() {
         : rawRole === "lecturer" || rawRole === "faculty" || rawRole === "teacher"
             ? "/lecturer/device-setup"
             : "/student/device-setup";
+
+    const supportPath = rawRole === "admin" || rawRole === "administrator" || rawRole === "superadmin"
+        ? "/admin/support"
+        : rawRole === "lecturer" || rawRole === "faculty" || rawRole === "teacher"
+            ? "/lecturer/support"
+            : "/student/support";
 
     // Normalized role info
     const getRoleInfo = (r) => {
@@ -573,91 +587,126 @@ function Settings() {
                                             <span className="st-detail-desc">Current enrolled term</span>
                                         </div>
                                     </div>
-                                    <div className="st-detail-value" style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                                    <div className="st-detail-value">
                                         <span className="st-badge-light">
                                             Semester {studentSemester}
                                         </span>
-                                        <button
-                                            type="button"
-                                            className="st-btn-mini-edit"
-                                            onClick={() => {
-                                                setSemesterInput(studentSemester);
-                                                setShowEditSemesterModal(true);
-                                            }}
-                                            title="Edit Enrolled Semester"
-                                        >
-                                            <FaEdit /> Edit
-                                        </button>
                                     </div>
                                 </div>
 
                             </>
                         )}
 
-                        <div className="st-detail-row">
-                            <div className="st-detail-left">
-                                <div className="st-detail-icon-wrap" style={{ background: "#e0f2fe", color: "#0284c7" }}>
+                        {/* Device Security & Setup Card */}
+                        <div className="st-feature-card st-device-feature-card">
+                            <div className="st-feature-main">
+                                <div className="st-feature-icon-wrap device-icon">
                                     <FaMobileAlt />
                                 </div>
-                                <div className="st-detail-info">
-                                    <span className="st-detail-title">Device Security &amp; Setup</span>
-                                    <span className="st-detail-desc">Android installation / iPhone Guided Access</span>
+                                <div className="st-feature-text">
+                                    <div className="st-feature-title-row">
+                                        <span className="st-feature-title">Device Security &amp; Setup</span>
+                                        {rawRole === "student" && (
+                                            <span className="st-device-status-badge">
+                                                {(localStorage.getItem("smartattend_student_device_type") || profile?.deviceType || "NOT SET").toUpperCase()}
+                                            </span>
+                                        )}
+                                    </div>
+                                    <p className="st-feature-desc">Android installation &amp; iPhone Guided Access configuration</p>
                                 </div>
                             </div>
-                            <div className="st-detail-value" style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
-                                {rawRole === "student" && (
-                                    <span className="st-badge-light" style={{ background: "#f0f9ff", color: "#0369a1", borderColor: "#bae6fd" }}>
-                                        {(localStorage.getItem("smartattend_student_device_type") || profile?.deviceType || "NOT SET").toUpperCase()}
-                                    </span>
-                                )}
-                                <Link to={deviceSetupPath} className="st-btn-mini-edit" title="Read Android and iPhone setup instructions">
-                                    <FaMobileAlt /> View instructions
+                            <div className="st-feature-actions">
+                                <Link to={deviceSetupPath} className="st-btn-feature-outline" title="Read Android and iPhone setup instructions">
+                                    <FaMobileAlt /> <span>View Instructions</span>
                                 </Link>
                                 {rawRole === "student" && (
                                     <button
                                         type="button"
-                                        className="st-btn-mini-edit"
+                                        className="st-btn-feature-filled"
                                         onClick={() => setShowDeviceModal(true)}
                                         title="Change device selection"
                                     >
-                                        <FaEdit /> Configure
+                                        <FaEdit /> <span>Configure</span>
                                     </button>
                                 )}
                             </div>
                         </div>
 
-                        {/* Android APK Direct Download (Available for Students, Lecturers & Admins to test) */}
-                        <div className="st-detail-row" style={{ background: "linear-gradient(135deg, #eff6ff 0%, #e0f2fe 100%)", padding: "14px 16px", borderRadius: "14px", border: "1.5px solid #93c5fd" }}>
-                            <div className="st-detail-left">
-                                <div className="st-detail-icon-wrap" style={{ background: "#2563eb", color: "#ffffff" }}>
+                        {/* Android APK Direct Download Card */}
+                        <div className="st-feature-card st-apk-feature-card">
+                            <div className="st-feature-main">
+                                <div className="st-feature-icon-wrap apk-icon">
                                     <FaAndroid />
                                 </div>
-                                <div className="st-detail-info">
-                                    <span className="st-detail-title" style={{ color: "#1e40af", fontWeight: 800 }}>SmartAttend Android APK</span>
-                                    <span className="st-detail-desc" style={{ color: "#1e3a8a" }}>Official Android App Installer (.apk) for testing &amp; deployment</span>
+                                <div className="st-feature-text">
+                                    <div className="st-feature-title-row">
+                                        <span className="st-feature-title">SmartAttend Android APK</span>
+                                        <span className="st-apk-badge">Official Release</span>
+                                    </div>
+                                    <p className="st-feature-desc">Official Android App Installer (.apk) for direct testing &amp; deployment</p>
                                 </div>
                             </div>
-                            <div className="st-detail-value">
+                            <div className="st-feature-actions">
                                 <a
                                     href={getApkDownloadUrl()}
                                     download="SmartAttend-release.apk"
-                                    className="st-role-pill"
-                                    style={{
-                                        background: "linear-gradient(135deg, #2563eb, #1d4ed8)",
-                                        color: "#ffffff",
-                                        textDecoration: "none",
-                                        padding: "8px 16px",
-                                        borderRadius: "10px",
-                                        fontWeight: 700,
-                                        fontSize: "0.88rem",
-                                        display: "inline-flex",
-                                        alignItems: "center",
-                                        gap: "8px",
-                                        boxShadow: "0 4px 12px rgba(37, 99, 235, 0.3)"
-                                    }}
+                                    className="st-apk-download-btn"
+                                    title="Download Android APK"
                                 >
-                                    <FaDownload /> Download APK (.apk)
+                                    <FaDownload /> <span>Download APK (.apk)</span>
                                 </a>
+                            </div>
+                        </div>
+
+                        {/* Help, Feedback & Issue Reporting Card */}
+                        <div className="st-feature-card st-support-feature-card" style={{
+                            background: "linear-gradient(135deg, rgba(99, 102, 241, 0.05) 0%, rgba(129, 140, 248, 0.05) 100%)",
+                            border: "1.5px solid rgba(99, 102, 241, 0.2)"
+                        }}>
+                            <div className="st-feature-main">
+                                <div className="st-feature-icon-wrap support-icon" style={{
+                                    background: "rgba(99, 102, 241, 0.12)",
+                                    color: "#6366f1"
+                                }}>
+                                    <FaHeadset />
+                                </div>
+                                <div className="st-feature-text">
+                                    <div className="st-feature-title-row">
+                                        <span className="st-feature-title">Help, Feedback &amp; Grievance Desk</span>
+                                        <span className="st-apk-badge" style={{ background: "rgba(99, 102, 241, 0.15)", color: "#6366f1" }}>
+                                            24/7 Support
+                                        </span>
+                                    </div>
+                                    <p className="st-feature-desc">Report scanning issues, submit feedback, or contact institutional tech support</p>
+                                </div>
+                            </div>
+                            <div className="st-feature-actions">
+                                <button
+                                    type="button"
+                                    className="st-btn-feature-filled"
+                                    onClick={() => {
+                                        setSupportModalTab("feedback");
+                                        setShowSupportModal(true);
+                                    }}
+                                    title="Give feedback or rating"
+                                >
+                                    <FaCommentDots /> <span>Feedback</span>
+                                </button>
+                                <button
+                                    type="button"
+                                    className="st-btn-feature-outline"
+                                    onClick={() => {
+                                        setSupportModalTab("issue");
+                                        setShowSupportModal(true);
+                                    }}
+                                    title="Report a bug or problem"
+                                    style={{ color: "#ef4444", borderColor: "rgba(239, 68, 68, 0.3)" }}
+                                >
+                                    <FaBug /> <span>Report Issue</span>
+                                </button>
+                                <Link to={supportPath} className="st-btn-feature-outline" title="Open full support center">
+                                    <FaHeadset /> <span>Support Center</span>
+                                </Link>
                             </div>
                         </div>
 
@@ -1167,6 +1216,13 @@ function Settings() {
             <DeviceOnboardingModal
                 isOpen={showDeviceModal}
                 onClose={() => setShowDeviceModal(false)}
+            />
+
+            {/* Help, Feedback & Support Modal */}
+            <SupportFeedbackModal
+                isOpen={showSupportModal}
+                onClose={() => setShowSupportModal(false)}
+                defaultTab={supportModalTab}
             />
         </main>
     );

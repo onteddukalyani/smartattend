@@ -110,9 +110,9 @@ export function DeviceOnboardingModal({ isOpen, onClose }) {
             await sendStudentNotification(
                 roll,
                 '⚠️ Device Selection Warning',
-                `You selected ${selectedName}, but your active phone is detected as ${detectedName} (IP: ${ip}). A security review report has been logged.`,
+                `You selected ${selectedName}, but your active phone is detected as ${detectedName}. Please make sure to select the correct phone type.`,
                 'DEVICE_MISMATCH_WARNING',
-                'Device Security'
+                'Device Setup'
             );
 
             try {
@@ -175,10 +175,10 @@ export function DeviceOnboardingModal({ isOpen, onClose }) {
                 // Send confirmation notification to Student's own audit log
                 await sendStudentNotification(
                     roll,
-                    'Device Locked 🔒',
-                    `Your registered device type has been locked to ${deviceLabel} from IP ${ip}. Only a Lecturer or Admin can reset your device preference.`,
+                    'Phone Registered 🔒',
+                    `Your account is now linked to your ${deviceLabel}. If you switch to a new phone in the future, your teacher can reset this for you.`,
                     'DEVICE_LOCKED',
-                    'System Security'
+                    'Device Setup'
                 );
             }
         } catch (e) {

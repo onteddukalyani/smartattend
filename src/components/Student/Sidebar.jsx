@@ -4,7 +4,8 @@ import {
     FaSignOutAlt,
     FaTimes,
     FaBookOpen,
-    FaCamera
+    FaCamera,
+    FaHeadset
 } from "react-icons/fa";
 import { MdQrCodeScanner } from "react-icons/md";
 import { BsBarChart } from "react-icons/bs";
@@ -22,6 +23,7 @@ function Sidebar({ hidden, onClose }) {
         { icon: <FaCamera />, text: "Face Registration", path: "/student/face-enroll" },
         { icon: <MdQrCodeScanner />, text: "Mark Attendance", path: "/student/mark-attendance" },
         { icon: <BsBarChart />, text: "My Attendance", path: "/student/statistics" },
+        { icon: <FaHeadset />, text: "Help & Feedback", path: "/student/support" },
         { icon: <FaCog />, text: "Settings", path: "/student/settings" },
     ];
 

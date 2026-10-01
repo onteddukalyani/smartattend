@@ -1331,3 +1331,453 @@
     font-size: 1.2rem;
   }
 }
+
+/* ---------------------------------------------------------
+   COURSE DIRECTORY TABLE & VIEW SWITCHER STYLES
+   --------------------------------------------------------- */
+.cm-header-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  background: rgba(99, 102, 241, 0.12);
+  color: #6366f1;
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  margin-bottom: 8px;
+}
+
+.cm-view-toggle {
+  display: inline-flex;
+  align-items: center;
+  background: var(--surface-soft, #f1f5f9);
+  padding: 3px;
+  border-radius: 12px;
+  border: 1px solid var(--border, #cbd5e1);
+  gap: 2px;
+}
+
+.cm-view-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted, #64748b);
+  border-radius: 9px;
+  font-size: 0.82rem;
+  font-weight: 750;
+  cursor: pointer;
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  font-family: inherit;
+}
+
+.cm-view-btn:hover {
+  color: var(--text-main, #0f172a);
+}
+
+.cm-view-btn.active {
+  background: var(--surface, #ffffff);
+  color: #6366f1;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+[data-theme="midnight"] .cm-view-btn.active {
+  background: rgba(99, 102, 241, 0.25);
+  color: #a5b4fc;
+}
+
+/* Directory Table Layout */
+.cm-table-scroll {
+  background: var(--surface, #ffffff);
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 20px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.03);
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.cm-modern-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  text-align: left;
+}
+
+.cm-modern-table thead tr th {
+  background: var(--surface-soft, #f8fafc);
+  padding: 15px 18px;
+  font-size: 0.8rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted, #64748b);
+  border-bottom: 1.5px solid var(--border, #e2e8f0);
+  white-space: nowrap;
+}
+
+.cm-modern-table tbody tr {
+  transition: background 0.15s ease;
+  cursor: pointer;
+}
+
+.cm-modern-table tbody tr:hover {
+  background: rgba(99, 102, 241, 0.04);
+}
+
+.cm-modern-table tbody td {
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--border, #e2e8f0);
+  vertical-align: middle;
+  font-size: 0.88rem;
+}
+
+.cm-modern-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+/* Course Details Cell */
+.cm-table-course-cell {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.cm-course-cell-text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.cm-course-cell-title {
+  font-size: 0.95rem;
+  font-weight: 750;
+  color: var(--text-main, #0f172a);
+}
+
+.cm-course-submeta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.76rem;
+  color: var(--text-muted, #64748b);
+}
+
+.cm-class-tag {
+  background: rgba(99, 102, 241, 0.08);
+  color: #6366f1;
+  padding: 2px 6px;
+  border-radius: 5px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.cm-credits-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Department & Semester Stack */
+.cm-dept-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-start;
+}
+
+.cm-dept-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: var(--surface-soft, #f1f5f9);
+  color: var(--text-main, #1e293b);
+  border: 1px solid var(--border, #e2e8f0);
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 0.78rem;
+  font-weight: 750;
+}
+
+.cm-sem-chip {
+  font-size: 0.74rem;
+  color: var(--text-muted, #64748b);
+  font-weight: 600;
+  padding-left: 2px;
+}
+
+/* Faculty Profile Cell */
+.cm-faculty-profile-cell {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.cm-faculty-avatar {
+  width: 38px;
+  height: 38px;
+  border-radius: 11px;
+  background: #e0e7ff;
+  color: #4338ca;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  font-size: 0.95rem;
+  overflow: hidden;
+  flex-shrink: 0;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
+}
+
+.cm-faculty-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.cm-faculty-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.cm-faculty-name-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cm-faculty-primary-name {
+  font-weight: 750;
+  color: var(--text-main, #0f172a);
+  font-size: 0.9rem;
+}
+
+.cm-you-badge {
+  font-size: 0.7rem;
+  font-weight: 800;
+  background: rgba(16, 185, 129, 0.14);
+  color: #10b981;
+  padding: 2px 6px;
+  border-radius: 5px;
+}
+
+.cm-faculty-email-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.78rem;
+  color: var(--text-muted, #64748b);
+}
+
+.cm-faculty-email-row svg {
+  font-size: 0.72rem;
+}
+
+.cm-faculty-role-sub {
+  font-size: 0.76rem;
+  color: var(--text-muted, #94a3b8);
+}
+
+/* Classes Conducted Pill */
+.cm-classes-conducted-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(99, 102, 241, 0.08);
+  border: 1px solid rgba(99, 102, 241, 0.22);
+  color: #4f46e5;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 0.82rem;
+  font-weight: 750;
+  cursor: pointer;
+  transition: all 0.18s ease;
+  position: relative;
+}
+
+.cm-classes-conducted-pill:hover {
+  background: #6366f1;
+  color: #ffffff;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+}
+
+.cm-classes-conducted-pill:hover .cm-pill-icon {
+  color: #ffffff;
+}
+
+.cm-pill-icon {
+  font-size: 0.82rem;
+  color: #6366f1;
+}
+
+.cm-pill-count {
+  font-weight: 850;
+}
+
+.cm-pill-label {
+  font-size: 0.78rem;
+}
+
+.cm-pill-live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #10b981;
+  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.4);
+  animation: cmPulse 1.5s infinite;
+}
+
+@keyframes cmPulse {
+  0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+  70% { transform: scale(1); box-shadow: 0 0 0 5px rgba(16, 185, 129, 0); }
+  100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+}
+
+/* Enrolled Students Pill */
+.cm-enrolled-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--surface-soft, #f1f5f9);
+  border: 1px solid var(--border, #cbd5e1);
+  color: var(--text-main, #334155);
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+
+.cm-enrolled-pill:hover {
+  border-color: #6366f1;
+  color: #6366f1;
+  background: var(--surface, #ffffff);
+}
+
+/* Table Actions Cell */
+.cm-table-actions-cell {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.cm-table-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 7px 11px;
+  border-radius: 9px;
+  border: 1px solid transparent;
+  font-size: 0.8rem;
+  font-weight: 750;
+  cursor: pointer;
+  transition: all 0.18s ease;
+  font-family: inherit;
+}
+
+.cm-table-btn:hover {
+  transform: translateY(-1px);
+}
+
+.cm-table-btn-attendance {
+  background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+  color: #ffffff !important;
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.28);
+}
+
+.cm-table-btn-attendance:hover {
+  background: linear-gradient(135deg, #4f46e5 0%, #4338ca 100%);
+  box-shadow: 0 4px 14px rgba(99, 102, 241, 0.4);
+}
+
+.cm-table-btn-view,
+.cm-table-btn-roster,
+.cm-table-btn-edit {
+  background: var(--surface-soft, #f1f5f9);
+  color: var(--text-main, #334155);
+  border-color: var(--border, #cbd5e1);
+}
+
+.cm-table-btn-view:hover,
+.cm-table-btn-roster:hover,
+.cm-table-btn-edit:hover {
+  background: #ffffff;
+  color: #6366f1;
+  border-color: #6366f1;
+}
+
+.cm-table-btn-delete {
+  background: rgba(239, 68, 68, 0.08);
+  color: #ef4444;
+  border-color: rgba(239, 68, 68, 0.2);
+}
+
+.cm-table-btn-delete:hover {
+  background: #ef4444;
+  color: #ffffff;
+}
+
+/* Mini Faculty Box on Cards */
+.cm-faculty-avatar-mini {
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  background: #e0e7ff;
+  color: #4338ca;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  font-weight: 800;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.cm-faculty-avatar-mini img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.cm-faculty-display-name {
+  font-weight: 750;
+  color: var(--text-main, #0f172a);
+}
+
+.cm-faculty-email-sub {
+  margin-top: 4px;
+  font-size: 0.74rem;
+  color: var(--text-muted, #64748b);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.cm-course-title.clickable {
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.cm-course-title.clickable:hover {
+  color: #6366f1;
+}
+
+.cm-clickable-meta {
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.cm-clickable-meta:hover {
+  color: #6366f1;
+}
+

@@ -87,7 +87,35 @@ service cloud.firestore {
       }
     }
 
+    match /announcements/{announcementId} {
+      allow read, write: if true;
+      match /{document=**} {
+        allow read, write: if true;
+      }
+    }
+
+    match /broadcasts/{broadcastId} {
+      allow read, write: if true;
+      match /{document=**} {
+        allow read, write: if true;
+      }
+    }
+
     match /user_complaints/{complaintId} {
+      allow read, write: if true;
+      match /{document=**} {
+        allow read, write: if true;
+      }
+    }
+
+    match /support_tickets/{ticketId} {
+      allow read, write: if true;
+      match /{document=**} {
+        allow read, write: if true;
+      }
+    }
+
+    match /feedbacks/{feedbackId} {
       allow read, write: if true;
       match /{document=**} {
         allow read, write: if true;

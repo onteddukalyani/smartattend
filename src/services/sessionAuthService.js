@@ -76,6 +76,8 @@ export async function initiateSession(sessionParams) {
     courseCode: courseCode,
     roomNo: roomNo,
     batch: batch || "2025",
+    lectureHours: Number(sessionParams.lectureHours) > 0 ? Number(sessionParams.lectureHours) : 1.0,
+    durationHours: Number(sessionParams.lectureHours) > 0 ? Number(sessionParams.lectureHours) : 1.0,
     phase: "PHASE_1",
     status: "ACTIVE",
     active: true,
@@ -196,10 +198,10 @@ export async function authorizeStudentQR1(sessionId, qr1Token, studentProfileOve
 
     await sendStudentNotification(
       rollNo,
-      "🚨 Unauthorized Device Mismatch",
-      `Attendance Blocked: Your account is registered with a ${regLabel}, but you attempted attendance using a ${curLabel} (IP: ${clientIp}).\n\nIf you changed your phone, please contact your Lecturer or Administrator for device reset.`,
+      "⚠️ Different Phone Detected",
+      `Attendance could not be marked because your account is linked to a ${regLabel}, but you scanned using a ${curLabel}.\n\nIf you switched phones, please ask your teacher or administrator to reset your registered phone.`,
       "SECURITY_ALERT",
-      "Anti-Proxy Sentinel"
+      "Attendance Security"
     );
 
     await reportUserVerificationComplaint(
@@ -762,14 +764,220 @@ export async function recordSessionViolation(sessionId, studentUid, rollNo, reas
       // Real-time Student Notification
       await sendStudentNotification(
         cleanRoll,
-        "⚠️ Attendance Attempt Flagged",
-        `Your attendance attempt was flagged due to app switching or screen capture (${reason}). Attempt is disqualified for lecturer review.`,
+        "⚠️ Attendance Not Counted",
+        `Your attendance was not counted because the app was switched or closed while scanning. Please speak with your teacher if you need help.`,
         "ANTI_PROXY_VIOLATION",
-        "Anti-Proxy Guard"
+        "Attendance Security"
       );
     }
   } catch (err) {
     console.warn("Notice recording session violation:", err);
+  }
+}
+
+/**
+ * Lecturer: Excuse a flagged/disqualified student and reinstate their attendance as Present (Approved).
+ * Used when a student explains their situation physically in class (e.g. accidental app switch / screen timeout).
+ */
+export async function excuseAndReinstateAttendance(sessionId, studentInfo, lecturerName = "Lecturer", excuseReason = "Excused physically by lecturer in classroom") {
+  if (!sessionId || !studentInfo) {
+    throw new Error("Session ID and student details are required to reinstate attendance.");
+  }
+
+  const rollNo = (studentInfo.rollNo || studentInfo.rollNumber || studentInfo.studentUid || studentInfo.id || "").toString().trim().toUpperCase();
+  const studentUid = studentInfo.studentUid || studentInfo.id || rollNo;
+  const studentName = studentInfo.studentName || studentInfo.fullName || studentInfo.name || rollNo;
+  const studentEmail = (studentInfo.studentEmail || studentInfo.email || "").toString().trim().toLowerCase();
+  const now = Date.now();
+
+  try {
+    // 1. Fetch current session details
+    let session = null;
+    const sessionRef = doc(db, "attendance_sessions", sessionId);
+    const sessionSnap = await getDoc(sessionRef).catch(() => null);
+    if (sessionSnap && sessionSnap.exists()) {
+      session = sessionSnap.data();
+    }
+
+    const recordDocId = `${sessionId}_${rollNo}`;
+    const recordRef = doc(db, "attendance_records", recordDocId);
+
+    // 2. Create or update attendance record as APPROVED (Present)
+    const recordPayload = {
+      id: recordDocId,
+      sessionId: sessionId,
+      rollNo: rollNo,
+      studentUid: studentUid,
+      fullName: studentName,
+      studentName: studentName,
+      name: studentName,
+      studentEmail: studentEmail,
+      courseCode: session?.courseCode || studentInfo.courseCode || "N/A",
+      classCode: session?.classCode || studentInfo.classCode || "N/A",
+      batch: session?.batch || studentInfo.batch || "2025",
+      roomNo: session?.roomNo || studentInfo.roomNo || "N/A",
+      lecturerName: session?.lecturerName || lecturerName,
+      lecturerEmail: session?.lecturerEmail || "",
+      ownerId: session?.ownerId || "",
+      status: "APPROVED",
+      verificationStatus: "VERIFIED",
+      flagged: false,
+      disqualified: false,
+      hasViolation: false,
+      faceVerified: true,
+      excused: true,
+      excusedAt: now,
+      excusedBy: lecturerName,
+      excuseReason: excuseReason,
+      reviewedByRole: "LECTURER",
+      reviewNotes: excuseReason,
+      submittedAt: studentInfo.submittedAt || studentInfo.timestamp || now,
+      attendanceSubmittedAt: now
+    };
+
+    await setDoc(recordRef, recordPayload, { merge: true });
+
+    // 3. Update session doc attendees array & remove from flaggedViolations
+    const alreadyAttended = Array.isArray(session?.attendees) && session.attendees.some(
+      (a) => (a.rollNo || a.studentUid || "").toUpperCase().trim() === rollNo
+    );
+
+    const attendeeObj = {
+      id: recordDocId,
+      rollNo: rollNo,
+      studentName: studentName,
+      fullName: studentName,
+      email: studentEmail,
+      studentEmail: studentEmail,
+      faceVerified: true,
+      excused: true,
+      status: "APPROVED",
+      submittedAt: now
+    };
+
+    const sessionUpdates = {
+      attendees: arrayUnion(attendeeObj)
+    };
+    if (!alreadyAttended) {
+      sessionUpdates.attendanceCount = increment(1);
+    }
+
+    // Remove from session flaggedViolations array so it never appears again in active pending lists
+    if (Array.isArray(session?.flaggedViolations)) {
+      sessionUpdates.flaggedViolations = session.flaggedViolations.filter((f) => {
+        const fRoll = (f.rollNo || f.studentUid || "").toUpperCase().trim();
+        return fRoll !== rollNo && fRoll !== studentUid.toUpperCase() && f.id !== studentInfo.id;
+      });
+    }
+
+    await updateDoc(sessionRef, sessionUpdates).catch((err) => {
+      console.warn("Session attendee array update notice:", err);
+    });
+
+    // 4. Update session authorization subcollection doc
+    const authPayload = {
+      status: "ATTENDED",
+      releaseStatus: "RELEASED",
+      released: true,
+      qr1Verified: true,
+      faceVerified: true,
+      flagged: false,
+      disqualified: false,
+      excused: true,
+      reviewed: true,
+      excusedAt: now,
+      excusedBy: lecturerName,
+      excuseReason: excuseReason
+    };
+
+    if (studentUid) {
+      const authRef = doc(db, "attendance_sessions", sessionId, "authorizations", studentUid);
+      await setDoc(authRef, authPayload, { merge: true }).catch(() => {});
+    }
+    if (rollNo && rollNo !== studentUid) {
+      const authRollRef = doc(db, "attendance_sessions", sessionId, "authorizations", rollNo);
+      await setDoc(authRollRef, authPayload, { merge: true }).catch(() => {});
+    }
+
+    // 5. Notify Student in real-time
+    if (rollNo) {
+      await sendStudentNotification(
+        rollNo,
+        "Attendance Restored & Approved ✅",
+        `Your attendance for ${session?.courseCode || session?.classCode || "class"} has been reinstated and marked as Present by ${lecturerName}.`,
+        "VIOLATION_DECISION",
+        lecturerName
+      ).catch(() => {});
+    }
+
+    return {
+      success: true,
+      rollNo,
+      status: "APPROVED",
+      message: `Attendance for ${studentName} (${rollNo}) has been approved and marked Present.`
+    };
+  } catch (error) {
+    console.error("Error reinstating attendance:", error);
+    throw new Error(error.message || "Failed to reinstate student attendance.");
+  }
+}
+
+/**
+ * Dismiss or Remove a flagged violation without marking attendance as present.
+ * Used when lecturer/admin confirms a violation (Reject) or dismisses a false flag/duplicate.
+ */
+export async function dismissOrRemoveViolation(sessionId, studentInfo, reviewedByRole = "LECTURER", decision = "DISMISSED", notes = "Violation reviewed and dismissed") {
+  if (!sessionId || !studentInfo) {
+    throw new Error("Session ID and student details are required.");
+  }
+
+  const rollNo = (studentInfo.rollNo || studentInfo.rollNumber || studentInfo.studentUid || studentInfo.id || "").toString().trim().toUpperCase();
+  const studentUid = studentInfo.studentUid || studentInfo.id || rollNo;
+  const now = Date.now();
+
+  try {
+    const recordDocId = studentInfo.id && studentInfo.id.includes("_") ? studentInfo.id : `${sessionId}_${rollNo}`;
+    const recordRef = doc(db, "attendance_records", recordDocId);
+
+    // Update attendance record as REVIEWED / DISMISSED / REJECTED
+    await setDoc(recordRef, {
+      reviewed: true,
+      reviewedAt: now,
+      reviewedByRole: reviewedByRole,
+      reviewNotes: notes,
+      status: decision === "REJECTED" ? "REJECTED" : "DISMISSED",
+      flagged: false,
+      hasViolation: false,
+      dismissed: true
+    }, { merge: true }).catch(() => {});
+
+    // Update session document: remove from flaggedViolations array
+    const sessionRef = doc(db, "attendance_sessions", sessionId);
+    const sessionSnap = await getDoc(sessionRef).catch(() => null);
+    if (sessionSnap && sessionSnap.exists()) {
+      const sessData = sessionSnap.data();
+      if (Array.isArray(sessData?.flaggedViolations)) {
+        const updatedFlagged = sessData.flaggedViolations.filter((f) => {
+          const fRoll = (f.rollNo || f.studentUid || "").toUpperCase().trim();
+          return fRoll !== rollNo && fRoll !== studentUid.toUpperCase() && f.id !== studentInfo.id;
+        });
+        await updateDoc(sessionRef, { flaggedViolations: updatedFlagged }).catch(() => {});
+      }
+    }
+
+    // Update authorization doc in subcollection
+    const authRef = doc(db, "attendance_sessions", sessionId, "authorizations", studentUid);
+    await setDoc(authRef, {
+      reviewed: true,
+      flagged: false,
+      disqualified: false,
+      reviewDecision: decision
+    }, { merge: true }).catch(() => {});
+
+    return { success: true };
+  } catch (err) {
+    console.error("Error dismissing violation:", err);
+    throw err;
   }
 }
 

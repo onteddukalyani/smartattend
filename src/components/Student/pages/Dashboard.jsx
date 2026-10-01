@@ -44,7 +44,7 @@ import { removeStudentPhotoOnly, checkDuplicateFaceBiometrics } from "../../../u
 import { getCandidateRolls, computeStudentMetrics, parseTimestampMillis } from "../studentAttendanceHelper";
 import { isGenericName, normalizeBranchName } from "../../../utils/studentDataHelper";
 import DeviceOnboardingModal from "../DeviceOnboardingModal";
-import { subscribeToStudentNotifications, markNotificationAsRead, sendFacultyNotification, sendStudentNotification, reportUserVerificationComplaint } from "../../../services/notificationsService";
+import { subscribeToStudentNotifications, markNotificationAsRead, sendFacultyNotification, sendStudentNotification, reportUserVerificationComplaint, getTimestampMs } from "../../../services/notificationsService";
 import { detectDeviceType, getClientIpAddress, getDeviceDisplayName, isDeviceMatching } from "../../../utils/deviceDetection";
 import "./Dashboard.css";
 
@@ -102,18 +102,19 @@ export default function StudentDashboard() {
     // Identify primary student roll number
     const emailRoll = (user?.email || "").split("@")[0].trim().toUpperCase();
     const activeRollNo = (profile?.rollNo || emailRoll || "").trim().toUpperCase();
+    const cleanEmail = (user?.email || "").toLowerCase().trim();
 
     const [fetchedStudentData, setFetchedStudentData] = useState(null);
     const [notifications, setNotifications] = useState([]);
 
     // Subscribe to real-time Faculty & Admin notifications
     useEffect(() => {
-        if (!activeRollNo) return;
+        if (!activeRollNo && !cleanEmail) return;
         const unsub = subscribeToStudentNotifications(activeRollNo, (newNotifs) => {
             setNotifications(newNotifs || []);
-        });
+        }, cleanEmail);
         return () => unsub();
-    }, [activeRollNo]);
+    }, [activeRollNo, cleanEmail]);
 
     // Resolve student profile name & biometrics directly in real-time across all collections
     useEffect(() => {
@@ -155,10 +156,10 @@ export default function StudentDashboard() {
                             lastChangeNotifiedRef.current = Date.now();
                             sendStudentNotification(
                                 activeRollNo,
-                                "Profile Details Updated 📝",
-                                `Your academic record in the database was modified: ${changes.join(" • ")}.`,
+                                "Account Updated 📝",
+                                `Your account information was updated: ${changes.join(" • ")}.`,
                                 "PROFILE_UPDATE",
-                                "Database Sentinel"
+                                "System"
                             ).catch(() => {});
                         }
                     }
@@ -272,10 +273,10 @@ export default function StudentDashboard() {
             // 2. Alert Student in real-time
             sendStudentNotification(
                 activeRollNo,
-                "⚠️ Device Registration Mismatch",
-                `Your account is locked to a registered ${regLabel}, but your current device is ${curLabel}. If you changed your phone, tap 'Request Admin to Reset Device' on your dashboard.`,
+                "⚠️ Different Phone Detected",
+                `Your account is linked to a ${regLabel}, but you are using a ${curLabel}. If this is your new phone, tap 'Request Admin to Reset Device' below to request an update.`,
                 "SECURITY_ALERT",
-                "Anti-Proxy Sentinel"
+                "Attendance Security"
             ).catch(() => {});
         }
     }, [isDeviceMismatch, activeRollNo, registeredDevice, detectedPlatform, studentName, clientIpAddress]);
@@ -315,10 +316,10 @@ export default function StudentDashboard() {
 
             await sendStudentNotification(
                 activeRollNo,
-                "Device Reset Request Submitted 📨",
-                `Your request to reset your device lock from ${regLabel} to ${curLabel} has been submitted to Faculty & Admins. Once approved, you can select your new device.`,
+                "Phone Reset Request Sent 📨",
+                `Your request to register your new phone has been sent to your teachers and administrators. You will be able to set up your new phone once approved.`,
                 "DEVICE_REQUEST",
-                "SmartAttend Sentinel"
+                "System Support"
             );
 
             setResetRequestedMsg("✅ Reset Request Sent! Faculty & Admins have been notified to unlock your device.");
@@ -868,125 +869,179 @@ export default function StudentDashboard() {
                 </div>
             )}
 
-            {/* Real-Time Faculty & Admin Notifications Banner */}
+            {/* Real-Time Faculty & Admin Announcements / Notifications Banner */}
             {notifications.filter((n) => !n.read).length > 0 && (
-                <div className="student-notifications-container" style={{ marginBottom: "16px" }}>
-                    {notifications.filter((n) => !n.read).map((n) => (
-                        <div key={n.id} className="student-notification-card" style={{
-                            background: "linear-gradient(135deg, #eff6ff 0%, #e0f2fe 100%)",
-                            border: "1.5px solid #93c5fd",
-                            borderRadius: "16px",
-                            padding: "16px 20px",
-                            marginBottom: "10px",
-                            display: "flex",
-                            alignItems: "flex-start",
-                            justifyContent: "space-between",
-                            gap: "14px",
-                            boxShadow: "0 6px 16px rgba(37, 99, 235, 0.12)",
-                            flexWrap: "wrap"
-                        }}>
-                            <div style={{ display: "flex", alignItems: "flex-start", gap: "12px", flex: "1 1 300px" }}>
-                                <div style={{
-                                    width: "40px",
-                                    height: "40px",
-                                    borderRadius: "12px",
-                                    background: "#2563eb",
-                                    color: "#ffffff",
-                                    display: "flex",
-                                    alignItems: "center",
-                                    justifyContent: "center",
-                                    fontSize: "1.15rem",
-                                    flexShrink: 0,
-                                    boxShadow: "0 4px 10px rgba(37, 99, 235, 0.25)"
-                                }}>
-                                    🔔
-                                </div>
-                                <div>
-                                    <div style={{ fontWeight: 800, fontSize: "0.98rem", color: "#1e40af", marginBottom: "3px" }}>
-                                        {n.title} <span style={{ fontSize: "0.78rem", fontWeight: 700, color: "#2563eb", background: "#ffffff", padding: "2px 8px", borderRadius: "99px", marginLeft: "6px" }}>By {n.senderName || "Faculty"}</span>
-                                    </div>
-                                    <div style={{ fontSize: "0.88rem", color: "#1e3a8a", lineHeight: 1.45 }}>
-                                        {n.message}
-                                    </div>
-                                    <div style={{ fontSize: "0.75rem", color: "#3b82f6", marginTop: "5px", fontWeight: 600 }}>
-                                        {n.createdAt ? new Date(n.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "Just now"}
-                                    </div>
-                                </div>
-                            </div>
+                <div className="student-notifications-container" style={{ marginBottom: "20px" }}>
+                    {notifications.filter((n) => !n.read).map((n) => {
+                        const isAnnouncement = n.type === 'BROADCAST_ANNOUNCEMENT' || n.type === 'ANNOUNCEMENT' || n.type === 'GENERAL_NOTICE' || n.type === 'CLASS_UPDATE' || n.isAnnouncement || Boolean(n.targetRoles?.length);
+                        const isAcademic = n.type === 'CLASS_UPDATE' || (n.title && n.title.includes('Live Attendance'));
+                        const isSecurity = n.type === 'SECURITY_ALERT' || n.type === 'DEVICE_RESET_REQUEST' || n.type === 'USER_VERIFICATION_FAILURE';
 
-                            <div style={{ display: "flex", alignItems: "center", gap: "8px", flexShrink: 0 }}>
-                                {n.type === 'DEVICE_RESET' && (
+                        return (
+                            <div key={n.id} className="student-notification-card" style={{
+                                background: isAnnouncement
+                                    ? "linear-gradient(135deg, #faf5ff 0%, #f3e8ff 100%)"
+                                    : (isSecurity ? "linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%)" : "linear-gradient(135deg, #eff6ff 0%, #e0f2fe 100%)"),
+                                border: isAnnouncement
+                                    ? "1.5px solid #d8b4fe"
+                                    : (isSecurity ? "1.5px solid #fca5a5" : "1.5px solid #93c5fd"),
+                                borderRadius: "16px",
+                                padding: "16px 20px",
+                                marginBottom: "12px",
+                                display: "flex",
+                                alignItems: "flex-start",
+                                justifyContent: "space-between",
+                                gap: "14px",
+                                boxShadow: isAnnouncement
+                                    ? "0 6px 16px rgba(168, 85, 247, 0.12)"
+                                    : "0 6px 16px rgba(37, 99, 235, 0.12)",
+                                flexWrap: "wrap"
+                            }}>
+                                <div style={{ display: "flex", alignItems: "flex-start", gap: "14px", flex: "1 1 300px" }}>
+                                    <div style={{
+                                        width: "42px",
+                                        height: "42px",
+                                        borderRadius: "12px",
+                                        background: isAnnouncement
+                                            ? "linear-gradient(135deg, #9333ea, #7e22ce)"
+                                            : (isSecurity ? "linear-gradient(135deg, #dc2626, #b91c1c)" : "linear-gradient(135deg, #2563eb, #1d4ed8)"),
+                                        color: "#ffffff",
+                                        display: "flex",
+                                        alignItems: "center",
+                                        justifyContent: "center",
+                                        fontSize: "1.2rem",
+                                        flexShrink: 0,
+                                        boxShadow: "0 4px 10px rgba(0, 0, 0, 0.15)"
+                                    }}>
+                                        {isAnnouncement ? "📢" : (isSecurity ? "🚨" : "🔔")}
+                                    </div>
+                                    <div>
+                                        <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", marginBottom: "4px" }}>
+                                            <span style={{
+                                                fontWeight: 800,
+                                                fontSize: "1rem",
+                                                color: isAnnouncement ? "#581c87" : (isSecurity ? "#991b1b" : "#1e40af")
+                                            }}>
+                                                {n.title}
+                                            </span>
+                                            <span style={{
+                                                fontSize: "0.75rem",
+                                                fontWeight: 700,
+                                                color: isAnnouncement ? "#7e22ce" : "#2563eb",
+                                                background: "#ffffff",
+                                                padding: "2px 10px",
+                                                borderRadius: "99px",
+                                                border: `1px solid ${isAnnouncement ? '#e9d5ff' : '#bfdbfe'}`
+                                            }}>
+                                                From: {n.senderName || (n.senderRole === "admin" ? "Campus Admin" : "Faculty Lecturer")}
+                                            </span>
+                                            {isAnnouncement && (
+                                                <span style={{
+                                                    fontSize: "0.72rem",
+                                                    fontWeight: 700,
+                                                    color: "#059669",
+                                                    background: "#ecfdf5",
+                                                    padding: "2px 8px",
+                                                    borderRadius: "99px",
+                                                    border: "1px solid #a7f3d0"
+                                                }}>
+                                                    Announcement
+                                                </span>
+                                            )}
+                                        </div>
+                                        <div style={{
+                                            fontSize: "0.9rem",
+                                            color: isAnnouncement ? "#3b0764" : (isSecurity ? "#7f1d1d" : "#1e3a8a"),
+                                            lineHeight: 1.5,
+                                            whiteSpace: "pre-line"
+                                        }}>
+                                            {n.message}
+                                        </div>
+                                        <div style={{
+                                            fontSize: "0.75rem",
+                                            color: isAnnouncement ? "#9333ea" : "#3b82f6",
+                                            marginTop: "6px",
+                                            fontWeight: 600
+                                        }}>
+                                            {n.createdAt ? new Date(getTimestampMs(n)).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "Just now"}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div style={{ display: "flex", alignItems: "center", gap: "8px", flexShrink: 0, marginTop: "2px" }}>
+                                    {n.type === 'DEVICE_RESET' && (
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                markNotificationAsRead(activeRollNo, n.id);
+                                                setShowDeviceModal(true);
+                                            }}
+                                            style={{
+                                                background: "linear-gradient(135deg, #2563eb, #1d4ed8)",
+                                                color: "#ffffff",
+                                                border: "none",
+                                                borderRadius: "10px",
+                                                padding: "8px 14px",
+                                                fontSize: "0.82rem",
+                                                fontWeight: 700,
+                                                cursor: "pointer",
+                                                display: "flex",
+                                                alignItems: "center",
+                                                gap: "6px",
+                                                boxShadow: "0 4px 10px rgba(37, 99, 235, 0.3)"
+                                            }}
+                                        >
+                                            <FaMobileAlt /> Set Up Device Now
+                                        </button>
+                                    )}
+
+                                    {n.type === 'BIOMETRICS_CLEARED' && (
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                markNotificationAsRead(activeRollNo, n.id);
+                                                setShowFaceModal(true);
+                                            }}
+                                            style={{
+                                                background: "linear-gradient(135deg, #2563eb, #1d4ed8)",
+                                                color: "#ffffff",
+                                                border: "none",
+                                                borderRadius: "10px",
+                                                padding: "8px 14px",
+                                                fontSize: "0.82rem",
+                                                fontWeight: 700,
+                                                cursor: "pointer",
+                                                display: "flex",
+                                                alignItems: "center",
+                                                gap: "6px",
+                                                boxShadow: "0 4px 10px rgba(37, 99, 235, 0.3)"
+                                            }}
+                                        >
+                                            <FaCamera /> Enroll Face Now
+                                        </button>
+                                    )}
+
                                     <button
                                         type="button"
-                                        onClick={() => {
-                                            markNotificationAsRead(activeRollNo, n.id);
-                                            setShowDeviceModal(true);
-                                        }}
+                                        onClick={() => markNotificationAsRead(activeRollNo, n.id)}
                                         style={{
-                                            background: "linear-gradient(135deg, #2563eb, #1d4ed8)",
-                                            color: "#ffffff",
-                                            border: "none",
+                                            background: "#ffffff",
+                                            border: isAnnouncement ? "1px solid #d8b4fe" : "1px solid #bfdbfe",
                                             borderRadius: "10px",
-                                            padding: "8px 14px",
+                                            padding: "7px 14px",
                                             fontSize: "0.82rem",
                                             fontWeight: 700,
+                                            color: isAnnouncement ? "#7e22ce" : "#2563eb",
                                             cursor: "pointer",
-                                            display: "flex",
-                                            alignItems: "center",
-                                            gap: "6px",
-                                            boxShadow: "0 4px 10px rgba(37, 99, 235, 0.3)"
+                                            boxShadow: "0 2px 6px rgba(0, 0, 0, 0.05)"
                                         }}
                                     >
-                                        <FaMobileAlt /> Set Up Device Now
+                                        Mark as Read
                                     </button>
-                                )}
-
-                                {n.type === 'BIOMETRICS_CLEARED' && (
-                                    <button
-                                        type="button"
-                                        onClick={() => {
-                                            markNotificationAsRead(activeRollNo, n.id);
-                                            setShowFaceModal(true);
-                                        }}
-                                        style={{
-                                            background: "linear-gradient(135deg, #2563eb, #1d4ed8)",
-                                            color: "#ffffff",
-                                            border: "none",
-                                            borderRadius: "10px",
-                                            padding: "8px 14px",
-                                            fontSize: "0.82rem",
-                                            fontWeight: 700,
-                                            cursor: "pointer",
-                                            display: "flex",
-                                            alignItems: "center",
-                                            gap: "6px",
-                                            boxShadow: "0 4px 10px rgba(37, 99, 235, 0.3)"
-                                        }}
-                                    >
-                                        <FaCamera /> Enroll Face Now
-                                    </button>
-                                )}
-
-                                <button
-                                    type="button"
-                                    onClick={() => markNotificationAsRead(activeRollNo, n.id)}
-                                    style={{
-                                        background: "#ffffff",
-                                        border: "1px solid #bfdbfe",
-                                        borderRadius: "10px",
-                                        padding: "7px 14px",
-                                        fontSize: "0.82rem",
-                                        fontWeight: 700,
-                                        color: "#2563eb",
-                                        cursor: "pointer",
-                                        boxShadow: "0 2px 6px rgba(0, 0, 0, 0.05)"
-                                    }}
-                                >
-                                    Dismiss
-                                </button>
+                                </div>
                             </div>
-                        </div>
-                    ))}
+                        );
+                    })}
                 </div>
             )}
 

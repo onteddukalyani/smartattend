@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   FaTimes,
   FaUserTie,
@@ -13,7 +14,8 @@ import {
   FaUsers,
   FaClock,
   FaFileDownload,
-  FaHistory
+  FaHistory,
+  FaExternalLinkAlt
 } from "react-icons/fa";
 import { collection, getDocs, query, where } from "firebase/firestore";
 import { db } from "../../firebase";
@@ -25,6 +27,7 @@ import { normalizeBranchName } from "../../utils/studentDataHelper";
 import "./StudentDetailModal.css";
 
 const LecturerDetailModal = ({ lecturer, onClose }) => {
+  const navigate = useNavigate();
   const [sessions, setSessions] = useState([]);
   const [attendancesCountMap, setAttendancesCountMap] = useState(new Map());
   const [totalAttendees, setTotalAttendees] = useState(0);
@@ -142,6 +145,23 @@ const LecturerDetailModal = ({ lecturer, onClose }) => {
       exportData,
       `${lecturer.name || "Lecturer"}_Teaching_Report_${new Date().toISOString().slice(0, 10)}`
     );
+  };
+
+  const handleOpenClassSession = (sessionId) => {
+    onClose?.();
+    const targetPath = window.location.pathname.startsWith("/admin")
+      ? `/admin/classes/${sessionId}`
+      : `/lecturer/attendance-sessions/${sessionId}`;
+    navigate(targetPath);
+  };
+
+  const handleOpenLecturerClassesList = () => {
+    onClose?.();
+    const filterName = lecturer.name || lecturer.email || "";
+    const targetPath = window.location.pathname.startsWith("/admin")
+      ? `/admin/classes?lecturer=${encodeURIComponent(filterName)}`
+      : `/lecturer/attendance-sessions?lecturer=${encodeURIComponent(filterName)}`;
+    navigate(targetPath);
   };
 
   return (
@@ -305,16 +325,28 @@ const LecturerDetailModal = ({ lecturer, onClose }) => {
                   <span className="card-subtitle-count">{totalClasses} classes conducted</span>
                 </div>
               </div>
-              {sessions.length > 0 && (
-                <button
-                  type="button"
-                  className="mini-export-btn"
-                  onClick={handleExportReport}
-                  title="Export Teaching Report"
-                >
-                  <FaFileDownload /> Export
-                </button>
-              )}
+              <div style={{ display: "flex", gap: "8px" }}>
+                {sessions.length > 0 && (
+                  <button
+                    type="button"
+                    className="mini-export-btn"
+                    onClick={handleOpenLecturerClassesList}
+                    title="View all classes in dashboard"
+                  >
+                    <FaExternalLinkAlt /> View All
+                  </button>
+                )}
+                {sessions.length > 0 && (
+                  <button
+                    type="button"
+                    className="mini-export-btn"
+                    onClick={handleExportReport}
+                    title="Export Teaching Report"
+                  >
+                    <FaFileDownload /> Export
+                  </button>
+                )}
+              </div>
             </div>
 
             {loading ? (
@@ -359,7 +391,12 @@ const LecturerDetailModal = ({ lecturer, onClose }) => {
                       const isLive = sess.active && (sess.expiresAt || 0) > Date.now();
 
                       return (
-                        <tr key={sess.id}>
+                        <tr
+                          key={sess.id}
+                          style={{ cursor: "pointer" }}
+                          onClick={() => handleOpenClassSession(sess.id)}
+                          title="Click to view detailed class attendance"
+                        >
                           <td>
                             <strong>{sess.courseCode || sess.classCode || "Class Session"}</strong>
                             {sess.classCode && sess.courseCode && (

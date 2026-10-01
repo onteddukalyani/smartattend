@@ -7,6 +7,7 @@ import {
     FaUserGraduate,
     FaUserShield,
     FaChalkboardTeacher,
+    FaHeadset
 } from "react-icons/fa";
 import { IoQrCodeOutline } from "react-icons/io5";
 import { SiGoogleclassroom } from "react-icons/si";
@@ -27,6 +28,7 @@ function Sidebar({ hidden, onClose }) {
         { icon: <SiGoogleclassroom />, text: "Classes", path: "/lecturer/attendance-sessions" },
         { icon: <FaUserShield />, text: "Admin List", path: "/lecturer/admins" },
         { icon: <FaChalkboardTeacher />, text: "Lecturer List", path: "/lecturer/lecturers" },
+        { icon: <FaHeadset />, text: "Help & Feedback", path: "/lecturer/support" },
         { icon: <FaCog />, text: "Settings", path: "/lecturer/settings" }
     ];
 

@@ -190,8 +190,8 @@ function StudentsList() {
             const actorName = profile?.name || profile?.email || "Faculty/Admin";
             await sendStudentNotification(
                 cleanRoll,
-                "Facial Biometrics Cleared",
-                `Your facial biometric data and photo were cleared by ${actorName}. Please re-enroll your facial biometrics on your dashboard.`,
+                "Face Photo Reset ⚠️",
+                `Your face photo was reset by ${actorName}. Please open your dashboard to take a new photo.`,
                 "BIOMETRICS_CLEARED",
                 actorName
             );
@@ -243,8 +243,8 @@ function StudentsList() {
             const actorName = profile?.name || profile?.email || "Faculty/Admin";
             await sendStudentNotification(
                 cleanRoll,
-                "Device Lock Reset",
-                `Your registered device lock was reset by ${actorName}. You can now select a new device type (Android APK or iPhone Guided Access) on your dashboard.`,
+                "Phone Reset Approved ✅",
+                `Your phone registration was reset by ${actorName}. You can now choose your new phone on your dashboard.`,
                 "DEVICE_RESET",
                 actorName
             );
@@ -349,6 +349,26 @@ function StudentsList() {
         setDeviceFilter("ALL");
     };
 
+    const handleExportStudents = () => {
+        if (!sortedStudents || sortedStudents.length === 0) {
+            alert("No students to export.");
+            return;
+        }
+        const exportData = sortedStudents.map((s, idx) => ({
+            "S No": idx + 1,
+            "Roll Number": s.rollNo || s.id || "—",
+            "Student Name": (s.name || s.fullName || "—").toUpperCase(),
+            "Email Address": s.email || "—",
+            "Department / Branch": s.branch || s.department || "—",
+            "Semester": s.semester ? `Semester ${s.semester}` : "—",
+            "Batch": s.batch || "2025",
+            "Device Type": s.deviceType ? (s.deviceType === "android" ? "Android APK" : s.deviceType === "ios" ? "iPhone iOS" : s.deviceType) : "Unregistered",
+            "Device Locked": s.deviceTypeLocked ? "Yes (Locked)" : "No",
+            "Face Biometrics": s.faceEnrolled ? "Enrolled" : "Not Enrolled"
+        }));
+        downloadExcel(exportData, `Students_Directory_${new Date().toISOString().slice(0, 10)}`);
+    };
+
     return (
         <div className="students-registry-page">
             {/* Top Navigation & Breadcrumb */}
@@ -381,8 +401,8 @@ function StudentsList() {
                         <button
                             type="button"
                             className="hero-action-btn btn-excel"
-                            onClick={() => downloadExcel("students-registry-table", `Students_Directory_${new Date().toISOString().slice(0, 10)}`)}
-                            title="Export student directory to Excel"
+                            onClick={handleExportStudents}
+                            title="Export clean student directory to Excel"
                         >
                             <FaFileExcel /> Export Excel
                         </button>

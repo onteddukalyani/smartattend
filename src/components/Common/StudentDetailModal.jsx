@@ -263,8 +263,8 @@ const StudentDetailModal = ({ student, onClose, onUpdate }) => {
       if (cleanRoll) {
         await sendStudentNotification(
           cleanRoll,
-          "Face Biometrics Updated ✅",
-          `Your face biometric template was updated and enrolled by ${actorName}.`,
+          "Face Photo Updated ✅",
+          `Your face photo was updated by ${actorName}.`,
           "BIOMETRIC_UPDATE",
           actorName
         );
@@ -321,8 +321,8 @@ const StudentDetailModal = ({ student, onClose, onUpdate }) => {
       if (cleanRoll) {
         await sendStudentNotification(
           cleanRoll,
-          "Face Biometrics Cleared ⚠️",
-          `Your registered facial biometrics were cleared by ${actorName}. Please log in and re-enroll your biometrics from your dashboard.`,
+          "Face Photo Reset ⚠️",
+          `Your face photo was reset by ${actorName}. Please open your dashboard to take a new photo.`,
           "BIOMETRIC_UPDATE",
           actorName
         );
@@ -376,7 +376,7 @@ const StudentDetailModal = ({ student, onClose, onUpdate }) => {
         await sendStudentNotification(
           cleanRoll,
           "Profile Photo Removed",
-          `Your profile avatar photo was removed by ${actorName}.`,
+          `Your profile picture was removed by ${actorName}.`,
           "PROFILE_UPDATE",
           actorName
         );
@@ -434,8 +434,8 @@ const StudentDetailModal = ({ student, onClose, onUpdate }) => {
       const actorName = profile?.name || profile?.email || "Faculty/Admin";
       await sendStudentNotification(
         cleanRoll,
-        "Device Lock Reset",
-        `Your registered device lock was reset by ${actorName}. You can now select a new device type (Android APK or iPhone Guided Access) on your dashboard.`,
+        "Phone Reset Approved ✅",
+        `Your phone registration was reset by ${actorName}. You can now select your new phone on your dashboard.`,
         "DEVICE_RESET",
         actorName
       );

@@ -35,13 +35,21 @@ import {
   FaFileExcel,
   FaUserPlus,
   FaExclamationTriangle,
-  FaUndo
+  FaUndo,
+  FaTable,
+  FaThLarge,
+  FaChartBar,
+  FaEye,
+  FaUserTie,
+  FaBuilding
 } from "react-icons/fa";
 import { db } from "../../firebase";
 import { useAuth } from "../authcontext";
 import { downloadExcel } from "../../DownloadExcel";
 import { mergeAllStudentRecords } from "../../utils/studentDataHelper";
 import StudentDetailModal from "./StudentDetailModal";
+import CourseDetailModal from "./CourseDetailModal";
+import { useTableSort, SortIcon } from "./useTableSort";
 import { sendStudentNotification } from "../../services/notificationsService";
 import "./CoursesManager.css";
 
@@ -139,7 +147,9 @@ export default function CoursesManager() {
   const [allStudents, setAllStudents] = useState([]);
   const [sessions, setSessions] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
+
+  // View Layout: "table" (dense directory) or "grid" (cards)
+  const [viewLayout, setViewLayout] = useState(isCurrentAdmin ? "table" : "grid");
 
   // Filter & Tab States
   const [activeTab, setActiveTab] = useState(isCurrentAdmin ? "all" : "my"); // "my" | "all"
@@ -154,6 +164,8 @@ export default function CoursesManager() {
   const [selectedCourseForRoster, setSelectedCourseForRoster] = useState(null);
   const [showStudentDetailModal, setShowStudentDetailModal] = useState(false);
   const [selectedStudentForDetail, setSelectedStudentForDetail] = useState(null);
+  const [showCourseDetailModal, setShowCourseDetailModal] = useState(false);
+  const [selectedCourseForDetail, setSelectedCourseForDetail] = useState(null);
 
   // Add/Edit Course Form Data
   const [formData, setFormData] = useState({
@@ -195,18 +207,47 @@ export default function CoursesManager() {
     });
     unsubs.push(unsubCourses);
 
-    // Lecturers listener
-    const unsubUsers = onSnapshot(collection(db, "users"), (snapshot) => {
-      const lecs = [];
-      snapshot.forEach((d) => {
-        const data = d.data();
-        if (data.role === "lecturer" || data.role === "faculty" || data.role === "admin") {
-          lecs.push({ id: d.id, ...data });
-        }
-      });
-      setLecturers(lecs);
-    }, () => { });
-    unsubs.push(unsubUsers);
+    // Lecturers listener from users and authorizedUsers
+    const loadLecturersData = async () => {
+      try {
+        const [usersSnap, authUsersSnap, lecturersSnap] = await Promise.all([
+          getDocs(collection(db, "users")).catch(() => ({ docs: [] })),
+          getDocs(collection(db, "authorizedUsers")).catch(() => ({ docs: [] })),
+          getDocs(collection(db, "lecturers")).catch(() => ({ docs: [] }))
+        ]);
+
+        const lecsMap = new Map();
+
+        const ingest = (docSnap) => {
+          const data = docSnap.data();
+          const role = String(data.role || "").toLowerCase();
+          if (role === "lecturer" || role === "faculty" || role === "admin" || role === "administrator" || docSnap.ref.parent.id === "lecturers") {
+            const email = (data.email || (docSnap.id.includes("@") ? docSnap.id : "")).toLowerCase().trim();
+            const key = email || docSnap.id;
+            if (!lecsMap.has(key)) {
+              lecsMap.set(key, {
+                id: docSnap.id,
+                ...data,
+                email,
+                name: data.name || data.displayName || data.fullName || (email ? email.split("@")[0] : "Faculty"),
+                department: normalizeCourseDepartment(data.department || data.branch || "CSE"),
+                designation: data.designation || "Assistant Professor",
+                photoURL: data.photoURL || data.photo || data.image || null
+              });
+            }
+          }
+        };
+
+        usersSnap.docs.forEach(ingest);
+        authUsersSnap.docs.forEach(ingest);
+        lecturersSnap.docs.forEach(ingest);
+
+        setLecturers(Array.from(lecsMap.values()));
+      } catch (err) {
+        console.warn("Notice loading lecturers:", err);
+      }
+    };
+    loadLecturersData();
 
     // Students listener
     const unsubStudents = onSnapshot(collection(db, "students"), (snapshot) => {
@@ -227,37 +268,116 @@ export default function CoursesManager() {
     };
   }, []);
 
-  // Filtered Courses
-  const filteredCourses = useMemo(() => {
-    return courses.filter((c) => {
-      // Tab filter
-      if (activeTab === "my") {
-        if (!isCourseAssignedToLecturer(c, user, profile)) return false;
-      }
+  // Compute map of session counts per course code
+  const { sessionCountsMap, activeSessionCountsMap } = useMemo(() => {
+    const countMap = new Map();
+    const activeMap = new Map();
 
-      // Dept filter
-      if (selectedDept !== "all" && c.department && c.department.toUpperCase() !== selectedDept.toUpperCase()) {
-        return false;
+    sessions.forEach((s) => {
+      const code = (s.courseCode || s.classCode || "").toUpperCase().trim();
+      if (code) {
+        countMap.set(code, (countMap.get(code) || 0) + 1);
+        if (s.status === "ACTIVE" || s.phase === "PHASE_1" || s.phase === "PHASE_2") {
+          activeMap.set(code, (activeMap.get(code) || 0) + 1);
+        }
       }
-
-      // Semester filter
-      if (selectedSemester !== "all" && String(c.semester || "") !== String(selectedSemester)) {
-        return false;
-      }
-
-      // Search term
-      if (searchTerm.trim()) {
-        const q = searchTerm.toLowerCase().trim();
-        const code = (c.code || "").toLowerCase();
-        const name = (c.name || "").toLowerCase();
-        const dept = (c.department || "").toLowerCase();
-        const lecturer = (c.lecturer || c.lecturerName || "").toLowerCase();
-        return code.includes(q) || name.includes(q) || dept.includes(q) || lecturer.includes(q);
-      }
-
-      return true;
     });
-  }, [courses, activeTab, selectedDept, selectedSemester, searchTerm, user, profile]);
+
+    return { sessionCountsMap: countMap, activeSessionCountsMap: activeMap };
+  }, [sessions]);
+
+  // Helper to resolve faculty profile for a course
+  const resolveCourseFaculty = (course) => {
+    const directEmail = (course.lecturerEmail || course.assignedLecturerEmail || "").toLowerCase().trim();
+    const directName = course.lecturer || course.lecturerName || "";
+
+    let matched = null;
+    if (directEmail) {
+      matched = lecturers.find((l) => (l.email || "").toLowerCase().trim() === directEmail);
+    }
+    if (!matched && directName) {
+      matched = lecturers.find((l) => (l.name || "").toLowerCase().trim() === directName.toLowerCase().trim());
+    }
+    if (!matched && Array.isArray(course.assignedLecturers) && course.assignedLecturers.length > 0) {
+      const first = course.assignedLecturers[0];
+      const email = typeof first === "string" ? first.toLowerCase().trim() : (first.email || "").toLowerCase().trim();
+      if (email) {
+        matched = lecturers.find((l) => (l.email || "").toLowerCase().trim() === email);
+      }
+    }
+
+    const fallbackName = directName || (directEmail ? directEmail.split("@")[0] : "Not Assigned");
+
+    return {
+      name: matched?.name || matched?.displayName || fallbackName,
+      email: matched?.email || directEmail || "",
+      department: matched?.department || normalizeCourseDepartment(course.department),
+      designation: matched?.designation || "Faculty In-Charge",
+      photoURL: matched?.photoURL || matched?.photo || matched?.image || null
+    };
+  };
+
+  // Enriched and Filtered Courses List
+  const enrichedFilteredCourses = useMemo(() => {
+    return courses
+      .map((c) => {
+        const courseCode = c.code || c.courseCode || c.id || "COURSE";
+        const cleanCodeUpper = courseCode.toUpperCase().trim();
+        const enrolledStudents = Array.isArray(c.enrolledStudents) ? c.enrolledStudents : [];
+        const enrolledCount = new Set(enrolledStudents
+          .map((s) => String(typeof s === "string" ? s : s?.rollNo || s?.rollNumber || "").trim().toUpperCase())
+          .filter(Boolean)).size;
+        const classesCount = sessionCountsMap.get(cleanCodeUpper) || sessionCountsMap.get(String(c.classCode || "").toUpperCase().trim()) || 0;
+        const activeClassesCount = activeSessionCountsMap.get(cleanCodeUpper) || 0;
+        const faculty = resolveCourseFaculty(c);
+
+        return {
+          ...c,
+          courseCode,
+          courseName: c.name || c.courseName || c.title || `Untitled (${courseCode})`,
+          department: normalizeCourseDepartment(c.department),
+          semester: c.semester || 4,
+          credits: c.credits || 4,
+          classCode: c.classCode || c.classNumber || "C003",
+          enrolledCount,
+          classesCount,
+          activeClassesCount,
+          faculty
+        };
+      })
+      .filter((c) => {
+        // Tab filter
+        if (activeTab === "my") {
+          if (!isCourseAssignedToLecturer(c, user, profile)) return false;
+        }
+
+        // Dept filter
+        if (selectedDept !== "all" && c.department.toUpperCase() !== selectedDept.toUpperCase()) {
+          return false;
+        }
+
+        // Semester filter
+        if (selectedSemester !== "all" && String(c.semester || "") !== String(selectedSemester)) {
+          return false;
+        }
+
+        // Search term (Matches code, name, dept, and faculty name/email!)
+        if (searchTerm.trim()) {
+          const q = searchTerm.toLowerCase().trim();
+          const code = c.courseCode.toLowerCase();
+          const name = c.courseName.toLowerCase();
+          const dept = c.department.toLowerCase();
+          const facName = c.faculty.name.toLowerCase();
+          const facEmail = c.faculty.email.toLowerCase();
+          return code.includes(q) || name.includes(q) || dept.includes(q) || facName.includes(q) || facEmail.includes(q);
+        }
+
+        return true;
+      });
+  }, [courses, activeTab, selectedDept, selectedSemester, searchTerm, user, profile, sessionCountsMap, activeSessionCountsMap, lecturers]);
+
+  // Table Sort Hook for Directory Table
+  const { sortedItems: sortedCourses, sortConfig, requestSort } = useTableSort(enrichedFilteredCourses, "courseCode", "asc");
 
   // Statistics calculation
   const stats = useMemo(() => {
@@ -267,6 +387,18 @@ export default function CoursesManager() {
     const activeSessions = sessions.filter((s) => s.status === "ACTIVE" || s.phase === "PHASE_1" || s.phase === "PHASE_2").length;
     return { total, myCount, totalSessions, activeSessions };
   }, [courses, sessions, user, profile]);
+
+  // Navigation to course attendances
+  const handleOpenCourseAttendances = (courseCode) => {
+    const basePath = isCurrentAdmin ? "/admin/classes" : "/lecturer/attendance-sessions";
+    navigate(`${basePath}?course=${encodeURIComponent(courseCode)}`);
+  };
+
+  // Open Course Detail Modal
+  const handleOpenCourseDetail = (course) => {
+    setSelectedCourseForDetail(course);
+    setShowCourseDetailModal(true);
+  };
 
   // Handle Opening Add/Edit Modal
   const handleOpenAddEditModal = (course = null) => {
@@ -369,7 +501,7 @@ export default function CoursesManager() {
       alert("Only admins can delete courses.");
       return;
     }
-    if (!window.confirm(`Are you sure you want to delete course "${course.code} - ${course.name}"? This action cannot be undone.`)) {
+    if (!window.confirm(`Are you sure you want to delete course "${course.code || course.courseCode} - ${course.name || course.courseName}"? This action cannot be undone.`)) {
       return;
     }
     try {
@@ -392,7 +524,7 @@ export default function CoursesManager() {
   // Remove Student from Course Roster
   const handleRemoveStudentFromCourse = async (rollNo) => {
     if (!selectedCourseForRoster) return;
-    if (!window.confirm(`Remove student ${rollNo} from ${selectedCourseForRoster.code}?`)) return;
+    if (!window.confirm(`Remove student ${rollNo} from ${selectedCourseForRoster.code || selectedCourseForRoster.courseCode}?`)) return;
 
     try {
       const currentList = Array.isArray(selectedCourseForRoster.enrolledStudents) ? selectedCourseForRoster.enrolledStudents : [];
@@ -414,8 +546,8 @@ export default function CoursesManager() {
       if (cleanRoll) {
         sendStudentNotification(
           cleanRoll,
-          "Course Roster Update ℹ️",
-          `You have been un-enrolled from course ${selectedCourseForRoster.code} (${selectedCourseForRoster.name}) by ${actorName}.`,
+          "Class Update ℹ️",
+          `You have been removed from class ${selectedCourseForRoster.code || selectedCourseForRoster.courseCode} by ${actorName}.`,
           "COURSE_UPDATE",
           actorName
         ).catch(() => {});
@@ -451,8 +583,8 @@ export default function CoursesManager() {
         if (cleanRoll) {
           sendStudentNotification(
             cleanRoll,
-            "Course Enrollment 📚",
-            `You have been enrolled in course ${selectedCourseForRoster.code} (${selectedCourseForRoster.name}) by ${actorName}.`,
+            "Added to Class 📚",
+            `You have been enrolled in class ${selectedCourseForRoster.code || selectedCourseForRoster.courseCode} by ${actorName}.`,
             "COURSE_ENROLLMENT",
             actorName
           ).catch(() => {});
@@ -460,80 +592,6 @@ export default function CoursesManager() {
       }
     } catch (err) {
       alert("Failed to add students: " + err.message);
-    } finally {
-      setSavingRoster(false);
-    }
-  };
-
-  // Batch Add All Students of Branch / Batch
-  const handleBatchAddBranchStudents = async () => {
-    if (!selectedCourseForRoster) return;
-    if (!isCurrentAdmin && !canManageCourseForUser(selectedCourseForRoster)) {
-      alert("You can only batch-enroll students for courses assigned to your lecturer profile.");
-      return;
-    }
-    const dept = selectedCourseForRoster.department || "CSE";
-    const normalizeRoll = (value) => String(value || "").split("@")[0].toUpperCase().trim();
-    const matchingByRoll = new Map();
-    allStudents.forEach((student) => {
-      const branch = String(student.branch || student.department || "").toUpperCase().trim();
-      const roll = normalizeRoll(student.rollNo || student.rollNumber || student.id);
-      if (branch === dept.toUpperCase().trim() && roll && !matchingByRoll.has(roll)) {
-        matchingByRoll.set(roll, student);
-      }
-    });
-    const matching = Array.from(matchingByRoll.values());
-
-    if (matching.length === 0) {
-      alert(`No registered students found in department ${dept}.`);
-      return;
-    }
-
-    if (!window.confirm(`Add all ${matching.length} unique students from ${dept} to ${selectedCourseForRoster.code}?`)) return;
-
-    setSavingRoster(true);
-    try {
-      const currentList = Array.isArray(selectedCourseForRoster.enrolledStudents) ? selectedCourseForRoster.enrolledStudents : [];
-      const existingRollSet = new Set();
-      const uniqueCurrentList = currentList.filter((student) => {
-        const roll = normalizeRoll(typeof student === "string" ? student : student?.rollNo || student?.rollNumber);
-        if (!roll) return true;
-        if (existingRollSet.has(roll)) return false;
-        existingRollSet.add(roll);
-        return true;
-      });
-
-      const additions = matching
-        .map((student) => normalizeRoll(student.rollNo || student.rollNumber || student.id))
-        .filter((r) => r && !existingRollSet.has(r));
-
-      const updatedList = [...uniqueCurrentList, ...additions];
-
-      await setDoc(doc(db, "courses", selectedCourseForRoster.id), {
-        enrolledStudents: updatedList,
-        updatedAt: serverTimestamp()
-      }, { merge: true });
-
-      setSelectedCourseForRoster((prev) => ({ ...prev, enrolledStudents: updatedList }));
-
-      // Immediately notify all enrolled students
-      const actorName = profile?.name || profile?.email || "Faculty/Admin";
-      for (const roll of additions) {
-        const cleanRoll = String(roll).split("@")[0].toUpperCase().trim();
-        if (cleanRoll) {
-          sendStudentNotification(
-            cleanRoll,
-            "Course Enrollment 📚",
-            `You have been enrolled in course ${selectedCourseForRoster.code} (${selectedCourseForRoster.name}) by ${actorName}.`,
-            "COURSE_ENROLLMENT",
-            actorName
-          ).catch(() => {});
-        }
-      }
-
-      alert(`Successfully enrolled ${additions.length} students into ${selectedCourseForRoster.code}!`);
-    } catch (err) {
-      alert("Error batch enrolling: " + err.message);
     } finally {
       setSavingRoster(false);
     }
@@ -548,8 +606,8 @@ export default function CoursesManager() {
       const studentMatch = allStudents.find((s) => String(s.rollNo || s.id || "").toUpperCase().trim() === String(roll).toUpperCase().trim());
       return {
         "Sl No": idx + 1,
-        "Course Code": selectedCourseForRoster.code,
-        "Course Name": selectedCourseForRoster.name,
+        "Course Code": selectedCourseForRoster.code || selectedCourseForRoster.courseCode,
+        "Course Name": selectedCourseForRoster.name || selectedCourseForRoster.courseName,
         "Roll Number": roll,
         "Student Name": studentMatch?.name || studentMatch?.fullName || "—",
         "Email": studentMatch?.email || "—",
@@ -557,7 +615,27 @@ export default function CoursesManager() {
       };
     });
 
-    downloadExcel(exportData, `${selectedCourseForRoster.code}_Enrolled_Students.xlsx`);
+    downloadExcel(exportData, `${selectedCourseForRoster.code || "Course"}_Enrolled_Students.xlsx`);
+  };
+
+  // Export Full Course Directory to Excel
+  const handleExportCoursesDirectory = () => {
+    const exportData = sortedCourses.map((c, idx) => ({
+      "S.No": idx + 1,
+      "Course Code": c.courseCode,
+      "Course Name": c.courseName,
+      "Class / Room": c.classCode,
+      "Department": c.department,
+      "Semester": c.semester,
+      "Credits": c.credits,
+      "Assigned Lecturer": c.faculty.name,
+      "Lecturer Email": c.faculty.email || "N/A",
+      "Lecturer Department": c.faculty.department || c.department,
+      "Enrolled Students": c.enrolledCount,
+      "Classes Conducted": c.classesCount
+    }));
+
+    downloadExcel(exportData, `SmartAttend_Courses_Faculty_Directory_${new Date().toISOString().slice(0, 10)}`);
   };
 
   const enrolledRollSet = new Set((selectedCourseForRoster?.enrolledStudents || []).map((student) =>
@@ -577,10 +655,26 @@ export default function CoursesManager() {
       {/* Header */}
       <div className="cm-header">
         <div className="cm-header-titles">
-          <h1>Course Management</h1>
-          <p>Manage curriculum subjects, faculty assignments, enrolled student rosters, and active attendance sessions.</p>
+          <div className="cm-header-badge">
+            <FaBookOpen />
+            <span>ACADEMIC CURRICULUM &amp; FACULTY DIRECTORY</span>
+          </div>
+          <h1>Course &amp; Faculty Attendance</h1>
+          <p>
+            Browse courses with their respective assigned lecturers. Click any course or its classes count to inspect all attendance records conducted for that course.
+          </p>
         </div>
         <div className="cm-header-actions">
+          <button
+            type="button"
+            className="cm-btn cm-btn-secondary"
+            onClick={handleExportCoursesDirectory}
+            disabled={courses.length === 0}
+            title="Download Course & Faculty Directory as Excel"
+          >
+            <FaFileExcel /> Export Directory
+          </button>
+
           {(isCurrentAdmin || profile?.role === "admin" || profile?.role === "lecturer") && (
             <button
               type="button"
@@ -614,7 +708,7 @@ export default function CoursesManager() {
         <div className="cm-stat-card">
           <div className="cm-stat-icon amber"><FaCalendarCheck /></div>
           <div className="cm-stat-data">
-            <span className="cm-stat-label">Total Sessions</span>
+            <span className="cm-stat-label">Total Classes Held</span>
             <span className="cm-stat-value">{stats.totalSessions}</span>
           </div>
         </div>
@@ -689,6 +783,26 @@ export default function CoursesManager() {
         </div>
 
         <div className="cm-filter-controls">
+          {/* View Mode Toggle Switcher */}
+          <div className="cm-view-toggle">
+            <button
+              type="button"
+              className={`cm-view-btn ${viewLayout === "table" ? "active" : ""}`}
+              onClick={() => setViewLayout("table")}
+              title="Table Directory View"
+            >
+              <FaTable /> <span>Table</span>
+            </button>
+            <button
+              type="button"
+              className={`cm-view-btn ${viewLayout === "grid" ? "active" : ""}`}
+              onClick={() => setViewLayout("grid")}
+              title="Grid Cards View"
+            >
+              <FaThLarge /> <span>Cards</span>
+            </button>
+          </div>
+
           <div className="cm-search-wrap">
             <FaSearch />
             <input
@@ -718,13 +832,13 @@ export default function CoursesManager() {
         </div>
       </div>
 
-      {/* Course Cards Grid */}
+      {/* Main Content Area */}
       {loading ? (
         <div className="cm-loading-wrap">
           <FaSyncAlt className="fa-spin" />
-          <p>Loading course curriculum...</p>
+          <p>Loading course curriculum &amp; faculty data...</p>
         </div>
-      ) : filteredCourses.length === 0 ? (
+      ) : sortedCourses.length === 0 ? (
         <div className="cm-empty-state">
           <div className="cm-empty-icon">
             <FaBookOpen />
@@ -802,92 +916,330 @@ export default function CoursesManager() {
             </>
           )}
         </div>
+      ) : viewLayout === "table" ? (
+        /* ==========================================================
+           1. DIRECTORY TABLE VIEW (Courses + Respective Lecturers)
+           ========================================================== */
+        <div className="cm-table-scroll">
+          <table className="cm-modern-table">
+            <thead>
+              <tr>
+                <th className="sortable-th" onClick={() => requestSort("courseCode")} title="Sort by Course Code">
+                  Course Code &amp; Title <SortIcon sortConfig={sortConfig} columnKey="courseCode" />
+                </th>
+                <th className="sortable-th" onClick={() => requestSort("department")} title="Sort by Department">
+                  Department &amp; Sem <SortIcon sortConfig={sortConfig} columnKey="department" />
+                </th>
+                <th className="sortable-th" onClick={() => requestSort("faculty.name")} title="Sort by Assigned Faculty">
+                  Respective Assigned Lecturer <SortIcon sortConfig={sortConfig} columnKey="faculty.name" />
+                </th>
+                <th className="sortable-th" onClick={() => requestSort("classesCount")} title="Sort by Classes Conducted">
+                  Classes Conducted <SortIcon sortConfig={sortConfig} columnKey="classesCount" />
+                </th>
+                <th className="sortable-th" onClick={() => requestSort("enrolledCount")} title="Sort by Enrolled Students">
+                  Enrolled Students <SortIcon sortConfig={sortConfig} columnKey="enrolledCount" />
+                </th>
+                <th style={{ textAlign: "right", paddingRight: "20px" }}>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sortedCourses.map((course) => {
+                const isAssigned = isCourseAssignedToLecturer(course, user, profile);
+
+                return (
+                  <tr
+                    key={course.id || course.courseCode}
+                    className="cm-table-row"
+                    onClick={() => handleOpenCourseDetail(course)}
+                    title="Click to view course details and classes list"
+                  >
+                    {/* Course Code & Title */}
+                    <td>
+                      <div className="cm-table-course-cell">
+                        <div className="cm-course-code-badge">
+                          <FaBookOpen /> {course.courseCode}
+                        </div>
+                        <div className="cm-course-cell-text">
+                          <strong className="cm-course-cell-title">{course.courseName}</strong>
+                          <div className="cm-course-submeta">
+                            <span className="cm-class-tag"><FaLayerGroup /> {course.classCode}</span>
+                            <span className="cm-credits-tag"><FaGraduationCap /> {course.credits} Credits</span>
+                          </div>
+                        </div>
+                      </div>
+                    </td>
+
+                    {/* Department & Semester */}
+                    <td>
+                      <div className="cm-dept-stack">
+                        <span className="cm-dept-chip">
+                          <FaBuilding /> {course.department}
+                        </span>
+                        <span className="cm-sem-chip">
+                          Sem {course.semester}
+                        </span>
+                      </div>
+                    </td>
+
+                    {/* Respective Assigned Lecturer */}
+                    <td>
+                      <div className="cm-faculty-profile-cell">
+                        <div className="cm-faculty-avatar">
+                          {course.faculty.photoURL ? (
+                            <img src={course.faculty.photoURL} alt={course.faculty.name} />
+                          ) : (
+                            <span>{course.faculty.name.charAt(0).toUpperCase()}</span>
+                          )}
+                        </div>
+                        <div className="cm-faculty-text">
+                          <div className="cm-faculty-name-row">
+                            <strong className="cm-faculty-primary-name">{course.faculty.name}</strong>
+                            {isAssigned && (
+                              <span className="cm-you-badge">You</span>
+                            )}
+                          </div>
+                          {course.faculty.email ? (
+                            <div className="cm-faculty-email-row">
+                              <FaEnvelope /> <span>{course.faculty.email}</span>
+                            </div>
+                          ) : (
+                            <span className="cm-faculty-role-sub">{course.faculty.designation}</span>
+                          )}
+                        </div>
+                      </div>
+                    </td>
+
+                    {/* Classes Conducted Pill (Click goes to Course Attendances!) */}
+                    <td>
+                      <div
+                        className="cm-classes-conducted-pill"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleOpenCourseAttendances(course.courseCode);
+                        }}
+                        title={`Click to view all ${course.classesCount} attendance sessions for ${course.courseCode}`}
+                      >
+                        <FaCalendarAlt className="cm-pill-icon" />
+                        <span className="cm-pill-count">{course.classesCount}</span>
+                        <span className="cm-pill-label">{course.classesCount === 1 ? "class" : "classes"}</span>
+                        {course.activeClassesCount > 0 && (
+                          <span className="cm-pill-live-dot" title="Live session active right now"></span>
+                        )}
+                      </div>
+                    </td>
+
+                    {/* Enrolled Students Pill */}
+                    <td>
+                      <div
+                        className="cm-enrolled-pill"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleOpenRosterModal(course);
+                        }}
+                        title="Click to view & manage student roster"
+                      >
+                        <FaUsers />
+                        <span>{course.enrolledCount} Enrolled</span>
+                      </div>
+                    </td>
+
+                    {/* Action Buttons */}
+                    <td onClick={(e) => e.stopPropagation()}>
+                      <div className="cm-table-actions-cell">
+                        {/* 1-Click Go to Course Attendances */}
+                        <button
+                          type="button"
+                          className="cm-table-btn cm-table-btn-attendance"
+                          onClick={() => handleOpenCourseAttendances(course.courseCode)}
+                          title={`View all attendance records for ${course.courseCode}`}
+                        >
+                          <FaChartBar /> <span>View Attendance</span>
+                        </button>
+
+                        {/* View Course Details Modal */}
+                        <button
+                          type="button"
+                          className="cm-table-btn cm-table-btn-view"
+                          onClick={() => handleOpenCourseDetail(course)}
+                          title="View course information and session list"
+                        >
+                          <FaEye />
+                        </button>
+
+                        {/* Manage Roster */}
+                        <button
+                          type="button"
+                          className="cm-table-btn cm-table-btn-roster"
+                          onClick={() => handleOpenRosterModal(course)}
+                          title="Manage enrolled students"
+                        >
+                          <FaUsers />
+                        </button>
+
+                        {/* Edit Course */}
+                        {(isCurrentAdmin || canManageCourseForUser(course)) && (
+                          <button
+                            type="button"
+                            className="cm-table-btn cm-table-btn-edit"
+                            onClick={() => handleOpenAddEditModal(course)}
+                            title="Edit course details"
+                          >
+                            <FaEdit />
+                          </button>
+                        )}
+
+                        {/* Delete Course (Admin Only) */}
+                        {isCurrentAdmin && (
+                          <button
+                            type="button"
+                            className="cm-table-btn cm-table-btn-delete"
+                            onClick={() => handleDeleteCourse(course)}
+                            title="Delete course"
+                          >
+                            <FaTrashAlt />
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       ) : (
+        /* ==========================================================
+           2. VISUAL CARDS GRID VIEW
+           ========================================================== */
         <div className="cm-courses-grid">
-          {filteredCourses.map((course) => {
-            const courseCode = course.code || course.courseCode || course.id || "Course";
-            const courseName = course.name || course.courseName || course.title || `Untitled course (${courseCode})`;
-            const enrolledStudents = Array.isArray(course.enrolledStudents) ? course.enrolledStudents : [];
-            const enrolledCount = new Set(enrolledStudents
-              .map((student) => String(typeof student === "string" ? student : student?.rollNo || student?.rollNumber || "").trim().toUpperCase())
-              .filter(Boolean)).size;
+          {sortedCourses.map((course) => {
             const isAssigned = isCourseAssignedToLecturer(course, user, profile);
 
             return (
-              <div key={course.id || course.code || courseCode} className="cm-course-card">
+              <div key={course.id || course.courseCode} className="cm-course-card">
                 <div>
                   <div className="cm-course-card-top">
                     <span className="cm-course-code-badge">
-                      <FaBookOpen /> {courseCode}
+                      <FaBookOpen /> {course.courseCode}
                     </span>
                     <span className="cm-course-code-badge" style={{ background: "rgba(99, 102, 241, 0.1)", color: "#6366f1" }}>
-                      <FaLayerGroup /> Class: {course.classCode || course.classNumber || "C003"}
+                      <FaLayerGroup /> Class: {course.classCode}
                     </span>
                     <span className="cm-course-dept-badge">
-                      {normalizeCourseDepartment(course.department)} · Sem {course.semester || 4}
+                      {course.department} · Sem {course.semester}
                     </span>
                   </div>
 
-                  <h3 className="cm-course-title">{courseName}</h3>
+                  <h3
+                    className="cm-course-title clickable"
+                    onClick={() => handleOpenCourseDetail(course)}
+                    title="Click to view course details"
+                  >
+                    {course.courseName}
+                  </h3>
 
                   <div className="cm-course-meta-row">
                     <span className="cm-meta-item">
-                      <FaGraduationCap /> {course.credits || 4} Credits
+                      <FaGraduationCap /> {course.credits} Credits
                     </span>
-                    <span className="cm-meta-item">
-                      <FaUsers /> {enrolledCount} Enrolled
+                    <span
+                      className="cm-meta-item cm-clickable-meta"
+                      onClick={() => handleOpenRosterModal(course)}
+                      title="View enrolled students"
+                    >
+                      <FaUsers /> {course.enrolledCount} Enrolled
+                    </span>
+                    <span
+                      className="cm-meta-item cm-clickable-meta"
+                      onClick={() => handleOpenCourseAttendances(course.courseCode)}
+                      title="View classes conducted"
+                      style={{ color: "#6366f1", fontWeight: 750 }}
+                    >
+                      <FaCalendarAlt /> {course.classesCount} {course.classesCount === 1 ? "Class" : "Classes"}
                     </span>
                   </div>
 
+                  {/* Respective Faculty In-Charge */}
                   <div className="cm-course-faculty">
                     <div className="cm-faculty-label">
-                      <FaChalkboardTeacher /> Faculty In-Charge
+                      <FaChalkboardTeacher /> Respective Assigned Lecturer
                     </div>
                     <div className="cm-faculty-name">
-                      {course.lecturer || course.lecturerName || (course.assignedLecturers && course.assignedLecturers[0]) || "Not Assigned"}
+                      <div className="cm-faculty-avatar-mini">
+                        {course.faculty.photoURL ? (
+                          <img src={course.faculty.photoURL} alt={course.faculty.name} />
+                        ) : (
+                          <span>{course.faculty.name.charAt(0).toUpperCase()}</span>
+                        )}
+                      </div>
+                      <span className="cm-faculty-display-name">{course.faculty.name}</span>
                       {isAssigned && (
-                        <span style={{ fontSize: "0.72rem", background: "rgba(16, 185, 129, 0.12)", color: "#10b981", padding: "2px 6px", borderRadius: "4px" }}>
-                          You
-                        </span>
+                        <span className="cm-you-badge">You</span>
                       )}
                     </div>
+                    {course.faculty.email && (
+                      <div className="cm-faculty-email-sub">
+                        <FaEnvelope /> {course.faculty.email}
+                      </div>
+                    )}
                   </div>
                 </div>
 
                 <div className="cm-course-actions">
+                  {/* Primary Button: View Course Attendance */}
+                  <button
+                    type="button"
+                    className="cm-btn cm-btn-primary cm-btn-sm"
+                    onClick={() => handleOpenCourseAttendances(course.courseCode)}
+                    title={`Go to all attendances of ${course.courseCode}`}
+                  >
+                    <FaChartBar /> View Attendances ({course.classesCount})
+                  </button>
+
+                  {/* Lecturer Start Session Button */}
                   {isCurrentLecturer && canManageCourseForUser(course) && (
                     <Link
-                      to={`/lecturer/lecturerpage?course=${encodeURIComponent(courseCode)}`}
-                      className="cm-btn cm-btn-primary cm-btn-sm"
+                      to={`/lecturer/lecturerpage?course=${encodeURIComponent(course.courseCode)}`}
+                      className="cm-btn cm-btn-secondary cm-btn-sm"
                       title="Launch 2-Phase Attendance Session"
                     >
-                      <FaQrcode /> Start Session
+                      <FaQrcode /> QR
                     </Link>
                   )}
 
-                  {(isCurrentAdmin || canManageCourseForUser(course)) && (
-                    <button
-                      type="button"
-                      className="cm-btn cm-btn-secondary cm-btn-sm"
-                      onClick={() => handleOpenRosterModal(course)}
-                      title="Manage Enrolled Students"
-                    >
-                      <FaUsers /> Students ({enrolledCount})
-                    </button>
-                  )}
+                  {/* Students Roster */}
+                  <button
+                    type="button"
+                    className="cm-btn cm-btn-secondary cm-btn-sm"
+                    onClick={() => handleOpenRosterModal(course)}
+                    title="Manage Enrolled Students"
+                  >
+                    <FaUsers />
+                  </button>
 
+                  {/* Course Details */}
+                  <button
+                    type="button"
+                    className="cm-btn cm-btn-secondary cm-btn-sm"
+                    onClick={() => handleOpenCourseDetail(course)}
+                    title="View Course Information"
+                  >
+                    <FaEye />
+                  </button>
+
+                  {/* Edit Course */}
                   {(isCurrentAdmin || canManageCourseForUser(course)) && (
                     <button
                       type="button"
                       className="cm-btn cm-btn-secondary cm-btn-sm cm-course-action-edit"
                       onClick={() => handleOpenAddEditModal(course)}
                       title="Edit Course"
-                      aria-label={`Edit ${courseName}`}
                     >
-                      <FaEdit /> <span>Edit</span>
+                      <FaEdit />
                     </button>
                   )}
 
+                  {/* Delete Course (Admin only) */}
                   {isCurrentAdmin && (
                     <button
                       type="button"
@@ -903,6 +1255,22 @@ export default function CoursesManager() {
             );
           })}
         </div>
+      )}
+
+      {/* Course Detail Modal */}
+      {showCourseDetailModal && selectedCourseForDetail && (
+        <CourseDetailModal
+          course={selectedCourseForDetail}
+          lecturers={lecturers}
+          allStudents={allStudents}
+          onClose={() => {
+            setShowCourseDetailModal(false);
+            setSelectedCourseForDetail(null);
+          }}
+          onOpenRoster={handleOpenRosterModal}
+          onEditCourse={handleOpenAddEditModal}
+          isAdmin={isCurrentAdmin}
+        />
       )}
 
       {/* Add / Edit Course Modal */}
@@ -948,32 +1316,18 @@ export default function CoursesManager() {
                       className="cm-form-input"
                       placeholder="e.g. C003"
                       value={formData.classCode}
-                      onChange={(e) => setFormData((p) => ({ ...p, classCode: e.target.value.toUpperCase() }))}
+                      onChange={(e) => setFormData((p) => ({ ...p, classCode: e.target.value }))}
                       required
                     />
-                  </div>
-                  <div className="cm-form-group">
-                    <label>Department *</label>
-                    <select
-                      className="cm-form-select"
-                      value={formData.department}
-                      onChange={(e) => setFormData((p) => ({ ...p, department: e.target.value }))}
-                      required
-                    >
-                      <option value="CSE">CSE</option>
-                      <option value="DSAI">DSAI</option>
-                      <option value="ECE">ECE</option>
-                      <option value="AIC">AIC</option>
-                    </select>
                   </div>
                 </div>
 
                 <div className="cm-form-group">
-                  <label>Course Title *</label>
+                  <label>Course Title / Name *</label>
                   <input
                     type="text"
                     className="cm-form-input"
-                    placeholder="e.g. Data Structures and Algorithms"
+                    placeholder="e.g. Operating Systems & Algorithms"
                     value={formData.name}
                     onChange={(e) => setFormData((p) => ({ ...p, name: e.target.value }))}
                     required
@@ -981,6 +1335,20 @@ export default function CoursesManager() {
                 </div>
 
                 <div className="cm-form-row">
+                  <div className="cm-form-group">
+                    <label>Department</label>
+                    <select
+                      className="cm-form-select"
+                      value={formData.department}
+                      onChange={(e) => setFormData((p) => ({ ...p, department: e.target.value }))}
+                    >
+                      <option value="CSE">Computer Science &amp; Eng (CSE)</option>
+                      <option value="DSAI">Data Science &amp; AI (DSAI)</option>
+                      <option value="ECE">Electronics &amp; Comm (ECE)</option>
+                      <option value="AIC">Artificial Intelligence &amp; Computing (AIC)</option>
+                    </select>
+                  </div>
+
                   <div className="cm-form-group">
                     <label>Semester</label>
                     <select
@@ -998,47 +1366,33 @@ export default function CoursesManager() {
                       <option value="8">Semester 8</option>
                     </select>
                   </div>
-                  <div className="cm-form-group">
-                    <label>Credits</label>
-                    <select
-                      className="cm-form-select"
-                      value={formData.credits}
-                      onChange={(e) => setFormData((p) => ({ ...p, credits: e.target.value }))}
-                    >
-                      <option value="1">1 Credit</option>
-                      <option value="2">2 Credits</option>
-                      <option value="3">3 Credits</option>
-                      <option value="4">4 Credits</option>
-                      <option value="6">6 Credits</option>
-                    </select>
-                  </div>
                 </div>
 
                 <div className="cm-form-group">
-                  <label>Assigned Faculty In-Charge</label>
+                  <label>Assign Faculty / Lecturer In-Charge</label>
                   <select
                     className="cm-form-select"
-                    value={formData.assignedLecturers[0] || ""}
+                    value={formData.assignedLecturers && formData.assignedLecturers[0] ? (typeof formData.assignedLecturers[0] === "string" ? formData.assignedLecturers[0] : formData.assignedLecturers[0].email) : ""}
                     onChange={(e) => {
                       const val = e.target.value;
                       setFormData((p) => ({ ...p, assignedLecturers: val ? [val] : [] }));
                     }}
                   >
-                    <option value="">-- Select Faculty Member --</option>
+                    <option value="">-- Choose Lecturer --</option>
                     {lecturers.map((lec) => (
                       <option key={lec.id || lec.email} value={lec.email}>
-                        {lec.name || lec.displayName || lec.email} ({lec.email})
+                        {lec.name || lec.displayName || lec.email} ({lec.email}) - {lec.department || "Faculty"}
                       </option>
                     ))}
                   </select>
                 </div>
 
                 <div className="cm-form-group">
-                  <label>Course Description / Syllabus Notes (Optional)</label>
+                  <label>Course Description / Syllabus Outline (Optional)</label>
                   <textarea
-                    rows={3}
                     className="cm-form-textarea"
-                    placeholder="Brief description of the course content..."
+                    rows={3}
+                    placeholder="Brief description of the course, prerequisites, syllabus..."
                     value={formData.description}
                     onChange={(e) => setFormData((p) => ({ ...p, description: e.target.value }))}
                   />
@@ -1050,6 +1404,7 @@ export default function CoursesManager() {
                   type="button"
                   className="cm-btn cm-btn-secondary"
                   onClick={() => setShowAddEditModal(false)}
+                  disabled={savingCourse}
                 >
                   Cancel
                 </button>
@@ -1058,7 +1413,7 @@ export default function CoursesManager() {
                   className="cm-btn cm-btn-primary"
                   disabled={savingCourse}
                 >
-                  {savingCourse ? <><FaSyncAlt className="fa-spin" /> Saving...</> : <><FaCheckCircle /> Save Course</>}
+                  {savingCourse ? "Saving..." : editingCourse ? "Update Course" : "Create Course"}
                 </button>
               </div>
             </form>
@@ -1066,13 +1421,13 @@ export default function CoursesManager() {
         </div>
       )}
 
-      {/* Course Roster / Enrolled Students Modal */}
+      {/* Manage Enrolled Students Roster Modal */}
       {showRosterModal && selectedCourseForRoster && (
         <div className="cm-modal-backdrop" onClick={() => setShowRosterModal(false)}>
           <div className="cm-modal-dialog lg" onClick={(e) => e.stopPropagation()}>
             <div className="cm-modal-header">
               <h2>
-                <FaUsers /> Enrolled Students · {selectedCourseForRoster.code} ({selectedCourseForRoster.name})
+                <FaUsers /> Enrolled Students: {selectedCourseForRoster.code || selectedCourseForRoster.courseCode} ({selectedCourseForRoster.name || selectedCourseForRoster.courseName})
               </h2>
               <button
                 type="button"
@@ -1084,69 +1439,56 @@ export default function CoursesManager() {
             </div>
 
             <div className="cm-modal-body">
-              {/* Roster Controls */}
               <div className="cm-roster-toolbar">
-                <div style={{ display: "flex", alignItems: "center", gap: "8px", flex: 1, minWidth: "240px" }}>
-                  <div className="cm-search-wrap" style={{ maxWidth: "260px" }}>
-                    <FaSearch />
-                    <input
-                      type="text"
-                      className="cm-search-input"
-                      placeholder="Search enrolled students..."
-                      value={rosterSearch}
-                      onChange={(e) => setRosterSearch(e.target.value)}
-                    />
-                  </div>
+                <div className="cm-search-wrap">
+                  <FaSearch />
+                  <input
+                    type="text"
+                    className="cm-search-input"
+                    placeholder="Search enrolled roll number or name..."
+                    value={rosterSearch}
+                    onChange={(e) => setRosterSearch(e.target.value)}
+                  />
                 </div>
 
-                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                  <button
-                    type="button"
-                    className="cm-btn cm-btn-primary cm-btn-sm"
-                    onClick={() => {
-                      setShowAvailableStudents((visible) => !visible);
-                      setSelectedStudentsToAdd([]);
-                    }}
-                    aria-expanded={showAvailableStudents}
-                  >
-                    <FaUserPlus /> Add Students
-                  </button>
+                <div className="cm-roster-actions">
                   <button
                     type="button"
                     className="cm-btn cm-btn-secondary cm-btn-sm"
                     onClick={handleExportRoster}
+                    title="Export enrolled students list to Excel"
                   >
                     <FaFileExcel /> Export Excel
                   </button>
-                  <button
-                    type="button"
-                    className="cm-btn cm-btn-primary cm-btn-sm"
-                    onClick={handleBatchAddBranchStudents}
-                    disabled={savingRoster}
-                  >
-                    <FaUserPlus /> Batch Enroll All {selectedCourseForRoster.department || "CSE"}
-                  </button>
+
+                  {(isCurrentAdmin || canManageCourseForUser(selectedCourseForRoster)) && (
+                    <button
+                      type="button"
+                      className="cm-btn cm-btn-primary cm-btn-sm"
+                      onClick={() => setShowAvailableStudents((p) => !p)}
+                    >
+                      <FaUserPlus /> {showAvailableStudents ? "Hide Add Students" : "Add Students"}
+                    </button>
+                  )}
                 </div>
               </div>
 
+              {/* Available Students Picker Accordion */}
               {showAvailableStudents && (
-                <section className="cm-available-students" aria-label="Add students to this course">
+                <section className="cm-available-students">
                   <div className="cm-available-header">
                     <div>
-                      <h3>Add students to {selectedCourseForRoster.code || selectedCourseForRoster.id}</h3>
-                      <p>Select registered students who are not already enrolled.</p>
+                      <h3>Add Students to {selectedCourseForRoster.code || selectedCourseForRoster.courseCode}</h3>
+                      <p>Select registered students below to enroll them into this course.</p>
                     </div>
-                    <div className="cm-available-actions">
-                      <div className="cm-search-wrap">
-                        <FaSearch />
-                        <input
-                          type="search"
-                          className="cm-search-input"
-                          placeholder="Search name, roll number, email..."
-                          value={availableStudentSearch}
-                          onChange={(e) => setAvailableStudentSearch(e.target.value)}
-                        />
-                      </div>
+                    <div className="cm-available-header-actions">
+                      <input
+                        type="text"
+                        className="cm-search-input cm-sm"
+                        placeholder="Filter un-enrolled students..."
+                        value={availableStudentSearch}
+                        onChange={(e) => setAvailableStudentSearch(e.target.value)}
+                      />
                       <button
                         type="button"
                         className="cm-btn cm-btn-primary cm-btn-sm"

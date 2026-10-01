@@ -536,9 +536,14 @@ export const AuthProvider = ({ children }) => {
         "ROLE_MISMATCH_LOGIN"
       );
       await firebaseLogoutUser();
-      throw new Error(
+      const mismatchErr = new Error(
         `Role Mismatch: You selected "${selected}", but your account is registered as "${databaseRole}". Please select "${databaseRole}" to log in.`
       );
+      mismatchErr.code = "ROLE_MISMATCH";
+      mismatchErr.selectedRole = selected;
+      mismatchErr.registeredRole = databaseRole;
+      mismatchErr.email = cleanEmail;
+      throw mismatchErr;
     }
 
     // Set role & session in local storage

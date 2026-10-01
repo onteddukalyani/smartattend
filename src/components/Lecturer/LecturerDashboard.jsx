@@ -7,6 +7,7 @@ import Sidebar from './Sidebar'
 import Login from '../login';
 import { RoleFirstLoginGuide } from '../Common/DeviceSetupPage';
 import NotificationHistoryModal from '../Student/NotificationHistoryModal';
+import HelpSupportWidget from '../Common/HelpSupportWidget';
 import { subscribeToFacultyNotifications } from '../../services/notificationsService';
 
 function LecturerDashboard() {
@@ -44,6 +45,7 @@ function LecturerDashboard() {
         <Outlet />
       </div>
       <BottomNav />
+      <HelpSupportWidget />
       <RoleFirstLoginGuide role={profile?.role || "lecturer"} basePath="/lecturer" />
 
       {/* Faculty & Admin Audit Logs Modal */}

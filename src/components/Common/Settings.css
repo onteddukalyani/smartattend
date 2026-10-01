@@ -1,16 +1,16 @@
 /* ==========================================================================
-   SmartAttend Settings Experience (High-End & Responsive Mobile Alignment)
+   SmartAttend Settings Page Stylesheet (High-End, Native-Feel & Responsive)
    ========================================================================== */
 
 .st-settings-page {
-    max-width: 1200px;
+    max-width: 1140px;
     margin: 0 auto;
-    padding: 24px 28px 90px;
+    padding: 24px 24px calc(120px + env(safe-area-inset-bottom, 0px)) !important;
     box-sizing: border-box;
     display: flex;
     flex-direction: column;
-    gap: 24px;
-    animation: stFadeIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    gap: 22px;
+    animation: stFadeIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 @keyframes stFadeIn {
@@ -18,7 +18,6 @@
         opacity: 0;
         transform: translateY(6px);
     }
-
     to {
         opacity: 1;
         transform: translateY(0);
@@ -26,12 +25,12 @@
 }
 
 /* --------------------------------------------------------------------------
-   1. Hero Profile Card Banner
+   1. Hero Profile Banner Card
    -------------------------------------------------------------------------- */
 .st-profile-hero-card {
     background: #ffffff;
     border: 1px solid #e2e8f0;
-    border-radius: 20px;
+    border-radius: 22px;
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.04);
     overflow: hidden;
     position: relative;
@@ -39,23 +38,23 @@
 }
 
 .st-profile-hero-card:hover {
-    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.07);
+    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.06);
 }
 
 .st-hero-cover-gradient {
-    height: 80px;
+    height: 84px;
     background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 50%, #06b6d4 100%);
     position: relative;
 }
 
 .st-hero-body {
-    padding: 0 28px 24px;
+    padding: 0 26px 22px;
     display: flex;
     align-items: flex-end;
     justify-content: space-between;
     gap: 20px;
     position: relative;
-    margin-top: -36px;
+    margin-top: -38px;
 }
 
 .st-hero-profile-group {
@@ -68,13 +67,13 @@
 
 .st-avatar-container {
     position: relative;
-    width: 84px;
-    height: 84px;
-    flex: 0 0 84px;
+    width: 82px;
+    height: 82px;
+    flex: 0 0 82px;
     border-radius: 22px;
     padding: 4px;
     background: #ffffff;
-    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.12);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
     box-sizing: border-box;
 }
 
@@ -95,7 +94,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 34px;
+    font-size: 32px;
     font-weight: 800;
 }
 
@@ -176,7 +175,7 @@
 
 .st-user-name {
     margin: 0;
-    font-size: 24px;
+    font-size: 23px;
     font-weight: 800;
     color: #0f172a;
     letter-spacing: -0.02em;
@@ -194,31 +193,6 @@
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    padding: 4px 14px;
-    border-radius: 999px;
-    background: #ecfdf5;
-    color: #047857;
-    border: 1px solid #a7f3d0;
-    font-size: 12.5px;
-    font-weight: 700;
-    letter-spacing: 0.02em;
-    cursor: pointer;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
-    transition: all 0.2s ease;
-}
-
-.st-edit-name-btn:hover {
-    background: #d1fae5;
-    color: #065f46;
-    border-color: #6ee7b7;
-    transform: translateY(-1px);
-    box-shadow: 0 3px 8px rgba(16, 185, 129, 0.2);
-}
-
-.st-btn-mini-edit {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
     padding: 4px 12px;
     border-radius: 999px;
     background: #ecfdf5;
@@ -227,8 +201,32 @@
     font-size: 12px;
     font-weight: 700;
     cursor: pointer;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
-    transition: all 0.2s ease;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+    transition: all 0.15s ease;
+}
+
+.st-edit-name-btn:hover {
+    background: #d1fae5;
+    color: #065f46;
+    border-color: #6ee7b7;
+    transform: translateY(-1px);
+}
+
+.st-btn-mini-edit {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: #ecfdf5;
+    color: #047857;
+    border: 1px solid #a7f3d0;
+    font-size: 11.5px;
+    font-weight: 700;
+    cursor: pointer;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+    transition: all 0.15s ease;
+    text-decoration: none;
 }
 
 .st-btn-mini-edit:hover {
@@ -236,74 +234,13 @@
     color: #065f46;
     border-color: #6ee7b7;
     transform: translateY(-1px);
-    box-shadow: 0 3px 8px rgba(16, 185, 129, 0.15);
-}
-
-.st-name-edit-form {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    flex-wrap: wrap;
-}
-
-.st-name-edit-input {
-    padding: 7px 14px;
-    border-radius: 10px;
-    border: 2px solid #6366f1;
-    font-size: 1.1rem;
-    font-weight: 700;
-    outline: none;
-    background: var(--surface, #ffffff);
-    color: var(--text-main, #0f172a);
-    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
-}
-
-.st-name-edit-btn-group {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-}
-
-.st-name-save-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    padding: 7px 14px;
-    border-radius: 10px;
-    background: linear-gradient(135deg, #6366f1, #4f46e5);
-    color: #ffffff;
-    border: none;
-    font-weight: 700;
-    font-size: 0.86rem;
-    cursor: pointer;
-    box-shadow: 0 2px 8px rgba(99, 102, 241, 0.3);
-    transition: all 0.2s ease;
-}
-
-.st-name-save-btn:hover:not(:disabled) {
-    transform: translateY(-1px);
-    box-shadow: 0 4px 12px rgba(99, 102, 241, 0.45);
-}
-
-.st-name-cancel-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    padding: 7px 12px;
-    border-radius: 10px;
-    background: var(--surface-soft, #f1f5f9);
-    color: var(--text-muted, #64748b);
-    border: 1px solid var(--border, #cbd5e1);
-    font-weight: 600;
-    font-size: 0.86rem;
-    cursor: pointer;
 }
 
 .st-name-toast-msg {
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    font-size: 0.84rem;
+    font-size: 0.82rem;
     font-weight: 700;
     margin-top: 2px;
     animation: stFadeIn 0.2s ease;
@@ -317,22 +254,22 @@
     color: #dc2626;
 }
 
-/* Role Pill Badge (Icon & Label) */
+/* Role Pill Badges */
 .st-role-pill {
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    padding: 4px 12px;
+    padding: 4px 11px;
     border-radius: 999px;
     font-size: 12px;
     font-weight: 700;
     letter-spacing: 0.02em;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
-    transition: all 0.2s ease;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+    transition: all 0.15s ease;
 }
 
 .st-role-pill svg {
-    font-size: 13px;
+    font-size: 12px;
     flex-shrink: 0;
 }
 
@@ -357,7 +294,7 @@
 .st-hero-meta-row {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 8px;
     flex-wrap: wrap;
 }
 
@@ -365,11 +302,11 @@
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    font-size: 13px;
+    font-size: 12.5px;
     color: #64748b;
     background: #f8fafc;
-    padding: 5px 12px;
-    border-radius: 10px;
+    padding: 5px 11px;
+    border-radius: 9px;
     border: 1px solid #e2e8f0;
     max-width: 100%;
     box-sizing: border-box;
@@ -390,7 +327,7 @@
 }
 
 .st-meta-icon {
-    font-size: 13px;
+    font-size: 12px;
     color: #94a3b8;
     flex-shrink: 0;
 }
@@ -402,12 +339,12 @@
 .st-mini-copy {
     background: transparent;
     border: none;
-    padding: 2px 4px;
+    padding: 2px 3px;
     cursor: pointer;
     color: #94a3b8;
     display: flex;
     align-items: center;
-    font-size: 12px;
+    font-size: 11px;
     transition: color 0.15s ease;
     flex-shrink: 0;
 }
@@ -420,7 +357,7 @@
     color: #10b981 !important;
 }
 
-/* Quick KPI Chips (Horizontal Same-Line Layout) */
+/* Quick KPI Chips */
 .st-hero-quick-kpis {
     display: flex;
     align-items: center;
@@ -436,8 +373,8 @@
     gap: 8px;
     background: #f8fafc;
     border: 1px solid #e2e8f0;
-    padding: 8px 14px;
-    border-radius: 12px;
+    padding: 7px 13px;
+    border-radius: 11px;
     box-sizing: border-box;
     white-space: nowrap;
 }
@@ -446,14 +383,14 @@
     font-size: 11px;
     font-weight: 700;
     text-transform: uppercase;
-    letter-spacing: 0.04em;
+    letter-spacing: 0.03em;
     color: #64748b;
     display: inline-flex;
     align-items: center;
 }
 
 .st-kpi-val {
-    font-size: 13px;
+    font-size: 12.5px;
     font-weight: 700;
     color: #0f172a;
     display: inline-flex;
@@ -471,7 +408,7 @@
 .st-settings-grid {
     display: grid;
     grid-template-columns: repeat(2, 1fr);
-    gap: 24px;
+    gap: 22px;
     align-items: stretch;
 }
 
@@ -479,7 +416,7 @@
     background: #ffffff;
     border: 1px solid #e2e8f0;
     border-radius: 20px;
-    padding: 24px 26px;
+    padding: 22px 24px;
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.03);
     display: flex;
     flex-direction: column;
@@ -489,27 +426,27 @@
 }
 
 .st-card:hover {
-    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.06);
+    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.05);
     border-color: #cbd5e1;
 }
 
 .st-card-header {
     display: flex;
     align-items: center;
-    gap: 14px;
-    margin-bottom: 20px;
-    padding-bottom: 16px;
+    gap: 13px;
+    margin-bottom: 18px;
+    padding-bottom: 14px;
     border-bottom: 1px solid #f1f5f9;
 }
 
 .st-card-header-icon {
-    width: 44px;
-    height: 44px;
-    border-radius: 13px;
+    width: 42px;
+    height: 42px;
+    border-radius: 12px;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 19px;
+    font-size: 18px;
     flex-shrink: 0;
 }
 
@@ -525,7 +462,7 @@
 
 .st-card-title {
     margin: 0 0 2px 0;
-    font-size: 17.5px;
+    font-size: 16.5px;
     font-weight: 800;
     color: #0f172a;
     letter-spacing: -0.01em;
@@ -533,26 +470,24 @@
 
 .st-card-subtitle {
     margin: 0;
-    font-size: 12.5px;
+    font-size: 12px;
     color: #64748b;
 }
 
-/* --------------------------------------------------------------------------
-   Left Card: Details List
-   -------------------------------------------------------------------------- */
 .st-details-list {
     display: flex;
     flex-direction: column;
     gap: 10px;
 }
 
+/* Detail Row (Horizontal Key-Value Pair) */
 .st-detail-row {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 14px;
-    padding: 12px 16px;
-    border-radius: 14px;
+    gap: 12px;
+    padding: 11px 14px;
+    border-radius: 13px;
     background: #f8fafc;
     border: 1px solid #f1f5f9;
     transition: all 0.15s ease;
@@ -567,113 +502,285 @@
 .st-detail-left {
     display: flex;
     align-items: center;
-    gap: 13px;
-    flex: 1;
+    gap: 12px;
+    flex: 1 1 auto;
     min-width: 0;
 }
 
 .st-detail-icon-wrap {
-    width: 38px;
-    height: 38px;
-    border-radius: 11px;
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
     background: #ffffff;
     border: 1px solid #e2e8f0;
     color: #6366f1;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 15px;
-    flex: 0 0 38px;
+    font-size: 14px;
+    flex: 0 0 36px;
 }
 
 .st-detail-info {
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: 1px;
     min-width: 0;
+    flex: 1;
 }
 
 .st-detail-title {
-    font-size: 13.5px;
+    font-size: 13px;
     font-weight: 700;
     color: #1e293b;
     line-height: 1.25;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .st-detail-desc {
-    font-size: 11.5px;
+    font-size: 11px;
     color: #94a3b8;
     line-height: 1.2;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .st-detail-value {
     text-align: right;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 6px;
     flex-shrink: 0;
 }
 
 .st-code-val {
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-    font-size: 13px;
+    font-size: 12.5px;
     font-weight: 800;
     color: #0f172a;
     background: #ffffff;
-    padding: 4px 10px;
-    border-radius: 8px;
+    padding: 3px 9px;
+    border-radius: 7px;
     border: 1px solid #e2e8f0;
     display: inline-block;
 }
 
 .st-text-bold {
-    font-size: 13px;
+    font-size: 12.5px;
     font-weight: 700;
     color: #0f172a;
 }
 
 .st-badge-light {
     font-size: 12px;
-    font-weight: 600;
+    font-weight: 650;
     color: #475569;
     background: #ffffff;
-    padding: 4px 10px;
-    border-radius: 8px;
+    padding: 3px 9px;
+    border-radius: 7px;
     border: 1px solid #e2e8f0;
     display: inline-block;
 }
 
-.st-guest-connect-box {
-    margin-top: 16px;
-    padding-top: 14px;
-    border-top: 1px solid #f1f5f9;
-}
-
-.st-btn-google-connect {
-    width: 100%;
-    min-height: 44px;
+/* --------------------------------------------------------------------------
+   Special Feature Sub-Cards (Device Security & Android APK)
+   -------------------------------------------------------------------------- */
+.st-feature-card {
+    border-radius: 15px;
+    padding: 14px 16px;
     display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    border: none;
-    border-radius: 12px;
-    background: linear-gradient(135deg, #6366f1, #4f46e5);
-    color: #ffffff;
-    font-weight: 700;
-    font-size: 13.5px;
-    cursor: pointer;
-    box-shadow: 0 4px 12px rgba(99, 102, 241, 0.25);
+    flex-direction: column;
+    gap: 12px;
+    box-sizing: border-box;
     transition: all 0.2s ease;
 }
 
-.st-btn-google-connect:hover {
-    transform: translateY(-1px);
-    box-shadow: 0 6px 16px rgba(99, 102, 241, 0.35);
+.st-device-feature-card {
+    background: #f8fafc;
+    border: 1.5px solid #e2e8f0;
 }
 
-.st-login-err {
-    color: #ef4444;
+.st-device-feature-card:hover {
+    border-color: #cbd5e1;
+    background: #f1f5f9;
+}
+
+.st-apk-feature-card {
+    background: linear-gradient(135deg, #eff6ff 0%, #e0f2fe 100%);
+    border: 1.5px solid #93c5fd;
+    box-shadow: 0 4px 14px rgba(37, 99, 235, 0.08);
+}
+
+.st-apk-feature-card:hover {
+    border-color: #60a5fa;
+    box-shadow: 0 6px 18px rgba(37, 99, 235, 0.12);
+}
+
+.st-feature-main {
+    display: flex;
+    align-items: flex-start;
+    gap: 13px;
+    min-width: 0;
+}
+
+.st-feature-icon-wrap {
+    width: 38px;
+    height: 38px;
+    border-radius: 11px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 17px;
+    flex: 0 0 38px;
+}
+
+.st-feature-icon-wrap.device-icon {
+    background: #e0f2fe;
+    color: #0284c7;
+    border: 1px solid #bae6fd;
+}
+
+.st-feature-icon-wrap.apk-icon {
+    background: #2563eb;
+    color: #ffffff;
+    box-shadow: 0 3px 10px rgba(37, 99, 235, 0.25);
+}
+
+.st-feature-text {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+    flex: 1;
+}
+
+.st-feature-title-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.st-feature-title {
+    font-size: 13.5px;
+    font-weight: 800;
+    color: #0f172a;
+    line-height: 1.25;
+}
+
+.st-apk-feature-card .st-feature-title {
+    color: #1e40af;
+}
+
+.st-device-status-badge {
+    font-size: 11px;
+    font-weight: 750;
+    color: #0369a1;
+    background: #f0f9ff;
+    border: 1px solid #bae6fd;
+    padding: 2px 7px;
+    border-radius: 6px;
+    letter-spacing: 0.02em;
+}
+
+.st-apk-badge {
+    font-size: 10.5px;
+    font-weight: 750;
+    color: #1d4ed8;
+    background: #dbeafe;
+    border: 1px solid #bfdbfe;
+    padding: 2px 7px;
+    border-radius: 6px;
+    text-transform: uppercase;
+}
+
+.st-feature-desc {
+    margin: 0;
+    font-size: 11.5px;
+    color: #64748b;
+    line-height: 1.35;
+}
+
+.st-apk-feature-card .st-feature-desc {
+    color: #1e3a8a;
+}
+
+.st-feature-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.st-btn-feature-outline {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 13px;
+    border-radius: 9px;
+    background: #ffffff;
+    color: #334155;
+    border: 1px solid #cbd5e1;
     font-size: 12px;
-    margin: 8px 0 0;
-    text-align: center;
+    font-weight: 700;
+    cursor: pointer;
+    text-decoration: none;
+    transition: all 0.15s ease;
+}
+
+.st-btn-feature-outline:hover {
+    background: #f8fafc;
+    border-color: #94a3b8;
+    color: #0f172a;
+    transform: translateY(-1px);
+}
+
+.st-btn-feature-filled {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 13px;
+    border-radius: 9px;
+    background: #ecfdf5;
+    color: #047857;
+    border: 1px solid #a7f3d0;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.st-btn-feature-filled:hover {
+    background: #d1fae5;
+    color: #065f46;
+    border-color: #6ee7b7;
+    transform: translateY(-1px);
+}
+
+.st-apk-download-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 16px;
+    border-radius: 10px;
+    background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+    color: #ffffff;
+    font-size: 12.5px;
+    font-weight: 750;
+    text-decoration: none;
+    cursor: pointer;
+    box-shadow: 0 3px 10px rgba(37, 99, 235, 0.3);
+    transition: all 0.15s ease;
+}
+
+.st-apk-download-btn:hover {
+    background: linear-gradient(135deg, #1d4ed8 0%, #1e40af 100%);
+    box-shadow: 0 5px 14px rgba(37, 99, 235, 0.4);
+    transform: translateY(-1px);
 }
 
 /* --------------------------------------------------------------------------
@@ -682,21 +789,21 @@
 .st-theme-selector-grid {
     display: grid;
     grid-template-columns: repeat(2, 1fr);
-    gap: 14px;
-    margin-bottom: 20px;
+    gap: 12px;
+    margin-bottom: 18px;
 }
 
 .st-theme-tile {
     border: 2px solid #e2e8f0;
-    border-radius: 16px;
+    border-radius: 15px;
     padding: 12px;
     background: #ffffff;
     cursor: pointer;
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 9px;
     position: relative;
-    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: all 0.18s ease;
     outline: none;
     box-sizing: border-box;
 }
@@ -704,23 +811,22 @@
 .st-theme-tile:hover {
     border-color: #cbd5e1;
     transform: translateY(-2px);
-    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.05);
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.04);
 }
 
 .st-theme-tile.active {
     border-color: #6366f1;
     background: linear-gradient(135deg, rgba(99, 102, 241, 0.04) 0%, rgba(139, 92, 246, 0.02) 100%), #ffffff;
-    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15), 0 6px 18px rgba(99, 102, 241, 0.1);
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15), 0 4px 14px rgba(99, 102, 241, 0.08);
 }
 
-/* Miniature UI Previews */
 .st-theme-preview-box {
-    height: 64px;
+    height: 60px;
     border-radius: 8px;
     overflow: hidden;
     display: flex;
     flex-direction: column;
-    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
 }
 
 .light-preview {
@@ -740,14 +846,14 @@
 }
 
 .light-preview .st-prev-side {
-    width: 20px;
+    width: 18px;
     background: #f8fafc;
     border-right: 1px solid #e2e8f0;
 }
 
 .light-preview .st-prev-main {
     flex: 1;
-    padding: 6px;
+    padding: 5px;
     display: flex;
     flex-direction: column;
     gap: 4px;
@@ -789,14 +895,14 @@
 }
 
 .dark-preview .st-prev-side {
-    width: 20px;
+    width: 18px;
     background: #131b2e;
     border-right: 1px solid #334155;
 }
 
 .dark-preview .st-prev-main {
     flex: 1;
-    padding: 6px;
+    padding: 5px;
     display: flex;
     flex-direction: column;
     gap: 4px;
@@ -834,7 +940,7 @@
 }
 
 .st-theme-icon {
-    font-size: 14px;
+    font-size: 13px;
 }
 
 .light-sun {
@@ -846,15 +952,15 @@
 }
 
 .st-theme-title {
-    font-size: 13.5px;
-    font-weight: 700;
+    font-size: 13px;
+    font-weight: 750;
     color: #0f172a;
 }
 
 .st-theme-desc {
-    font-size: 11.5px;
+    font-size: 11px;
     color: #94a3b8;
-    line-height: 1.35;
+    line-height: 1.3;
 }
 
 .st-theme-active-check {
@@ -862,70 +968,10 @@
     top: 8px;
     right: 8px;
     color: #6366f1;
-    font-size: 17px;
+    font-size: 16px;
     background: #ffffff;
     border-radius: 50%;
     line-height: 1;
-}
-
-/* System Panel */
-.st-system-panel {
-    background: #f8fafc;
-    border: 1px solid #e2e8f0;
-    border-radius: 14px;
-    padding: 14px 16px;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    margin-bottom: 20px;
-    box-sizing: border-box;
-}
-
-.st-sys-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    font-size: 12.5px;
-    gap: 8px;
-}
-
-.st-sys-label {
-    display: flex;
-    align-items: center;
-    gap: 7px;
-    color: #64748b;
-    font-weight: 500;
-    flex-shrink: 0;
-}
-
-.st-sys-icon {
-    font-size: 12px;
-    color: #94a3b8;
-}
-
-.st-sys-val {
-    font-weight: 700;
-    color: #334155;
-    text-align: right;
-}
-
-.st-sys-val.online {
-    color: #059669;
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-}
-
-.st-live-dot {
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    background: #10b981;
-}
-
-.st-code-sm {
-    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-    font-size: 11.5px;
 }
 
 /* Logout Button */
@@ -935,13 +981,13 @@
 
 .st-logout-btn {
     width: 100%;
-    padding: 12px 18px;
-    border-radius: 13px;
+    padding: 11px 16px;
+    border-radius: 12px;
     background: #fff1f2;
     border: 1px solid #fecdd3;
     color: #e11d48;
-    font-size: 13.5px;
-    font-weight: 700;
+    font-size: 13px;
+    font-weight: 750;
     cursor: pointer;
     display: flex;
     align-items: center;
@@ -985,42 +1031,51 @@
 [data-theme="midnight"] .st-detail-title,
 [data-theme="midnight"] .st-text-bold,
 [data-theme="midnight"] .st-theme-title,
+[data-theme="midnight"] .st-feature-title,
 [data-theme="midnight"] .st-kpi-val {
     color: #f8fafc;
 }
 
-/* Midnight Role Pill Badges - Highly Viewable & Luminous */
 [data-theme="midnight"] .st-role-pill.badge-admin {
     background: rgba(99, 102, 241, 0.22);
     color: #c7d2fe;
     border: 1px solid rgba(165, 180, 252, 0.45);
-    box-shadow: 0 0 12px rgba(99, 102, 241, 0.25);
 }
 
 [data-theme="midnight"] .st-role-pill.badge-lecturer {
     background: rgba(14, 165, 233, 0.22);
     color: #bae6fd;
     border: 1px solid rgba(125, 211, 252, 0.45);
-    box-shadow: 0 0 12px rgba(14, 165, 233, 0.25);
 }
 
 [data-theme="midnight"] .st-role-pill.badge-student {
     background: rgba(16, 185, 129, 0.22);
     color: #a7f3d0;
     border: 1px solid rgba(110, 231, 183, 0.45);
-    box-shadow: 0 0 12px rgba(16, 185, 129, 0.25);
 }
 
 [data-theme="midnight"] .st-meta-item,
 [data-theme="midnight"] .st-kpi-chip,
 [data-theme="midnight"] .st-detail-row,
-[data-theme="midnight"] .st-system-panel {
+[data-theme="midnight"] .st-device-feature-card {
     background: #1a233a;
     border-color: #1e293b;
 }
 
-[data-theme="midnight"] .st-card-header,
-[data-theme="midnight"] .st-guest-connect-box {
+[data-theme="midnight"] .st-apk-feature-card {
+    background: linear-gradient(135deg, rgba(30, 58, 138, 0.4) 0%, rgba(37, 99, 235, 0.15) 100%);
+    border-color: rgba(96, 165, 250, 0.4);
+}
+
+[data-theme="midnight"] .st-apk-feature-card .st-feature-title {
+    color: #93c5fd;
+}
+
+[data-theme="midnight"] .st-apk-feature-card .st-feature-desc {
+    color: #bfdbfe;
+}
+
+[data-theme="midnight"] .st-card-header {
     border-color: #1e293b;
 }
 
@@ -1050,44 +1105,29 @@
     background: #131b2e;
 }
 
-[data-theme="midnight"] .st-sys-val {
+[data-theme="midnight"] .st-edit-name-btn,
+[data-theme="midnight"] .st-btn-mini-edit,
+[data-theme="midnight"] .st-btn-feature-filled {
+    background: rgba(16, 185, 129, 0.2);
+    color: #a7f3d0;
+    border-color: rgba(110, 231, 183, 0.4);
+}
+
+[data-theme="midnight"] .st-btn-feature-outline {
+    background: #131b2e;
+    border-color: #334155;
     color: #e2e8f0;
 }
 
-[data-theme="midnight"] .st-edit-name-btn {
-    background: rgba(16, 185, 129, 0.22);
-    color: #a7f3d0;
-    border: 1px solid rgba(110, 231, 183, 0.45);
-    box-shadow: 0 0 12px rgba(16, 185, 129, 0.25);
-}
-
-[data-theme="midnight"] .st-edit-name-btn:hover {
-    background: rgba(16, 185, 129, 0.35);
-    color: #ffffff;
-    border-color: #6ee7b7;
-}
-
-[data-theme="midnight"] .st-btn-mini-edit {
-    background: rgba(16, 185, 129, 0.22);
-    color: #a7f3d0;
-    border: 1px solid rgba(110, 231, 183, 0.45);
-}
-
-[data-theme="midnight"] .st-btn-mini-edit:hover {
-    background: rgba(16, 185, 129, 0.35);
-    color: #ffffff;
+[data-theme="midnight"] .st-btn-feature-outline:hover {
+    background: #1a233a;
+    border-color: #475569;
 }
 
 [data-theme="midnight"] .st-name-modal-box {
     background: #131b2e !important;
     border-color: #1e293b !important;
     color: #f8fafc !important;
-}
-
-[data-theme="midnight"] .st-name-edit-input {
-    background: #1a233a;
-    border-color: #6366f1;
-    color: #f8fafc;
 }
 
 [data-theme="midnight"] .st-logout-btn {
@@ -1102,9 +1142,9 @@
 }
 
 /* --------------------------------------------------------------------------
-   Responsive Layout & Mobile Optimization
+   Responsive Layout & Mobile Perfection
    -------------------------------------------------------------------------- */
-@media (max-width: 900px) {
+@media (max-width: 920px) {
     .st-settings-grid {
         grid-template-columns: 1fr;
         gap: 18px;
@@ -1134,14 +1174,14 @@
     }
 }
 
-@media (max-width: 800px) {
+@media (max-width: 768px) {
     .st-settings-page {
-        padding: 16px 14px calc(88px + env(safe-area-inset-bottom, 0px)) !important;
+        padding: 16px 14px calc(120px + env(safe-area-inset-bottom, 0px)) !important;
         gap: 16px;
     }
 
     .st-hero-cover-gradient {
-        height: 70px;
+        height: 72px;
     }
 
     .st-avatar-container {
@@ -1152,24 +1192,16 @@
     }
 
     .st-hero-avatar-initial {
-        font-size: 28px;
+        font-size: 27px;
     }
 
     .st-hero-body {
-        padding: 0 16px 18px;
+        padding: 0 16px 16px;
         margin-top: -32px;
     }
 
     .st-user-name {
-        font-size: 20px;
-    }
-
-    .st-hero-title-row {
-        gap: 8px;
-    }
-
-    .st-hero-meta-row {
-        gap: 8px;
+        font-size: 19px;
     }
 
     .st-card {
@@ -1178,22 +1210,35 @@
     }
 
     .st-card-header {
-        margin-bottom: 16px;
-        padding-bottom: 14px;
+        margin-bottom: 14px;
+        padding-bottom: 12px;
+    }
+
+    .st-detail-row {
+        padding: 10px 12px;
+        gap: 10px;
+    }
+
+    .st-detail-icon-wrap {
+        width: 32px;
+        height: 32px;
+        flex: 0 0 32px;
+        font-size: 13px;
+        border-radius: 9px;
     }
 }
 
-@media (max-width: 540px) {
+@media (max-width: 520px) {
     .st-hero-profile-group {
         flex-direction: column;
         align-items: flex-start;
-        gap: 12px;
+        gap: 10px;
     }
 
     .st-hero-meta-row {
         flex-direction: column;
         align-items: stretch;
-        gap: 8px;
+        gap: 7px;
         width: 100%;
     }
 
@@ -1203,7 +1248,7 @@
     }
 
     .st-meta-text {
-        max-width: calc(100% - 30px);
+        max-width: calc(100% - 28px);
     }
 
     .st-hero-quick-kpis {
@@ -1216,34 +1261,18 @@
         gap: 10px;
     }
 
-    .st-detail-row {
-        padding: 10px 12px;
-        gap: 10px;
-    }
-
-    .st-detail-left {
-        gap: 10px;
-    }
-
-    .st-detail-icon-wrap {
-        width: 34px;
-        height: 34px;
-        border-radius: 9px;
-        flex: 0 0 34px;
-        font-size: 13px;
-    }
-
-    .st-detail-title {
-        font-size: 12.5px;
-    }
-
     .st-detail-desc {
-        font-size: 10.5px;
+        display: none; /* Keep simple key-value rows compact on small mobile screens */
     }
 
-    .st-code-val,
-    .st-badge-light,
-    .st-text-bold {
-        font-size: 12px;
+    .st-feature-actions {
+        width: 100%;
+    }
+
+    .st-btn-feature-outline,
+    .st-btn-feature-filled,
+    .st-apk-download-btn {
+        flex: 1;
+        justify-content: center;
     }
 }

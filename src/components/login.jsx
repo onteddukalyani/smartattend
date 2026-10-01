@@ -7,7 +7,10 @@ import {
   FaUserTie,
   FaChalkboardTeacher,
   FaUserGraduate,
-  FaGraduationCap
+  FaGraduationCap,
+  FaExclamationTriangle,
+  FaExchangeAlt,
+  FaShieldAlt
 } from "react-icons/fa";
 
 import { useAuth } from "./authcontext";
@@ -23,47 +26,46 @@ const Login = () => {
 
   const [selectedRole, setSelectedRole] = useState("");
   const [error, setError] = useState("");
+  const [roleMismatch, setRoleMismatch] = useState(null);
   const [loading, setLoading] = useState(false);
-
 
   // =====================================================
   // SELECT ROLE
   // =====================================================
 
   const handleRoleSelect = (role) => {
-
     setSelectedRole(role);
     setError("");
-
+    setRoleMismatch(null);
   };
-
 
   // =====================================================
   // GOOGLE LOGIN
   // =====================================================
 
-  const handleGoogleLogin = async () => {
+  const handleGoogleLogin = async (overrideRole) => {
+    const roleToUse = overrideRole || selectedRole;
     try {
       setError("");
+      setRoleMismatch(null);
 
-      if (!selectedRole) {
+      if (!roleToUse) {
         setError("Please select a role before signing in.");
         return;
       }
 
       setLoading(true);
 
-      console.log("LOGIN PAGE ROLE:", selectedRole);
+      console.log("LOGIN PAGE ROLE:", roleToUse);
 
-      const authorizedUser =
-        await loginWithGoogle(selectedRole);
+      const authorizedUser = await loginWithGoogle(roleToUse);
 
       console.log(
         "LOGIN SUCCESS:",
         authorizedUser
       );
 
-      const roleTarget = String(authorizedUser?.role || selectedRole || "student").toLowerCase().trim();
+      const roleTarget = String(authorizedUser?.role || roleToUse || "student").toLowerCase().trim();
       const pendingRedirect = sessionStorage.getItem("smartattend_redirect_after_login");
 
       if (roleTarget === "admin" || roleTarget === "administrator" || roleTarget === "superadmin") {
@@ -95,15 +97,26 @@ const Login = () => {
         }
       }
 
-    } catch (error) {
+    } catch (err) {
       console.error(
         "LOGIN ERROR:",
-        error
+        err
       );
 
-      setError(
-        error.message || "Login failed."
-      );
+      // Detect role mismatch
+      if (err.code === "ROLE_MISMATCH" || (err.message && err.message.toLowerCase().includes("role mismatch"))) {
+        const regRole = err.registeredRole || (err.message.match(/registered as "([^"]+)"/i)?.[1]) || "";
+        const selRole = err.selectedRole || roleToUse;
+        setRoleMismatch({
+          selectedRole: selRole,
+          registeredRole: regRole,
+          message: err.message
+        });
+        setError("");
+      } else {
+        setRoleMismatch(null);
+        setError(err.message || "Login failed.");
+      }
 
     } finally {
       setLoading(false);
@@ -175,26 +188,56 @@ const Login = () => {
           </p>
 
 
-          {/* ERROR */}
+          {/* ROLE MISMATCH ALERT CARD */}
+          {roleMismatch && (
+            <div className="login-role-mismatch-box" role="alert">
+              <div className="mismatch-box-top">
+                <div className="mismatch-box-icon">
+                  <FaShieldAlt />
+                </div>
+                <div>
+                  <h4 className="mismatch-box-title">Role Mismatch Detected</h4>
+                  <p className="mismatch-box-sub">
+                    You selected <strong className="mismatch-highlight red">{roleMismatch.selectedRole.toUpperCase()}</strong>, but your email is registered as an <strong className="mismatch-highlight green">{roleMismatch.registeredRole.toUpperCase()}</strong> in the institution directory.
+                  </p>
+                </div>
+              </div>
 
-          {error && (
-
-            <p
-              className="login-error"
-              role="alert"
-            >
-              {error}
-            </p>
-
+              <div className="mismatch-box-actions">
+                <button
+                  type="button"
+                  className="mismatch-switch-btn"
+                  onClick={() => {
+                    const targetRole = roleMismatch.registeredRole;
+                    setSelectedRole(targetRole);
+                    setRoleMismatch(null);
+                    setError("");
+                    handleGoogleLogin(targetRole);
+                  }}
+                  disabled={loading}
+                >
+                  <FaExchangeAlt />
+                  <span>
+                    Switch to {roleMismatch.registeredRole.charAt(0).toUpperCase() + roleMismatch.registeredRole.slice(1)} &amp; Sign In
+                  </span>
+                </button>
+              </div>
+            </div>
           )}
 
+          {/* STANDARD ERROR CARD */}
+          {error && !roleMismatch && (
+            <div className="login-error-box" role="alert">
+              <FaExclamationTriangle className="login-error-icon" />
+              <span>{error}</span>
+            </div>
+          )}
 
           {/* =================================================
               ROLE BUTTONS
           ================================================= */}
 
           <div className="role-selection">
-
 
             {/* ADMIN */}
 
@@ -295,7 +338,7 @@ const Login = () => {
               <button
                 type="button"
                 className="login-button login-button-google"
-                onClick={handleGoogleLogin}
+                onClick={() => handleGoogleLogin()}
                 disabled={loading}
               >
 

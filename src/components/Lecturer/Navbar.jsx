@@ -2,7 +2,8 @@ import {
     FaBars,
     FaTimes,
     FaUser,
-    FaBell
+    FaBell,
+    FaHeadset
 } from "react-icons/fa";
 import React, { useState } from "react";
 import { Link } from "react-router-dom";
@@ -30,6 +31,27 @@ function Navbar({ sidebarHidden, onMenuClick, unreadCount = 0, onNotifClick }) {
             </div>
 
             <div className="right-nav">
+                <Link
+                    to="/lecturer/support"
+                    className="nav-support-link-btn"
+                    title="Helpdesk, Feedback & Issue Reporting"
+                    style={{
+                        background: "#f1f5f9",
+                        borderRadius: "12px",
+                        width: "40px",
+                        height: "40px",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        color: "#475569",
+                        fontSize: "1.05rem",
+                        marginRight: "8px",
+                        textDecoration: "none"
+                    }}
+                >
+                    <FaHeadset />
+                </Link>
+
                 <button
                     type="button"
                     className="nav-notif-btn"

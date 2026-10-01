@@ -14,7 +14,8 @@ import {
   FaSignOutAlt,
   FaTimes,
   FaGraduationCap,
-  FaQrcode
+  FaQrcode,
+  FaHeadset
 } from "react-icons/fa";
 import { useAuth } from "../authcontext";
 
@@ -40,6 +41,7 @@ const AdminSidebar = ({ isOpen, onClose }) => {
     { path: "/admin/courses", label: "Courses", icon: FaBookOpen },
     { path: "/admin/attendance", label: "Attendance", icon: FaClipboardCheck },
     { path: "/admin/classes", label: "Classes", icon: FaChalkboard },
+    { path: "/admin/support", label: "Help & Ticket Desk", icon: FaHeadset },
     { path: "/admin/settings", label: "Settings", icon: FaCog }
   ];
 

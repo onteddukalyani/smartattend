@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { db } from '../../firebase';
-import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
-import { FaShieldAlt, FaCheck, FaTimes, FaExclamationTriangle } from 'react-icons/fa';
+import { doc, updateDoc, setDoc, getDoc, arrayUnion, increment, serverTimestamp } from 'firebase/firestore';
+import { FaShieldAlt, FaCheck, FaTimes, FaExclamationTriangle, FaTrashAlt } from 'react-icons/fa';
 import { sendStudentNotification } from '../../services/notificationsService';
 
 export default function ViolationReviewModal({ violation, onClose, onActionComplete }) {
@@ -12,25 +12,101 @@ export default function ViolationReviewModal({ violation, onClose, onActionCompl
     const handleDecision = async (status, reviewNotes) => {
         setActionLoading(true);
         try {
-            const recordRef = doc(db, 'attendance_records', violation.id);
-            await updateDoc(recordRef, {
-                status: status, // 'APPROVED' or 'REJECTED'
-                reviewedByRole: 'LECTURER',
-                reviewNotes: reviewNotes || 'Reviewed by instructor',
-                reviewedAt: serverTimestamp()
-            });
+            const studentRoll = (violation.rollNo || violation.rollNumber || violation.studentUid || "").toString().trim().toUpperCase();
+            const studentUid = violation.studentUid || violation.id || studentRoll;
+            const studentName = violation.studentName || violation.name || studentRoll;
+            const studentEmail = (violation.studentEmail || violation.email || "").toString().trim().toLowerCase();
+            const sessionId = violation.sessionId || (violation.id && violation.id.includes("_") ? violation.id.split("_")[0] : null);
 
-            // Notify the student about the decision in real-time
-            const studentRoll = violation.rollNo || violation.rollNumber || violation.studentUid;
-            if (studentRoll) {
-                const statusLabel = status === 'APPROVED' ? 'Approved ✅' : 'Rejected (Absent) ❌';
+            // 1. Update attendance record
+            const recordRef = doc(db, 'attendance_records', violation.id);
+            await setDoc(recordRef, {
+                status: status, // 'APPROVED' | 'REJECTED' | 'DISMISSED'
+                verificationStatus: status === 'APPROVED' ? 'VERIFIED' : 'REJECTED',
+                flagged: false,
+                disqualified: status === 'REJECTED',
+                hasViolation: false,
+                reviewed: true,
+                reviewedByRole: 'LECTURER',
+                reviewNotes: reviewNotes || (status === 'APPROVED' ? 'Pardoned by lecturer' : status === 'DISMISSED' ? 'Dismissed by lecturer' : 'Rejected by lecturer'),
+                reviewedAt: serverTimestamp(),
+                excused: status === 'APPROVED',
+                dismissed: status === 'DISMISSED',
+                faceVerified: status === 'APPROVED' ? true : (violation.faceVerified ?? false)
+            }, { merge: true });
+
+            // 2. Update session doc: clean flaggedViolations array & update attendees
+            if (sessionId) {
+                try {
+                    const sessionRef = doc(db, 'attendance_sessions', sessionId);
+                    const sessionSnap = await getDoc(sessionRef);
+                    if (sessionSnap.exists()) {
+                        const sessData = sessionSnap.data();
+                        const sessionUpdate = {};
+
+                        // Remove from flaggedViolations array so it never appears in pending review lists
+                        if (Array.isArray(sessData?.flaggedViolations)) {
+                            sessionUpdate.flaggedViolations = sessData.flaggedViolations.filter((f) => {
+                                const fRoll = (f.rollNo || f.studentUid || "").toUpperCase().trim();
+                                return fRoll !== studentRoll && fRoll !== studentUid.toUpperCase() && f.id !== violation.id;
+                            });
+                        }
+
+                        // If approved, ensure student is added to the session's attendees array
+                        if (status === 'APPROVED') {
+                            const alreadyPresent = Array.isArray(sessData?.attendees) && sessData.attendees.some(
+                                (a) => (a.rollNo || a.studentUid || "").toUpperCase().trim() === studentRoll
+                            );
+
+                            const attendeePayload = {
+                                id: violation.id,
+                                rollNo: studentRoll,
+                                studentName: studentName,
+                                fullName: studentName,
+                                email: studentEmail,
+                                faceVerified: true,
+                                excused: true,
+                                status: 'APPROVED',
+                                submittedAt: violation.submittedAt || violation.timestamp || Date.now()
+                            };
+
+                            sessionUpdate.attendees = arrayUnion(attendeePayload);
+                            if (!alreadyPresent) {
+                                sessionUpdate.attendanceCount = increment(1);
+                            }
+                        }
+
+                        if (Object.keys(sessionUpdate).length > 0) {
+                            await updateDoc(sessionRef, sessionUpdate).catch(() => {});
+                        }
+
+                        // Also update authorization subcollection
+                        const authRef = doc(db, 'attendance_sessions', sessionId, 'authorizations', studentUid);
+                        await setDoc(authRef, {
+                            status: status === 'APPROVED' ? 'ATTENDED' : 'REVIEWED',
+                            released: true,
+                            releaseStatus: 'RELEASED',
+                            flagged: false,
+                            disqualified: false,
+                            reviewed: true,
+                            excused: status === 'APPROVED'
+                        }, { merge: true }).catch(() => {});
+                    }
+                } catch (sessErr) {
+                    console.warn("Session update notice in ViolationReviewModal:", sessErr);
+                }
+            }
+
+            // 3. Notify the student about the decision in real-time
+            if (studentRoll && status !== 'DISMISSED') {
+                const statusLabel = status === 'APPROVED' ? 'Approved (Present) ✅' : 'Rejected (Absent) ❌';
                 await sendStudentNotification(
                     studentRoll,
-                    'Flagged Attendance Reviewed',
-                    `Your flagged attendance attempt for ${violation.classCode || violation.courseCode || 'class'} was ${statusLabel} by Lecturer.`,
+                    'Attendance Update',
+                    `Your attendance for ${violation.classCode || violation.courseCode || 'class'} was reviewed and marked as ${statusLabel} by your teacher.`,
                     'VIOLATION_DECISION',
-                    'Lecturer'
-                );
+                    'lecturer'
+                ).catch(() => {});
             }
 
             if (onActionComplete) onActionComplete(violation.id, status);
@@ -51,7 +127,7 @@ export default function ViolationReviewModal({ violation, onClose, onActionCompl
         }}>
             <div style={{
                 backgroundColor: '#ffffff', borderRadius: '20px', padding: '28px',
-                maxWidth: '500px', width: '100%', boxShadow: '0 20px 40px rgba(0,0,0,0.2)',
+                maxWidth: '520px', width: '100%', boxShadow: '0 20px 40px rgba(0,0,0,0.2)',
                 border: '1px solid #e2e8f0', animation: 'dashFadeIn 0.25s ease'
             }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px', color: '#ef4444', marginBottom: '18px' }}>
@@ -92,38 +168,54 @@ export default function ViolationReviewModal({ violation, onClose, onActionCompl
                     </div>
                 </div>
 
-                <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
-                    <button 
+                <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                    <button
                         type="button"
                         onClick={onClose}
                         disabled={actionLoading}
                         style={{
-                            padding: '11px 18px', borderRadius: '12px', border: '1px solid #cbd5e1',
-                            backgroundColor: '#ffffff', color: '#475569', fontWeight: '700', cursor: 'pointer'
+                            padding: '10px 16px', borderRadius: '12px', border: '1px solid #cbd5e1',
+                            backgroundColor: '#ffffff', color: '#475569', fontWeight: '700', cursor: 'pointer',
+                            fontSize: '0.86rem'
                         }}>
                         Cancel
                     </button>
-                    <button 
+                    <button
+                        type="button"
+                        onClick={() => handleDecision('DISMISSED', 'Violation dismissed / false flag removed')}
+                        disabled={actionLoading}
+                        style={{
+                            padding: '10px 14px', borderRadius: '12px', border: '1px solid #cbd5e1',
+                            backgroundColor: '#f1f5f9', color: '#475569', fontWeight: '700', cursor: 'pointer',
+                            display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.86rem'
+                        }}
+                        title="Remove violation from review list without modifying attendance status"
+                    >
+                        <FaTrashAlt style={{ fontSize: '0.78rem' }} /> Dismiss Flag
+                    </button>
+                    <button
                         type="button"
                         onClick={() => handleDecision('REJECTED', 'Violation confirmed by lecturer')}
                         disabled={actionLoading}
                         style={{
-                            padding: '11px 18px', borderRadius: '12px', border: 'none',
+                            padding: '10px 16px', borderRadius: '12px', border: 'none',
                             backgroundColor: '#ef4444', color: '#ffffff', fontWeight: '700', cursor: 'pointer',
-                            display: 'flex', alignItems: 'center', gap: '6px', boxShadow: '0 4px 12px rgba(239,68,68,0.3)'
+                            display: 'flex', alignItems: 'center', gap: '6px', boxShadow: '0 4px 12px rgba(239,68,68,0.3)',
+                            fontSize: '0.86rem'
                         }}>
                         <FaTimes /> Reject (Absent)
                     </button>
-                    <button 
+                    <button
                         type="button"
                         onClick={() => handleDecision('APPROVED', 'Violation forgiven by lecturer')}
                         disabled={actionLoading}
                         style={{
-                            padding: '11px 18px', borderRadius: '12px', border: 'none',
+                            padding: '10px 18px', borderRadius: '12px', border: 'none',
                             backgroundColor: '#10b981', color: '#ffffff', fontWeight: '700', cursor: 'pointer',
-                            display: 'flex', alignItems: 'center', gap: '6px', boxShadow: '0 4px 12px rgba(16,185,129,0.3)'
+                            display: 'flex', alignItems: 'center', gap: '6px', boxShadow: '0 4px 12px rgba(16,185,129,0.3)',
+                            fontSize: '0.86rem'
                         }}>
-                        <FaCheck /> Approve
+                        <FaCheck /> Approve (Present)
                     </button>
                 </div>
             </div>

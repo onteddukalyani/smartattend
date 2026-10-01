@@ -762,10 +762,10 @@ function QrScannerApp() {
             try {
                 await sendStudentNotification(
                     loggedInRollNo,
-                    '🚨 Unauthorized Device Mismatch',
-                    `Attendance Blocked: Your account is registered with a ${regLabel}, but you attempted attendance using a ${curLabel} (IP: ${clientIp}).\n\nProxy attempts are strictly prohibited. If you changed your phone, please contact your Lecturer or Administrator to reset your device preference.`,
+                    '⚠️ Different Phone Detected',
+                    `Attendance could not be marked because your account is linked to a ${regLabel}, but you scanned using a ${curLabel}.\n\nIf you got a new phone, please ask your teacher or administrator to reset your registered phone.`,
                     'SECURITY_ALERT',
-                    'Anti-Proxy Sentinel'
+                    'Attendance Security'
                 );
             } catch (e) {
                 console.warn('Student notif notice:', e);
@@ -1442,9 +1442,27 @@ function QrScannerApp() {
                 <h2 style={{ fontSize: '1.45rem', fontWeight: 800, margin: '0 0 6px 0', color: '#15803d' }}>
                     Attendance Submitted — Waiting for Lecturer Release
                 </h2>
-                <p style={{ color: '#4338ca', fontSize: '0.92rem', fontWeight: 700, margin: '0 0 18px 0' }}>
+                <p style={{ color: '#4338ca', fontSize: '0.92rem', fontWeight: 700, margin: '0 0 14px 0' }}>
                     {isIOSDevice() ? '🔒 Apple Guided Access Session Active' : '🔒 Android Enterprise Lock Task Mode Active'}
                 </p>
+
+                {/* Zero-Tolerance App Switching Notice during Post-Attendance Lock */}
+                <div style={{
+                    margin: '0 0 16px 0',
+                    padding: '12px 16px',
+                    borderRadius: '14px',
+                    background: '#fef2f2',
+                    border: '1px solid #fecaca',
+                    color: '#991b1b',
+                    textAlign: 'left',
+                    fontSize: '0.82rem',
+                    lineHeight: 1.45
+                }}>
+                    <strong style={{ color: '#b91c1c', display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '2px' }}>
+                        <FaShieldAlt /> Attendance Lock Mode Active:
+                    </strong>
+                    Do <strong>NOT</strong> attempt to exit or switch apps while waiting for release. Your device remains under attendance supervision until the lecturer releases the class with the Session PIN.
+                </div>
 
                 {/* On iOS: Guided Access Exit Guidance Notice */}
                 {isIOSDevice() && <GuidedAccessExitNotice />}
@@ -1723,9 +1741,24 @@ function QrScannerApp() {
                 <h2 style={{ margin: '0 0 6px 0', fontSize: '1.4rem', fontWeight: 800 }}>
                     Face Biometric Verification
                 </h2>
-                <p style={{ margin: '0 0 16px 0', color: 'var(--text-muted, #64748b)', fontSize: '0.86rem' }}>
+                <p style={{ margin: '0 0 12px 0', color: 'var(--text-muted, #64748b)', fontSize: '0.86rem' }}>
                     Position your face within the frame. Blink naturally to confirm liveness.
                 </p>
+
+                {/* Biometric Anti-Escape Alert */}
+                <div style={{
+                    margin: '0 0 14px 0',
+                    padding: '10px 14px',
+                    borderRadius: '12px',
+                    background: '#fef2f2',
+                    border: '1px solid #fecaca',
+                    color: '#991b1b',
+                    fontSize: '0.8rem',
+                    fontWeight: 700,
+                    lineHeight: 1.4
+                }}>
+                    ⚠️ <strong>Do NOT switch apps:</strong> Face verification must complete in this active session. Switching apps now will immediately disqualify your attendance!
+                </div>
 
                 {/* Face Scanner Component */}
                 <FaceScanner
@@ -1910,9 +1943,27 @@ function QrScannerApp() {
                 <h2 style={{ margin: '0 0 6px 0', fontSize: '1.35rem', fontWeight: 800 }}>
                     Attendance Session Verified
                 </h2>
-                <p style={{ margin: '0 0 16px 0', color: 'var(--text-muted, #64748b)', fontSize: '0.86rem' }}>
+                <p style={{ margin: '0 0 14px 0', color: 'var(--text-muted, #64748b)', fontSize: '0.86rem' }}>
                     You are <strong>AUTHORIZED</strong> for this session ({loggedInRollNo} · {loggedInName}).
                 </p>
+
+                {/* Anti-Escape Warning Banner */}
+                <div style={{
+                    margin: '0 0 16px 0',
+                    padding: '12px 16px',
+                    borderRadius: '14px',
+                    background: '#fef2f2',
+                    border: '1.5px solid #fca5a5',
+                    color: '#991b1b',
+                    textAlign: 'left',
+                    fontSize: '0.82rem',
+                    lineHeight: 1.45
+                }}>
+                    <div style={{ fontWeight: 800, color: '#b91c1c', display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '2px' }}>
+                        <FaExclamationTriangle /> Zero-Tolerance Anti-Escape Active:
+                    </div>
+                    Do <strong>NOT</strong> switch apps, minimize, or open other applications. Even <strong>ONE</strong> violation will permanently <strong>DISQUALIFY</strong> your attendance! Keep this screen open until you scan QR 2.
+                </div>
 
                 {/* Instruction Callout */}
                 <div style={{
@@ -2125,29 +2176,6 @@ function QrScannerApp() {
                 >
                     <FaArrowLeft /> Back to Dashboard
                 </button>
-
-                <button
-                    type="button"
-                    onClick={() => {
-                        setFacingMode((prev) => (prev === 'environment' ? 'user' : 'environment'));
-                        setRetryKey((k) => k + 1);
-                    }}
-                    style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '6px',
-                        padding: '6px 12px',
-                        borderRadius: '8px',
-                        background: 'var(--surface-soft, #f1f5f9)',
-                        border: '1px solid var(--border, #cbd5e1)',
-                        color: 'var(--text-main, #334155)',
-                        fontSize: '0.78rem',
-                        fontWeight: 700,
-                        cursor: 'pointer'
-                    }}
-                >
-                    <FaSyncAlt /> {facingMode === 'environment' ? 'Rear Cam' : 'Front Cam'}
-                </button>
             </div>
 
             {/* Icon & Title */}
@@ -2172,6 +2200,26 @@ function QrScannerApp() {
             <p style={{ margin: '0 0 16px 0', color: 'var(--text-muted, #64748b)', fontSize: '0.88rem' }}>
                 Point camera at the attendance QR code displayed on the lecturer screen.
             </p>
+
+            {/* Zero-Tolerance Anti-Escape / App Switching Policy Banner */}
+            <div style={{
+                margin: '0 0 18px 0',
+                padding: '14px 16px',
+                borderRadius: '16px',
+                background: 'linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%)',
+                border: '1.5px solid #fca5a5',
+                color: '#991b1b',
+                textAlign: 'left',
+                boxShadow: '0 4px 14px rgba(220, 38, 38, 0.1)'
+            }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 800, fontSize: '0.9rem', color: '#b91c1c', marginBottom: '4px' }}>
+                    <FaExclamationTriangle style={{ color: '#dc2626', fontSize: '1.1rem' }} />
+                    <span>ZERO-TOLERANCE SECURITY POLICY</span>
+                </div>
+                <p style={{ margin: 0, fontSize: '0.82rem', lineHeight: 1.45, color: '#7f1d1d' }}>
+                    Do <strong>NOT</strong> switch apps, minimize, or open other applications. Even <strong>ONE</strong> app switch or backgrounding violation will automatically <strong>DISQUALIFY</strong> your attendance across QR 1, throughout Kiosk lock mode, during QR 2 face verification, and until the lecturer officially releases the class!
+                </p>
+            </div>
 
             {/* Student Info Pill */}
             {user && (
