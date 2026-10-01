@@ -143,6 +143,14 @@ service cloud.firestore {
       }
     }
 
+    match /app_updates/{docId} {
+      allow read: if true;
+      allow write: if true;
+      match /{document=**} {
+        allow read, write: if true;
+      }
+    }
+
     // =========================================================================
     // ATTENDANCE SESSIONS & SECURITY TOKENS
     // =========================================================================

@@ -29,16 +29,25 @@ import {
     FaDownload,
     FaHeadset,
     FaCommentDots,
-    FaBug
+    FaBug,
+    FaSyncAlt,
+    FaRocket
 } from "react-icons/fa";
 import { doc, onSnapshot } from "firebase/firestore";
+import { Capacitor } from "@capacitor/core";
 import { db } from "../../firebase";
 import { useAuth } from "../authcontext";
 import ProfilePhotoModal from "./ProfilePhotoModal";
 import DeviceOnboardingModal from "../Student/DeviceOnboardingModal";
 import SupportFeedbackModal from "./SupportFeedbackModal";
+import AppUpdateModal from "./AppUpdateModal";
 import { normalizeBranchName } from "../../utils/studentDataHelper";
 import { getApkDownloadUrl } from "../../utils/apkUrl";
+import {
+    checkForAppUpdate,
+    CURRENT_APP_VERSION,
+    CURRENT_APP_VERSION_CODE
+} from "../../services/appUpdateService";
 import "./Settings.css";
 
 function Settings() {
@@ -89,6 +98,31 @@ function Settings() {
     // Support & Feedback Modal State
     const [showSupportModal, setShowSupportModal] = useState(false);
     const [supportModalTab, setSupportModalTab] = useState("feedback");
+
+    // App Version & In-App Update State
+    const [checkingUpdate, setCheckingUpdate] = useState(false);
+    const [updateCheckResult, setUpdateCheckResult] = useState("");
+    const [updateModalInfo, setUpdateModalInfo] = useState(null);
+
+    const handleManualUpdateCheck = async () => {
+        try {
+            setCheckingUpdate(true);
+            setUpdateCheckResult("");
+            const info = await checkForAppUpdate();
+            if (info && info.hasUpdate) {
+                setUpdateModalInfo(info);
+                setUpdateCheckResult(`Update Available: v${info.latestVersion}`);
+            } else {
+                setUpdateCheckResult(`SmartAttend is up-to-date (v${CURRENT_APP_VERSION})`);
+                setTimeout(() => setUpdateCheckResult(""), 4500);
+            }
+        } catch (e) {
+            setUpdateCheckResult(`Could not check updates: ${e.message || "Network error"}`);
+            setTimeout(() => setUpdateCheckResult(""), 4500);
+        } finally {
+            setCheckingUpdate(false);
+        }
+    };
 
     useEffect(() => {
         document.documentElement.dataset.theme = theme;
@@ -632,7 +666,7 @@ function Settings() {
                             </div>
                         </div>
 
-                        {/* Android APK Direct Download Card */}
+                        {/* Android APK & In-App Updates Card */}
                         <div className="st-feature-card st-apk-feature-card">
                             <div className="st-feature-main">
                                 <div className="st-feature-icon-wrap apk-icon">
@@ -640,18 +674,39 @@ function Settings() {
                                 </div>
                                 <div className="st-feature-text">
                                     <div className="st-feature-title-row">
-                                        <span className="st-feature-title">SmartAttend Android APK</span>
-                                        <span className="st-apk-badge">Official Release</span>
+                                        <span className="st-feature-title">SmartAttend Mobile App &amp; Updates</span>
+                                        <span className="st-apk-badge">
+                                            v{CURRENT_APP_VERSION} (Build {CURRENT_APP_VERSION_CODE})
+                                        </span>
                                     </div>
-                                    <p className="st-feature-desc">Official Android App Installer (.apk) for direct testing &amp; deployment</p>
+                                    <p className="st-feature-desc">
+                                        {Capacitor.isNativePlatform()
+                                            ? "Android APK Native Installation & In-App Auto Update Checker"
+                                            : "Official Android App Installer (.apk) for direct testing & deployment"}
+                                    </p>
+                                    {updateCheckResult && (
+                                        <div className={`st-update-inline-toast ${updateCheckResult.includes("up-to-date") ? "success" : "info"}`}>
+                                            <FaCheckCircle /> <span>{updateCheckResult}</span>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                             <div className="st-feature-actions">
+                                <button
+                                    type="button"
+                                    className="st-btn-feature-filled"
+                                    onClick={handleManualUpdateCheck}
+                                    disabled={checkingUpdate}
+                                    title="Check for newer APK releases"
+                                >
+                                    {checkingUpdate ? <FaSpinner className="st-spin-icon" /> : <FaSyncAlt />}
+                                    <span>{checkingUpdate ? "Checking..." : "Check for Updates"}</span>
+                                </button>
                                 <a
                                     href={getApkDownloadUrl()}
                                     download="SmartAttend-release.apk"
                                     className="st-apk-download-btn"
-                                    title="Download Android APK"
+                                    title="Download Latest Android APK"
                                 >
                                     <FaDownload /> <span>Download APK (.apk)</span>
                                 </a>
@@ -1216,6 +1271,12 @@ function Settings() {
                 isOpen={showSupportModal}
                 onClose={() => setShowSupportModal(false)}
                 defaultTab={supportModalTab}
+            />
+
+            {/* In-App App Update Details Modal */}
+            <AppUpdateModal
+                updateInfo={updateModalInfo}
+                onClose={() => setUpdateModalInfo(null)}
             />
         </main>
     );

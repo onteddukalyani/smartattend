@@ -1,0 +1,15 @@
+{
+  "version": "1.0.6",
+  "versionCode": 6,
+  "releaseDate": "2026-10-01",
+  "minRequiredVersion": "1.0.0",
+  "apkUrl": "https://github.com/onteddukalyani/smartattend/raw/main/SmartAttend-release.apk",
+  "title": "SmartAttend v1.0.6 Release",
+  "releaseNotes": [
+    "Enhanced modern UI and dark mode styling across all portals",
+    "Optimized lightweight APK size (~14.6 MB)",
+    "Real-time notifications and student attendance analytics",
+    "In-app update notifications for Android APK users"
+  ],
+  "isMandatory": false
+}

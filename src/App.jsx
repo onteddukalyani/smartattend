@@ -1,4 +1,4 @@
-import { useEffect, lazy, Suspense } from "react";
+import { useEffect, useState, lazy, Suspense } from "react";
 import {
   Routes,
   Route,
@@ -10,6 +10,8 @@ import { Capacitor } from "@capacitor/core";
 import { FaGraduationCap, FaSpinner } from "react-icons/fa";
 import ProtectedRoute from "./components/ProtectedRoute";
 import { useAuth } from "./components/authcontext";
+import AppUpdateModal from "./components/Common/AppUpdateModal";
+import { checkForAppUpdate } from "./services/appUpdateService";
 import "./App.css";
 
 // Lazy-loaded components for instant initial page loads and code splitting
@@ -64,6 +66,29 @@ const PageLoadingFallback = () => (
 function App() {
   const navigate = useNavigate();
   const { user, profile, loading } = useAuth();
+  const [updateInfo, setUpdateInfo] = useState(null);
+
+  // 0. Auto-check for APK / App Updates on startup
+  useEffect(() => {
+    const timer = setTimeout(async () => {
+      try {
+        const info = await checkForAppUpdate();
+        if (info && info.hasUpdate) {
+          const dismissedVer = localStorage.getItem("smartattend_dismissed_update_version");
+          const dismissedTime = parseInt(localStorage.getItem("smartattend_dismissed_update_time") || "0", 10);
+          const isRecentlyDismissed = dismissedVer === info.latestVersion && (Date.now() - dismissedTime) < 24 * 60 * 60 * 1000;
+
+          if (info.isMandatory || !isRecentlyDismissed) {
+            setUpdateInfo(info);
+          }
+        }
+      } catch (err) {
+        console.warn("[AppUpdate] Startup check notice:", err);
+      }
+    }, 2500);
+
+    return () => clearTimeout(timer);
+  }, []);
 
   // 1. Listen for Native Deep Links & App Links (smartattend:// or https://)
   useEffect(() => {
@@ -179,29 +204,32 @@ function App() {
    */
   if (!user) {
     return (
-      <Suspense fallback={<PageLoadingFallback />}>
-        <Routes>
-          <Route
-            path="/student-form"
-            element={<StudentForm />}
-          />
+      <>
+        <Suspense fallback={<PageLoadingFallback />}>
+          <Routes>
+            <Route
+              path="/student-form"
+              element={<StudentForm />}
+            />
 
-          <Route
-            path="/login"
-            element={<Login />}
-          />
+            <Route
+              path="/login"
+              element={<Login />}
+            />
 
-          <Route
-            path="*"
-            element={
-              <Navigate
-                to="/login"
-                replace
-              />
-            }
-          />
-        </Routes>
-      </Suspense>
+            <Route
+              path="*"
+              element={
+                <Navigate
+                  to="/login"
+                  replace
+                />
+              }
+            />
+          </Routes>
+        </Suspense>
+        <AppUpdateModal updateInfo={updateInfo} onClose={() => setUpdateInfo(null)} />
+      </>
     );
   }
 
@@ -210,29 +238,32 @@ function App() {
    */
   if (!profile) {
     return (
-      <Suspense fallback={<PageLoadingFallback />}>
-        <Routes>
-          <Route
-            path="/student-form"
-            element={<StudentForm />}
-          />
+      <>
+        <Suspense fallback={<PageLoadingFallback />}>
+          <Routes>
+            <Route
+              path="/student-form"
+              element={<StudentForm />}
+            />
 
-          <Route
-            path="/login"
-            element={<Login />}
-          />
+            <Route
+              path="/login"
+              element={<Login />}
+            />
 
-          <Route
-            path="*"
-            element={
-              <Navigate
-                to="/login"
-                replace
-              />
-            }
-          />
-        </Routes>
-      </Suspense>
+            <Route
+              path="*"
+              element={
+                <Navigate
+                  to="/login"
+                  replace
+                />
+              }
+            />
+          </Routes>
+        </Suspense>
+        <AppUpdateModal updateInfo={updateInfo} onClose={() => setUpdateInfo(null)} />
+      </>
     );
   }
 
@@ -248,10 +279,11 @@ function App() {
       : "/student";
 
   return (
-    <Suspense fallback={<PageLoadingFallback />}>
-      <Routes>
-        {/* Public / Common Routes */}
-        <Route path="/student-form" element={<StudentForm />} />
+    <>
+      <Suspense fallback={<PageLoadingFallback />}>
+        <Routes>
+          {/* Public / Common Routes */}
+          <Route path="/student-form" element={<StudentForm />} />
         <Route path="/login" element={<Navigate to={defaultDashboard} replace />} />
 
         {/* ==========================================
@@ -770,6 +802,8 @@ function App() {
         <Route path="*" element={<Navigate to={defaultDashboard} replace />} />
       </Routes>
     </Suspense>
+    <AppUpdateModal updateInfo={updateInfo} onClose={() => setUpdateInfo(null)} />
+    </>
   );
 }
 
