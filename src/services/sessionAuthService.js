@@ -179,7 +179,7 @@ export async function authorizeStudentQR1(sessionId, qr1Token, studentProfileOve
   if (!clientIp || clientIp === "Unknown IP") {
     try {
       clientIp = await getClientIpAddress();
-    } catch (_) {}
+    } catch (_) { }
   }
 
   // Device Mismatch Protection Check
@@ -235,7 +235,7 @@ export async function authorizeStudentQR1(sessionId, qr1Token, studentProfileOve
   try {
     sessionStorage.setItem(`smartattend_qr1_auth_${sessionId}`, JSON.stringify(authPayload));
     localStorage.setItem(`smartattend_qr1_auth_${sessionId}`, JSON.stringify(authPayload));
-  } catch (e) {}
+  } catch (e) { }
 
   // Write authorization by studentUid and rollNo in Firestore
   try {
@@ -379,7 +379,7 @@ export async function validateStudentQR2(sessionId, qr2Token) {
           authData = parsed;
         }
       }
-    } catch (e) {}
+    } catch (e) { }
   }
 
   // 3. STRICT GATE: If student never checked in with QR 1, reject immediately & log security complaint
@@ -483,7 +483,7 @@ export async function submitVerifiedAttendance(sessionId, qr2Token, biometricDat
           authData = d;
         }
       }
-    } catch (e) {}
+    } catch (e) { }
   }
 
   // 2. Check local fallback
@@ -500,7 +500,7 @@ export async function submitVerifiedAttendance(sessionId, qr2Token, biometricDat
           authData = parsed;
         }
       }
-    } catch (e) {}
+    } catch (e) { }
   }
 
   // 3. STRICT NON-NEGOTIABLE CHECK: Reject submission if student didn't scan QR 1
@@ -540,7 +540,7 @@ export async function submitVerifiedAttendance(sessionId, qr2Token, biometricDat
   if (!clientIp || clientIp === "Unknown IP") {
     try {
       clientIp = await getClientIpAddress();
-    } catch (_) {}
+    } catch (_) { }
   }
   const detectedPlatform = detectDeviceType() || "web";
 
@@ -593,7 +593,7 @@ export async function submitVerifiedAttendance(sessionId, qr2Token, biometricDat
         lastSessionId: sessionId
       }, { merge: true });
     }
-  } catch (_) {}
+  } catch (_) { }
 
   try {
     const sessionRef = doc(db, "attendance_sessions", sessionId);
@@ -642,7 +642,7 @@ export async function submitVerifiedAttendance(sessionId, qr2Token, biometricDat
       rollNo,
       studentName
     );
-  } catch (_) {}
+  } catch (_) { }
 
   return {
     success: true,
@@ -660,7 +660,7 @@ export async function submitVerifiedAttendance(sessionId, qr2Token, biometricDat
  * Real-time listener for Attendance Session document
  */
 export function subscribeToSession(sessionId, onUpdate, onError) {
-  if (!sessionId) return () => {};
+  if (!sessionId) return () => { };
   const docRef = doc(db, "attendance_sessions", sessionId);
   return onSnapshot(docRef, (snap) => {
     if (snap.exists()) {
@@ -678,7 +678,7 @@ export function subscribeToSession(sessionId, onUpdate, onError) {
  * Real-time listener for Authorized Students subcollection in Session
  */
 export function subscribeToAuthorizations(sessionId, onUpdate) {
-  if (!sessionId) return () => {};
+  if (!sessionId) return () => { };
   const colRef = collection(db, "attendance_sessions", sessionId, "authorizations");
   return onSnapshot(colRef, (snap) => {
     const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
@@ -691,33 +691,48 @@ export function subscribeToAuthorizations(sessionId, onUpdate) {
 /**
  * Student / Supervisor: Record a supervision violation (e.g. app switch / backgrounding)
  */
-export async function recordSessionViolation(sessionId, studentUid, rollNo, reason = "APP_SWITCH_DETECTED") {
+/**
+ * Student / Supervisor: Record a supervision violation (e.g. app switch / backgrounding)
+ * Supports warning (count = 1) and disqualification (count >= 2).
+ */
+export async function recordSessionViolation(sessionId, studentUid, rollNo, reason = "APP_SWITCH_DETECTED", violationCount = 1, isDisqualified = false) {
   if (!sessionId) return;
   try {
     const cleanRoll = (rollNo || studentUid || "").trim().toUpperCase();
+    const count = Number(violationCount) || 1;
+    const disqualified = isDisqualified || count >= 2;
+    const status = disqualified ? "FLAGGED_DISQUALIFIED" : "FLAGGED_WARNING";
+
     const violationPayload = {
       rollNo: cleanRoll,
       studentUid: studentUid || cleanRoll,
       reason: reason,
       timestamp: Date.now(),
-      status: "FLAGGED_DISQUALIFIED",
-      violationCount: 1,
-      flagged: true
+      status: status,
+      violationCount: count,
+      flagged: true,
+      disqualified: disqualified
     };
 
     // 1. Update session authorizations subcollection
     if (studentUid) {
       const authRef = doc(db, "attendance_sessions", sessionId, "authorizations", studentUid);
       await updateDoc(authRef, {
-        violations: arrayUnion(violationPayload)
-      }).catch(() => {});
+        violations: arrayUnion(violationPayload),
+        violationCount: count,
+        hasViolation: true,
+        disqualified: disqualified
+      }).catch(() => { });
     }
 
     if (cleanRoll && cleanRoll !== studentUid) {
       const authRollRef = doc(db, "attendance_sessions", sessionId, "authorizations", cleanRoll);
       await updateDoc(authRollRef, {
-        violations: arrayUnion(violationPayload)
-      }).catch(() => {});
+        violations: arrayUnion(violationPayload),
+        violationCount: count,
+        hasViolation: true,
+        disqualified: disqualified
+      }).catch(() => { });
     }
 
     // 2. Append to top-level session document flaggedViolations array (for Lecturer & Admin real-time dashboard audit)
@@ -727,48 +742,76 @@ export async function recordSessionViolation(sessionId, studentUid, rollNo, reas
         rollNo: cleanRoll,
         studentUid: studentUid || cleanRoll,
         violationType: reason,
-        violationReason: `Security breach: ${reason}`,
+        violationReason: disqualified ? `Security violation limit reached (${count}/2): ${reason}` : `Security warning (${count}/2): ${reason}`,
         timestamp: Date.now(),
-        status: "FLAGGED_DISQUALIFIED",
-        violationCount: 1
+        status: status,
+        violationCount: count,
+        disqualified: disqualified
       })
-    }).catch(() => {});
+    }).catch(() => { });
 
-    // 3. Write a FLAGGED_DISQUALIFIED record into attendance_records collection
+    // 3. Write record into attendance_records collection
     if (cleanRoll) {
       const recordDocId = `${sessionId}_${cleanRoll}`;
       const recordRef = doc(db, "attendance_records", recordDocId);
-      await setDoc(recordRef, {
-        sessionId: sessionId,
-        rollNo: cleanRoll,
-        studentUid: studentUid || cleanRoll,
-        status: "FLAGGED_DISQUALIFIED",
-        verificationStatus: "FLAGGED",
-        flagged: true,
-        disqualified: true,
-        violationCount: 1,
-        violationType: reason,
-        violationReason: `App switch / screen capture breach detected during Guided Access session (${reason})`,
-        timestamp: Date.now()
-      }, { merge: true }).catch(() => {});
+      
+      if (disqualified) {
+        await setDoc(recordRef, {
+          sessionId: sessionId,
+          rollNo: cleanRoll,
+          studentUid: studentUid || cleanRoll,
+          status: "FLAGGED_DISQUALIFIED",
+          verificationStatus: "FLAGGED",
+          flagged: true,
+          disqualified: true,
+          violationCount: count,
+          violationType: reason,
+          violationReason: `Security violation limit reached (${count}/2): ${reason}`,
+          timestamp: Date.now()
+        }, { merge: true }).catch(() => { });
 
-      // Real-time Faculty Audit Alert
-      await sendFacultyNotification(
-        "🚨 Anti-Proxy Violation Detected",
-        `Security breach detected for ${cleanRoll}: ${reason}. Attempt flagged and disqualified.`,
-        "ANTI_PROXY_VIOLATION",
-        cleanRoll,
-        "Anti-Proxy Guard"
-      );
+        // Real-time Faculty Audit Alert
+        await sendFacultyNotification(
+          "🚨 Anti-Proxy Violation Limit Reached",
+          `Security violation limit reached for ${cleanRoll}: ${reason} (Violation ${count}/2). Attempt flagged and disqualified.`,
+          "ANTI_PROXY_VIOLATION",
+          cleanRoll,
+          "Anti-Proxy Guard"
+        );
 
-      // Real-time Student Notification
-      await sendStudentNotification(
-        cleanRoll,
-        "⚠️ Attendance Not Counted",
-        `Your attendance was not counted because the app was switched or closed while scanning. Please speak with your teacher if you need help.`,
-        "ANTI_PROXY_VIOLATION",
-        "Attendance Security"
-      );
+        // Real-time Student Notification
+        await sendStudentNotification(
+          cleanRoll,
+          "⚠️ Attendance Disqualified",
+          `Your attendance was disqualified because security violations reached the limit (2/2). Please speak with your teacher if you need help.`,
+          "ANTI_PROXY_VIOLATION",
+          "Attendance Security"
+        );
+      } else {
+        // Warning (count 1): Log warning in attendance record without disqualifying yet
+        await setDoc(recordRef, {
+          sessionId: sessionId,
+          rollNo: cleanRoll,
+          studentUid: studentUid || cleanRoll,
+          status: "FLAGGED_WARNING",
+          verificationStatus: "WARNING",
+          flagged: true,
+          disqualified: false,
+          violationCount: count,
+          violationType: reason,
+          violationReason: `Security warning (${count}/2): ${reason}`,
+          timestamp: Date.now()
+        }, { merge: true }).catch(() => { });
+
+        // Real-time Student Warning Notification
+        await sendStudentNotification(
+          cleanRoll,
+          "⚠️ Security Warning (1 of 2)",
+          `App switch/backgrounding detected during active attendance session (Warning 1/2). One more violation will forfeit your attendance.`,
+          "ANTI_PROXY_WARNING",
+          "Attendance Security"
+        );
+      }
     }
   } catch (err) {
     console.warn("Notice recording session violation:", err);
@@ -797,6 +840,46 @@ export async function excuseAndReinstateAttendance(sessionId, studentInfo, lectu
     const sessionSnap = await getDoc(sessionRef).catch(() => null);
     if (sessionSnap && sessionSnap.exists()) {
       session = sessionSnap.data();
+    }
+
+    // Strict Ownership & Permission Verification:
+    // If it was Lecturer A's class, no other lecturer (Lecturer B) can excuse or mark attendance for that class
+    if (session) {
+      const currentUser = auth.currentUser;
+      if (currentUser) {
+        const currentUid = currentUser.uid;
+        const currentEmail = (currentUser.email || "").toLowerCase().trim();
+        const currentPrefix = currentEmail.split("@")[0].toLowerCase().trim();
+
+        const ownerId = session.ownerId;
+        const ownerEmail = (session.ownerEmail || "").toLowerCase().trim();
+        const lecturerEmail = (session.lecturerEmail || "").toLowerCase().trim();
+
+        const isOwner =
+          (ownerId && ownerId === currentUid) ||
+          (ownerEmail && ownerEmail === currentEmail) ||
+          (lecturerEmail && lecturerEmail === currentEmail) ||
+          (currentPrefix && (ownerEmail.startsWith(currentPrefix) || lecturerEmail.startsWith(currentPrefix)));
+
+        if (!isOwner) {
+          let isCallerAdmin = false;
+          try {
+            const adminDocSnap = await getDoc(doc(db, "admins", currentPrefix)).catch(() => null);
+            if (adminDocSnap && adminDocSnap.exists()) isCallerAdmin = true;
+            if (!isCallerAdmin) {
+              const userDocSnap = await getDoc(doc(db, "users", currentUid)).catch(() => null);
+              if (userDocSnap && userDocSnap.exists() && userDocSnap.data()?.role === "admin") {
+                isCallerAdmin = true;
+              }
+            }
+          } catch (_) {}
+
+          if (!isCallerAdmin) {
+            const assignedFaculty = session.lecturerName || session.lecturerEmail || "Lecturer A";
+            throw new Error(`Permission Denied: This class belongs to ${assignedFaculty}. Only ${assignedFaculty} or an Administrator can excuse violations and mark attendance for this session.`);
+          }
+        }
+      }
     }
 
     const recordDocId = `${sessionId}_${rollNo}`;
@@ -892,11 +975,11 @@ export async function excuseAndReinstateAttendance(sessionId, studentInfo, lectu
 
     if (studentUid) {
       const authRef = doc(db, "attendance_sessions", sessionId, "authorizations", studentUid);
-      await setDoc(authRef, authPayload, { merge: true }).catch(() => {});
+      await setDoc(authRef, authPayload, { merge: true }).catch(() => { });
     }
     if (rollNo && rollNo !== studentUid) {
       const authRollRef = doc(db, "attendance_sessions", sessionId, "authorizations", rollNo);
-      await setDoc(authRollRef, authPayload, { merge: true }).catch(() => {});
+      await setDoc(authRollRef, authPayload, { merge: true }).catch(() => { });
     }
 
     // 5. Notify Student in real-time
@@ -907,7 +990,7 @@ export async function excuseAndReinstateAttendance(sessionId, studentInfo, lectu
         `Your attendance for ${session?.courseCode || session?.classCode || "class"} has been reinstated and marked as Present by ${lecturerName}.`,
         "VIOLATION_DECISION",
         lecturerName
-      ).catch(() => {});
+      ).catch(() => { });
     }
 
     return {
@@ -936,6 +1019,48 @@ export async function dismissOrRemoveViolation(sessionId, studentInfo, reviewedB
   const now = Date.now();
 
   try {
+    // Check session ownership
+    const sessionRef = doc(db, "attendance_sessions", sessionId);
+    const sessionSnap = await getDoc(sessionRef).catch(() => null);
+    if (sessionSnap && sessionSnap.exists()) {
+      const sessData = sessionSnap.data();
+      const currentUser = auth.currentUser;
+      if (currentUser) {
+        const currentUid = currentUser.uid;
+        const currentEmail = (currentUser.email || "").toLowerCase().trim();
+        const currentPrefix = currentEmail.split("@")[0].toLowerCase().trim();
+
+        const ownerId = sessData.ownerId;
+        const ownerEmail = (sessData.ownerEmail || "").toLowerCase().trim();
+        const lecturerEmail = (sessData.lecturerEmail || "").toLowerCase().trim();
+
+        const isOwner =
+          (ownerId && ownerId === currentUid) ||
+          (ownerEmail && ownerEmail === currentEmail) ||
+          (lecturerEmail && lecturerEmail === currentEmail) ||
+          (currentPrefix && (ownerEmail.startsWith(currentPrefix) || lecturerEmail.startsWith(currentPrefix)));
+
+        if (!isOwner) {
+          let isCallerAdmin = false;
+          try {
+            const adminDocSnap = await getDoc(doc(db, "admins", currentPrefix)).catch(() => null);
+            if (adminDocSnap && adminDocSnap.exists()) isCallerAdmin = true;
+            if (!isCallerAdmin) {
+              const userDocSnap = await getDoc(doc(db, "users", currentUid)).catch(() => null);
+              if (userDocSnap && userDocSnap.exists() && userDocSnap.data()?.role === "admin") {
+                isCallerAdmin = true;
+              }
+            }
+          } catch (_) {}
+
+          if (!isCallerAdmin) {
+            const assignedFaculty = sessData.lecturerName || sessData.lecturerEmail || "Lecturer A";
+            throw new Error(`Permission Denied: This class belongs to ${assignedFaculty}. You cannot modify or dismiss violation records for another lecturer's class.`);
+          }
+        }
+      }
+    }
+
     const recordDocId = studentInfo.id && studentInfo.id.includes("_") ? studentInfo.id : `${sessionId}_${rollNo}`;
     const recordRef = doc(db, "attendance_records", recordDocId);
 
@@ -949,11 +1074,9 @@ export async function dismissOrRemoveViolation(sessionId, studentInfo, reviewedB
       flagged: false,
       hasViolation: false,
       dismissed: true
-    }, { merge: true }).catch(() => {});
+    }, { merge: true }).catch(() => { });
 
     // Update session document: remove from flaggedViolations array
-    const sessionRef = doc(db, "attendance_sessions", sessionId);
-    const sessionSnap = await getDoc(sessionRef).catch(() => null);
     if (sessionSnap && sessionSnap.exists()) {
       const sessData = sessionSnap.data();
       if (Array.isArray(sessData?.flaggedViolations)) {
@@ -961,7 +1084,7 @@ export async function dismissOrRemoveViolation(sessionId, studentInfo, reviewedB
           const fRoll = (f.rollNo || f.studentUid || "").toUpperCase().trim();
           return fRoll !== rollNo && fRoll !== studentUid.toUpperCase() && f.id !== studentInfo.id;
         });
-        await updateDoc(sessionRef, { flaggedViolations: updatedFlagged }).catch(() => {});
+        await updateDoc(sessionRef, { flaggedViolations: updatedFlagged }).catch(() => { });
       }
     }
 
@@ -972,7 +1095,7 @@ export async function dismissOrRemoveViolation(sessionId, studentInfo, reviewedB
       flagged: false,
       disqualified: false,
       reviewDecision: decision
-    }, { merge: true }).catch(() => {});
+    }, { merge: true }).catch(() => { });
 
     return { success: true };
   } catch (err) {
@@ -1040,7 +1163,7 @@ export async function verifyLecturerEmergencyPin(sessionId, inputPin, deviceId =
               released: true,
               releaseStatus: "PIN_RELEASED",
               releasedAt: Date.now()
-            }).catch(() => {});
+            }).catch(() => { });
           }
           return { success: true, releaseAuthorized: true, sessionId, message: "Session PIN verified successfully." };
         }
@@ -1086,7 +1209,7 @@ export async function releaseIndividualStudentDevice(sessionId, studentUid, roll
           releasedAt: Date.now(),
           releaseStatus: "RELEASED",
           status: "RELEASED"
-        }).catch(() => {});
+        }).catch(() => { });
       }
 
       return { success: true, status: "RELEASED" };
@@ -1136,7 +1259,7 @@ export async function requestAutoFailSafeUnlock(sessionId, studentUid, deviceId 
  * Listens for remote unlock/release commands from the lecturer dashboard.
  */
 export function subscribeToStudentAuthorization(sessionId, studentUid, onUpdate) {
-  if (!sessionId || !studentUid) return () => {};
+  if (!sessionId || !studentUid) return () => { };
   const docRef = doc(db, "attendance_sessions", sessionId, "authorizations", studentUid);
   return onSnapshot(docRef, (snap) => {
     if (snap.exists()) {

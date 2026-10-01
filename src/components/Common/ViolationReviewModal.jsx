@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { db } from '../../firebase';
+import { db, auth } from '../../firebase';
 import { doc, updateDoc, setDoc, getDoc, arrayUnion, increment, serverTimestamp } from 'firebase/firestore';
 import { FaShieldAlt, FaCheck, FaTimes, FaExclamationTriangle, FaTrashAlt } from 'react-icons/fa';
 import { sendStudentNotification } from '../../services/notificationsService';
@@ -18,9 +18,56 @@ export default function ViolationReviewModal({ violation, onClose, onActionCompl
             const studentEmail = (violation.studentEmail || violation.email || "").toString().trim().toLowerCase();
             const sessionId = violation.sessionId || (violation.id && violation.id.includes("_") ? violation.id.split("_")[0] : null);
 
+            // Ownership & Permission Verification
+            if (sessionId) {
+                const sessionRef = doc(db, 'attendance_sessions', sessionId);
+                const sessionSnap = await getDoc(sessionRef).catch(() => null);
+                if (sessionSnap && sessionSnap.exists()) {
+                    const sessData = sessionSnap.data();
+                    const currentUser = auth.currentUser;
+                    if (currentUser) {
+                        const currentUid = currentUser.uid;
+                        const currentEmail = (currentUser.email || '').toLowerCase().trim();
+                        const currentPrefix = currentEmail.split('@')[0].toLowerCase().trim();
+
+                        const ownerId = sessData.ownerId;
+                        const ownerEmail = (sessData.ownerEmail || '').toLowerCase().trim();
+                        const lecturerEmail = (sessData.lecturerEmail || '').toLowerCase().trim();
+
+                        const isOwner =
+                            (ownerId && ownerId === currentUid) ||
+                            (ownerEmail && ownerEmail === currentEmail) ||
+                            (lecturerEmail && lecturerEmail === currentEmail) ||
+                            (currentPrefix && (ownerEmail.startsWith(currentPrefix) || lecturerEmail.startsWith(currentPrefix)));
+
+                        if (!isOwner) {
+                            let isCallerAdmin = false;
+                            try {
+                                const adminSnap = await getDoc(doc(db, 'admins', currentPrefix)).catch(() => null);
+                                if (adminSnap && adminSnap.exists()) isCallerAdmin = true;
+                                if (!isCallerAdmin) {
+                                    const userSnap = await getDoc(doc(db, 'users', currentUid)).catch(() => null);
+                                    if (userSnap && userSnap.exists() && userSnap.data()?.role === 'admin') isCallerAdmin = true;
+                                }
+                            } catch (_) {}
+
+                            if (!isCallerAdmin) {
+                                const assignedLecturer = sessData.lecturerName || sessData.lecturerEmail || 'the assigned lecturer';
+                                alert(`❌ Permission Denied: This session belongs to ${assignedLecturer}. You cannot modify attendance or excuse violations for another lecturer's class.`);
+                                setActionLoading(false);
+                                return;
+                            }
+                        }
+                    }
+                }
+            }
+
             // 1. Update attendance record
-            const recordRef = doc(db, 'attendance_records', violation.id);
-            await setDoc(recordRef, {
+            const targetIds = new Set();
+            if (violation.id) targetIds.add(violation.id);
+            if (sessionId && studentRoll) targetIds.add(`${sessionId}_${studentRoll}`);
+
+            const recordUpdatePayload = {
                 status: status, // 'APPROVED' | 'REJECTED' | 'DISMISSED'
                 verificationStatus: status === 'APPROVED' ? 'VERIFIED' : 'REJECTED',
                 flagged: false,
@@ -33,7 +80,12 @@ export default function ViolationReviewModal({ violation, onClose, onActionCompl
                 excused: status === 'APPROVED',
                 dismissed: status === 'DISMISSED',
                 faceVerified: status === 'APPROVED' ? true : (violation.faceVerified ?? false)
-            }, { merge: true });
+            };
+
+            for (const recId of targetIds) {
+                const recordRef = doc(db, 'attendance_records', recId);
+                await setDoc(recordRef, recordUpdatePayload, { merge: true }).catch(() => {});
+            }
 
             // 2. Update session doc: clean flaggedViolations array & update attendees
             if (sessionId) {

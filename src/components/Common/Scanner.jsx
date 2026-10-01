@@ -462,22 +462,52 @@ function QrScannerApp() {
         const handleViolationTrigger = (source) => {
             console.warn(`[Kiosk Guardian] Tab switch or App minimize detected via ${source}!`);
 
-            // Record violation event to Firestore audit trail
-            if (activeSessionId) {
-                recordSessionViolation(activeSessionId, user?.uid, loggedInRollNo, `APP_LEAVE_${source}`);
+            const isIOS = isIOSDevice();
+            if (isIOS) {
+                // iPhone / iOS device: Maintain existing Guided Access strict policy
+                if (activeSessionId) {
+                    recordSessionViolation(activeSessionId, user?.uid, loggedInRollNo, `APP_LEAVE_${source}`, 1, true);
+                }
+                setViolationCount((prev) => {
+                    const nextCount = prev + 1;
+                    if (nextCount >= 1) {
+                        console.error('[Kiosk Guardian] iOS Security violation detected. Disqualifying attendance session.');
+                        try { localStorage.removeItem(`smartattend_qr1_auth_${activeSessionId}`); } catch (_) { }
+                        try { sessionStorage.removeItem(`smartattend_qr1_auth_${activeSessionId}`); } catch (_) { }
+                        releaseAllMediaTracks();
+                        Kiosk.startKioskMode().catch(() => { });
+                        setErrorMessage('❌ Attendance Disqualified: Security violation detected (App switch / backgrounding). This attempt has been logged in Firebase for Lecturer & Admin audit review.');
+                        setScanState('DISQUALIFIED');
+                        setSupervisionViolation(false);
+                    }
+                    return nextCount;
+                });
+                return;
             }
 
+            // Android APK / Android Device: violation count threshold = 2
             setViolationCount((prev) => {
                 const nextCount = prev + 1;
-                if (nextCount >= 1) {
-                    console.error('[Kiosk Guardian] Security violation detected (count = 1). Disqualifying attendance session.');
+                if (nextCount >= 2) {
+                    console.error(`[Kiosk Guardian] Android Security violation limit reached (count = ${nextCount}). Disqualifying attendance session.`);
+                    if (activeSessionId) {
+                        recordSessionViolation(activeSessionId, user?.uid, loggedInRollNo, `APP_LEAVE_${source}`, nextCount, true);
+                    }
                     try { localStorage.removeItem(`smartattend_qr1_auth_${activeSessionId}`); } catch (_) { }
                     try { sessionStorage.removeItem(`smartattend_qr1_auth_${activeSessionId}`); } catch (_) { }
                     releaseAllMediaTracks();
                     Kiosk.startKioskMode().catch(() => { });
-                    setErrorMessage('❌ Attendance Disqualified: Security violation detected (App switch / backgrounding). This attempt has been logged in Firebase for Lecturer & Admin audit review.');
+                    setErrorMessage('❌ Attendance Disqualified: Security violation limit reached (2 violations detected for app switching / backgrounding). Attendance forfeited.');
                     setScanState('DISQUALIFIED');
                     setSupervisionViolation(false);
+                } else {
+                    console.warn(`[Kiosk Guardian] Android Security Warning: Violation 1 of 2 recorded.`);
+                    if (activeSessionId) {
+                        recordSessionViolation(activeSessionId, user?.uid, loggedInRollNo, `APP_LEAVE_${source}`, nextCount, false);
+                    }
+                    // Immediately re-enforce Kiosk LockTask mode and keep app pinned in foreground
+                    Kiosk.startKioskMode().catch(() => { });
+                    setSupervisionViolation(true);
                 }
                 return nextCount;
             });

@@ -27,6 +27,7 @@ import { mergeAllStudentRecords, normalizeBranchName } from "../../../utils/stud
 const AttendanceOverview = () => {
   const navigate = useNavigate();
   const [activeViewTab, setActiveViewTab] = useState("matrix"); // "matrix" | "overview"
+  const [violationFilterTab, setViolationFilterTab] = useState("PENDING"); // "PENDING" | "REVIEWED" | "ALL"
   const [search, setSearch] = useState("");
   const [students, setStudents] = useState([]);
   const [recentSessions, setRecentSessions] = useState([]);
@@ -43,20 +44,38 @@ const AttendanceOverview = () => {
     totalViolations: 0
   });
 
+  const pendingViolations = useMemo(() => {
+    return flaggedViolations.filter(v => !v.isReviewed);
+  }, [flaggedViolations]);
+
+  const reviewedViolations = useMemo(() => {
+    return flaggedViolations.filter(v => v.isReviewed);
+  }, [flaggedViolations]);
+
+  const displayedViolations = useMemo(() => {
+    if (violationFilterTab === "PENDING") return pendingViolations;
+    if (violationFilterTab === "REVIEWED") return reviewedViolations;
+    return flaggedViolations;
+  }, [violationFilterTab, pendingViolations, reviewedViolations, flaggedViolations]);
+
   const computeOverview = (authDocs, studentsDocs, usersDocs, sessionsDocs, recordsDocs, complaintsDocs = []) => {
     try {
       const totalSessionsCount = sessionsDocs.length;
       const totalRecordsCount = recordsDocs.length;
 
-      // 1. Gather all Flagged Violations from attendance records and security complaints
+      // 1. Gather all Flagged Violations (Pending & Reviewed history)
       const violationsList = [];
       recordsDocs.forEach((docSnap) => {
         const d = typeof docSnap.data === "function" ? docSnap.data() : docSnap;
         const isReviewedOrResolved =
           d.reviewed === true ||
+          Boolean(d.reviewedByRole) ||
+          Boolean(d.reviewedAt) ||
           d.excused === true ||
           d.resolved === true ||
           d.dismissed === true ||
+          d.flagged === false ||
+          d.hasViolation === false ||
           d.status === "APPROVED" ||
           d.status === "RESOLVED" ||
           d.status === "DISMISSED" ||
@@ -64,17 +83,22 @@ const AttendanceOverview = () => {
           d.status === "ATTENDED" ||
           d.status === "PRESENT";
 
-        const isFlagged = !isReviewedOrResolved && (
+        const isViolationRecord =
           d.status === "FLAGGED" ||
           d.status === "FLAGGED_DISQUALIFIED" ||
+          d.status === "FLAGGED_WARNING" ||
           d.status === "VIOLATION" ||
           d.flagged === true ||
-          d.hasViolation === true
-        );
+          d.hasViolation === true ||
+          d.excused === true ||
+          Boolean(d.excuseReason) ||
+          Boolean(d.violationReason) ||
+          Boolean(d.violationType);
 
-        if (isFlagged) {
+        if (isViolationRecord) {
           violationsList.push({
             id: docSnap.id || d.id,
+            isReviewed: isReviewedOrResolved,
             ...d
           });
         }
@@ -82,7 +106,8 @@ const AttendanceOverview = () => {
 
       complaintsDocs.forEach((cSnap) => {
         const c = typeof cSnap.data === "function" ? cSnap.data() : cSnap;
-        if (c && c.status !== "RESOLVED" && c.status !== "DISMISSED" && c.status !== "CLOSED" && !c.resolved) {
+        const isResolvedComplaint = c?.status === "RESOLVED" || c?.status === "DISMISSED" || c?.status === "CLOSED" || c?.resolved === true;
+        if (c) {
           violationsList.push({
             id: cSnap.id || c.id,
             rollNo: c.rollNo || c.rollNumber || "UNKNOWN",
@@ -90,7 +115,8 @@ const AttendanceOverview = () => {
             classCode: c.context || "Security System",
             violationReason: c.reason || "Security verification flagged",
             timestamp: c.reportedAt || (c.timestamp ? new Date(c.timestamp).getTime() : Date.now()),
-            status: c.status || "OPEN_COMPLAINT",
+            status: c.status || (isResolvedComplaint ? "RESOLVED" : "OPEN_COMPLAINT"),
+            isReviewed: isResolvedComplaint,
             ...c
           });
         }
@@ -441,82 +467,151 @@ const AttendanceOverview = () => {
 
       {/* FLAGGED VIOLATIONS & ANTI-PROXY AUDIT SECTION */}
       <section className="attendance-section">
-        <div className="section-heading">
+        <div className="section-heading" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "12px" }}>
           <div>
-            <h2 style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            <h2 style={{ display: "flex", alignItems: "center", gap: "8px", margin: 0 }}>
               <FaShieldAlt style={{ color: "#ef4444" }} />
-              Flagged Anti-Proxy Violations &amp; Security Audits ({flaggedViolations.length})
+              Anti-Proxy Violations &amp; Security Audits ({flaggedViolations.length})
             </h2>
-            <p>App switch detections, device mismatch alerts, and security audit logs</p>
+            <p style={{ margin: "4px 0 0 0" }}>App switch detections, device mismatch alerts, and security review logs</p>
+          </div>
+
+          {/* Filter Tabs */}
+          <div style={{ display: "flex", gap: "6px", background: "var(--surface-soft, #f1f5f9)", padding: "4px", borderRadius: "10px", border: "1px solid var(--border, #e2e8f0)" }}>
+            <button
+              type="button"
+              onClick={() => setViolationFilterTab("PENDING")}
+              style={{
+                padding: "6px 12px",
+                borderRadius: "8px",
+                border: "none",
+                fontSize: "0.78rem",
+                fontWeight: 750,
+                cursor: "pointer",
+                background: violationFilterTab === "PENDING" ? "#ef4444" : "transparent",
+                color: violationFilterTab === "PENDING" ? "#ffffff" : "var(--text-muted, #64748b)",
+                transition: "all 0.15s ease"
+              }}
+            >
+              🚨 Pending ({pendingViolations.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setViolationFilterTab("REVIEWED")}
+              style={{
+                padding: "6px 12px",
+                borderRadius: "8px",
+                border: "none",
+                fontSize: "0.78rem",
+                fontWeight: 750,
+                cursor: "pointer",
+                background: violationFilterTab === "REVIEWED" ? "#10b981" : "transparent",
+                color: violationFilterTab === "REVIEWED" ? "#ffffff" : "var(--text-muted, #64748b)",
+                transition: "all 0.15s ease"
+              }}
+            >
+              ✅ Reviewed ({reviewedViolations.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setViolationFilterTab("ALL")}
+              style={{
+                padding: "6px 12px",
+                borderRadius: "8px",
+                border: "none",
+                fontSize: "0.78rem",
+                fontWeight: 750,
+                cursor: "pointer",
+                background: violationFilterTab === "ALL" ? "#6366f1" : "transparent",
+                color: violationFilterTab === "ALL" ? "#ffffff" : "var(--text-muted, #64748b)",
+                transition: "all 0.15s ease"
+              }}
+            >
+              📋 All ({flaggedViolations.length})
+            </button>
           </div>
         </div>
 
-        {flaggedViolations.length === 0 ? (
-          <div className="empty-state" style={{ background: "var(--surface, white)", padding: "20px", borderRadius: "14px", textAlign: "center", border: "1px solid #e2e8f0" }}>
-            <p style={{ margin: 0, color: "#10b981", fontWeight: 700 }}>
-              ✅ No flagged violations or anti-proxy breaches found. System is secure!
+        {displayedViolations.length === 0 ? (
+          <div className="empty-state" style={{ background: "var(--surface, white)", padding: "24px", borderRadius: "14px", textAlign: "center", border: "1px solid #e2e8f0" }}>
+            <p style={{ margin: 0, color: violationFilterTab === "PENDING" ? "#10b981" : "var(--text-muted, #64748b)", fontWeight: 700 }}>
+              {violationFilterTab === "PENDING"
+                ? "✅ No pending violations to review! All attendance sessions are clear."
+                : "No historical violation records found in this view."}
             </p>
           </div>
         ) : (
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: "12px", marginBottom: "20px" }}>
-            {flaggedViolations.map((v) => (
-              <div
-                key={v.id}
-                style={{
-                  background: "#fff1f2",
-                  border: "1.5px solid #fecdd3",
-                  borderRadius: "14px",
-                  padding: "14px 16px",
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: "8px",
-                  position: "relative"
-                }}
-              >
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "8px" }}>
-                  <div>
-                    <strong style={{ fontSize: "0.95rem", color: "#9f1239" }}>
-                      {v.studentName || v.rollNo || "Unknown Student"}
-                    </strong>
-                    <div style={{ fontSize: "0.8rem", fontFamily: "monospace", color: "#be123c", fontWeight: 700 }}>
-                      {v.rollNo || "N/A"}
+            {displayedViolations.map((v) => {
+              const isResolved = Boolean(v.isReviewed);
+              const cardBg = isResolved ? "#f0fdf4" : "#fff1f2";
+              const cardBorder = isResolved ? "1.5px solid #bbf7d0" : "1.5px solid #fecdd3";
+              const badgeBg = isResolved ? "#dcfce7" : "#fee2e2";
+              const badgeColor = isResolved ? "#15803d" : "#b91c1c";
+              const statusLabel = isResolved
+                ? (v.status === "APPROVED" || v.excused ? "Approved (Present) ✅" : v.status === "REJECTED" ? "Rejected (Absent) ❌" : "Reviewed & Dismissed 🛡️")
+                : (v.status || "PENDING_REVIEW");
+
+              return (
+                <div
+                  key={v.id}
+                  style={{
+                    background: cardBg,
+                    border: cardBorder,
+                    borderRadius: "14px",
+                    padding: "14px 16px",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "8px",
+                    position: "relative"
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "8px" }}>
+                    <div>
+                      <strong style={{ fontSize: "0.95rem", color: isResolved ? "#166534" : "#9f1239" }}>
+                        {v.studentName || v.rollNo || "Unknown Student"}
+                      </strong>
+                      <div style={{ fontSize: "0.8rem", fontFamily: "monospace", color: isResolved ? "#15803d" : "#be123c", fontWeight: 700 }}>
+                        {v.rollNo || "N/A"}
+                      </div>
                     </div>
+                    <span style={{ fontSize: "0.74rem", background: badgeBg, color: badgeColor, padding: "3px 8px", borderRadius: "6px", fontWeight: 750 }}>
+                      {statusLabel}
+                    </span>
                   </div>
-                  <span style={{ fontSize: "0.74rem", background: "#fee2e2", color: "#b91c1c", padding: "3px 8px", borderRadius: "6px", fontWeight: 750 }}>
-                    {v.status || "FLAGGED"}
-                  </span>
-                </div>
 
-                <p style={{ margin: 0, fontSize: "0.82rem", color: "#881337", lineHeight: 1.35 }}>
-                  {v.violationReason || v.reason || "App Switched or Device Mismatch"}
-                </p>
+                  <p style={{ margin: 0, fontSize: "0.82rem", color: isResolved ? "#14532d" : "#881337", lineHeight: 1.35 }}>
+                    {v.violationReason || v.reason || "App Switched or Device Mismatch"}
+                    {v.reviewNotes && <span style={{ display: "block", marginTop: "4px", fontSize: "0.76rem", opacity: 0.85 }}>• Note: {v.reviewNotes}</span>}
+                  </p>
 
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingTop: "6px", borderTop: "1px solid #fecdd3", marginTop: "4px" }}>
-                  <span style={{ fontSize: "0.74rem", color: "#9f1239" }}>
-                    {v.timestamp || v.submittedAt ? new Date(v.timestamp || v.submittedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "Recently"}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedViolation(v)}
-                    style={{
-                      padding: "5px 12px",
-                      borderRadius: "8px",
-                      background: "#e11d48",
-                      color: "#ffffff",
-                      border: "none",
-                      fontSize: "0.78rem",
-                      fontWeight: 700,
-                      cursor: "pointer",
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: "5px"
-                    }}
-                  >
-                    <FaShieldAlt /> Review
-                  </button>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingTop: "6px", borderTop: isResolved ? "1px solid #dcfce7" : "1px solid #fecdd3", marginTop: "4px" }}>
+                    <span style={{ fontSize: "0.74rem", color: isResolved ? "#15803d" : "#9f1239" }}>
+                      {v.timestamp || v.submittedAt ? new Date(v.timestamp || v.submittedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "Recently"}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedViolation(v)}
+                      style={{
+                        padding: "5px 12px",
+                        borderRadius: "8px",
+                        background: isResolved ? "#059669" : "#e11d48",
+                        color: "#ffffff",
+                        border: "none",
+                        fontSize: "0.78rem",
+                        fontWeight: 700,
+                        cursor: "pointer",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "5px"
+                      }}
+                    >
+                      <FaShieldAlt /> {isResolved ? "Audit Info" : "Review"}
+                    </button>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </section>

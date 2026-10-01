@@ -1781,3 +1781,268 @@
   color: #6366f1;
 }
 
+/* =========================================================
+   RESPONSIVE MOBILE & TABLET DESIGN SYSTEM
+   Optimized for handheld mobile devices, touch targets & narrow viewports
+   ========================================================= */
+
+@media (max-width: 1024px) {
+  .cm-stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 768px) {
+  .courses-manager {
+    padding: 14px 12px calc(86px + env(safe-area-inset-bottom, 0px)) !important;
+    gap: 14px;
+  }
+
+  /* Header */
+  .cm-header {
+    flex-direction: column;
+    align-items: stretch;
+    padding: 16px 16px;
+    border-radius: 16px;
+    gap: 14px;
+  }
+
+  .cm-header-titles h1 {
+    font-size: 1.35rem;
+  }
+
+  .cm-header-titles p {
+    font-size: 0.82rem;
+  }
+
+  .cm-header-actions {
+    width: 100%;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+
+  .cm-header-actions .cm-btn {
+    width: 100%;
+    padding: 9px 12px;
+    font-size: 0.82rem;
+    justify-content: center;
+  }
+
+  /* Stats Grid */
+  .cm-stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+    margin-bottom: 14px;
+  }
+
+  .cm-stat-card {
+    padding: 12px 14px;
+    gap: 10px;
+    border-radius: 14px;
+  }
+
+  .cm-stat-icon {
+    width: 38px;
+    height: 38px;
+    border-radius: 10px;
+    font-size: 1.05rem;
+  }
+
+  .cm-stat-value {
+    font-size: 1.3rem;
+  }
+
+  .cm-stat-label {
+    font-size: 0.68rem;
+  }
+
+  /* Toolbar */
+  .cm-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+    padding: 12px;
+    border-radius: 16px;
+    gap: 10px;
+    margin-bottom: 16px;
+  }
+
+  .cm-toolbar-left {
+    width: 100%;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  .cm-scope-tabs,
+  .cm-tabs {
+    width: 100%;
+    display: flex;
+    box-sizing: border-box;
+  }
+
+  .cm-scope-btn,
+  .cm-tab-btn {
+    flex: 1;
+    justify-content: center;
+    padding: 7px 8px;
+    font-size: 0.78rem;
+    text-align: center;
+  }
+
+  .cm-filter-controls {
+    width: 100%;
+    flex-direction: column;
+    align-items: stretch;
+    min-width: 0;
+    gap: 8px;
+  }
+
+  .cm-search-wrap {
+    max-width: 100%;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .cm-select {
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  /* Course Cards Grid */
+  .cm-courses-grid {
+    grid-template-columns: 1fr;
+    gap: 14px;
+  }
+
+  .cm-course-card {
+    padding: 16px 16px;
+    border-radius: 16px;
+  }
+
+  .cm-course-card-top {
+    gap: 6px;
+    margin-bottom: 10px;
+  }
+
+  .cm-course-title {
+    font-size: 1.12rem;
+    margin-bottom: 6px;
+  }
+
+  .cm-course-meta-row {
+    gap: 8px;
+    font-size: 0.78rem;
+    margin-bottom: 10px;
+  }
+
+  .cm-course-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    padding-top: 10px;
+  }
+
+  .cm-course-actions .cm-btn {
+    width: 100%;
+    padding: 8px 10px;
+    font-size: 0.8rem;
+    justify-content: center;
+  }
+
+  .cm-course-actions .cm-course-action-edit {
+    grid-column: span 1;
+  }
+
+  .cm-course-actions .cm-btn-attendance-action {
+    grid-column: span 2;
+    padding: 10px 14px;
+    font-size: 0.86rem;
+  }
+
+  /* Table View on Mobile */
+  .cm-table-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    border-radius: 14px;
+  }
+
+  .cm-table {
+    min-width: 600px;
+  }
+
+  .cm-table th,
+  .cm-table td {
+    padding: 10px 10px;
+    font-size: 0.8rem;
+  }
+
+  /* Modal Responsive */
+  .cm-modal-box {
+    width: 95% !important;
+    max-width: 95% !important;
+    padding: 18px 16px !important;
+    border-radius: 18px !important;
+    max-height: 90vh !important;
+  }
+
+  .cm-form-row {
+    grid-template-columns: 1fr !important;
+    gap: 10px !important;
+  }
+
+  .cm-modal-footer {
+    flex-direction: column-reverse;
+    gap: 8px;
+  }
+
+  .cm-modal-footer .cm-btn {
+    width: 100%;
+  }
+}
+
+@media (max-width: 480px) {
+  .cm-header-titles h1 {
+    font-size: 1.2rem;
+  }
+
+  .cm-header-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .cm-stats-grid {
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+
+  .cm-stat-card {
+    padding: 10px 12px;
+  }
+
+  .cm-stat-icon {
+    width: 32px;
+    height: 32px;
+    font-size: 0.95rem;
+  }
+
+  .cm-stat-value {
+    font-size: 1.15rem;
+  }
+
+  .cm-stat-label {
+    font-size: 0.65rem;
+  }
+
+  .cm-course-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .cm-course-actions .cm-course-action-edit {
+    grid-column: span 1;
+  }
+
+  .cm-course-actions .cm-btn-attendance-action {
+    grid-column: span 1;
+  }
+}
+

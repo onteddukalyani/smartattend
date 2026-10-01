@@ -173,9 +173,13 @@ function Dashboard() {
                         }
                         const isReviewedOrResolved =
                             record.reviewed === true ||
+                            Boolean(record.reviewedByRole) ||
+                            Boolean(record.reviewedAt) ||
                             record.excused === true ||
                             record.resolved === true ||
                             record.dismissed === true ||
+                            record.flagged === false ||
+                            record.hasViolation === false ||
                             record.status === "APPROVED" ||
                             record.status === "RESOLVED" ||
                             record.status === "DISMISSED" ||
@@ -187,6 +191,7 @@ function Dashboard() {
                             !isReviewedOrResolved &&
                             (record.status === "FLAGGED" ||
                              record.status === "FLAGGED_DISQUALIFIED" ||
+                             record.status === "FLAGGED_WARNING" ||
                              record.status === "VIOLATION" ||
                              record.flagged === true ||
                              record.hasViolation === true);
