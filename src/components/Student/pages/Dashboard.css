@@ -1001,3 +1001,320 @@
         transform: scale(1) translateY(0);
     }
 }
+
+/* =========================================
+   STUDENT BANNERS, NOTIFICATIONS & ALERTS
+   ========================================= */
+
+/* Proactive Device Mismatch Banner */
+.student-device-mismatch-banner {
+    margin-bottom: 18px;
+    padding: 16px 20px;
+    border-radius: 18px;
+    background: linear-gradient(135deg, #fff1f2 0%, #fee2e2 100%);
+    border: 1.5px solid #f87171;
+    color: #991b1b;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    box-shadow: 0 6px 18px rgba(239, 68, 68, 0.15);
+    flex-wrap: wrap;
+}
+
+.student-device-mismatch-icon {
+    width: 42px;
+    height: 42px;
+    border-radius: 12px;
+    background: #dc2626;
+    color: #ffffff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    fontSize: 1.25rem;
+    flex-shrink: 0;
+}
+
+.student-device-mismatch-title {
+    font-weight: 800;
+    font-size: 0.98rem;
+    margin-bottom: 3px;
+    color: #991b1b;
+}
+
+.student-device-mismatch-desc {
+    font-size: 0.86rem;
+    color: #7f1d1d;
+    line-height: 1.45;
+}
+
+.student-device-mismatch-btn {
+    padding: 10px 18px;
+    border-radius: 12px;
+    background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
+    color: #ffffff;
+    border: none;
+    font-weight: 800;
+    font-size: 0.85rem;
+    box-shadow: 0 4px 12px rgba(220, 38, 38, 0.3);
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    transition: transform 0.15s ease, opacity 0.15s ease;
+}
+
+/* Face Registration Pending Banner */
+.face-pending-alert-banner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 16px 20px;
+    border-radius: 14px;
+    background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%);
+    border: 1.5px solid #fde68a;
+    margin-bottom: 8px;
+    flex-wrap: wrap;
+    box-shadow: 0 4px 12px rgba(245, 158, 11, 0.1);
+}
+
+.face-pending-icon {
+    color: #d97706;
+    font-size: 1.4rem;
+}
+
+.face-pending-alert-banner h4 {
+    margin: 0;
+    font-size: 0.98rem;
+    font-weight: 800;
+    color: #92400e;
+}
+
+.face-pending-alert-banner p {
+    margin: 2px 0 0;
+    font-size: 0.85rem;
+    color: #b45309;
+}
+
+/* Student Notification Cards */
+.student-notification-card {
+    border-radius: 16px;
+    padding: 16px 20px;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 14px;
+    flex-wrap: wrap;
+    transition: all 0.2s ease;
+}
+
+.student-notification-card.announcement {
+    background: linear-gradient(135deg, #faf5ff 0%, #f3e8ff 100%);
+    border: 1.5px solid #d8b4fe;
+    box-shadow: 0 6px 16px rgba(168, 85, 247, 0.12);
+}
+
+.student-notification-card.security {
+    background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%);
+    border: 1.5px solid #fca5a5;
+    box-shadow: 0 6px 16px rgba(239, 68, 68, 0.12);
+}
+
+.student-notification-card.default {
+    background: linear-gradient(135deg, #eff6ff 0%, #e0f2fe 100%);
+    border: 1.5px solid #93c5fd;
+    box-shadow: 0 6px 16px rgba(37, 99, 235, 0.12);
+}
+
+.student-notif-title.announcement { color: #581c87; }
+.student-notif-title.security { color: #991b1b; }
+.student-notif-title.default { color: #1e40af; }
+
+.student-notif-msg.announcement { color: #3b0764; }
+.student-notif-msg.security { color: #7f1d1d; }
+.student-notif-msg.default { color: #1e3a8a; }
+
+.student-notif-time.announcement { color: #9333ea; }
+.student-notif-time.security { color: #dc2626; }
+.student-notif-time.default { color: #3b82f6; }
+
+.student-notif-badge-from {
+    font-size: 0.75rem;
+    font-weight: 700;
+    padding: 2px 10px;
+    border-radius: 99px;
+    background: #ffffff;
+}
+
+.student-notif-badge-from.announcement { color: #7e22ce; border: 1px solid #e9d5ff; }
+.student-notif-badge-from.security { color: #dc2626; border: 1px solid #fecaca; }
+.student-notif-badge-from.default { color: #2563eb; border: 1px solid #bfdbfe; }
+
+.student-notif-type-pill {
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: #059669;
+    background: #ecfdf5;
+    padding: 2px 8px;
+    border-radius: 99px;
+    border: 1px solid #a7f3d0;
+}
+
+.student-notif-read-btn {
+    background: #ffffff;
+    border-radius: 10px;
+    padding: 7px 14px;
+    font-size: 0.82rem;
+    font-weight: 700;
+    cursor: pointer;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+    transition: all 0.15s ease;
+}
+
+.student-notif-read-btn.announcement { border: 1px solid #d8b4fe; color: #7e22ce; }
+.student-notif-read-btn.security { border: 1px solid #fca5a5; color: #dc2626; }
+.student-notif-read-btn.default { border: 1px solid #bfdbfe; color: #2563eb; }
+
+/* Generic Form Error Alert Box */
+.form-error-alert-box {
+    padding: 10px 14px;
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    color: #dc2626;
+    border-radius: 10px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    margin-bottom: 14px;
+}
+
+/* =========================================
+   MIDNIGHT THEME SOOTHING OVERRIDES
+   Prevents glare and eye strain in dark mode
+   ========================================= */
+
+[data-theme="midnight"] .student-role-pill-badge {
+    background: rgba(16, 185, 129, 0.15);
+    color: #6ee7b7;
+    border-color: rgba(16, 185, 129, 0.3);
+}
+
+[data-theme="midnight"] .student-role-pill-badge svg {
+    color: #6ee7b7;
+}
+
+[data-theme="midnight"] .student-device-mismatch-banner {
+    background: #181c2b;
+    border-color: rgba(239, 68, 68, 0.35);
+    color: #fca5a5;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
+[data-theme="midnight"] .student-device-mismatch-title {
+    color: #fca5a5;
+}
+
+[data-theme="midnight"] .student-device-mismatch-desc {
+    color: #cbd5e1;
+}
+
+[data-theme="midnight"] .student-device-mismatch-desc strong {
+    color: #f8fafc;
+}
+
+[data-theme="midnight"] .face-pending-alert-banner {
+    background: #201a14;
+    border-color: rgba(245, 158, 11, 0.35);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+}
+
+[data-theme="midnight"] .face-pending-icon {
+    color: #fbbf24;
+}
+
+[data-theme="midnight"] .face-pending-alert-banner h4 {
+    color: #fde68a;
+}
+
+[data-theme="midnight"] .face-pending-alert-banner p {
+    color: #cbd5e1;
+}
+
+[data-theme="midnight"] .student-notification-card.announcement {
+    background: #1c182e;
+    border-color: rgba(168, 85, 247, 0.35);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+}
+
+[data-theme="midnight"] .student-notification-card.security {
+    background: #23161c;
+    border-color: rgba(239, 68, 68, 0.35);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+}
+
+[data-theme="midnight"] .student-notification-card.default {
+    background: #141f32;
+    border-color: rgba(59, 130, 246, 0.35);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+}
+
+[data-theme="midnight"] .student-notif-title.announcement { color: #d8b4fe; }
+[data-theme="midnight"] .student-notif-title.security { color: #fca5a5; }
+[data-theme="midnight"] .student-notif-title.default { color: #93c5fd; }
+
+[data-theme="midnight"] .student-notif-msg.announcement { color: #e9d5ff; }
+[data-theme="midnight"] .student-notif-msg.security { color: #fecdd3; }
+[data-theme="midnight"] .student-notif-msg.default { color: #cbd5e1; }
+
+[data-theme="midnight"] .student-notif-time.announcement { color: #c084fc; }
+[data-theme="midnight"] .student-notif-time.security { color: #f87171; }
+[data-theme="midnight"] .student-notif-time.default { color: #60a5fa; }
+
+[data-theme="midnight"] .student-notif-badge-from {
+    background: rgba(255, 255, 255, 0.08);
+}
+
+[data-theme="midnight"] .student-notif-badge-from.announcement { color: #d8b4fe; border-color: rgba(168, 85, 247, 0.3); }
+[data-theme="midnight"] .student-notif-badge-from.security { color: #fca5a5; border-color: rgba(239, 68, 68, 0.3); }
+[data-theme="midnight"] .student-notif-badge-from.default { color: #93c5fd; border-color: rgba(59, 130, 246, 0.3); }
+
+[data-theme="midnight"] .student-notif-type-pill {
+    background: rgba(16, 185, 129, 0.15);
+    color: #6ee7b7;
+    border-color: rgba(16, 185, 129, 0.3);
+}
+
+[data-theme="midnight"] .student-notif-read-btn {
+    background: rgba(255, 255, 255, 0.06);
+}
+
+[data-theme="midnight"] .student-notif-read-btn.announcement { color: #d8b4fe; border-color: rgba(168, 85, 247, 0.3); }
+[data-theme="midnight"] .student-notif-read-btn.security { color: #fca5a5; border-color: rgba(239, 68, 68, 0.3); }
+[data-theme="midnight"] .student-notif-read-btn.default { color: #93c5fd; border-color: rgba(59, 130, 246, 0.3); }
+
+[data-theme="midnight"] .student-quick-course-badge.safe {
+    background: rgba(16, 185, 129, 0.15);
+    color: #6ee7b7;
+}
+
+[data-theme="midnight"] .student-quick-course-badge.warning {
+    background: rgba(245, 158, 11, 0.15);
+    color: #fcd34d;
+}
+
+[data-theme="midnight"] .student-quick-course-badge.danger {
+    background: rgba(239, 68, 68, 0.15);
+    color: #fca5a5;
+}
+
+[data-theme="midnight"] .student-quick-course-badge.none {
+    background: rgba(148, 163, 184, 0.15);
+    color: #94a3b8;
+}
+
+[data-theme="midnight"] .form-error-alert-box {
+    background: rgba(239, 68, 68, 0.15);
+    border-color: rgba(239, 68, 68, 0.35);
+    color: #fca5a5;
+}

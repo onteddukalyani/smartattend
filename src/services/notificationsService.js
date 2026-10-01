@@ -350,15 +350,23 @@ export async function sendBroadcastNotification({
   senderRole = "admin",
   metadata = {}
 }) {
-  const normalizedTargetRoles = Array.isArray(targetRoles) ? targetRoles.map(r => String(r).toLowerCase()) : ["student", "lecturer", "admin", "all", "everyone"];
+  const normalizedTargetRoles = Array.isArray(targetRoles)
+    ? targetRoles.map(r => String(r).toLowerCase().trim())
+    : (targetRoles ? [String(targetRoles).toLowerCase().trim()] : ["student", "lecturer", "admin", "all", "everyone"]);
+  
+  if (normalizedTargetRoles.length === 0 || normalizedTargetRoles.includes("all") || normalizedTargetRoles.includes("everyone")) {
+    normalizedTargetRoles.push("student", "lecturer", "admin", "faculty", "all", "everyone");
+  }
+
   const nowMs = Date.now();
 
   const payload = {
     id: "loc_broad_" + nowMs + "_" + Math.random().toString(36).substring(2, 7),
-    title,
-    message,
+    title: title || "Important Announcement",
+    message: message || "",
     type: type || "BROADCAST_ANNOUNCEMENT",
-    targetRoles: normalizedTargetRoles,
+    targetRoles: Array.from(new Set(normalizedTargetRoles)),
+    targetRole: normalizedTargetRoles.includes("student") ? "all" : (normalizedTargetRoles.includes("lecturer") ? "faculty" : "admin"),
     senderName: senderName || (senderRole === "admin" ? "Campus Administrator" : "Course Lecturer"),
     senderRole: senderRole || "admin",
     isAnnouncement: true,
@@ -628,15 +636,19 @@ export function subscribeToStudentNotifications(studentRollNo, callback, student
   // 2. Broadcast notifications collection listener
   try {
     const broadcastRef = collection(db, "broadcast_notifications");
-    const unsub = onSnapshot(query(broadcastRef, limit(40)), (snapshot) => {
+    const unsub = onSnapshot(query(broadcastRef, limit(60)), (snapshot) => {
       remoteBroadcastNotifs = snapshot.docs
         .map(d => ({
           id: d.id,
           ...d.data()
         }))
         .filter(n => {
-          const roles = (n.targetRoles || ["student", "all"]).map(r => String(r).toLowerCase());
-          return roles.includes("student") || roles.includes("all") || roles.includes("everyone") || roles.includes("students");
+          const rawRoles = n.targetRoles || n.targetRole || [];
+          const roles = Array.isArray(rawRoles)
+            ? rawRoles.map(r => String(r).toLowerCase().trim())
+            : (rawRoles ? [String(rawRoles).toLowerCase().trim()] : []);
+          if (roles.length === 0) return true;
+          return roles.some(r => ["student", "students", "all", "everyone", ""].includes(r));
         });
       mergeAndEmit();
     }, () => {});
@@ -646,15 +658,19 @@ export function subscribeToStudentNotifications(studentRollNo, callback, student
   // 3. Announcements collection listener
   try {
     const announcementsRef = collection(db, "announcements");
-    const unsub = onSnapshot(query(announcementsRef, limit(40)), (snapshot) => {
+    const unsub = onSnapshot(query(announcementsRef, limit(60)), (snapshot) => {
       remoteAnnouncements = snapshot.docs
         .map(d => ({
           id: d.id,
           ...d.data()
         }))
         .filter(n => {
-          const roles = (n.targetRoles || ["student", "all"]).map(r => String(r).toLowerCase());
-          return roles.includes("student") || roles.includes("all") || roles.includes("everyone") || roles.includes("students");
+          const rawRoles = n.targetRoles || n.targetRole || [];
+          const roles = Array.isArray(rawRoles)
+            ? rawRoles.map(r => String(r).toLowerCase().trim())
+            : (rawRoles ? [String(rawRoles).toLowerCase().trim()] : []);
+          if (roles.length === 0) return true;
+          return roles.some(r => ["student", "students", "all", "everyone", ""].includes(r));
         });
       mergeAndEmit();
     }, () => {});
@@ -664,17 +680,21 @@ export function subscribeToStudentNotifications(studentRollNo, callback, student
   // 4. Global notifications collection listener
   try {
     const globalRef = collection(db, "notifications");
-    const unsub = onSnapshot(query(globalRef, limit(40)), (snapshot) => {
+    const unsub = onSnapshot(query(globalRef, limit(60)), (snapshot) => {
       remoteGlobalNotifs = snapshot.docs
         .map(d => ({
           id: d.id,
           ...d.data()
         }))
         .filter(n => {
-          const targetRoll = (n.recipientRollNo || n.recipientRollPrefix || "").toUpperCase().trim();
-          if (targetRoll && (targetRoll === cleanRoll || targetRoll === rollPrefix || targetRoll === emailPrefix)) return true;
-          const roles = (n.targetRoles || []).map(r => String(r).toLowerCase());
-          return roles.length === 0 || roles.includes("student") || roles.includes("all") || roles.includes("everyone") || roles.includes("students");
+          const targetRoll = (n.studentRollNo || n.recipientRollNo || n.recipientRollPrefix || "").toUpperCase().trim();
+          if (targetRoll && (targetRoll === cleanRoll || targetRoll === rollPrefix || targetRoll === emailPrefix || targetRoll === "ALL")) return true;
+          const rawRoles = n.targetRoles || n.targetRole || [];
+          const roles = Array.isArray(rawRoles)
+            ? rawRoles.map(r => String(r).toLowerCase().trim())
+            : (rawRoles ? [String(rawRoles).toLowerCase().trim()] : []);
+          if (roles.length === 0) return true;
+          return roles.some(r => ["student", "students", "all", "everyone", ""].includes(r));
         });
       mergeAndEmit();
     }, () => {});
@@ -710,19 +730,20 @@ export function subscribeToFacultyNotifications(callback, roleFilter = "faculty"
   let filteredLocal = initialCached;
   const filterRoleNorm = String(roleFilter).toLowerCase();
 
-  if (filterRoleNorm === "admin") {
-    filteredLocal = initialCached.filter(n => {
-      const targetRole = String(n.targetRole || "faculty").toLowerCase();
-      const roles = (n.targetRoles || []).map(r => String(r).toLowerCase());
-      return targetRole === "admin" || targetRole === "faculty" || targetRole === "all" || roles.includes("admin") || roles.includes("all") || roles.includes("faculty") || roles.includes("everyone");
-    });
-  } else if (filterRoleNorm === "lecturer") {
-    filteredLocal = initialCached.filter(n => {
-      const targetRole = String(n.targetRole || "faculty").toLowerCase();
-      const roles = (n.targetRoles || []).map(r => String(r).toLowerCase());
-      return targetRole === "lecturer" || targetRole === "faculty" || targetRole === "all" || roles.includes("lecturer") || roles.includes("all") || roles.includes("faculty") || roles.includes("everyone");
-    });
-  }
+  const isRoleMatching = (n) => {
+    const rawRoles = n.targetRoles || n.targetRole || [];
+    const roles = Array.isArray(rawRoles)
+      ? rawRoles.map(r => String(r).toLowerCase().trim())
+      : (rawRoles ? [String(rawRoles).toLowerCase().trim()] : []);
+    if (roles.length === 0) return true;
+    if (filterRoleNorm === "admin") {
+      return roles.some(r => ["admin", "admins", "faculty", "all", "everyone", ""].includes(r));
+    } else {
+      return roles.some(r => ["lecturer", "lecturers", "faculty", "professors", "all", "everyone", ""].includes(r));
+    }
+  };
+
+  filteredLocal = initialCached.filter(isRoleMatching);
   callback(filteredLocal);
 
   localFacultyListeners.add(callback);
@@ -765,20 +786,7 @@ export function subscribeToFacultyNotifications(callback, roleFilter = "faculty"
     saveLocalFacultyNotifs(combined);
 
     localFacultyListeners.forEach(cb => {
-      let filtered = combined;
-      if (filterRoleNorm === "admin") {
-        filtered = combined.filter(n => {
-          const targetRole = String(n.targetRole || "faculty").toLowerCase();
-          const roles = (n.targetRoles || []).map(r => String(r).toLowerCase());
-          return targetRole === "admin" || targetRole === "faculty" || targetRole === "all" || roles.includes("admin") || roles.includes("all") || roles.includes("faculty") || roles.includes("everyone");
-        });
-      } else if (filterRoleNorm === "lecturer") {
-        filtered = combined.filter(n => {
-          const targetRole = String(n.targetRole || "faculty").toLowerCase();
-          const roles = (n.targetRoles || []).map(r => String(r).toLowerCase());
-          return targetRole === "lecturer" || targetRole === "faculty" || targetRole === "all" || roles.includes("lecturer") || roles.includes("all") || roles.includes("faculty") || roles.includes("everyone");
-        });
-      }
+      const filtered = combined.filter(isRoleMatching);
       try { cb(filtered); } catch (_) {}
     });
   };
@@ -788,7 +796,7 @@ export function subscribeToFacultyNotifications(callback, roleFilter = "faculty"
   // 1. Faculty Notifications collection
   try {
     const facultyNotifRef = collection(db, "faculty_notifications");
-    const unsub = onSnapshot(query(facultyNotifRef, limit(40)), (snapshot) => {
+    const unsub = onSnapshot(query(facultyNotifRef, limit(60)), (snapshot) => {
       remoteFacultyNotifs = snapshot.docs.map(d => ({
         id: d.id,
         ...d.data()
@@ -801,11 +809,13 @@ export function subscribeToFacultyNotifications(callback, roleFilter = "faculty"
   // 2. Broadcast Notifications collection
   try {
     const broadcastRef = collection(db, "broadcast_notifications");
-    const unsub = onSnapshot(query(broadcastRef, limit(40)), (snapshot) => {
-      remoteBroadcastNotifs = snapshot.docs.map(d => ({
-        id: d.id,
-        ...d.data()
-      }));
+    const unsub = onSnapshot(query(broadcastRef, limit(60)), (snapshot) => {
+      remoteBroadcastNotifs = snapshot.docs
+        .map(d => ({
+          id: d.id,
+          ...d.data()
+        }))
+        .filter(isRoleMatching);
       mergeAndEmitFaculty();
     }, () => {});
     unsubs.push(unsub);
@@ -814,11 +824,13 @@ export function subscribeToFacultyNotifications(callback, roleFilter = "faculty"
   // 3. Announcements collection
   try {
     const announcementsRef = collection(db, "announcements");
-    const unsub = onSnapshot(query(announcementsRef, limit(40)), (snapshot) => {
-      remoteAnnouncements = snapshot.docs.map(d => ({
-        id: d.id,
-        ...d.data()
-      }));
+    const unsub = onSnapshot(query(announcementsRef, limit(60)), (snapshot) => {
+      remoteAnnouncements = snapshot.docs
+        .map(d => ({
+          id: d.id,
+          ...d.data()
+        }))
+        .filter(isRoleMatching);
       mergeAndEmitFaculty();
     }, () => {});
     unsubs.push(unsub);
@@ -827,11 +839,13 @@ export function subscribeToFacultyNotifications(callback, roleFilter = "faculty"
   // 4. Global Notifications collection
   try {
     const globalRef = collection(db, "notifications");
-    const unsub = onSnapshot(query(globalRef, limit(40)), (snapshot) => {
-      remoteGlobalNotifs = snapshot.docs.map(d => ({
-        id: d.id,
-        ...d.data()
-      }));
+    const unsub = onSnapshot(query(globalRef, limit(60)), (snapshot) => {
+      remoteGlobalNotifs = snapshot.docs
+        .map(d => ({
+          id: d.id,
+          ...d.data()
+        }))
+        .filter(isRoleMatching);
       mergeAndEmitFaculty();
     }, () => {});
     unsubs.push(unsub);

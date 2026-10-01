@@ -1060,6 +1060,87 @@
     color: #f8fafc;
 }
 
+/* =========================================================
+   QR VIOLATIONS ALERT BOX (LIGHT & MIDNIGHT THEMES)
+========================================================= */
+
+.qr-violations-alert-box {
+    margin-top: 16px;
+    padding: 14px 18px;
+    border-radius: 12px;
+    background: #fff1f2;
+    border: 1.5px solid #fecdd3;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+    box-shadow: 0 4px 12px rgba(239, 68, 68, 0.05);
+}
+
+.qr-violations-alert-info {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.qr-violations-alert-icon {
+    color: #e11d48;
+    font-size: 1.3rem;
+    flex-shrink: 0;
+}
+
+.qr-violations-alert-title {
+    color: #9f1239;
+    font-size: 0.92rem;
+    display: block;
+    margin-bottom: 2px;
+}
+
+.qr-violations-alert-desc {
+    color: #881337;
+    font-size: 0.82rem;
+    line-height: 1.4;
+}
+
+.qr-violations-filter-btn {
+    padding: 7px 14px;
+    border-radius: 8px;
+    background: #e11d48;
+    color: #ffffff;
+    border: none;
+    font-weight: 700;
+    font-size: 0.8rem;
+    cursor: pointer;
+    box-shadow: 0 2px 8px rgba(225, 29, 72, 0.25);
+    transition: all 0.15s ease;
+}
+
+.qr-violations-filter-btn:hover {
+    background: #be123c;
+    transform: translateY(-1px);
+}
+
+/* Midnight Dark Theme Overrides */
+[data-theme="midnight"] .qr-violations-alert-box {
+    background: #181c2b;
+    border-color: rgba(239, 68, 68, 0.3);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+}
+
+[data-theme="midnight"] .qr-violations-alert-title {
+    color: #fca5a5;
+}
+
+[data-theme="midnight"] .qr-violations-alert-desc {
+    color: #cbd5e1;
+}
+
+[data-theme="midnight"] .qr-violations-filter-btn {
+    background: #dc2626;
+}
+
+
 /* ---------------------------------------------------------
    Mobile Responsiveness
    --------------------------------------------------------- */

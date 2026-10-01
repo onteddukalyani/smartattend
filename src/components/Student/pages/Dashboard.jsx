@@ -795,44 +795,20 @@ export default function StudentDashboard() {
 
             {/* Proactive Device Mismatch Alert Banner */}
             {isDeviceMismatch && (
-                <div style={{
-                    marginBottom: "18px",
-                    padding: "16px 20px",
-                    borderRadius: "18px",
-                    background: "linear-gradient(135deg, #fff1f2 0%, #fee2e2 100%)",
-                    border: "1.5px solid #f87171",
-                    color: "#991b1b",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    gap: "16px",
-                    boxShadow: "0 6px 18px rgba(239, 68, 68, 0.15)",
-                    flexWrap: "wrap"
-                }}>
+                <div className="student-device-mismatch-banner">
                     <div style={{ display: "flex", alignItems: "flex-start", gap: "12px", flex: "1 1 320px" }}>
-                        <div style={{
-                            width: "42px",
-                            height: "42px",
-                            borderRadius: "12px",
-                            background: "#dc2626",
-                            color: "#ffffff",
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            fontSize: "1.25rem",
-                            flexShrink: 0
-                        }}>
+                        <div className="student-device-mismatch-icon">
                             <FaExclamationTriangle />
                         </div>
                         <div>
-                            <div style={{ fontWeight: 800, fontSize: "0.98rem", marginBottom: "3px", color: "#991b1b" }}>
+                            <div className="student-device-mismatch-title">
                                 🚨 Device Registration Mismatch Detected
                             </div>
-                            <div style={{ fontSize: "0.86rem", color: "#7f1d1d", lineHeight: 1.45 }}>
+                            <div className="student-device-mismatch-desc">
                                 Your account is locked to a <strong>{getDeviceDisplayName(registeredDevice)}</strong>, but you are currently accessing from a <strong>{getDeviceDisplayName(detectedPlatform || 'web')}</strong> (IP: {clientIpAddress || 'Detected'}). Attendance scanning will be blocked on this device.
                             </div>
                             {resetRequestedMsg && (
-                                <div style={{ marginTop: "6px", fontSize: "0.84rem", fontWeight: 700, color: "#15803d" }}>
+                                <div style={{ marginTop: "6px", fontSize: "0.84rem", fontWeight: 700, color: "#10b981" }}>
                                     {resetRequestedMsg}
                                 </div>
                             )}
@@ -844,20 +820,8 @@ export default function StudentDashboard() {
                             type="button"
                             onClick={handleRequestDeviceReset}
                             disabled={requestingReset}
-                            style={{
-                                padding: "10px 18px",
-                                borderRadius: "12px",
-                                background: "linear-gradient(135deg, #dc2626 0%, #b91c1c 100%)",
-                                color: "#ffffff",
-                                border: "none",
-                                fontWeight: 800,
-                                fontSize: "0.85rem",
-                                cursor: requestingReset ? "not-allowed" : "pointer",
-                                boxShadow: "0 4px 12px rgba(220, 38, 38, 0.3)",
-                                display: "inline-flex",
-                                alignItems: "center",
-                                gap: "6px"
-                            }}
+                            className="student-device-mismatch-btn"
+                            style={{ cursor: requestingReset ? "not-allowed" : "pointer", opacity: requestingReset ? 0.75 : 1 }}
                         >
                             {requestingReset ? (
                                 <><FaSpinner className="fa-spin" /> Submitting Request...</>
@@ -876,27 +840,10 @@ export default function StudentDashboard() {
                         const isAnnouncement = n.type === 'BROADCAST_ANNOUNCEMENT' || n.type === 'ANNOUNCEMENT' || n.type === 'GENERAL_NOTICE' || n.type === 'CLASS_UPDATE' || n.isAnnouncement || Boolean(n.targetRoles?.length);
                         const isAcademic = n.type === 'CLASS_UPDATE' || (n.title && n.title.includes('Live Attendance'));
                         const isSecurity = n.type === 'SECURITY_ALERT' || n.type === 'DEVICE_RESET_REQUEST' || n.type === 'USER_VERIFICATION_FAILURE';
+                        const notifVariant = isAnnouncement ? 'announcement' : (isSecurity ? 'security' : 'default');
 
                         return (
-                            <div key={n.id} className="student-notification-card" style={{
-                                background: isAnnouncement
-                                    ? "linear-gradient(135deg, #faf5ff 0%, #f3e8ff 100%)"
-                                    : (isSecurity ? "linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%)" : "linear-gradient(135deg, #eff6ff 0%, #e0f2fe 100%)"),
-                                border: isAnnouncement
-                                    ? "1.5px solid #d8b4fe"
-                                    : (isSecurity ? "1.5px solid #fca5a5" : "1.5px solid #93c5fd"),
-                                borderRadius: "16px",
-                                padding: "16px 20px",
-                                marginBottom: "12px",
-                                display: "flex",
-                                alignItems: "flex-start",
-                                justifyContent: "space-between",
-                                gap: "14px",
-                                boxShadow: isAnnouncement
-                                    ? "0 6px 16px rgba(168, 85, 247, 0.12)"
-                                    : "0 6px 16px rgba(37, 99, 235, 0.12)",
-                                flexWrap: "wrap"
-                            }}>
+                            <div key={n.id} className={`student-notification-card ${notifVariant}`}>
                                 <div style={{ display: "flex", alignItems: "flex-start", gap: "14px", flex: "1 1 300px" }}>
                                     <div style={{
                                         width: "42px",
@@ -917,52 +864,22 @@ export default function StudentDashboard() {
                                     </div>
                                     <div>
                                         <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", marginBottom: "4px" }}>
-                                            <span style={{
-                                                fontWeight: 800,
-                                                fontSize: "1rem",
-                                                color: isAnnouncement ? "#581c87" : (isSecurity ? "#991b1b" : "#1e40af")
-                                            }}>
+                                            <span className={`student-notif-title ${notifVariant}`} style={{ fontWeight: 800, fontSize: "1rem" }}>
                                                 {n.title}
                                             </span>
-                                            <span style={{
-                                                fontSize: "0.75rem",
-                                                fontWeight: 700,
-                                                color: isAnnouncement ? "#7e22ce" : "#2563eb",
-                                                background: "#ffffff",
-                                                padding: "2px 10px",
-                                                borderRadius: "99px",
-                                                border: `1px solid ${isAnnouncement ? '#e9d5ff' : '#bfdbfe'}`
-                                            }}>
+                                            <span className={`student-notif-badge-from ${notifVariant}`}>
                                                 From: {n.senderName || (n.senderRole === "admin" ? "Campus Admin" : "Faculty Lecturer")}
                                             </span>
                                             {isAnnouncement && (
-                                                <span style={{
-                                                    fontSize: "0.72rem",
-                                                    fontWeight: 700,
-                                                    color: "#059669",
-                                                    background: "#ecfdf5",
-                                                    padding: "2px 8px",
-                                                    borderRadius: "99px",
-                                                    border: "1px solid #a7f3d0"
-                                                }}>
+                                                <span className="student-notif-type-pill">
                                                     Announcement
                                                 </span>
                                             )}
                                         </div>
-                                        <div style={{
-                                            fontSize: "0.9rem",
-                                            color: isAnnouncement ? "#3b0764" : (isSecurity ? "#7f1d1d" : "#1e3a8a"),
-                                            lineHeight: 1.5,
-                                            whiteSpace: "pre-line"
-                                        }}>
+                                        <div className={`student-notif-msg ${notifVariant}`} style={{ fontSize: "0.9rem", lineHeight: 1.5, whiteSpace: "pre-line" }}>
                                             {n.message}
                                         </div>
-                                        <div style={{
-                                            fontSize: "0.75rem",
-                                            color: isAnnouncement ? "#9333ea" : "#3b82f6",
-                                            marginTop: "6px",
-                                            fontWeight: 600
-                                        }}>
+                                        <div className={`student-notif-time ${notifVariant}`} style={{ fontSize: "0.75rem", marginTop: "6px", fontWeight: 600 }}>
                                             {n.createdAt ? new Date(getTimestampMs(n)).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "Just now"}
                                         </div>
                                     </div>
@@ -1024,17 +941,7 @@ export default function StudentDashboard() {
                                     <button
                                         type="button"
                                         onClick={() => markNotificationAsRead(activeRollNo, n.id)}
-                                        style={{
-                                            background: "#ffffff",
-                                            border: isAnnouncement ? "1px solid #d8b4fe" : "1px solid #bfdbfe",
-                                            borderRadius: "10px",
-                                            padding: "7px 14px",
-                                            fontSize: "0.82rem",
-                                            fontWeight: 700,
-                                            color: isAnnouncement ? "#7e22ce" : "#2563eb",
-                                            cursor: "pointer",
-                                            boxShadow: "0 2px 6px rgba(0, 0, 0, 0.05)"
-                                        }}
+                                        className={`student-notif-read-btn ${notifVariant}`}
                                     >
                                         Mark as Read
                                     </button>
@@ -1047,26 +954,14 @@ export default function StudentDashboard() {
 
             {/* Face Registration Pending Banner */}
             {!hasFaceRegistered && (
-                <div className="face-pending-alert-banner" style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    gap: "16px",
-                    padding: "16px 20px",
-                    borderRadius: "14px",
-                    background: "linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%)",
-                    border: "1.5px solid #fde68a",
-                    marginBottom: "8px",
-                    flexWrap: "wrap",
-                    boxShadow: "0 4px 12px rgba(245, 158, 11, 0.1)"
-                }}>
+                <div className="face-pending-alert-banner">
                     <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                        <FaExclamationTriangle style={{ color: "#d97706", fontSize: "1.4rem" }} />
+                        <FaExclamationTriangle className="face-pending-icon" />
                         <div>
-                            <h4 style={{ margin: 0, fontSize: "0.98rem", fontWeight: 800, color: "#92400e" }}>
+                            <h4>
                                 Facial Biometrics Enrollment Required
                             </h4>
-                            <p style={{ margin: "2px 0 0", fontSize: "0.85rem", color: "#b45309" }}>
+                            <p>
                                 You haven't registered your face yet. Register your biometric data once to mark attendance in class sessions.
                             </p>
                         </div>
@@ -1722,7 +1617,7 @@ export default function StudentDashboard() {
                             />
 
                             {nameEditError && (
-                                <div style={{ padding: "10px 14px", background: "#fef2f2", border: "1px solid #fecaca", color: "#dc2626", borderRadius: "10px", fontSize: "0.85rem", fontWeight: 600, marginBottom: "14px" }}>
+                                <div className="form-error-alert-box">
                                     ⚠️ {nameEditError}
                                 </div>
                             )}

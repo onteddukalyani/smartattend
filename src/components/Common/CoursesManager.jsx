@@ -1291,7 +1291,7 @@ export default function CoursesManager() {
             <form onSubmit={handleSaveCourse}>
               <div className="cm-modal-body">
                 {formError && (
-                  <div style={{ padding: "10px 14px", borderRadius: "10px", background: "#fee2e2", border: "1px solid #fca5a5", color: "#b91c1c", fontSize: "0.85rem", marginBottom: "16px", display: "flex", alignItems: "center", gap: "8px" }}>
+                  <div className="cm-form-error-banner">
                     <FaExclamationTriangle /> {formError}
                   </div>
                 )}

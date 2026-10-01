@@ -6,6 +6,7 @@ import { useAuth } from "../../authcontext";
 import { downloadExcel } from "../../../DownloadExcel";
 import { useTableSort, SortIcon } from "../../Common/useTableSort";
 import { buildUserLookupMaps, normalizeSessions, doesSessionBelongToLecturer } from "../../Common/sessionMatcher";
+import { normalizeBranchName } from "../../../utils/studentDataHelper";
 import { excuseAndReinstateAttendance, dismissOrRemoveViolation } from "../../../services/sessionAuthService";
 import { FiSearch, FiPlusCircle, FiUsers, FiLayers, FiFilter, FiX } from "react-icons/fi";
 import { FaCheckCircle, FaQrcode, FaClock, FaTrashAlt, FaLayerGroup, FaTable, FaUserPlus, FaExclamationTriangle, FaShieldAlt, FaCheck, FaTimes, FaSpinner, FaChalkboardTeacher, FaBookOpen, FaGraduationCap } from "react-icons/fa";
@@ -129,6 +130,7 @@ function ClassesData() {
 
                         return {
                             ...sess,
+                            classCode: normalizeBranchName(sess.classCode || matchedCourse.department || "CSE"),
                             batch: resolvedBatch,
                             lecturerName: sess.lecturerName || maps.uidToName?.get(sess.ownerId) || maps.emailToName?.get(sess.ownerEmail) || (sess.ownerEmail ? sess.ownerEmail.split("@")[0] : "Faculty")
                         };
@@ -153,8 +155,26 @@ function ClassesData() {
         };
     }, [user, profile]);
 
+    // Filter sessions based on role, tab, lecturer, course, batch and search query
+    const currentLecturerObj = {
+        uid: user?.uid || "",
+        email: user?.email || profile?.email || "",
+        name: profile?.name || user?.displayName || "",
+        role: profile?.role || "lecturer"
+    };
+
+    const isSessionOwnerForSess = (sess) => {
+        if (isAdmin) return true;
+        return doesSessionBelongToLecturer(sess, currentLecturerObj, lookupMaps, 100);
+    };
+
     const removeSession = async (event, session) => {
         event.stopPropagation();
+        if (!isSessionOwnerForSess(session)) {
+            alert(`❌ Permission Denied: This session belongs to ${session.lecturerName || "another lecturer"}. Only ${session.lecturerName || "the assigned lecturer"} or an administrator can delete it.`);
+            return;
+        }
+
         if (!window.confirm(`Remove the ${session.classCode || "selected"} session and its attendance records?`)) {
             return;
         }
@@ -177,14 +197,6 @@ function ClassesData() {
             console.error("Error removing session:", error);
             window.alert("Could not remove this session.");
         }
-    };
-
-    // Filter sessions based on role, tab, lecturer, course, batch and search query
-    const currentLecturerObj = {
-        uid: user?.uid || "",
-        email: user?.email || profile?.email || "",
-        name: profile?.name || user?.displayName || "",
-        role: profile?.role || "lecturer"
     };
 
     const mySessions = allSessionsList.filter((sess) =>
@@ -662,14 +674,16 @@ function ClassesData() {
                                                     >
                                                         View Attendance
                                                     </button>
-                                                    <button
-                                                        type="button"
-                                                        className="remove-session-btn"
-                                                        onClick={(event) => removeSession(event, session)}
-                                                        title="Delete session record"
-                                                    >
-                                                        Remove
-                                                    </button>
+                                                    {isSessionOwnerForSess(session) && (
+                                                        <button
+                                                            type="button"
+                                                            className="remove-session-btn"
+                                                            onClick={(event) => removeSession(event, session)}
+                                                            title="Delete session record"
+                                                        >
+                                                            Remove
+                                                        </button>
+                                                    )}
                                                 </td>
                                             </tr>
                                         );
@@ -1121,63 +1135,36 @@ export function SessionAttendanceData() {
 
             {/* Flagged Violations Section & Quick Pardon / Dismiss Hub */}
             {unreviewedViolationsList.length > 0 && (
-                <div style={{
-                    margin: "18px 0",
-                    padding: "16px 20px",
-                    borderRadius: "14px",
-                    background: "#fff1f2",
-                    border: "1.5px solid #fecdd3"
-                }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "10px" }}>
-                        <FaExclamationTriangle style={{ color: "#e11d48", fontSize: "1.2rem" }} />
-                        <h3 style={{ margin: 0, fontSize: "1.05rem", color: "#9f1239", fontWeight: 800 }}>
+                <div className="session-violations-alert-box">
+                    <div className="session-violations-header">
+                        <FaExclamationTriangle className="session-violations-icon" />
+                        <h3>
                             Pending Flagged Violations ({unreviewedViolationsList.length})
                         </h3>
                     </div>
-                    <p style={{ margin: "0 0 12px", fontSize: "0.82rem", color: "#881337" }}>
+                    <p className="session-violations-desc">
                         {isSessionOwner
                             ? "These students incurred security violations (app switching or screen lockout). If they provide a valid reason in class, click \"Excuse\" to restore attendance, or \"Dismiss\" to remove the violation log."
                             : `These students incurred security violations for this session. Only the assigned lecturer (${session?.lecturerName || "Faculty"}) or an administrator can excuse or dismiss violations.`}
                     </p>
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: "10px" }}>
+                    <div className="session-violations-grid">
                         {unreviewedViolationsList.map((f, idx) => {
                             const roll = (f.rollNo || f.studentUid || "STUDENT").toUpperCase();
 
                             return (
-                                <div key={idx} style={{
-                                    background: "#ffffff",
-                                    borderRadius: "10px",
-                                    padding: "12px 14px",
-                                    border: "1px solid #fecdd3",
-                                    display: "flex",
-                                    justifyContent: "space-between",
-                                    alignItems: "center",
-                                    gap: "10px"
-                                }}>
-                                    <div style={{ minWidth: 0, flex: 1 }}>
-                                        <strong style={{ fontSize: "0.9rem", color: "#0f172a", display: "block" }}>{roll}</strong>
-                                        <span style={{ fontSize: "0.74rem", color: "#e11d48", fontWeight: 600, display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                <div key={idx} className="session-violation-card">
+                                    <div className="session-violation-info">
+                                        <strong className="session-violation-roll">{roll}</strong>
+                                        <span className="session-violation-reason">
                                             {f.violationReason || f.violationType || "App switch violation"}
                                         </span>
                                     </div>
                                     {isSessionOwner ? (
-                                        <div style={{ display: "inline-flex", gap: "6px", flexShrink: 0 }}>
+                                        <div className="session-violation-actions">
                                             <button
                                                 type="button"
                                                 onClick={() => handleDismissViolationFromSession(f)}
-                                                style={{
-                                                    padding: "6px 10px",
-                                                    borderRadius: "8px",
-                                                    background: "#f1f5f9",
-                                                    color: "#64748b",
-                                                    border: "1px solid #cbd5e1",
-                                                    fontSize: "0.76rem",
-                                                    fontWeight: 700,
-                                                    cursor: "pointer",
-                                                    display: "inline-flex",
-                                                    alignItems: "center",
-                                                    gap: "4px"
-                                                }}
+                                                className="session-violation-dismiss-btn"
                                                 title="Dismiss flag without restoring attendance"
                                             >
                                                 <FaTimes /> Dismiss
@@ -1185,35 +1172,14 @@ export function SessionAttendanceData() {
                                             <button
                                                 type="button"
                                                 onClick={() => handleExcuseStudentFromSession(roll, "Excused physically by lecturer in classroom")}
-                                                style={{
-                                                    padding: "6px 12px",
-                                                    borderRadius: "8px",
-                                                    background: "#10b981",
-                                                    color: "#ffffff",
-                                                    border: "none",
-                                                    fontSize: "0.78rem",
-                                                    fontWeight: 700,
-                                                    cursor: "pointer",
-                                                    display: "inline-flex",
-                                                    alignItems: "center",
-                                                    gap: "4px",
-                                                    boxShadow: "0 2px 6px rgba(16, 185, 129, 0.2)"
-                                                }}
+                                                className="session-violation-excuse-btn"
                                                 title="Excuse violation & mark student as Present"
                                             >
                                                 <FaCheck /> Excuse
                                             </button>
                                         </div>
                                     ) : (
-                                        <span style={{
-                                            fontSize: "0.72rem",
-                                            fontWeight: 700,
-                                            color: "#94a3b8",
-                                            background: "#f8fafc",
-                                            padding: "4px 8px",
-                                            borderRadius: "6px",
-                                            border: "1px solid #e2e8f0"
-                                        }}>
+                                        <span className="session-violation-restricted-badge">
                                             Restricted
                                         </span>
                                     )}

@@ -655,3 +655,189 @@
         transform: rotate(360deg);
     }
 }
+
+/* =========================================================
+   MIDNIGHT THEME SOOTHING OVERRIDES
+   ========================================================= */
+
+[data-theme="midnight"] .notif-modal-card {
+    background: #152135;
+    border-color: #34465f;
+    box-shadow: 0 25px 60px -12px rgba(0, 0, 0, 0.7);
+}
+
+[data-theme="midnight"] .notif-modal-header {
+    background: #1b2a40;
+    border-color: #34465f;
+}
+
+[data-theme="midnight"] .notif-modal-title {
+    color: #f8fafc;
+}
+
+[data-theme="midnight"] .notif-modal-subtitle {
+    color: #b5c3d6;
+}
+
+[data-theme="midnight"] .notif-modal-close-btn {
+    background: #101827;
+    color: #94a3b8;
+}
+
+[data-theme="midnight"] .notif-modal-close-btn:hover {
+    background: #27374d;
+    color: #f8fafc;
+}
+
+[data-theme="midnight"] .notif-sound-btn {
+    background: #101827;
+    border-color: #34465f;
+    color: #b5c3d6;
+}
+
+[data-theme="midnight"] .notif-sound-btn:hover {
+    background: #27374d;
+    color: #f8fafc;
+}
+
+[data-theme="midnight"] .notif-search-input {
+    background: #101827;
+    border-color: #34465f;
+    color: #f8fafc;
+}
+
+[data-theme="midnight"] .notif-search-input:focus {
+    border-color: #818cf8;
+    background: #152135;
+    box-shadow: 0 0 0 3px rgba(129, 140, 248, 0.15);
+}
+
+[data-theme="midnight"] .notif-tab-btn {
+    background: #101827;
+    border-color: #34465f;
+    color: #b5c3d6;
+}
+
+[data-theme="midnight"] .notif-tab-btn:hover {
+    background: #27374d;
+    color: #f8fafc;
+}
+
+[data-theme="midnight"] .notif-tab-btn.active {
+    background: #6366f1;
+    color: #ffffff;
+    border-color: #6366f1;
+}
+
+[data-theme="midnight"] .notif-modal-body {
+    background: #101827;
+}
+
+[data-theme="midnight"] .notif-item-card {
+    background: #1b2a40;
+    border-color: #34465f;
+}
+
+[data-theme="midnight"] .notif-item-card.unread {
+    background: #1e3352;
+    border-color: #3b82f6;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+}
+
+[data-theme="midnight"] .notif-item-title {
+    color: #f8fafc;
+}
+
+[data-theme="midnight"] .notif-item-body {
+    color: #cbd5e1;
+}
+
+[data-theme="midnight"] .notif-item-time {
+    color: #94a3b8;
+}
+
+[data-theme="midnight"] .type-device {
+    background: rgba(14, 165, 233, 0.15);
+    color: #7dd3fc;
+}
+
+[data-theme="midnight"] .type-biometric {
+    background: rgba(245, 158, 11, 0.15);
+    color: #fcd34d;
+}
+
+[data-theme="midnight"] .type-violation {
+    background: rgba(239, 68, 68, 0.15);
+    color: #fca5a5;
+}
+
+[data-theme="midnight"] .type-profile {
+    background: rgba(168, 85, 247, 0.15);
+    color: #d8b4fe;
+}
+
+[data-theme="midnight"] .notif-delete-btn:hover {
+    background: rgba(239, 68, 68, 0.2);
+    color: #f87171;
+}
+
+[data-theme="midnight"] .notif-empty-state h3 {
+    color: #f8fafc;
+}
+
+[data-theme="midnight"] .notif-empty-state p {
+    color: #b5c3d6;
+}
+
+[data-theme="midnight"] .notif-empty-icon {
+    color: #475569;
+}
+
+[data-theme="midnight"] .notif-compose-card {
+    background: #1b2a40;
+    border-color: #34465f;
+}
+
+[data-theme="midnight"] .compose-header h3 {
+    color: #f8fafc;
+}
+
+[data-theme="midnight"] .compose-header p {
+    color: #b5c3d6;
+}
+
+[data-theme="midnight"] .compose-field label {
+    color: #cbd5e1;
+}
+
+[data-theme="midnight"] .compose-field input,
+[data-theme="midnight"] .compose-field select,
+[data-theme="midnight"] .compose-field textarea {
+    background: #101827;
+    border-color: #34465f;
+    color: #f8fafc;
+}
+
+[data-theme="midnight"] .compose-field input:focus,
+[data-theme="midnight"] .compose-field select:focus,
+[data-theme="midnight"] .compose-field textarea:focus {
+    border-color: #818cf8;
+    background: #152135;
+}
+
+[data-theme="midnight"] .audience-option {
+    background: #101827;
+    border-color: #34465f;
+    color: #cbd5e1;
+}
+
+[data-theme="midnight"] .audience-option:hover {
+    background: #27374d;
+    border-color: #475569;
+}
+
+[data-theme="midnight"] .audience-option.selected {
+    background: rgba(59, 130, 246, 0.2);
+    border-color: #3b82f6;
+    color: #93c5fd;
+}

@@ -1064,4 +1064,19 @@
   background: #1a233a;
   border-color: #334155;
   color: #94a3b8;
+}
+
+[data-theme="midnight"] .manage-lecturers-page .tab-badge.badge-active {
+  background: rgba(16, 185, 129, 0.18);
+  color: #6ee7b7;
+}
+
+[data-theme="midnight"] .manage-lecturers-page .tab-badge.badge-pending {
+  background: rgba(245, 158, 11, 0.18);
+  color: #fcd34d;
+}
+
+[data-theme="midnight"] .manage-lecturers-page .tab-badge.badge-disabled {
+  background: rgba(239, 68, 68, 0.18);
+  color: #fca5a5;
 }

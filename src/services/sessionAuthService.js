@@ -3,6 +3,7 @@ import { doc, onSnapshot, collection, setDoc, getDoc, updateDoc, arrayUnion, inc
 import { functions, db, auth } from "../firebase";
 import { sendFacultyNotification, sendStudentNotification, reportUserVerificationComplaint } from "./notificationsService";
 import { detectDeviceType, getClientIpAddress, getDeviceDisplayName, isDeviceMatching } from "../utils/deviceDetection";
+import { normalizeBranchName } from "../utils/studentDataHelper";
 
 /**
  * Utility: Compute SHA-256 hash using Web Crypto API.
@@ -58,8 +59,9 @@ export async function initiateSession(sessionParams) {
   const qr2TokenHash = await sha256(qr2Token);
 
   const { classCode, courseCode, roomNo, batch, lecturerInfo } = sessionParams;
-  const cleanCourse = (courseCode || classCode || "CLASS").toUpperCase().replace(/[^A-Z0-9_-]/g, "");
-  const cleanClass = classCode !== courseCode ? `_${classCode.toUpperCase().replace(/[^A-Z0-9_-]/g, "")}` : "";
+  const normalizedClass = normalizeBranchName(classCode || "CSE");
+  const cleanCourse = (courseCode || normalizedClass || "CLASS").toUpperCase().replace(/[^A-Z0-9_-]/g, "");
+  const cleanClass = normalizedClass !== courseCode ? `_${normalizedClass.toUpperCase().replace(/[^A-Z0-9_-]/g, "")}` : "";
   const randomSuffix = Math.floor(1000 + Math.random() * 9000);
   const sessionId = `${cleanCourse}${cleanClass}_${nowMs}_${randomSuffix}`;
 
@@ -72,7 +74,7 @@ export async function initiateSession(sessionParams) {
   const sessionDoc = {
     id: sessionId,
     sessionId: sessionId,
-    classCode: classCode,
+    classCode: normalizedClass,
     courseCode: courseCode,
     roomNo: roomNo,
     batch: batch || "2025",
@@ -85,7 +87,7 @@ export async function initiateSession(sessionParams) {
     ownerEmail: lecturerEmail,
     lecturerName: lecturerName,
     lecturerEmail: lecturerEmail,
-    lecturerDepartment: lecturerInfo?.department || "CSE",
+    lecturerDepartment: normalizeBranchName(lecturerInfo?.department || "CSE"),
     sessionStartAt: nowMs,
     qr1ExpiresAt: qr1ExpiresMs,
     qr2StartsAt: qr2StartsMs,

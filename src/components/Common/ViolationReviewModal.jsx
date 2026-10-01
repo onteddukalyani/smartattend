@@ -173,48 +173,48 @@ export default function ViolationReviewModal({ violation, onClose, onActionCompl
     return (
         <div style={{
             position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-            backgroundColor: 'rgba(15, 23, 42, 0.65)', backdropFilter: 'blur(4px)',
+            backgroundColor: 'rgba(15, 23, 42, 0.72)', backdropFilter: 'blur(6px)',
             display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999,
             padding: '16px'
         }}>
             <div style={{
-                backgroundColor: '#ffffff', borderRadius: '20px', padding: '28px',
-                maxWidth: '520px', width: '100%', boxShadow: '0 20px 40px rgba(0,0,0,0.2)',
-                border: '1px solid #e2e8f0', animation: 'dashFadeIn 0.25s ease'
+                backgroundColor: 'var(--surface, #ffffff)', borderRadius: '20px', padding: '28px',
+                maxWidth: '520px', width: '100%', boxShadow: '0 20px 40px rgba(0,0,0,0.3)',
+                border: '1px solid var(--border, #e2e8f0)', animation: 'dashFadeIn 0.25s ease'
             }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px', color: '#ef4444', marginBottom: '18px' }}>
                     <div style={{
-                        width: '44px', height: '44px', borderRadius: '12px', background: 'rgba(239, 68, 68, 0.1)',
+                        width: '44px', height: '44px', borderRadius: '12px', background: 'rgba(239, 68, 68, 0.12)',
                         display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '20px'
                     }}>
                         <FaExclamationTriangle />
                     </div>
                     <div>
-                        <h3 style={{ margin: 0, fontSize: '1.25rem', color: '#0f172a', fontWeight: '800' }}>Review Flagged Violation</h3>
-                        <p style={{ margin: 0, fontSize: '0.82rem', color: '#64748b' }}>Anti-Proxy Detection Audit</p>
+                        <h3 style={{ margin: 0, fontSize: '1.25rem', color: 'var(--text-main, #0f172a)', fontWeight: '800' }}>Review Flagged Violation</h3>
+                        <p style={{ margin: 0, fontSize: '0.82rem', color: 'var(--text-muted, #64748b)' }}>Anti-Proxy Detection Audit</p>
                     </div>
                 </div>
 
-                <div style={{ backgroundColor: '#f8fafc', padding: '16px', borderRadius: '14px', fontSize: '0.9rem', marginBottom: '20px', border: '1px solid #e2e8f0' }}>
+                <div style={{ backgroundColor: 'var(--surface-soft, #f8fafc)', padding: '16px', borderRadius: '14px', fontSize: '0.9rem', marginBottom: '20px', border: '1px solid var(--border, #e2e8f0)' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                        <span style={{ color: '#64748b' }}>Roll Number:</span>
-                        <strong style={{ color: '#0f172a' }}>{violation.rollNo || violation.rollNumber || 'N/A'}</strong>
+                        <span style={{ color: 'var(--text-muted, #64748b)' }}>Roll Number:</span>
+                        <strong style={{ color: 'var(--text-main, #0f172a)' }}>{violation.rollNo || violation.rollNumber || 'N/A'}</strong>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                        <span style={{ color: '#64748b' }}>Student Name:</span>
-                        <strong style={{ color: '#0f172a' }}>{violation.studentName || violation.name || 'N/A'}</strong>
+                        <span style={{ color: 'var(--text-muted, #64748b)' }}>Student Name:</span>
+                        <strong style={{ color: 'var(--text-main, #0f172a)' }}>{violation.studentName || violation.name || 'N/A'}</strong>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                        <span style={{ color: '#64748b' }}>Class Code:</span>
-                        <strong style={{ color: '#0f172a' }}>{violation.classCode || violation.courseCode || 'N/A'}</strong>
+                        <span style={{ color: 'var(--text-muted, #64748b)' }}>Class Code:</span>
+                        <strong style={{ color: 'var(--text-main, #0f172a)' }}>{violation.classCode || violation.courseCode || 'N/A'}</strong>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                        <span style={{ color: '#64748b' }}>Violation Reason:</span>
+                        <span style={{ color: 'var(--text-muted, #64748b)' }}>Violation Reason:</span>
                         <span style={{ color: '#dc2626', fontWeight: '750' }}>{violation.violationReason || violation.reason || 'App Switched / Minimised'}</span>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                        <span style={{ color: '#64748b' }}>Time Logged:</span>
-                        <span style={{ color: '#475569', fontSize: '0.84rem' }}>
+                        <span style={{ color: 'var(--text-muted, #64748b)' }}>Time Logged:</span>
+                        <span style={{ color: 'var(--text-main, #475569)', fontSize: '0.84rem' }}>
                             {violation.timestamp || violation.submittedAt ? new Date(violation.timestamp || violation.submittedAt).toLocaleTimeString() : 'N/A'}
                         </span>
                     </div>
@@ -226,8 +226,8 @@ export default function ViolationReviewModal({ violation, onClose, onActionCompl
                         onClick={onClose}
                         disabled={actionLoading}
                         style={{
-                            padding: '10px 16px', borderRadius: '12px', border: '1px solid #cbd5e1',
-                            backgroundColor: '#ffffff', color: '#475569', fontWeight: '700', cursor: 'pointer',
+                            padding: '10px 16px', borderRadius: '12px', border: '1px solid var(--border, #cbd5e1)',
+                            backgroundColor: 'var(--surface, #ffffff)', color: 'var(--text-muted, #475569)', fontWeight: '700', cursor: 'pointer',
                             fontSize: '0.86rem'
                         }}>
                         Cancel
@@ -237,8 +237,8 @@ export default function ViolationReviewModal({ violation, onClose, onActionCompl
                         onClick={() => handleDecision('DISMISSED', 'Violation dismissed / false flag removed')}
                         disabled={actionLoading}
                         style={{
-                            padding: '10px 14px', borderRadius: '12px', border: '1px solid #cbd5e1',
-                            backgroundColor: '#f1f5f9', color: '#475569', fontWeight: '700', cursor: 'pointer',
+                            padding: '10px 14px', borderRadius: '12px', border: '1px solid var(--border, #cbd5e1)',
+                            backgroundColor: 'var(--surface-soft, #f1f5f9)', color: 'var(--text-main, #475569)', fontWeight: '700', cursor: 'pointer',
                             display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.86rem'
                         }}
                         title="Remove violation from review list without modifying attendance status"

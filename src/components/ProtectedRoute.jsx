@@ -90,21 +90,21 @@ const ProtectedRoute = ({ allowedRole, children }) => {
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          background: "linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%)",
+          background: "var(--page-bg, #f8fafc)",
           padding: "20px",
           fontFamily: "system-ui, -apple-system, sans-serif"
         }}
       >
         <div
           style={{
-            background: "#ffffff",
+            background: "var(--surface, #ffffff)",
             padding: "36px 32px",
             borderRadius: "20px",
             maxWidth: "480px",
             width: "100%",
             textAlign: "center",
-            boxShadow: "0 20px 40px rgba(0,0,0,0.08)",
-            border: "1px solid #e2e8f0"
+            boxShadow: "0 20px 40px var(--shadow, rgba(0,0,0,0.12))",
+            border: "1px solid var(--border, #e2e8f0)"
           }}
         >
           <div
@@ -112,8 +112,8 @@ const ProtectedRoute = ({ allowedRole, children }) => {
               width: "56px",
               height: "56px",
               borderRadius: "16px",
-              background: "#fee2e2",
-              color: "#dc2626",
+              background: "rgba(239, 68, 68, 0.15)",
+              color: "#ef4444",
               display: "inline-flex",
               alignItems: "center",
               justifyContent: "center",
@@ -123,10 +123,10 @@ const ProtectedRoute = ({ allowedRole, children }) => {
           >
             <FaExclamationTriangle />
           </div>
-          <h2 style={{ margin: "0 0 8px", fontSize: "1.35rem", color: "#0f172a", fontWeight: 800 }}>
+          <h2 style={{ margin: "0 0 8px", fontSize: "1.35rem", color: "var(--text-main, #0f172a)", fontWeight: 800 }}>
             Profile Record Not Found
           </h2>
-          <p style={{ color: "#64748b", fontSize: "0.9rem", lineHeight: 1.5, margin: "0 0 20px" }}>
+          <p style={{ color: "var(--text-muted, #64748b)", fontSize: "0.9rem", lineHeight: 1.5, margin: "0 0 20px" }}>
             Your Google account (<strong>{user.email}</strong>) is logged in, but no authorized user profile was found in the database.
           </p>
           <button
@@ -135,7 +135,7 @@ const ProtectedRoute = ({ allowedRole, children }) => {
             style={{
               padding: "10px 20px",
               borderRadius: "12px",
-              background: "#6366f1",
+              background: "var(--accent, #6366f1)",
               color: "#ffffff",
               border: "none",
               fontWeight: 700,
@@ -170,21 +170,21 @@ const ProtectedRoute = ({ allowedRole, children }) => {
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          background: "linear-gradient(135deg, #f8fafc 0%, #eef2f6 100%)",
+          background: "var(--page-bg, #f8fafc)",
           padding: "24px",
           fontFamily: "system-ui, -apple-system, sans-serif"
         }}
       >
         <div
           style={{
-            background: "#ffffff",
+            background: "var(--surface, #ffffff)",
             padding: "40px 32px",
             borderRadius: "24px",
             maxWidth: "540px",
             width: "100%",
             textAlign: "center",
-            boxShadow: "0 20px 45px rgba(15, 23, 42, 0.1)",
-            border: "1.5px solid #e2e8f0",
+            boxShadow: "0 20px 45px var(--shadow, rgba(15, 23, 42, 0.15))",
+            border: "1.5px solid var(--border, #e2e8f0)",
             animation: "fadeIn 0.25s ease-out"
           }}
         >
@@ -194,31 +194,31 @@ const ProtectedRoute = ({ allowedRole, children }) => {
               width: "64px",
               height: "64px",
               borderRadius: "18px",
-              background: "rgba(239, 68, 68, 0.12)",
-              color: "#dc2626",
+              background: "rgba(239, 68, 68, 0.15)",
+              color: "#ef4444",
               display: "inline-flex",
               alignItems: "center",
               justifyContent: "center",
               fontSize: "28px",
               marginBottom: "16px",
-              boxShadow: "0 4px 14px rgba(239, 68, 68, 0.15)"
+              boxShadow: "0 4px 14px rgba(239, 68, 68, 0.2)"
             }}
           >
             <FaShieldAlt />
           </div>
 
-          <h2 style={{ margin: "0 0 6px", fontSize: "1.45rem", color: "#0f172a", fontWeight: 800 }}>
+          <h2 style={{ margin: "0 0 6px", fontSize: "1.45rem", color: "var(--text-main, #0f172a)", fontWeight: 800 }}>
             Access Restricted: Role Mismatch
           </h2>
-          <p style={{ margin: "0 0 20px", color: "#64748b", fontSize: "0.88rem" }}>
+          <p style={{ margin: "0 0 20px", color: "var(--text-muted, #64748b)", fontSize: "0.88rem" }}>
             You do not have permission to access this section with your current account role.
           </p>
 
           {/* Role Comparison Visual Card */}
           <div
             style={{
-              background: "#f8fafc",
-              border: "1.5px solid #e2e8f0",
+              background: "var(--surface-soft, rgba(100, 116, 139, 0.06))",
+              border: "1.5px solid var(--border, #e2e8f0)",
               borderRadius: "16px",
               padding: "16px",
               marginBottom: "24px",
@@ -228,30 +228,30 @@ const ProtectedRoute = ({ allowedRole, children }) => {
               textAlign: "left"
             }}
           >
-            <div style={{ background: "#ffffff", padding: "12px", borderRadius: "12px", border: "1px solid #e2e8f0" }}>
-              <span style={{ fontSize: "0.74rem", fontWeight: 700, color: "#64748b", textTransform: "uppercase", display: "block", marginBottom: "4px" }}>
+            <div style={{ background: "var(--surface, #ffffff)", padding: "12px", borderRadius: "12px", border: "1px solid var(--border, #e2e8f0)" }}>
+              <span style={{ fontSize: "0.74rem", fontWeight: 700, color: "var(--text-muted, #64748b)", textTransform: "uppercase", display: "block", marginBottom: "4px" }}>
                 Your Signed-In Role
               </span>
-              <div style={{ display: "flex", alignItems: "center", gap: "8px", color: "#0f172a", fontWeight: 800, fontSize: "0.95rem" }}>
-                <span style={{ color: "#6366f1", fontSize: "1.1rem" }}>{roleIcons[currentRole] || <FaUserTie />}</span>
+              <div style={{ display: "flex", alignItems: "center", gap: "8px", color: "var(--text-main, #0f172a)", fontWeight: 800, fontSize: "0.95rem" }}>
+                <span style={{ color: "var(--accent, #6366f1)", fontSize: "1.1rem" }}>{roleIcons[currentRole] || <FaUserTie />}</span>
                 <span>{userRoleName}</span>
               </div>
             </div>
 
-            <div style={{ background: "#fff1f2", padding: "12px", borderRadius: "12px", border: "1px solid #fecdd3" }}>
-              <span style={{ fontSize: "0.74rem", fontWeight: 700, color: "#9f1239", textTransform: "uppercase", display: "block", marginBottom: "4px" }}>
+            <div style={{ background: "rgba(239, 68, 68, 0.12)", padding: "12px", borderRadius: "12px", border: "1px solid rgba(239, 68, 68, 0.3)" }}>
+              <span style={{ fontSize: "0.74rem", fontWeight: 700, color: "#f87171", textTransform: "uppercase", display: "block", marginBottom: "4px" }}>
                 Required Role
               </span>
-              <div style={{ display: "flex", alignItems: "center", gap: "8px", color: "#9f1239", fontWeight: 800, fontSize: "0.95rem" }}>
-                <span style={{ color: "#e11d48", fontSize: "1.1rem" }}><FaLock /></span>
+              <div style={{ display: "flex", alignItems: "center", gap: "8px", color: "#f87171", fontWeight: 800, fontSize: "0.95rem" }}>
+                <span style={{ color: "#ef4444", fontSize: "1.1rem" }}><FaLock /></span>
                 <span>{requiredRoleName}</span>
               </div>
             </div>
           </div>
 
-          <div style={{ backgroundColor: "#fef3c7", border: "1px solid #fde68a", borderRadius: "12px", padding: "12px 14px", marginBottom: "24px", textAlign: "left" }}>
-            <p style={{ margin: 0, fontSize: "0.84rem", color: "#92400e", lineHeight: 1.45 }}>
-              Your account <strong>{user.email}</strong> is registered as an <strong>{userRoleName}</strong>. The page <code>{location.pathname}</code> is strictly reserved for <strong>{requiredRoleName}</strong> accounts.
+          <div style={{ backgroundColor: "rgba(245, 158, 11, 0.12)", border: "1px solid rgba(245, 158, 11, 0.3)", borderRadius: "12px", padding: "12px 14px", marginBottom: "24px", textAlign: "left" }}>
+            <p style={{ margin: 0, fontSize: "0.84rem", color: "var(--text-muted, #64748b)", lineHeight: 1.45 }}>
+              Your account <strong style={{ color: "var(--text-main, #0f172a)" }}>{user.email}</strong> is registered as an <strong style={{ color: "var(--text-main, #0f172a)" }}>{userRoleName}</strong>. The page <code style={{ color: "var(--accent, #6366f1)" }}>{location.pathname}</code> is strictly reserved for <strong style={{ color: "var(--text-main, #0f172a)" }}>{requiredRoleName}</strong> accounts.
             </p>
           </div>
 
@@ -288,9 +288,9 @@ const ProtectedRoute = ({ allowedRole, children }) => {
                 style={{
                   padding: "10px 16px",
                   borderRadius: "12px",
-                  background: "#ffffff",
-                  color: "#475569",
-                  border: "1.5px solid #cbd5e1",
+                  background: "var(--surface, #ffffff)",
+                  color: "var(--text-muted, #64748b)",
+                  border: "1.5px solid var(--border, #cbd5e1)",
                   fontWeight: 700,
                   cursor: "pointer",
                   fontSize: "0.86rem",
@@ -312,9 +312,9 @@ const ProtectedRoute = ({ allowedRole, children }) => {
                 style={{
                   padding: "10px 16px",
                   borderRadius: "12px",
-                  background: "#f1f5f9",
-                  color: "#0f172a",
-                  border: "1.5px solid #cbd5e1",
+                  background: "var(--surface-soft, #f1f5f9)",
+                  color: "var(--text-main, #0f172a)",
+                  border: "1.5px solid var(--border, #cbd5e1)",
                   fontWeight: 700,
                   cursor: "pointer",
                   fontSize: "0.86rem",
@@ -343,21 +343,21 @@ const ProtectedRoute = ({ allowedRole, children }) => {
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          background: "linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%)",
+          background: "var(--page-bg, #f8fafc)",
           padding: "20px",
           fontFamily: "system-ui, -apple-system, sans-serif"
         }}
       >
         <div
           style={{
-            background: "#ffffff",
+            background: "var(--surface, #ffffff)",
             padding: "40px 32px",
             borderRadius: "20px",
             maxWidth: "500px",
             width: "100%",
             textAlign: "center",
-            boxShadow: "0 10px 30px rgba(0,0,0,0.08)",
-            border: "1px solid #e2e8f0"
+            boxShadow: "0 10px 30px var(--shadow, rgba(0,0,0,0.12))",
+            border: "1px solid var(--border, #e2e8f0)"
           }}
         >
           <div
@@ -365,8 +365,8 @@ const ProtectedRoute = ({ allowedRole, children }) => {
               width: "56px",
               height: "56px",
               borderRadius: "16px",
-              background: "#fef3c7",
-              color: "#d97706",
+              background: "rgba(245, 158, 11, 0.15)",
+              color: "#fbbf24",
               display: "inline-flex",
               alignItems: "center",
               justifyContent: "center",
@@ -376,15 +376,15 @@ const ProtectedRoute = ({ allowedRole, children }) => {
           >
             <FaExclamationTriangle />
           </div>
-          <h2 style={{ margin: "0 0 8px", fontSize: "1.35rem", color: "#0f172a", fontWeight: 800 }}>
+          <h2 style={{ margin: "0 0 8px", fontSize: "1.35rem", color: "var(--text-main, #0f172a)", fontWeight: 800 }}>
             Account Pending Approval
           </h2>
 
-          <p style={{ color: "#64748b", lineHeight: "1.6", fontSize: "0.9rem", margin: "0 0 12px" }}>
-            Your account has been registered as a <strong>{roleLabels[profile.role] || profile.role}</strong>, but an institution administrator has not approved your account yet.
+          <p style={{ color: "var(--text-muted, #64748b)", lineHeight: "1.6", fontSize: "0.9rem", margin: "0 0 12px" }}>
+            Your account has been registered as a <strong style={{ color: "var(--text-main, #0f172a)" }}>{roleLabels[profile.role] || profile.role}</strong>, but an institution administrator has not approved your account yet.
           </p>
 
-          <p style={{ color: "#94a3b8", fontSize: "0.82rem", margin: "0 0 24px" }}>
+          <p style={{ color: "var(--text-muted, #94a3b8)", fontSize: "0.82rem", margin: "0 0 24px" }}>
             Please contact the SmartAttend institution administrator for verification.
           </p>
 
@@ -394,7 +394,7 @@ const ProtectedRoute = ({ allowedRole, children }) => {
             style={{
               padding: "10px 20px",
               borderRadius: "12px",
-              background: "#6366f1",
+              background: "var(--accent, #6366f1)",
               color: "#ffffff",
               border: "none",
               fontWeight: 700,
@@ -418,21 +418,21 @@ const ProtectedRoute = ({ allowedRole, children }) => {
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          background: "linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%)",
+          background: "var(--page-bg, #f8fafc)",
           padding: "20px",
           fontFamily: "system-ui, -apple-system, sans-serif"
         }}
       >
         <div
           style={{
-            background: "#ffffff",
+            background: "var(--surface, #ffffff)",
             padding: "40px 32px",
             borderRadius: "20px",
             maxWidth: "500px",
             width: "100%",
             textAlign: "center",
-            boxShadow: "0 10px 30px rgba(0,0,0,0.08)",
-            border: "1px solid #e2e8f0"
+            boxShadow: "0 10px 30px var(--shadow, rgba(0,0,0,0.12))",
+            border: "1px solid var(--border, #e2e8f0)"
           }}
         >
           <div
@@ -440,8 +440,8 @@ const ProtectedRoute = ({ allowedRole, children }) => {
               width: "56px",
               height: "56px",
               borderRadius: "16px",
-              background: "#fee2e2",
-              color: "#dc2626",
+              background: "rgba(239, 68, 68, 0.15)",
+              color: "#ef4444",
               display: "inline-flex",
               alignItems: "center",
               justifyContent: "center",
@@ -451,12 +451,12 @@ const ProtectedRoute = ({ allowedRole, children }) => {
           >
             <FaShieldAlt />
           </div>
-          <h2 style={{ margin: "0 0 8px", fontSize: "1.35rem", color: "#0f172a", fontWeight: 800 }}>
+          <h2 style={{ margin: "0 0 8px", fontSize: "1.35rem", color: "var(--text-main, #0f172a)", fontWeight: 800 }}>
             Account Deactivated
           </h2>
 
-          <p style={{ color: "#64748b", lineHeight: "1.6", fontSize: "0.9rem", margin: "0 0 24px" }}>
-            Your <strong>{roleLabels[profile.role] || profile.role}</strong> account has been disabled by the institution administrator.
+          <p style={{ color: "var(--text-muted, #64748b)", lineHeight: "1.6", fontSize: "0.9rem", margin: "0 0 24px" }}>
+            Your <strong style={{ color: "var(--text-main, #0f172a)" }}>{roleLabels[profile.role] || profile.role}</strong> account has been disabled by the institution administrator.
           </p>
 
           <button
@@ -465,7 +465,7 @@ const ProtectedRoute = ({ allowedRole, children }) => {
             style={{
               padding: "10px 20px",
               borderRadius: "12px",
-              background: "#6366f1",
+              background: "var(--accent, #6366f1)",
               color: "#ffffff",
               border: "none",
               fontWeight: 700,

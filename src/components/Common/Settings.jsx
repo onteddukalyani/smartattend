@@ -659,21 +659,15 @@ function Settings() {
                         </div>
 
                         {/* Help, Feedback & Issue Reporting Card */}
-                        <div className="st-feature-card st-support-feature-card" style={{
-                            background: "linear-gradient(135deg, rgba(99, 102, 241, 0.05) 0%, rgba(129, 140, 248, 0.05) 100%)",
-                            border: "1.5px solid rgba(99, 102, 241, 0.2)"
-                        }}>
+                        <div className="st-feature-card st-support-feature-card">
                             <div className="st-feature-main">
-                                <div className="st-feature-icon-wrap support-icon" style={{
-                                    background: "rgba(99, 102, 241, 0.12)",
-                                    color: "#6366f1"
-                                }}>
+                                <div className="st-feature-icon-wrap support-icon">
                                     <FaHeadset />
                                 </div>
                                 <div className="st-feature-text">
                                     <div className="st-feature-title-row">
                                         <span className="st-feature-title">Help, Feedback &amp; Grievance Desk</span>
-                                        <span className="st-apk-badge" style={{ background: "rgba(99, 102, 241, 0.15)", color: "#6366f1" }}>
+                                        <span className="st-support-badge">
                                             24/7 Support
                                         </span>
                                     </div>
@@ -694,13 +688,12 @@ function Settings() {
                                 </button>
                                 <button
                                     type="button"
-                                    className="st-btn-feature-outline"
+                                    className="st-btn-feature-outline danger"
                                     onClick={() => {
                                         setSupportModalTab("issue");
                                         setShowSupportModal(true);
                                     }}
                                     title="Report a bug or problem"
-                                    style={{ color: "#ef4444", borderColor: "rgba(239, 68, 68, 0.3)" }}
                                 >
                                     <FaBug /> <span>Report Issue</span>
                                 </button>

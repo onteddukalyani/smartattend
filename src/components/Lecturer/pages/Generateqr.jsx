@@ -15,6 +15,7 @@ import {
 import { sendFacultyNotification, sendBroadcastNotification } from "../../../services/notificationsService";
 import { useAuth } from "../../authcontext";
 import { isCourseAssignedToLecturer } from "../../Common/CoursesManager";
+import { normalizeBranchName } from "../../../utils/studentDataHelper";
 import {
     FaQrcode,
     FaBookOpen,
@@ -51,7 +52,7 @@ function GenerateQR() {
     // Form inputs
     const [roomNo, setRoomNo] = useState(searchParams.get("roomNo") || "");
     const [courseCode, setCourseCode] = useState(searchParams.get("courseCode") || searchParams.get("course") || "");
-    const [classCode, setClassCode] = useState(searchParams.get("classCode") || "");
+    const [classCode, setClassCode] = useState(normalizeBranchName(searchParams.get("classCode") || ""));
     const [batch, setBatch] = useState(searchParams.get("batch") || "2025");
     const [lectureHours, setLectureHours] = useState("1.0"); // Optional lecture duration in hours
     const [availableCourses, setAvailableCourses] = useState([]);
@@ -107,7 +108,7 @@ function GenerateQR() {
                         setCourseCode(matched.courseCode || matched.code || targetCode);
                         const courseRoom = matched.defaultRoom || matched.roomNo || matched.room || matched.classroom || matched.classCode || matched.classNumber || "";
                         if (courseRoom && !searchParams.get("roomNo")) setRoomNo(courseRoom);
-                        if (matched.department && !classCode) setClassCode(matched.department);
+                        if (matched.department && !classCode) setClassCode(normalizeBranchName(matched.department));
                         if (matched.batch && (!batch || batch === "2025")) setBatch(matched.batch);
                     }
                 }
@@ -203,8 +204,8 @@ function GenerateQR() {
         if (matched) {
             const courseRoom = matched.defaultRoom || matched.roomNo || matched.room || matched.classroom || matched.classCode || matched.classNumber || "C003";
             setRoomNo(courseRoom);
-            if (matched.department) setClassCode(matched.department);
-            else if (matched.classCode) setClassCode(matched.classCode);
+            if (matched.department) setClassCode(normalizeBranchName(matched.department));
+            else if (matched.classCode) setClassCode(normalizeBranchName(matched.classCode));
             if (matched.batch) setBatch(matched.batch);
         }
     };
@@ -216,7 +217,7 @@ function GenerateQR() {
         if (matched) {
             const courseRoom = matched.defaultRoom || matched.roomNo || matched.room || matched.classroom || matched.classCode || matched.classNumber || "";
             if (courseRoom) setRoomNo(courseRoom);
-            if (matched.department) setClassCode(matched.department);
+            if (matched.department) setClassCode(normalizeBranchName(matched.department));
             if (matched.batch) setBatch(matched.batch);
         }
     };
@@ -239,12 +240,13 @@ function GenerateQR() {
             const lecturerInfo = {
                 name: profile?.name || user?.displayName || (user?.email ? user.email.split("@")[0] : "Lecturer"),
                 email: user?.email || "",
-                department: (rawDept && String(rawDept).toLowerCase() !== "general") ? rawDept : "CSE"
+                department: normalizeBranchName(rawDept || "CSE")
             };
             const finalBatch = (batch && batch.trim() !== "") ? batch.trim() : "2025";
             const parsedHours = parseFloat(lectureHours) > 0 ? parseFloat(lectureHours) : 1.0;
+            const finalClassCode = normalizeBranchName(classCode || "CSE");
 
-            const result = await createAttendanceSession(classCode, courseCode.trim(), roomNo.trim(), finalBatch, lecturerInfo, parsedHours);
+            const result = await createAttendanceSession(finalClassCode, courseCode.trim(), roomNo.trim(), finalBatch, lecturerInfo, parsedHours);
 
             setSessionId(result.sessionId);
             if (result.sessionPin || result.lecturerPin || result.lecturerReleaseCode) {
@@ -1038,25 +1040,14 @@ function GenerateQR() {
 
                     {/* Active Violation Alert & Excuse Guide */}
                     {violationsCount > 0 && (
-                        <div style={{
-                            marginTop: "16px",
-                            padding: "14px 18px",
-                            borderRadius: "12px",
-                            background: "#fff1f2",
-                            border: "1.5px solid #fecdd3",
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "space-between",
-                            flexWrap: "wrap",
-                            gap: "12px"
-                        }}>
-                            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                                <FaExclamationTriangle style={{ color: "#e11d48", fontSize: "1.3rem", flexShrink: 0 }} />
+                        <div className="qr-violations-alert-box">
+                            <div className="qr-violations-alert-info">
+                                <FaExclamationTriangle className="qr-violations-alert-icon" />
                                 <div>
-                                    <strong style={{ color: "#9f1239", fontSize: "0.92rem", display: "block" }}>
+                                    <strong className="qr-violations-alert-title">
                                         {violationsCount} student(s) disqualified due to app switching or screen lockout
                                     </strong>
-                                    <span style={{ color: "#881337", fontSize: "0.82rem" }}>
+                                    <span className="qr-violations-alert-desc">
                                         If a student gives a valid physical reason in class (e.g. accidental notification tap / phone glitch), click <strong>"Excuse &amp; Mark Present"</strong> to pardon and restore their attendance.
                                     </span>
                                 </div>
@@ -1064,16 +1055,7 @@ function GenerateQR() {
                             <button
                                 type="button"
                                 onClick={() => setRosterFilterTab("VIOLATIONS")}
-                                style={{
-                                    padding: "7px 14px",
-                                    borderRadius: "8px",
-                                    background: "#e11d48",
-                                    color: "#ffffff",
-                                    border: "none",
-                                    fontWeight: 700,
-                                    fontSize: "0.8rem",
-                                    cursor: "pointer"
-                                }}
+                                className="qr-violations-filter-btn"
                             >
                                 View Disqualified Students ({violationsCount})
                             </button>

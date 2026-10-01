@@ -1,22 +1,23 @@
 /* ==========================================================================
    SmartAttend Settings Page Stylesheet (High-End, Native-Feel & Responsive)
+   Optimized for Light and Midnight Dark Themes across Desktop, Tablet & Mobile
    ========================================================================== */
 
 .st-settings-page {
-    max-width: 1140px;
+    max-width: 1160px;
     margin: 0 auto;
     padding: 24px 24px calc(120px + env(safe-area-inset-bottom, 0px)) !important;
     box-sizing: border-box;
     display: flex;
     flex-direction: column;
-    gap: 22px;
-    animation: stFadeIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    gap: 24px;
+    animation: stFadeIn 0.28s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 @keyframes stFadeIn {
     from {
         opacity: 0;
-        transform: translateY(6px);
+        transform: translateY(8px);
     }
     to {
         opacity: 1;
@@ -30,47 +31,48 @@
 .st-profile-hero-card {
     background: #ffffff;
     border: 1px solid #e2e8f0;
-    border-radius: 22px;
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.04);
+    border-radius: 24px;
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.04);
     overflow: hidden;
     position: relative;
     transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
 .st-profile-hero-card:hover {
-    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.06);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.06);
 }
 
 .st-hero-cover-gradient {
-    height: 84px;
+    height: 96px;
     background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 50%, #06b6d4 100%);
     position: relative;
 }
 
 .st-hero-body {
-    padding: 0 26px 22px;
+    padding: 0 28px 24px;
     display: flex;
     align-items: flex-end;
     justify-content: space-between;
     gap: 20px;
     position: relative;
-    margin-top: -38px;
+    margin-top: -44px;
 }
 
 .st-hero-profile-group {
     display: flex;
     align-items: flex-end;
-    gap: 18px;
+    gap: 20px;
     flex: 1;
     min-width: 0;
 }
 
+/* Avatar Container with Action Overlay */
 .st-avatar-container {
     position: relative;
-    width: 82px;
-    height: 82px;
-    flex: 0 0 82px;
-    border-radius: 22px;
+    width: 88px;
+    height: 88px;
+    flex: 0 0 88px;
+    border-radius: 24px;
     padding: 4px;
     background: #ffffff;
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
@@ -80,21 +82,22 @@
 .st-hero-avatar-img {
     width: 100%;
     height: 100%;
-    border-radius: 18px;
+    border-radius: 20px;
     object-fit: cover;
     background: #f1f5f9;
+    display: block;
 }
 
 .st-hero-avatar-initial {
     width: 100%;
     height: 100%;
-    border-radius: 18px;
+    border-radius: 20px;
     background: linear-gradient(135deg, #6366f1 0%, #4338ca 100%);
     color: #ffffff;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 32px;
+    font-size: 34px;
     font-weight: 800;
 }
 
@@ -134,10 +137,11 @@
     color: #ffffff;
     transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+    background: #6366f1;
 }
 
 .st-avatar-btn:hover {
-    transform: scale(1.12);
+    transform: scale(1.14);
 }
 
 .st-avatar-upload-btn {
@@ -157,6 +161,7 @@
     to { transform: rotate(360deg); }
 }
 
+/* Hero Info Stack */
 .st-hero-info {
     display: flex;
     flex-direction: column;
@@ -169,13 +174,13 @@
 .st-hero-title-row {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 12px;
     flex-wrap: wrap;
 }
 
 .st-user-name {
     margin: 0;
-    font-size: 23px;
+    font-size: 24px;
     font-weight: 800;
     color: #0f172a;
     letter-spacing: -0.02em;
@@ -201,7 +206,7 @@
     font-size: 12px;
     font-weight: 700;
     cursor: pointer;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
     transition: all 0.15s ease;
 }
 
@@ -224,7 +229,7 @@
     font-size: 11.5px;
     font-weight: 700;
     cursor: pointer;
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
     transition: all 0.15s ease;
     text-decoration: none;
 }
@@ -240,7 +245,7 @@
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    font-size: 0.82rem;
+    font-size: 0.84rem;
     font-weight: 700;
     margin-top: 2px;
     animation: stFadeIn 0.2s ease;
@@ -259,12 +264,12 @@
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    padding: 4px 11px;
+    padding: 4px 12px;
     border-radius: 999px;
     font-size: 12px;
     font-weight: 700;
     letter-spacing: 0.02em;
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
     transition: all 0.15s ease;
 }
 
@@ -291,22 +296,23 @@
     border: 1px solid #a7f3d0;
 }
 
+/* Meta Item Row */
 .st-hero-meta-row {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 10px;
     flex-wrap: wrap;
 }
 
 .st-meta-item {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
+    gap: 7px;
     font-size: 12.5px;
     color: #64748b;
     background: #f8fafc;
-    padding: 5px 11px;
-    border-radius: 9px;
+    padding: 5px 12px;
+    border-radius: 10px;
     border: 1px solid #e2e8f0;
     max-width: 100%;
     box-sizing: border-box;
@@ -339,12 +345,12 @@
 .st-mini-copy {
     background: transparent;
     border: none;
-    padding: 2px 3px;
+    padding: 2px 4px;
     cursor: pointer;
     color: #94a3b8;
     display: flex;
     align-items: center;
-    font-size: 11px;
+    font-size: 11.5px;
     transition: color 0.15s ease;
     flex-shrink: 0;
 }
@@ -373,8 +379,8 @@
     gap: 8px;
     background: #f8fafc;
     border: 1px solid #e2e8f0;
-    padding: 7px 13px;
-    border-radius: 11px;
+    padding: 7px 14px;
+    border-radius: 12px;
     box-sizing: border-box;
     white-space: nowrap;
 }
@@ -390,7 +396,7 @@
 }
 
 .st-kpi-val {
-    font-size: 12.5px;
+    font-size: 13px;
     font-weight: 700;
     color: #0f172a;
     display: inline-flex;
@@ -408,15 +414,15 @@
 .st-settings-grid {
     display: grid;
     grid-template-columns: repeat(2, 1fr);
-    gap: 22px;
+    gap: 24px;
     align-items: stretch;
 }
 
 .st-card {
     background: #ffffff;
     border: 1px solid #e2e8f0;
-    border-radius: 20px;
-    padding: 22px 24px;
+    border-radius: 22px;
+    padding: 24px 26px;
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.03);
     display: flex;
     flex-direction: column;
@@ -433,20 +439,20 @@
 .st-card-header {
     display: flex;
     align-items: center;
-    gap: 13px;
-    margin-bottom: 18px;
-    padding-bottom: 14px;
+    gap: 14px;
+    margin-bottom: 20px;
+    padding-bottom: 16px;
     border-bottom: 1px solid #f1f5f9;
 }
 
 .st-card-header-icon {
-    width: 42px;
-    height: 42px;
-    border-radius: 12px;
+    width: 44px;
+    height: 44px;
+    border-radius: 14px;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 18px;
+    font-size: 19px;
     flex-shrink: 0;
 }
 
@@ -462,7 +468,7 @@
 
 .st-card-title {
     margin: 0 0 2px 0;
-    font-size: 16.5px;
+    font-size: 17px;
     font-weight: 800;
     color: #0f172a;
     letter-spacing: -0.01em;
@@ -470,14 +476,14 @@
 
 .st-card-subtitle {
     margin: 0;
-    font-size: 12px;
+    font-size: 12.5px;
     color: #64748b;
 }
 
 .st-details-list {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 11px;
 }
 
 /* Detail Row (Horizontal Key-Value Pair) */
@@ -486,8 +492,8 @@
     align-items: center;
     justify-content: space-between;
     gap: 12px;
-    padding: 11px 14px;
-    border-radius: 13px;
+    padding: 12px 15px;
+    border-radius: 14px;
     background: #f8fafc;
     border: 1px solid #f1f5f9;
     transition: all 0.15s ease;
@@ -530,7 +536,7 @@
 }
 
 .st-detail-title {
-    font-size: 13px;
+    font-size: 13.5px;
     font-weight: 700;
     color: #1e293b;
     line-height: 1.25;
@@ -563,14 +569,14 @@
     font-weight: 800;
     color: #0f172a;
     background: #ffffff;
-    padding: 3px 9px;
-    border-radius: 7px;
+    padding: 3px 10px;
+    border-radius: 8px;
     border: 1px solid #e2e8f0;
     display: inline-block;
 }
 
 .st-text-bold {
-    font-size: 12.5px;
+    font-size: 13px;
     font-weight: 700;
     color: #0f172a;
 }
@@ -580,18 +586,18 @@
     font-weight: 650;
     color: #475569;
     background: #ffffff;
-    padding: 3px 9px;
-    border-radius: 7px;
+    padding: 3px 10px;
+    border-radius: 8px;
     border: 1px solid #e2e8f0;
     display: inline-block;
 }
 
 /* --------------------------------------------------------------------------
-   Special Feature Sub-Cards (Device Security & Android APK)
+   3. Special Feature Sub-Cards (Device, APK, Support)
    -------------------------------------------------------------------------- */
 .st-feature-card {
-    border-radius: 15px;
-    padding: 14px 16px;
+    border-radius: 16px;
+    padding: 15px 18px;
     display: flex;
     flex-direction: column;
     gap: 12px;
@@ -620,22 +626,32 @@
     box-shadow: 0 6px 18px rgba(37, 99, 235, 0.12);
 }
 
+.st-support-feature-card {
+    background: linear-gradient(135deg, rgba(99, 102, 241, 0.05) 0%, rgba(129, 140, 248, 0.05) 100%);
+    border: 1.5px solid rgba(99, 102, 241, 0.22);
+}
+
+.st-support-feature-card:hover {
+    border-color: rgba(99, 102, 241, 0.38);
+    background: linear-gradient(135deg, rgba(99, 102, 241, 0.08) 0%, rgba(129, 140, 248, 0.08) 100%);
+}
+
 .st-feature-main {
     display: flex;
     align-items: flex-start;
-    gap: 13px;
+    gap: 14px;
     min-width: 0;
 }
 
 .st-feature-icon-wrap {
-    width: 38px;
-    height: 38px;
-    border-radius: 11px;
+    width: 40px;
+    height: 40px;
+    border-radius: 12px;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 17px;
-    flex: 0 0 38px;
+    font-size: 18px;
+    flex: 0 0 40px;
 }
 
 .st-feature-icon-wrap.device-icon {
@@ -648,6 +664,12 @@
     background: #2563eb;
     color: #ffffff;
     box-shadow: 0 3px 10px rgba(37, 99, 235, 0.25);
+}
+
+.st-feature-icon-wrap.support-icon {
+    background: rgba(99, 102, 241, 0.14);
+    color: #6366f1;
+    border: 1px solid rgba(99, 102, 241, 0.25);
 }
 
 .st-feature-text {
@@ -666,7 +688,7 @@
 }
 
 .st-feature-title {
-    font-size: 13.5px;
+    font-size: 14px;
     font-weight: 800;
     color: #0f172a;
     line-height: 1.25;
@@ -682,7 +704,7 @@
     color: #0369a1;
     background: #f0f9ff;
     border: 1px solid #bae6fd;
-    padding: 2px 7px;
+    padding: 2px 8px;
     border-radius: 6px;
     letter-spacing: 0.02em;
 }
@@ -693,16 +715,27 @@
     color: #1d4ed8;
     background: #dbeafe;
     border: 1px solid #bfdbfe;
-    padding: 2px 7px;
+    padding: 2px 8px;
+    border-radius: 6px;
+    text-transform: uppercase;
+}
+
+.st-support-badge {
+    font-size: 10.5px;
+    font-weight: 750;
+    color: #6366f1;
+    background: rgba(99, 102, 241, 0.12);
+    border: 1px solid rgba(99, 102, 241, 0.25);
+    padding: 2px 8px;
     border-radius: 6px;
     text-transform: uppercase;
 }
 
 .st-feature-desc {
     margin: 0;
-    font-size: 11.5px;
+    font-size: 11.8px;
     color: #64748b;
-    line-height: 1.35;
+    line-height: 1.4;
 }
 
 .st-apk-feature-card .st-feature-desc {
@@ -720,8 +753,8 @@
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    padding: 6px 13px;
-    border-radius: 9px;
+    padding: 7px 14px;
+    border-radius: 10px;
     background: #ffffff;
     color: #334155;
     border: 1px solid #cbd5e1;
@@ -739,12 +772,23 @@
     transform: translateY(-1px);
 }
 
+.st-btn-feature-outline.danger {
+    color: #ef4444;
+    border-color: rgba(239, 68, 68, 0.35);
+}
+
+.st-btn-feature-outline.danger:hover {
+    background: #fef2f2;
+    border-color: #ef4444;
+    color: #dc2626;
+}
+
 .st-btn-feature-filled {
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    padding: 6px 13px;
-    border-radius: 9px;
+    padding: 7px 14px;
+    border-radius: 10px;
     background: #ecfdf5;
     color: #047857;
     border: 1px solid #a7f3d0;
@@ -765,45 +809,91 @@
     display: inline-flex;
     align-items: center;
     gap: 8px;
-    padding: 7px 16px;
-    border-radius: 10px;
+    padding: 8px 18px;
+    border-radius: 11px;
     background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
     color: #ffffff;
     font-size: 12.5px;
     font-weight: 750;
     text-decoration: none;
     cursor: pointer;
-    box-shadow: 0 3px 10px rgba(37, 99, 235, 0.3);
+    box-shadow: 0 3px 12px rgba(37, 99, 235, 0.3);
     transition: all 0.15s ease;
 }
 
 .st-apk-download-btn:hover {
     background: linear-gradient(135deg, #1d4ed8 0%, #1e40af 100%);
-    box-shadow: 0 5px 14px rgba(37, 99, 235, 0.4);
+    box-shadow: 0 6px 16px rgba(37, 99, 235, 0.4);
     transform: translateY(-1px);
 }
 
 /* --------------------------------------------------------------------------
-   Right Card: Appearance & Theme
+   4. Guest Connect Box
+   -------------------------------------------------------------------------- */
+.st-guest-connect-box {
+    margin-top: 14px;
+    padding: 14px;
+    border-radius: 14px;
+    background: #f8fafc;
+    border: 1px dashed #cbd5e1;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.st-btn-google-connect {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 9px;
+    padding: 11px 18px;
+    border-radius: 12px;
+    background: #ffffff;
+    color: #1e293b;
+    border: 1.5px solid #cbd5e1;
+    font-size: 13.5px;
+    font-weight: 700;
+    cursor: pointer;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
+    transition: all 0.18s ease;
+}
+
+.st-btn-google-connect:hover:not(:disabled) {
+    border-color: #6366f1;
+    background: #f8fafc;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(99, 102, 241, 0.15);
+}
+
+.st-login-err {
+    margin: 0;
+    font-size: 12px;
+    color: #dc2626;
+    font-weight: 600;
+    text-align: center;
+}
+
+/* --------------------------------------------------------------------------
+   5. Right Card: Appearance & Theme
    -------------------------------------------------------------------------- */
 .st-theme-selector-grid {
     display: grid;
     grid-template-columns: repeat(2, 1fr);
-    gap: 12px;
-    margin-bottom: 18px;
+    gap: 14px;
+    margin-bottom: 20px;
 }
 
 .st-theme-tile {
     border: 2px solid #e2e8f0;
-    border-radius: 15px;
-    padding: 12px;
+    border-radius: 16px;
+    padding: 14px;
     background: #ffffff;
     cursor: pointer;
     display: flex;
     flex-direction: column;
-    gap: 9px;
+    gap: 10px;
     position: relative;
-    transition: all 0.18s ease;
+    transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
     outline: none;
     box-sizing: border-box;
 }
@@ -811,22 +901,22 @@
 .st-theme-tile:hover {
     border-color: #cbd5e1;
     transform: translateY(-2px);
-    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.04);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.05);
 }
 
 .st-theme-tile.active {
     border-color: #6366f1;
     background: linear-gradient(135deg, rgba(99, 102, 241, 0.04) 0%, rgba(139, 92, 246, 0.02) 100%), #ffffff;
-    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15), 0 4px 14px rgba(99, 102, 241, 0.08);
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.18), 0 6px 20px rgba(99, 102, 241, 0.08);
 }
 
 .st-theme-preview-box {
-    height: 60px;
-    border-radius: 8px;
+    height: 64px;
+    border-radius: 10px;
     overflow: hidden;
     display: flex;
     flex-direction: column;
-    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
 }
 
 .light-preview {
@@ -835,7 +925,7 @@
 }
 
 .light-preview .st-prev-header {
-    height: 10px;
+    height: 12px;
     background: #f1f5f9;
     border-bottom: 1px solid #e2e8f0;
 }
@@ -846,14 +936,14 @@
 }
 
 .light-preview .st-prev-side {
-    width: 18px;
+    width: 20px;
     background: #f8fafc;
     border-right: 1px solid #e2e8f0;
 }
 
 .light-preview .st-prev-main {
     flex: 1;
-    padding: 5px;
+    padding: 6px;
     display: flex;
     flex-direction: column;
     gap: 4px;
@@ -884,7 +974,7 @@
 }
 
 .dark-preview .st-prev-header {
-    height: 10px;
+    height: 12px;
     background: #1e293b;
     border-bottom: 1px solid #334155;
 }
@@ -895,14 +985,14 @@
 }
 
 .dark-preview .st-prev-side {
-    width: 18px;
+    width: 20px;
     background: #131b2e;
     border-right: 1px solid #334155;
 }
 
 .dark-preview .st-prev-main {
     flex: 1;
-    padding: 5px;
+    padding: 6px;
     display: flex;
     flex-direction: column;
     gap: 4px;
@@ -940,7 +1030,7 @@
 }
 
 .st-theme-icon {
-    font-size: 13px;
+    font-size: 14px;
 }
 
 .light-sun {
@@ -952,23 +1042,23 @@
 }
 
 .st-theme-title {
-    font-size: 13px;
+    font-size: 13.5px;
     font-weight: 750;
     color: #0f172a;
 }
 
 .st-theme-desc {
-    font-size: 11px;
+    font-size: 11.5px;
     color: #94a3b8;
-    line-height: 1.3;
+    line-height: 1.35;
 }
 
 .st-theme-active-check {
     position: absolute;
-    top: 8px;
-    right: 8px;
+    top: 9px;
+    right: 9px;
     color: #6366f1;
-    font-size: 16px;
+    font-size: 17px;
     background: #ffffff;
     border-radius: 50%;
     line-height: 1;
@@ -977,16 +1067,17 @@
 /* Logout Button */
 .st-settings-actions {
     margin-top: auto;
+    padding-top: 12px;
 }
 
 .st-logout-btn {
     width: 100%;
-    padding: 11px 16px;
-    border-radius: 12px;
+    padding: 12px 18px;
+    border-radius: 14px;
     background: #fff1f2;
-    border: 1px solid #fecdd3;
+    border: 1.5px solid #fecdd3;
     color: #e11d48;
-    font-size: 13px;
+    font-size: 13.5px;
     font-weight: 750;
     cursor: pointer;
     display: flex;
@@ -1001,10 +1092,62 @@
     background: #ffe4e6;
     border-color: #fda4af;
     transform: translateY(-1px);
+    box-shadow: 0 4px 14px rgba(225, 29, 72, 0.12);
 }
 
 /* --------------------------------------------------------------------------
-   Midnight / Dark Theme Styles
+   6. Modals (Edit Name & Edit Semester)
+   -------------------------------------------------------------------------- */
+.st-custom-modal-overlay,
+.modal-backdrop {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(15, 23, 42, 0.75);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+    padding: 20px;
+    animation: stModalFadeIn 0.22s ease forwards;
+}
+
+@keyframes stModalFadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+.st-name-modal-box,
+.st-custom-modal-content {
+    background: var(--surface, #ffffff);
+    border-radius: 22px;
+    max-width: 480px;
+    width: 100%;
+    padding: 28px 26px;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.28);
+    position: relative;
+    border: 1px solid var(--border, #e2e8f0);
+    box-sizing: border-box;
+    animation: stModalPop 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes stModalPop {
+    from {
+        transform: scale(0.94);
+        opacity: 0;
+    }
+    to {
+        transform: scale(1);
+        opacity: 1;
+    }
+}
+
+/* --------------------------------------------------------------------------
+   7. Midnight / Dark Theme Overrides
    -------------------------------------------------------------------------- */
 [data-theme="midnight"] body {
     background: #0b0f19;
@@ -1014,7 +1157,7 @@
 [data-theme="midnight"] .st-card {
     background: #131b2e;
     border-color: #1e293b;
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.35);
 }
 
 [data-theme="midnight"] .st-profile-hero-card:hover,
@@ -1026,6 +1169,10 @@
     background: #131b2e;
 }
 
+[data-theme="midnight"] .st-avatar-btn {
+    border-color: #131b2e;
+}
+
 [data-theme="midnight"] .st-user-name,
 [data-theme="midnight"] .st-card-title,
 [data-theme="midnight"] .st-detail-title,
@@ -1034,6 +1181,13 @@
 [data-theme="midnight"] .st-feature-title,
 [data-theme="midnight"] .st-kpi-val {
     color: #f8fafc;
+}
+
+[data-theme="midnight"] .st-card-subtitle,
+[data-theme="midnight"] .st-detail-desc,
+[data-theme="midnight"] .st-feature-desc,
+[data-theme="midnight"] .st-theme-desc {
+    color: #94a3b8;
 }
 
 [data-theme="midnight"] .st-role-pill.badge-admin {
@@ -1062,6 +1216,12 @@
     border-color: #1e293b;
 }
 
+[data-theme="midnight"] .st-detail-row:hover,
+[data-theme="midnight"] .st-device-feature-card:hover {
+    background: #202c48;
+    border-color: #334155;
+}
+
 [data-theme="midnight"] .st-apk-feature-card {
     background: linear-gradient(135deg, rgba(30, 58, 138, 0.4) 0%, rgba(37, 99, 235, 0.15) 100%);
     border-color: rgba(96, 165, 250, 0.4);
@@ -1073,6 +1233,16 @@
 
 [data-theme="midnight"] .st-apk-feature-card .st-feature-desc {
     color: #bfdbfe;
+}
+
+[data-theme="midnight"] .st-support-feature-card {
+    background: linear-gradient(135deg, rgba(99, 102, 241, 0.12) 0%, rgba(129, 140, 248, 0.08) 100%);
+    border-color: rgba(99, 102, 241, 0.35);
+}
+
+[data-theme="midnight"] .st-support-feature-card:hover {
+    background: linear-gradient(135deg, rgba(99, 102, 241, 0.18) 0%, rgba(129, 140, 248, 0.12) 100%);
+    border-color: rgba(99, 102, 241, 0.5);
 }
 
 [data-theme="midnight"] .st-card-header {
@@ -1097,7 +1267,7 @@
 }
 
 [data-theme="midnight"] .st-theme-tile.active {
-    background: rgba(99, 102, 241, 0.08);
+    background: rgba(99, 102, 241, 0.1);
     border-color: #6366f1;
 }
 
@@ -1124,30 +1294,47 @@
     border-color: #475569;
 }
 
-[data-theme="midnight"] .st-name-modal-box {
+[data-theme="midnight"] .st-btn-google-connect {
+    background: #1a233a;
+    border-color: #334155;
+    color: #f8fafc;
+}
+
+[data-theme="midnight"] .st-btn-google-connect:hover:not(:disabled) {
+    background: #202c48;
+    border-color: #6366f1;
+}
+
+[data-theme="midnight"] .st-guest-connect-box {
+    background: #1a233a;
+    border-color: #334155;
+}
+
+[data-theme="midnight"] .st-name-modal-box,
+[data-theme="midnight"] .st-custom-modal-content {
     background: #131b2e !important;
     border-color: #1e293b !important;
     color: #f8fafc !important;
 }
 
 [data-theme="midnight"] .st-logout-btn {
-    background: rgba(225, 29, 72, 0.1);
-    border-color: rgba(225, 29, 72, 0.25);
+    background: rgba(225, 29, 72, 0.12);
+    border-color: rgba(225, 29, 72, 0.3);
     color: #fb7185;
 }
 
 [data-theme="midnight"] .st-logout-btn:hover {
-    background: rgba(225, 29, 72, 0.18);
-    border-color: rgba(225, 29, 72, 0.4);
+    background: rgba(225, 29, 72, 0.22);
+    border-color: rgba(225, 29, 72, 0.5);
 }
 
 /* --------------------------------------------------------------------------
-   Responsive Layout & Mobile Perfection
+   8. Responsive Layout & Mobile Optimization
    -------------------------------------------------------------------------- */
-@media (max-width: 920px) {
+@media (max-width: 960px) {
     .st-settings-grid {
         grid-template-columns: 1fr;
-        gap: 18px;
+        gap: 20px;
     }
 
     .st-hero-body {
@@ -1181,64 +1368,64 @@
     }
 
     .st-hero-cover-gradient {
-        height: 72px;
+        height: 76px;
     }
 
     .st-avatar-container {
-        width: 72px;
-        height: 72px;
-        flex: 0 0 72px;
-        border-radius: 18px;
+        width: 74px;
+        height: 74px;
+        flex: 0 0 74px;
+        border-radius: 20px;
     }
 
     .st-hero-avatar-initial {
-        font-size: 27px;
+        font-size: 28px;
     }
 
     .st-hero-body {
-        padding: 0 16px 16px;
-        margin-top: -32px;
+        padding: 0 16px 18px;
+        margin-top: -36px;
     }
 
     .st-user-name {
-        font-size: 19px;
+        font-size: 20px;
     }
 
     .st-card {
-        padding: 18px 16px;
-        border-radius: 18px;
+        padding: 20px 18px;
+        border-radius: 20px;
     }
 
     .st-card-header {
-        margin-bottom: 14px;
+        margin-bottom: 16px;
         padding-bottom: 12px;
     }
 
     .st-detail-row {
-        padding: 10px 12px;
+        padding: 11px 13px;
         gap: 10px;
     }
 
     .st-detail-icon-wrap {
-        width: 32px;
-        height: 32px;
-        flex: 0 0 32px;
+        width: 34px;
+        height: 34px;
+        flex: 0 0 34px;
         font-size: 13px;
         border-radius: 9px;
     }
 }
 
-@media (max-width: 520px) {
+@media (max-width: 540px) {
     .st-hero-profile-group {
         flex-direction: column;
         align-items: flex-start;
-        gap: 10px;
+        gap: 12px;
     }
 
     .st-hero-meta-row {
         flex-direction: column;
         align-items: stretch;
-        gap: 7px;
+        gap: 8px;
         width: 100%;
     }
 
@@ -1262,7 +1449,7 @@
     }
 
     .st-detail-desc {
-        display: none; /* Keep simple key-value rows compact on small mobile screens */
+        display: none; /* Keep key-value pairs compact on tiny screens */
     }
 
     .st-feature-actions {

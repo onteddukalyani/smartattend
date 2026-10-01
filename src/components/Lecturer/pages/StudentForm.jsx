@@ -14,7 +14,7 @@ import {
 } from "react-icons/fa";
 import { db } from "../../../firebase";
 import { useAuth } from "../../authcontext";
-import { isGenericName } from "../../../utils/studentDataHelper";
+import { isGenericName, normalizeBranchName } from "../../../utils/studentDataHelper";
 import { submitVerifiedAttendance } from "../../../services/sessionAuthService";
 import FaceScanner from "./FaceScanner";
 import './StudentForm.css';
@@ -459,7 +459,7 @@ function StudentForm() {
                     lecturerName: sessionData.lecturerName || "",
                     lecturerEmail: sessionData.lecturerEmail || sessionData.ownerEmail || "",
                     courseCode: sessionData.courseCode || "N/A",
-                    classCode: sessionData.classCode || "N/A",
+                    classCode: normalizeBranchName(sessionData.classCode || "CSE"),
                     batch: resolvedBatch,
                     roomNo: sessionData.roomNo || "N/A",
                     rollNo: cleanRollNo,
@@ -506,7 +506,7 @@ function StudentForm() {
                 rollNo: cleanRollNo,
                 fullName: cleanFullName,
                 courseCode: sessionData.courseCode || "N/A",
-                classCode: sessionData.classCode || "N/A",
+                classCode: normalizeBranchName(sessionData.classCode || "CSE"),
                 batch: resolvedBatch,
                 roomNo: sessionData.roomNo || "N/A"
             });

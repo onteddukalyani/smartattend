@@ -338,3 +338,64 @@
     user-select: none;
 }
 
+/* =========================================================
+   MIDNIGHT THEME COMPATIBILITY
+   ========================================================= */
+[data-theme="midnight"] .device-modal-card {
+    background: #131b2e;
+    border-color: #1e293b;
+    color: #f8fafc;
+    box-shadow: 0 25px 60px -12px rgba(0, 0, 0, 0.6);
+}
+
+[data-theme="midnight"] .device-modal-close-btn {
+    background: #1a233a;
+    color: #94a3b8;
+}
+
+[data-theme="midnight"] .device-modal-close-btn:hover {
+    background: #243048;
+    color: #f8fafc;
+}
+
+[data-theme="midnight"] .device-modal-title,
+[data-theme="midnight"] .device-option-title,
+[data-theme="midnight"] .step-highlight {
+    color: #f8fafc;
+}
+
+[data-theme="midnight"] .device-modal-subtitle,
+[data-theme="midnight"] .step-text {
+    color: #94a3b8;
+}
+
+[data-theme="midnight"] .device-option-card {
+    background: #1a233a;
+    border-color: #243048;
+}
+
+[data-theme="midnight"] .device-option-card:hover {
+    border-color: #6366f1;
+    background: #202f4d;
+}
+
+[data-theme="midnight"] .device-option-card.selected-android {
+    background: rgba(34, 197, 94, 0.12);
+    border-color: #22c55e;
+}
+
+[data-theme="midnight"] .device-option-card.selected-ios {
+    background: rgba(2, 132, 199, 0.12);
+    border-color: #0284c7;
+}
+
+[data-theme="midnight"] .step-card {
+    background: #1a233a;
+    border-color: #243048;
+}
+
+[data-theme="midnight"] .step-highlight {
+    background: #243048;
+}
+
+

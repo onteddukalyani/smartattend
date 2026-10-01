@@ -36,7 +36,7 @@ import { useAuth } from "../../authcontext";
 import { downloadExcel } from "../../../DownloadExcel";
 import { useTableSort, SortIcon } from "../../Common/useTableSort";
 import { getCandidateRolls, computeStudentMetrics, parseTimestampMillis } from "../studentAttendanceHelper";
-import { isGenericName } from "../../../utils/studentDataHelper";
+import { isGenericName, normalizeBranchName } from "../../../utils/studentDataHelper";
 import "./Statistics.css";
 
 export default function Statistics() {
@@ -671,7 +671,7 @@ export default function Statistics() {
                                                 </span>
                                             </td>
                                             <td>
-                                                <span className="stats-class-code">{r.classCode || "N/A"}</span>
+                                                <span className="stats-class-code">{normalizeBranchName(r.classCode || "CSE")}</span>
                                             </td>
                                             <td>Room {r.roomNo || "N/A"}</td>
                                             <td>

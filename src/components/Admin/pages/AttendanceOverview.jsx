@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   FaSync,
@@ -26,7 +26,7 @@ import { mergeAllStudentRecords, normalizeBranchName } from "../../../utils/stud
 
 const AttendanceOverview = () => {
   const navigate = useNavigate();
-  const [activeViewTab, setActiveViewTab] = useState("matrix"); // "matrix" | "overview"
+  const [activeViewTab, setActiveViewTab] = useState("overview"); // "overview" | "matrix"
   const [violationFilterTab, setViolationFilterTab] = useState("PENDING"); // "PENDING" | "REVIEWED" | "ALL"
   const [search, setSearch] = useState("");
   const [students, setStudents] = useState([]);
@@ -211,6 +211,8 @@ const AttendanceOverview = () => {
         )
         : 0;
 
+      const pendingCount = uniqueViolations.filter((v) => !v.isReviewed).length;
+
       setStudents(studentList);
       setRecentSessions(sessionsList.slice(0, 6));
       setStats({
@@ -219,7 +221,8 @@ const AttendanceOverview = () => {
         totalSessions: totalSessionsCount,
         activeSessions: activeCount,
         averageAttendanceRate: avgRate,
-        totalViolations: uniqueViolations.length
+        totalViolations: pendingCount,
+        allViolationsCount: uniqueViolations.length
       });
 
       // Keep selected student modal state in sync with real-time updates
@@ -332,24 +335,11 @@ const AttendanceOverview = () => {
   return (
     <div className="attendance-overview admin-attendance-page">
       {/* View Switcher Tabs */}
-      <div style={{ display: "flex", gap: "10px", marginBottom: "1.5rem", flexWrap: "wrap" }}>
+      <div className="view-switcher-bar">
         <button
           type="button"
           onClick={() => setActiveViewTab("matrix")}
-          style={{
-            padding: "10px 18px",
-            borderRadius: "12px",
-            border: activeViewTab === "matrix" ? "none" : "1px solid var(--border, #cbd5e1)",
-            background: activeViewTab === "matrix" ? "linear-gradient(135deg, #6366f1, #4f46e5)" : "var(--surface, #ffffff)",
-            color: activeViewTab === "matrix" ? "#ffffff" : "var(--text-main, #334155)",
-            fontWeight: 800,
-            fontSize: "0.9rem",
-            cursor: "pointer",
-            display: "inline-flex",
-            alignItems: "center",
-            gap: "8px",
-            boxShadow: activeViewTab === "matrix" ? "0 4px 14px rgba(99, 102, 241, 0.3)" : "none"
-          }}
+          className={`view-switcher-btn ${activeViewTab === "matrix" ? "active" : ""}`}
         >
           <FaLayerGroup /> 📊 Master Attendance Sheet (All Classes Matrix)
         </button>
@@ -357,20 +347,7 @@ const AttendanceOverview = () => {
         <button
           type="button"
           onClick={() => setActiveViewTab("overview")}
-          style={{
-            padding: "10px 18px",
-            borderRadius: "12px",
-            border: activeViewTab === "overview" ? "none" : "1px solid var(--border, #cbd5e1)",
-            background: activeViewTab === "overview" ? "linear-gradient(135deg, #6366f1, #4f46e5)" : "var(--surface, #ffffff)",
-            color: activeViewTab === "overview" ? "#ffffff" : "var(--text-main, #334155)",
-            fontWeight: 800,
-            fontSize: "0.9rem",
-            cursor: "pointer",
-            display: "inline-flex",
-            alignItems: "center",
-            gap: "8px",
-            boxShadow: activeViewTab === "overview" ? "0 4px 14px rgba(99, 102, 241, 0.3)" : "none"
-          }}
+          className={`view-switcher-btn ${activeViewTab === "overview" ? "active" : ""}`}
         >
           <FaCalendarAlt /> 📈 Attendance Metrics &amp; Violations Audit
         </button>
@@ -457,7 +434,7 @@ const AttendanceOverview = () => {
             <FaExclamationTriangle />
           </div>
           <div>
-            <span>Flagged Violations</span>
+            <span>Pending Violations</span>
             <strong style={stats.totalViolations > 0 ? { color: "#dc2626" } : {}}>
               {loading ? "..." : stats.totalViolations}
             </strong>
@@ -477,55 +454,25 @@ const AttendanceOverview = () => {
           </div>
 
           {/* Filter Tabs */}
-          <div style={{ display: "flex", gap: "6px", background: "var(--surface-soft, #f1f5f9)", padding: "4px", borderRadius: "10px", border: "1px solid var(--border, #e2e8f0)" }}>
+          <div className="violation-filter-bar">
             <button
               type="button"
               onClick={() => setViolationFilterTab("PENDING")}
-              style={{
-                padding: "6px 12px",
-                borderRadius: "8px",
-                border: "none",
-                fontSize: "0.78rem",
-                fontWeight: 750,
-                cursor: "pointer",
-                background: violationFilterTab === "PENDING" ? "#ef4444" : "transparent",
-                color: violationFilterTab === "PENDING" ? "#ffffff" : "var(--text-muted, #64748b)",
-                transition: "all 0.15s ease"
-              }}
+              className={`violation-tab-btn ${violationFilterTab === "PENDING" ? "active-pending" : ""}`}
             >
               🚨 Pending ({pendingViolations.length})
             </button>
             <button
               type="button"
               onClick={() => setViolationFilterTab("REVIEWED")}
-              style={{
-                padding: "6px 12px",
-                borderRadius: "8px",
-                border: "none",
-                fontSize: "0.78rem",
-                fontWeight: 750,
-                cursor: "pointer",
-                background: violationFilterTab === "REVIEWED" ? "#10b981" : "transparent",
-                color: violationFilterTab === "REVIEWED" ? "#ffffff" : "var(--text-muted, #64748b)",
-                transition: "all 0.15s ease"
-              }}
+              className={`violation-tab-btn ${violationFilterTab === "REVIEWED" ? "active-reviewed" : ""}`}
             >
               ✅ Reviewed ({reviewedViolations.length})
             </button>
             <button
               type="button"
               onClick={() => setViolationFilterTab("ALL")}
-              style={{
-                padding: "6px 12px",
-                borderRadius: "8px",
-                border: "none",
-                fontSize: "0.78rem",
-                fontWeight: 750,
-                cursor: "pointer",
-                background: violationFilterTab === "ALL" ? "#6366f1" : "transparent",
-                color: violationFilterTab === "ALL" ? "#ffffff" : "var(--text-muted, #64748b)",
-                transition: "all 0.15s ease"
-              }}
+              className={`violation-tab-btn ${violationFilterTab === "ALL" ? "active-all" : ""}`}
             >
               📋 All ({flaggedViolations.length})
             </button>
@@ -533,21 +480,17 @@ const AttendanceOverview = () => {
         </div>
 
         {displayedViolations.length === 0 ? (
-          <div className="empty-state" style={{ background: "var(--surface, white)", padding: "24px", borderRadius: "14px", textAlign: "center", border: "1px solid #e2e8f0" }}>
-            <p style={{ margin: 0, color: violationFilterTab === "PENDING" ? "#10b981" : "var(--text-muted, #64748b)", fontWeight: 700 }}>
+          <div className="violation-empty-state">
+            <p className={violationFilterTab === "PENDING" ? "empty-pending" : "empty-other"}>
               {violationFilterTab === "PENDING"
                 ? "✅ No pending violations to review! All attendance sessions are clear."
                 : "No historical violation records found in this view."}
             </p>
           </div>
         ) : (
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: "12px", marginBottom: "20px" }}>
+          <div className="violation-cards-grid">
             {displayedViolations.map((v) => {
               const isResolved = Boolean(v.isReviewed);
-              const cardBg = isResolved ? "#f0fdf4" : "#fff1f2";
-              const cardBorder = isResolved ? "1.5px solid #bbf7d0" : "1.5px solid #fecdd3";
-              const badgeBg = isResolved ? "#dcfce7" : "#fee2e2";
-              const badgeColor = isResolved ? "#15803d" : "#b91c1c";
               const statusLabel = isResolved
                 ? (v.status === "APPROVED" || v.excused ? "Approved (Present) ✅" : v.status === "REJECTED" ? "Rejected (Absent) ❌" : "Reviewed & Dismissed 🛡️")
                 : (v.status || "PENDING_REVIEW");
@@ -555,56 +498,35 @@ const AttendanceOverview = () => {
               return (
                 <div
                   key={v.id}
-                  style={{
-                    background: cardBg,
-                    border: cardBorder,
-                    borderRadius: "14px",
-                    padding: "14px 16px",
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: "8px",
-                    position: "relative"
-                  }}
+                  className={`violation-audit-card ${isResolved ? "resolved" : "pending"}`}
                 >
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "8px" }}>
+                  <div className="violation-card-top">
                     <div>
-                      <strong style={{ fontSize: "0.95rem", color: isResolved ? "#166534" : "#9f1239" }}>
+                      <strong className="violation-student-name">
                         {v.studentName || v.rollNo || "Unknown Student"}
                       </strong>
-                      <div style={{ fontSize: "0.8rem", fontFamily: "monospace", color: isResolved ? "#15803d" : "#be123c", fontWeight: 700 }}>
+                      <div className="violation-student-roll">
                         {v.rollNo || "N/A"}
                       </div>
                     </div>
-                    <span style={{ fontSize: "0.74rem", background: badgeBg, color: badgeColor, padding: "3px 8px", borderRadius: "6px", fontWeight: 750 }}>
+                    <span className={`violation-card-badge ${isResolved ? "resolved" : "pending"}`}>
                       {statusLabel}
                     </span>
                   </div>
 
-                  <p style={{ margin: 0, fontSize: "0.82rem", color: isResolved ? "#14532d" : "#881337", lineHeight: 1.35 }}>
+                  <p className="violation-reason-text">
                     {v.violationReason || v.reason || "App Switched or Device Mismatch"}
-                    {v.reviewNotes && <span style={{ display: "block", marginTop: "4px", fontSize: "0.76rem", opacity: 0.85 }}>• Note: {v.reviewNotes}</span>}
+                    {v.reviewNotes && <span className="violation-note-text">• Note: {v.reviewNotes}</span>}
                   </p>
 
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingTop: "6px", borderTop: isResolved ? "1px solid #dcfce7" : "1px solid #fecdd3", marginTop: "4px" }}>
-                    <span style={{ fontSize: "0.74rem", color: isResolved ? "#15803d" : "#9f1239" }}>
+                  <div className="violation-card-footer">
+                    <span className="violation-time-text">
                       {v.timestamp || v.submittedAt ? new Date(v.timestamp || v.submittedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "Recently"}
                     </span>
                     <button
                       type="button"
                       onClick={() => setSelectedViolation(v)}
-                      style={{
-                        padding: "5px 12px",
-                        borderRadius: "8px",
-                        background: isResolved ? "#059669" : "#e11d48",
-                        color: "#ffffff",
-                        border: "none",
-                        fontSize: "0.78rem",
-                        fontWeight: 700,
-                        cursor: "pointer",
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: "5px"
-                      }}
+                      className={`violation-action-btn ${isResolved ? "resolved" : "pending"}`}
                     >
                       <FaShieldAlt /> {isResolved ? "Audit Info" : "Review"}
                     </button>

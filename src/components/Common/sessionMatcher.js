@@ -1,3 +1,5 @@
+import { normalizeBranchName } from "../../utils/studentDataHelper";
+
 /**
  * Utility functions for robust user metadata resolution and session-to-lecturer matching.
  */
@@ -87,6 +89,7 @@ export function normalizeSessions(sessionsDocs = [], recordsDocs = [], lookupMap
     sessionMap.set(id, {
       id,
       ...data,
+      classCode: normalizeBranchName(data.classCode || data.department || "CSE"),
       ownerId,
       ownerEmail: resolvedEmail,
       lecturerEmail: resolvedEmail,
@@ -107,7 +110,7 @@ export function normalizeSessions(sessionsDocs = [], recordsDocs = [], lookupMap
 
     sessionMap.set(sid, {
       id: sid,
-      classCode: existing?.classCode || data.classCode || "Class",
+      classCode: normalizeBranchName(existing?.classCode || data.classCode || data.department || "CSE"),
       courseCode: existing?.courseCode || data.courseCode || "Course",
       roomNo: existing?.roomNo || data.roomNo || "Room",
       batch: existing?.batch || data.batch || "",

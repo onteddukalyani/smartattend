@@ -1,3 +1,5 @@
+import { normalizeBranchName } from "../../utils/studentDataHelper";
+
 /**
  * Centralized attendance and course calculation engine for Student Portal.
  * Ensures 100% consistency across Student Dashboard, Courses, and Statistics.
@@ -129,7 +131,7 @@ export function computeStudentMetrics(coursesDocs = [], sessionsDocs = [], recor
         recordsMap.set(key, {
             ...rec,
             courseCode: cleanCourse,
-            classCode: rec.classCode || session.classCode || cleanCourse,
+            classCode: normalizeBranchName(rec.classCode || session.classCode || cleanCourse || "CSE"),
             roomNo: rec.roomNo || session.roomNo || "N/A",
             lecturerName: rec.lecturerName || session.lecturerName || "Faculty",
             submittedAt: rec.submittedAt || session.createdAt || Date.now()
@@ -160,7 +162,7 @@ export function computeStudentMetrics(coursesDocs = [], sessionsDocs = [], recor
                                 sessionId: s.id,
                                 rollNo: roll || email,
                                 courseCode: cleanCourse,
-                                classCode: s.classCode || cleanCourse,
+                                classCode: normalizeBranchName(s.classCode || cleanCourse || "CSE"),
                                 roomNo: s.roomNo || "N/A",
                                 lecturerName: s.lecturerName || "Faculty",
                                 submittedAt: attendee.submittedAt || attendee.timestamp || s.createdAt || Date.now()

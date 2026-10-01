@@ -213,6 +213,31 @@
   color: #0284c7;
 }
 
+.attendance-stat-card.attendance-stat-alert {
+  border-color: #fecdd3;
+  background: #fff1f2;
+}
+
+.attendance-stat-card.attendance-stat-alert .attendance-stat-icon {
+  background: #fee2e2;
+  color: #dc2626;
+}
+
+@keyframes pulseLive {
+  0% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.75;
+    transform: scale(0.97);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
 .attendance-stat-card span {
   display: block;
   color: var(--text-muted, #7c8297);
@@ -801,6 +826,20 @@
   color: #38bdf8;
 }
 
+[data-theme="midnight"] .attendance-stat-card.attendance-stat-alert {
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.35);
+}
+
+[data-theme="midnight"] .attendance-stat-card.attendance-stat-alert .attendance-stat-icon {
+  background: rgba(239, 68, 68, 0.22);
+  color: #f87171;
+}
+
+[data-theme="midnight"] .attendance-stat-card.attendance-stat-alert strong {
+  color: #f87171 !important;
+}
+
 [data-theme="midnight"] .attendance-stat-card span {
   color: #94a3b8;
 }
@@ -946,4 +985,394 @@
 
 [data-theme="midnight"] .no-students {
   color: #94a3b8;
+}
+
+/* =========================================================
+   VIEW SWITCHER & VIOLATION CARDS (LIGHT & MIDNIGHT THEMES)
+========================================================= */
+
+.view-switcher-bar {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 1.5rem;
+  flex-wrap: wrap;
+}
+
+.view-switcher-btn {
+  padding: 10px 18px;
+  border-radius: 12px;
+  border: 1.5px solid var(--border, #cbd5e1);
+  background: var(--surface, #ffffff);
+  color: var(--text-main, #334155);
+  font-weight: 800;
+  font-size: 0.9rem;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.03);
+  transition: all 0.2s ease;
+}
+
+.view-switcher-btn:hover {
+  border-color: #6366f1;
+  color: #6366f1;
+  transform: translateY(-1px);
+}
+
+.view-switcher-btn.active {
+  border: none;
+  background: linear-gradient(135deg, #6366f1, #4f46e5);
+  color: #ffffff;
+  box-shadow: 0 4px 14px rgba(99, 102, 241, 0.3);
+}
+
+/* Violation Filter Bar */
+.violation-filter-bar {
+  display: flex;
+  gap: 6px;
+  background: var(--surface-soft, #f1f5f9);
+  padding: 4px;
+  border-radius: 10px;
+  border: 1px solid var(--border, #e2e8f0);
+}
+
+.violation-tab-btn {
+  padding: 6px 14px;
+  border-radius: 8px;
+  border: none;
+  font-size: 0.78rem;
+  font-weight: 750;
+  cursor: pointer;
+  background: transparent;
+  color: var(--text-muted, #64748b);
+  transition: all 0.15s ease;
+}
+
+.violation-tab-btn.active-pending {
+  background: #ef4444;
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(239, 68, 68, 0.25);
+}
+
+.violation-tab-btn.active-reviewed {
+  background: #10b981;
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.25);
+}
+
+.violation-tab-btn.active-all {
+  background: #6366f1;
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.25);
+}
+
+/* Empty State */
+.violation-empty-state {
+  background: var(--surface, #ffffff);
+  padding: 24px;
+  border-radius: 14px;
+  text-align: center;
+  border: 1px solid var(--border, #e2e8f0);
+}
+
+.violation-empty-state p {
+  margin: 0;
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+
+.violation-empty-state .empty-pending {
+  color: #10b981;
+}
+
+.violation-empty-state .empty-other {
+  color: var(--text-muted, #64748b);
+}
+
+/* Violation Cards Grid */
+.violation-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.violation-audit-card {
+  border-radius: 14px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  position: relative;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.violation-audit-card:hover {
+  transform: translateY(-2px);
+}
+
+.violation-audit-card.pending {
+  background: #fff1f2;
+  border: 1.5px solid #fecdd3;
+  box-shadow: 0 2px 8px rgba(239, 68, 68, 0.05);
+}
+
+.violation-audit-card.resolved {
+  background: #f0fdf4;
+  border: 1.5px solid #bbf7d0;
+  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.05);
+}
+
+.violation-card-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.violation-student-name {
+  font-size: 0.95rem;
+  display: block;
+}
+
+.violation-audit-card.pending .violation-student-name {
+  color: #9f1239;
+}
+
+.violation-audit-card.resolved .violation-student-name {
+  color: #166534;
+}
+
+.violation-student-roll {
+  font-size: 0.8rem;
+  font-family: monospace;
+  font-weight: 700;
+}
+
+.violation-audit-card.pending .violation-student-roll {
+  color: #be123c;
+}
+
+.violation-audit-card.resolved .violation-student-roll {
+  color: #15803d;
+}
+
+.violation-card-badge {
+  font-size: 0.74rem;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.violation-card-badge.pending {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.violation-card-badge.resolved {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.violation-reason-text {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
+.violation-audit-card.pending .violation-reason-text {
+  color: #881337;
+}
+
+.violation-audit-card.resolved .violation-reason-text {
+  color: #14532d;
+}
+
+.violation-note-text {
+  display: block;
+  margin-top: 4px;
+  font-size: 0.76rem;
+  opacity: 0.85;
+}
+
+.violation-card-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-top: 6px;
+  margin-top: 4px;
+}
+
+.violation-audit-card.pending .violation-card-footer {
+  border-top: 1px solid #fecdd3;
+}
+
+.violation-audit-card.resolved .violation-card-footer {
+  border-top: 1px solid #dcfce7;
+}
+
+.violation-time-text {
+  font-size: 0.74rem;
+}
+
+.violation-audit-card.pending .violation-time-text {
+  color: #9f1239;
+}
+
+.violation-audit-card.resolved .violation-time-text {
+  color: #15803d;
+}
+
+.violation-action-btn {
+  padding: 5px 12px;
+  border-radius: 8px;
+  border: none;
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: #ffffff;
+  transition: all 0.15s ease;
+}
+
+.violation-action-btn.pending {
+  background: #e11d48;
+  box-shadow: 0 2px 6px rgba(225, 29, 72, 0.25);
+}
+
+.violation-action-btn.resolved {
+  background: #059669;
+  box-shadow: 0 2px 6px rgba(5, 150, 105, 0.25);
+}
+
+.violation-action-btn:hover {
+  transform: translateY(-1px);
+}
+
+/* =========================================================
+   MIDNIGHT DARK MODE OVERRIDES (EYE-FRIENDLY & BALANCED)
+========================================================= */
+
+[data-theme="midnight"] .view-switcher-btn {
+  background: #131b2e;
+  border-color: #1e293b;
+  color: #94a3b8;
+}
+
+[data-theme="midnight"] .view-switcher-btn:hover {
+  background: #1a233a;
+  border-color: #6366f1;
+  color: #f8fafc;
+}
+
+[data-theme="midnight"] .view-switcher-btn.active {
+  background: linear-gradient(135deg, #6366f1, #4f46e5);
+  color: #ffffff;
+  box-shadow: 0 4px 14px rgba(99, 102, 241, 0.4);
+}
+
+[data-theme="midnight"] .violation-filter-bar {
+  background: #0f172a;
+  border-color: #1e293b;
+}
+
+[data-theme="midnight"] .violation-tab-btn {
+  color: #94a3b8;
+}
+
+[data-theme="midnight"] .violation-tab-btn.active-pending {
+  background: #dc2626;
+  color: #ffffff;
+}
+
+[data-theme="midnight"] .violation-tab-btn.active-reviewed {
+  background: #059669;
+  color: #ffffff;
+}
+
+[data-theme="midnight"] .violation-tab-btn.active-all {
+  background: #4f46e5;
+  color: #ffffff;
+}
+
+[data-theme="midnight"] .violation-empty-state {
+  background: #131b2e;
+  border-color: #1e293b;
+}
+
+[data-theme="midnight"] .violation-empty-state .empty-pending {
+  color: #34d399;
+}
+
+[data-theme="midnight"] .violation-empty-state .empty-other {
+  color: #94a3b8;
+}
+
+/* Dark mode for Violation Cards: Dark backgrounds, subtle colored borders */
+[data-theme="midnight"] .violation-audit-card.pending {
+  background: #181c2b;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+[data-theme="midnight"] .violation-audit-card.resolved {
+  background: #132128;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+[data-theme="midnight"] .violation-audit-card.pending .violation-student-name {
+  color: #fca5a5;
+}
+
+[data-theme="midnight"] .violation-audit-card.resolved .violation-student-name {
+  color: #86efac;
+}
+
+[data-theme="midnight"] .violation-audit-card.pending .violation-student-roll {
+  color: #f87171;
+}
+
+[data-theme="midnight"] .violation-audit-card.resolved .violation-student-roll {
+  color: #4ade80;
+}
+
+[data-theme="midnight"] .violation-card-badge.pending {
+  background: rgba(239, 68, 68, 0.2);
+  color: #fca5a5;
+  border: 1px solid rgba(239, 68, 68, 0.35);
+}
+
+[data-theme="midnight"] .violation-card-badge.resolved {
+  background: rgba(16, 185, 129, 0.2);
+  color: #86efac;
+  border: 1px solid rgba(16, 185, 129, 0.35);
+}
+
+[data-theme="midnight"] .violation-audit-card.pending .violation-reason-text {
+  color: #fecdd3;
+}
+
+[data-theme="midnight"] .violation-audit-card.resolved .violation-reason-text {
+  color: #bbf7d0;
+}
+
+[data-theme="midnight"] .violation-audit-card.pending .violation-card-footer {
+  border-top-color: rgba(239, 68, 68, 0.2);
+}
+
+[data-theme="midnight"] .violation-audit-card.resolved .violation-card-footer {
+  border-top-color: rgba(16, 185, 129, 0.2);
+}
+
+[data-theme="midnight"] .violation-audit-card.pending .violation-time-text {
+  color: #f87171;
+}
+
+[data-theme="midnight"] .violation-audit-card.resolved .violation-time-text {
+  color: #34d399;
 }

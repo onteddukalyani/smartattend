@@ -887,6 +887,30 @@
   border-color: #334155;
 }
 
+[data-theme="midnight"] .manage-admins-page .btn-disable {
+  background: #101827;
+  border-color: #334155;
+  color: #94a3b8;
+}
+
+[data-theme="midnight"] .manage-admins-page .btn-disable:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: rgba(239, 68, 68, 0.4);
+  color: #f87171;
+}
+
+[data-theme="midnight"] .manage-admins-page .btn-enable {
+  background: rgba(16, 185, 129, 0.15);
+  border-color: rgba(16, 185, 129, 0.3);
+  color: #6ee7b7;
+}
+
+[data-theme="midnight"] .manage-admins-page .btn-delete:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: rgba(239, 68, 68, 0.4);
+  color: #f87171;
+}
+
 /* =========================================================
    RESPONSIVE DESIGN (MOBILE & TABLET)
    ========================================================= */

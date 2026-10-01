@@ -652,3 +652,182 @@
     border-color: #1e293b;
     color: #94a3b8;
 }
+
+/* =========================================================
+   SESSION FLAG VIOLATIONS BOX (LIGHT & MIDNIGHT THEMES)
+========================================================= */
+
+.session-violations-alert-box {
+    margin: 18px 0;
+    padding: 16px 20px;
+    border-radius: 14px;
+    background: #fff1f2;
+    border: 1.5px solid #fecdd3;
+    box-shadow: 0 4px 14px rgba(239, 68, 68, 0.06);
+}
+
+.session-violations-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+}
+
+.session-violations-icon {
+    color: #e11d48;
+    font-size: 1.2rem;
+    flex-shrink: 0;
+}
+
+.session-violations-header h3 {
+    margin: 0;
+    font-size: 1.05rem;
+    color: #9f1239;
+    font-weight: 800;
+}
+
+.session-violations-desc {
+    margin: 0 0 12px;
+    font-size: 0.82rem;
+    color: #881337;
+    line-height: 1.4;
+}
+
+.session-violations-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 10px;
+}
+
+.session-violation-card {
+    background: #ffffff;
+    border-radius: 10px;
+    padding: 12px 14px;
+    border: 1px solid #fecdd3;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+}
+
+.session-violation-info {
+    min-width: 0;
+    flex: 1;
+}
+
+.session-violation-roll {
+    font-size: 0.9rem;
+    color: #0f172a;
+    display: block;
+}
+
+.session-violation-reason {
+    font-size: 0.74rem;
+    color: #e11d48;
+    font-weight: 600;
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.session-violation-actions {
+    display: inline-flex;
+    gap: 6px;
+    flex-shrink: 0;
+}
+
+.session-violation-dismiss-btn {
+    padding: 6px 10px;
+    border-radius: 8px;
+    background: #f1f5f9;
+    color: #64748b;
+    border: 1px solid #cbd5e1;
+    fontSize: 0.76rem;
+    font-weight: 700;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    transition: all 0.15s ease;
+}
+
+.session-violation-dismiss-btn:hover {
+    background: #e2e8f0;
+    color: #334155;
+}
+
+.session-violation-excuse-btn {
+    padding: 6px 12px;
+    border-radius: 8px;
+    background: #10b981;
+    color: #ffffff;
+    border: none;
+    font-size: 0.78rem;
+    font-weight: 700;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    box-shadow: 0 2px 6px rgba(16, 185, 129, 0.2);
+    transition: all 0.15s ease;
+}
+
+.session-violation-excuse-btn:hover {
+    background: #059669;
+}
+
+.session-violation-restricted-badge {
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: #94a3b8;
+    background: #f8fafc;
+    padding: 4px 8px;
+    border-radius: 6px;
+    border: 1px solid #e2e8f0;
+}
+
+/* Midnight Dark Theme for Session Violations */
+[data-theme="midnight"] .session-violations-alert-box {
+    background: #181c2b;
+    border-color: rgba(239, 68, 68, 0.3);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+}
+
+[data-theme="midnight"] .session-violations-header h3 {
+    color: #fca5a5;
+}
+
+[data-theme="midnight"] .session-violations-desc {
+    color: #cbd5e1;
+}
+
+[data-theme="midnight"] .session-violation-card {
+    background: #131b2e;
+    border-color: #1e293b;
+}
+
+[data-theme="midnight"] .session-violation-roll {
+    color: #f8fafc;
+}
+
+[data-theme="midnight"] .session-violation-reason {
+    color: #f87171;
+}
+
+[data-theme="midnight"] .session-violation-dismiss-btn {
+    background: #1e293b;
+    color: #94a3b8;
+    border-color: #334155;
+}
+
+[data-theme="midnight"] .session-violation-dismiss-btn:hover {
+    background: #27354d;
+    color: #f8fafc;
+}
+
+[data-theme="midnight"] .session-violation-restricted-badge {
+    background: #1e293b;
+    color: #94a3b8;
+    border-color: #334155;
+}
