@@ -132,6 +132,7 @@ function QrScannerApp() {
     const [lookingUpStudent, setLookingUpStudent] = useState(false);
     const [submittingAttendance, setSubmittingAttendance] = useState(false);
     const [submissionDetails, setSubmissionDetails] = useState(null);
+    const [hardwareProof, setHardwareProof] = useState(null);
 
     // Resolve Student Identity
     const loggedInRollNo = (profile?.rollNo || (user?.email || '').split('@')[0] || '').trim().toUpperCase();
@@ -975,14 +976,15 @@ function QrScannerApp() {
             releaseAllMediaTracks();
             setScannerActive(false);
 
-            // Hardware Fingerprint Biometric Check (Platform Authenticator)
+            // Hardware Biometric Check (Android Keystore / iOS Secure Enclave / Web Fallback)
             try {
                 const hardwareBio = await verifyHardwareBiometric(user?.uid, "SmartAttend Classroom Verification");
                 if (!hardwareBio.success) {
-                    setErrorMessage(hardwareBio.message || "❌ Hardware fingerprint authentication failed.");
+                    setErrorMessage(hardwareBio.message || "❌ Hardware biometric authentication failed.");
                     setScanState('KIOSK_WAITING_QR2');
                     return;
                 }
+                setHardwareProof(hardwareBio);
             } catch (bioErr) {
                 console.warn("[Scanner] Hardware biometric notice:", bioErr);
             }
@@ -1189,8 +1191,11 @@ function QrScannerApp() {
                             confidence: res.confidence || 100,
                             distance: res.distance || 0.35,
                             liveness: res.liveness === true,
-                            blinkCount: res.blinkCount || 1
-                        }
+                            blinkCount: res.blinkCount || 1,
+                            verified: true,
+                            antiSpoofScore: "PASSED"
+                        },
+                        hardwareProof
                     );
 
                     const submittedMs = submissionResult.submittedAt || submissionResult.attendanceSubmittedAt || Date.now();
@@ -1224,7 +1229,7 @@ function QrScannerApp() {
                 }
             }
         }
-    }, [activeSessionId, activeQr2Token, submittingAttendance, loggedInRollNo, loggedInName, sessionData]);
+    }, [activeSessionId, activeQr2Token, submittingAttendance, loggedInRollNo, loggedInName, sessionData, hardwareProof]);
 
     const formatMmSs = (sec) => {
         const m = Math.floor(sec / 60);

@@ -435,227 +435,53 @@ export async function validateStudentQR2(sessionId, qr2Token) {
 
 /**
  * 5. Student: Submit Final Attendance Record
- * STRICT: Gated by prior QR 1 authorization record.
- * Sets 5-minute fail-safe countdown while maintaining Lock Task Mode.
+ * STRICT: Exclusively processed via submitAttendance Cloud Function.
+ * Validates QR 1 authorization, QR 2 token, hardware biometric signature (if native),
+ * and live face verification with anti-spoofing on the server.
+ * Never allows client-side direct writes to bypass server checks.
  */
-export async function submitVerifiedAttendance(sessionId, qr2Token, biometricData) {
+export async function submitVerifiedAttendance(sessionId, qr2Token, biometricData, hardwareProof = null) {
+  const isNative = typeof window !== "undefined" && Boolean(window.Capacitor?.isNativePlatform?.());
+  const proofObj = hardwareProof?.proof || (hardwareProof?.signature ? hardwareProof : null);
+  const deviceAuthMode = proofObj ? "NATIVE_MOBILE" : "WEB_BROWSER";
+
+  const payload = {
+    sessionId,
+    qr2Token,
+    biometricData,
+    hardwareProof: proofObj,
+    deviceAuthMode,
+    isNative
+  };
+
   try {
     const fn = httpsCallable(functions, "submitAttendance");
-    const result = await fn({ sessionId, qr2Token, biometricData });
-    if (result && result.data && result.data.success) return result.data;
+    const result = await fn(payload);
+
+    if (result && result.data && result.data.success) {
+      const cleanRoll = result.data.rollNo;
+      if (cleanRoll) {
+        try {
+          await sendStudentNotification(
+            cleanRoll,
+            "Attendance Recorded ✅",
+            `Your attendance for session ${sessionId} has been submitted successfully (${deviceAuthMode}).`,
+            "ATTENDANCE_SUCCESS",
+            "SmartAttend Guard"
+          );
+        } catch (_) {}
+      }
+      return result.data;
+    }
+
+    throw new Error("Server rejected attendance submission.");
   } catch (cloudErr) {
     const msg = cloudErr.message || "";
-    if (msg.includes("Access denied") || msg.includes("QR 1") || msg.includes("permission-denied")) {
+    if (msg.includes("QR 1") || msg.includes("Access denied") || msg.includes("permission-denied")) {
       throw new Error("⛔ Attendance Rejected: Missing Phase 1 QR 1 check-in. You must scan QR 1 first during Phase 1 (0:00 - 1:00).");
     }
-    console.warn("Cloud function submitAttendance notice:", cloudErr.message || cloudErr);
+    throw cloudErr;
   }
-
-  const currentUser = auth.currentUser;
-  const currentEmail = currentUser?.email?.toLowerCase().trim() || "";
-  const currentRollNo = (currentEmail ? currentEmail.split("@")[0] : "").toUpperCase();
-  const currentUid = currentUser?.uid || "";
-
-  let session = null;
-  try {
-    const sessionRef = doc(db, "attendance_sessions", sessionId);
-    const sessionSnap = await getDoc(sessionRef);
-    if (sessionSnap.exists()) {
-      session = sessionSnap.data();
-    }
-  } catch (e) {
-    console.warn("Session read notice:", e.message);
-  }
-
-  const now = Date.now();
-  const autoReleaseAt = now + 5 * 60 * 1000; // 5-minute fail-safe
-
-  // 1. Re-verify QR 1 authorization in Firestore
-  let authData = null;
-  const candidateKeys = [currentUid, currentRollNo, currentEmail].filter(Boolean);
-
-  for (const key of candidateKeys) {
-    if (authData) break;
-    try {
-      const authRef = doc(db, "attendance_sessions", sessionId, "authorizations", key);
-      const authSnap = await getDoc(authRef);
-      if (authSnap.exists()) {
-        const d = authSnap.data();
-        if (d.qr1Verified === true || d.status === "QR1_VERIFIED" || d.status === "SESSION_AUTHORIZED") {
-          authData = d;
-        }
-      }
-    } catch (e) { }
-  }
-
-  // 2. Check local fallback
-  if (!authData) {
-    try {
-      const stored = sessionStorage.getItem(`smartattend_qr1_auth_${sessionId}`) || localStorage.getItem(`smartattend_qr1_auth_${sessionId}`);
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        const matchUid = !currentUid || parsed.studentUid === currentUid;
-        const matchRoll = !currentRollNo || parsed.rollNo?.toUpperCase() === currentRollNo;
-        const matchEmail = !currentEmail || parsed.studentEmail?.toLowerCase() === currentEmail;
-
-        if ((parsed.qr1Verified === true || parsed.status === "QR1_VERIFIED" || parsed.status === "SESSION_AUTHORIZED") && parsed.sessionId === sessionId && (matchUid || matchRoll || matchEmail)) {
-          authData = parsed;
-        }
-      }
-    } catch (e) { }
-  }
-
-  // 3. STRICT NON-NEGOTIABLE CHECK: Reject submission if student didn't scan QR 1
-  const isQr1Valid = authData && (authData.qr1Verified === true || authData.status === "QR1_VERIFIED" || authData.status === "SESSION_AUTHORIZED");
-  if (!isQr1Valid) {
-    throw new Error("⛔ Attendance Rejected: Missing Phase 1 QR 1 check-in. You must scan QR 1 first during Phase 1 (0:00 - 1:00) before submitting QR 2.");
-  }
-
-  const studentEmail = (currentEmail || authData.studentEmail || "").toLowerCase().trim();
-  const rollNo = (authData.rollNo || currentRollNo || studentEmail.split("@")[0] || "STUDENT").toUpperCase();
-  const studentName = authData.studentName || currentUser?.displayName || rollNo;
-  const studentUid = currentUid || authData.studentUid || rollNo;
-
-  const recordId = `${sessionId}_${rollNo}`;
-  const recordRef = doc(db, "attendance_records", recordId);
-
-  // 4. Duplicate Check
-  try {
-    const existingSnap = await getDoc(recordRef);
-    if (existingSnap.exists()) {
-      throw new Error(`Roll Number ${rollNo} has already marked attendance for this session.`);
-    }
-  } catch (dupErr) {
-    if (dupErr.message && dupErr.message.includes("already marked attendance")) {
-      throw dupErr;
-    }
-  }
-
-  const studentDeviceType = (
-    localStorage.getItem("smartattend_student_device_type") ||
-    authData.deviceType ||
-    currentUser?.deviceType ||
-    "unknown"
-  ).toLowerCase();
-
-  let clientIp = authData?.deviceIp || (typeof window !== "undefined" ? localStorage.getItem("smartattend_device_ip") : null) || "Unknown IP";
-  if (!clientIp || clientIp === "Unknown IP") {
-    try {
-      clientIp = await getClientIpAddress();
-    } catch (_) { }
-  }
-  const detectedPlatform = detectDeviceType() || "web";
-
-  const attendanceRecord = {
-    id: recordId,
-    sessionId: sessionId,
-    rollNo: rollNo,
-    fullName: studentName,
-    studentName: studentName,
-    name: studentName,
-    studentEmail: studentEmail,
-    studentUid: studentUid,
-    courseCode: session?.courseCode || "N/A",
-    classCode: session?.classCode || "N/A",
-    batch: session?.batch || "2025",
-    roomNo: session?.roomNo || "N/A",
-    lecturerName: session?.lecturerName || "",
-    lecturerEmail: session?.lecturerEmail || "",
-    ownerId: session?.ownerId || "",
-    deviceType: studentDeviceType,
-    detectedPlatform: detectedPlatform,
-    deviceIp: clientIp,
-    lastLoginIp: clientIp,
-    userAgent: typeof navigator !== "undefined" ? navigator.userAgent : "",
-    faceVerified: true,
-    faceMatchConfidence: biometricData?.confidence || 100,
-    faceDistance: biometricData?.distance !== undefined ? Number(biometricData.distance.toFixed(4)) : null,
-    livenessConfirmed: true,
-    antiSpoofScore: "PASSED",
-    blinkCount: biometricData?.blinkCount || 1,
-    submittedAt: now,
-    attendanceSubmittedAt: now,
-    autoReleaseAt: autoReleaseAt,
-    biometricVerifiedAt: now
-  };
-
-  try {
-    await setDoc(recordRef, attendanceRecord);
-  } catch (recErr) {
-    console.warn("Attendance record write notice:", recErr.message);
-  }
-
-  // Update student last seen IP and attendance timestamp
-  try {
-    if (rollNo && db) {
-      await setDoc(doc(db, "students", rollNo), {
-        lastAttendanceAt: now,
-        lastAttendanceIp: clientIp,
-        lastLoginIp: clientIp,
-        lastSessionId: sessionId
-      }, { merge: true });
-    }
-  } catch (_) { }
-
-  try {
-    const sessionRef = doc(db, "attendance_sessions", sessionId);
-    await updateDoc(sessionRef, {
-      attendees: arrayUnion({
-        id: recordId,
-        rollNo: rollNo,
-        studentName: studentName,
-        fullName: studentName,
-        email: studentEmail,
-        studentEmail: studentEmail,
-        deviceType: studentDeviceType,
-        faceVerified: true,
-        faceMatchConfidence: biometricData?.confidence || 100,
-        submittedAt: now,
-        attendanceSubmittedAt: now,
-        autoReleaseAt: autoReleaseAt
-      }),
-      attendanceCount: increment(1)
-    });
-  } catch (sessErr) {
-    console.warn("Session doc attendee update notice:", sessErr.message);
-  }
-
-  // Update authorization document with 5-minute fail-safe auto-release timeline
-  try {
-    const targetUid = studentUid || rollNo;
-    const authRef = doc(db, "attendance_sessions", sessionId, "authorizations", targetUid);
-    await updateDoc(authRef, {
-      attendanceSubmittedAt: now,
-      autoReleaseAt: autoReleaseAt,
-      attendanceStatus: "SUBMITTED",
-      faceVerified: true,
-      releaseStatus: "LOCKED"
-    });
-  } catch (authErr) {
-    console.warn("Authorization update notice:", authErr.message);
-  }
-
-  // Real-time Faculty & Admin notification
-  try {
-    await sendFacultyNotification(
-      `Attendance Verified: ${rollNo} (${session?.courseCode || 'Class'}) ✅`,
-      `Student ${studentName} (${rollNo}) marked verified biometric attendance for course ${session?.courseCode || 'Class'} in Room ${session?.roomNo || 'N/A'}.`,
-      "ATTENDANCE_SUCCESS",
-      rollNo,
-      studentName
-    );
-  } catch (_) { }
-
-  return {
-    success: true,
-    sessionId: sessionId,
-    rollNo: rollNo,
-    studentName: studentName,
-    submittedAt: now,
-    attendanceSubmittedAt: now,
-    autoReleaseAt: autoReleaseAt,
-    kioskEndsAt: session?.kioskEndsAt || (now + 180000)
-  };
 }
 
 /**
