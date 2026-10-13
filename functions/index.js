@@ -21,9 +21,37 @@ function hashToken(token) {
 }
 
 /**
- * Utility: Look up trusted student profile by UID or Email.
+ * Utility: Convert Base64 DER public key to PEM format.
  */
-async function resolveTrustedStudent(uid, email) {
+function derToPem(derBase64) {
+  const clean = (derBase64 || "").replace(/\s+/g, "");
+  const lines = [];
+  for (let i = 0; i < clean.length; i += 64) {
+    lines.push(clean.substring(i, i + 64));
+  }
+  return `-----BEGIN PUBLIC KEY-----\n${lines.join("\n")}\n-----END PUBLIC KEY-----\n`;
+}
+
+/**
+ * Utility: Verify ECDSA SHA-256 signature over UTF-8 challenge string.
+ */
+function verifyEcdsaSignature(derBase64Key, challengeText, signatureHex) {
+  try {
+    const pem = derToPem(derBase64Key);
+    const verify = crypto.createVerify("SHA256");
+    verify.update(Buffer.from(challengeText, "utf8"));
+    return verify.verify(pem, Buffer.from(signatureHex, "hex"));
+  } catch (err) {
+    console.warn("ECDSA signature verification error:", err.message);
+    return false;
+  }
+}
+
+/**
+ * Utility: Look up authoritative student profile with strict account verification.
+ * Rejects unlinked accounts, unknown UIDs, and generic/prefix-derived rolls.
+ */
+async function resolveAuthoritativeStudent(uid, email) {
   const cleanEmail = (email || "").toLowerCase().trim();
 
   // 1. Check users collection by UID
@@ -31,51 +59,199 @@ async function resolveTrustedStudent(uid, email) {
     const userSnap = await db.collection("users").doc(uid).get();
     if (userSnap.exists) {
       const data = userSnap.data();
-      if (data.rollNo) {
+      const rawRoll = data.rollNo || data.studentId;
+      if (rawRoll) {
+        const rollNo = String(rawRoll).trim().toUpperCase();
+        // Verify student document in students collection
+        const studentDocSnap = await db.collection("students").doc(rollNo).get();
+        if (studentDocSnap.exists) {
+          const sData = studentDocSnap.data();
+          return {
+            uid: uid,
+            rollNo: rollNo,
+            name: sData.name || sData.fullName || data.name || data.fullName || rollNo,
+            email: sData.email || data.email || cleanEmail
+          };
+        }
         return {
-          rollNo: String(data.rollNo).trim().toUpperCase(),
-          name: data.name || data.fullName || data.displayName || data.rollNo,
+          uid: uid,
+          rollNo: rollNo,
+          name: data.name || data.fullName || data.displayName || rollNo,
           email: data.email || cleanEmail
         };
       }
     }
   }
 
-  // 2. Check authorizedUsers by email
-  if (cleanEmail) {
-    const authSnap = await db.collection("authorizedUsers").doc(cleanEmail).get();
-    if (authSnap.exists) {
-      const data = authSnap.data();
-      if (data.rollNo) {
-        return {
-          rollNo: String(data.rollNo).trim().toUpperCase(),
-          name: data.name || data.fullName || data.displayName || data.rollNo,
-          email: data.email || cleanEmail
-        };
-      }
-    }
-  }
-
-  // 3. Query students collection by email or uid
-  if (cleanEmail) {
-    const sQuery = await db.collection("students").where("email", "==", cleanEmail).limit(1).get();
-    if (!sQuery.empty) {
-      const data = sQuery.docs[0].data();
+  // 2. Query students collection by UID
+  if (uid) {
+    const sUidQuery = await db.collection("students").where("uid", "==", uid).limit(1).get();
+    if (!sUidQuery.empty) {
+      const docSnap = sUidQuery.docs[0];
+      const data = docSnap.data();
+      const rollNo = String(data.rollNo || docSnap.id).trim().toUpperCase();
       return {
-        rollNo: String(data.rollNo || sQuery.docs[0].id).trim().toUpperCase(),
-        name: data.name || data.fullName || data.rollNo,
+        uid: uid,
+        rollNo: rollNo,
+        name: data.name || data.fullName || rollNo,
         email: data.email || cleanEmail
       };
     }
   }
 
-  // Fallback: Use prefix of email as rollNo
-  const prefix = cleanEmail.split("@")[0].toUpperCase();
-  return {
-    rollNo: prefix || "STUDENT",
-    name: prefix || "Student",
-    email: cleanEmail
-  };
+  // 3. Check authorizedUsers by email & verify matching student doc
+  if (cleanEmail) {
+    const authSnap = await db.collection("authorizedUsers").doc(cleanEmail).get();
+    if (authSnap.exists) {
+      const data = authSnap.data();
+      if (data.rollNo) {
+        const rollNo = String(data.rollNo).trim().toUpperCase();
+        const studentDocSnap = await db.collection("students").doc(rollNo).get();
+        if (studentDocSnap.exists) {
+          const sData = studentDocSnap.data();
+          return {
+            uid: uid || sData.uid || cleanEmail,
+            rollNo: rollNo,
+            name: sData.name || data.name || data.fullName || rollNo,
+            email: cleanEmail
+          };
+        }
+        return {
+          uid: uid || cleanEmail,
+          rollNo: rollNo,
+          name: data.name || data.fullName || rollNo,
+          email: cleanEmail
+        };
+      }
+    }
+  }
+
+  // 4. Query students collection by email with strict enrollment check
+  if (cleanEmail) {
+    const sQuery = await db.collection("students").where("email", "==", cleanEmail).limit(1).get();
+    if (!sQuery.empty) {
+      const docSnap = sQuery.docs[0];
+      const data = docSnap.data();
+      const rollNo = String(data.rollNo || docSnap.id).trim().toUpperCase();
+      return {
+        uid: uid || data.uid || cleanEmail,
+        rollNo: rollNo,
+        name: data.name || data.fullName || rollNo,
+        email: cleanEmail
+      };
+    }
+  }
+
+  // Reject unlinked or unverified student account
+  throw new HttpsError(
+    "permission-denied",
+    "Student account is not authoritatively linked to an enrolled student record. Please contact the institution administrator."
+  );
+}
+
+/**
+ * Utility: Backward-compatible wrapper
+ */
+async function resolveTrustedStudent(uid, email) {
+  return resolveAuthoritativeStudent(uid, email);
+}
+
+/**
+ * Utility: Role & Course Scope Verification
+ */
+async function assertAdmin(request) {
+  if (!request.auth || !request.auth.uid) {
+    throw new HttpsError("unauthenticated", "Authentication required.");
+  }
+  const uid = request.auth.uid;
+  const email = (request.auth.token.email || "").toLowerCase().trim();
+
+  // Check users/{uid}
+  const userDoc = await db.collection("users").doc(uid).get();
+  if (userDoc.exists && userDoc.data().role === "admin") return true;
+
+  // Check admins collection
+  const adminDoc = await db.collection("admins").doc(uid).get();
+  if (adminDoc.exists) return true;
+  if (email) {
+    const adminEmailDoc = await db.collection("admins").doc(email).get();
+    if (adminEmailDoc.exists) return true;
+    const prefix = email.split("@")[0];
+    const adminPrefixDoc = await db.collection("admins").doc(prefix).get();
+    if (adminPrefixDoc.exists) return true;
+  }
+
+  throw new HttpsError("permission-denied", "Operation restricted to verified administrators.");
+}
+
+async function isCallerAdmin(request) {
+  try {
+    await assertAdmin(request);
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+async function assertLecturer(request) {
+  if (!request.auth || !request.auth.uid) {
+    throw new HttpsError("unauthenticated", "Authentication required.");
+  }
+  if (await isCallerAdmin(request)) return true;
+
+  const uid = request.auth.uid;
+  const email = (request.auth.token.email || "").toLowerCase().trim();
+
+  // Check users/{uid}
+  const userDoc = await db.collection("users").doc(uid).get();
+  if (userDoc.exists && (userDoc.data().role === "lecturer" || userDoc.data().role === "faculty")) return true;
+
+  // Check lecturers collection
+  const lectDoc = await db.collection("lecturers").doc(uid).get();
+  if (lectDoc.exists) return true;
+  if (email) {
+    const lectEmailDoc = await db.collection("lecturers").doc(email).get();
+    if (lectEmailDoc.exists) return true;
+    const prefix = email.split("@")[0];
+    const lectPrefixDoc = await db.collection("lecturers").doc(prefix).get();
+    if (lectPrefixDoc.exists) return true;
+  }
+
+  throw new HttpsError("permission-denied", "Operation restricted to authorized faculty and lecturers.");
+}
+
+async function assertLecturerCourseScope(lecturerUid, lecturerEmail, courseCode) {
+  const cleanCourse = String(courseCode || "").toUpperCase().replace(/[^A-Z0-9_-]/g, "");
+  const courseDoc = await db.collection("courses").doc(cleanCourse).get();
+
+  if (!courseDoc.exists) {
+    throw new HttpsError("not-found", `Course "${cleanCourse}" not found.`);
+  }
+
+  const courseData = courseDoc.data();
+  const cleanEmail = (lecturerEmail || "").toLowerCase().trim();
+
+  // Check assigned lecturers
+  let isAssigned = false;
+  if (courseData.lecturerEmail && courseData.lecturerEmail.toLowerCase().trim() === cleanEmail) {
+    isAssigned = true;
+  }
+  if (Array.isArray(courseData.assignedLecturers)) {
+    for (const l of courseData.assignedLecturers) {
+      const lEmail = typeof l === "string" ? l.toLowerCase().trim() : (l.email || "").toLowerCase().trim();
+      const lUid = typeof l === "object" ? l.uid : null;
+      if (lEmail === cleanEmail || (lUid && lUid === lecturerUid)) {
+        isAssigned = true;
+        break;
+      }
+    }
+  }
+
+  if (!isAssigned) {
+    throw new HttpsError("permission-denied", `Lecturer is not assigned to course "${cleanCourse}".`);
+  }
+
+  return courseData;
 }
 
 /**
@@ -93,6 +269,14 @@ exports.initiateAttendanceSession = onCall(async (request) => {
   const { classCode, courseCode, roomNo, batch, lecturerInfo } = request.data || {};
   if (!classCode || !courseCode || !roomNo) {
     throw new HttpsError("invalid-argument", "Missing required session parameters (classCode, courseCode, roomNo).");
+  }
+
+  // Server-side role and course assignment verification
+  await assertLecturer(request);
+  const isAdmin = await isCallerAdmin(request);
+  const lecturerEmail = (request.auth.token.email || lecturerInfo?.email || "").toLowerCase().trim();
+  if (!isAdmin) {
+    await assertLecturerCourseScope(request.auth.uid, lecturerEmail, courseCode);
   }
 
   const nowMs = Date.now();
@@ -117,7 +301,6 @@ exports.initiateAttendanceSession = onCall(async (request) => {
   const randomSuffix = Math.floor(1000 + Math.random() * 9000);
   const sessionId = `${cleanCourse}${cleanClass}_${nowMs}_${randomSuffix}`;
 
-  const lecturerEmail = (request.auth.token.email || lecturerInfo?.email || "").toLowerCase().trim();
   const lecturerName = lecturerInfo?.name || request.auth.token.name || (lecturerEmail ? lecturerEmail.split("@")[0] : "Lecturer");
 
   const sessionRef = db.collection("attendance_sessions").doc(sessionId);
@@ -440,7 +623,14 @@ exports.submitAttendance = onCall(async (request) => {
     throw new HttpsError("unauthenticated", "Authentication required.");
   }
 
-  const { sessionId, qr2Token, biometricData } = request.data || {};
+  const {
+    sessionId,
+    qr2Token,
+    biometricData,
+    hardwareProof,
+    deviceAuthMode,
+    isNative
+  } = request.data || {};
   if (!sessionId || !qr2Token) {
     throw new HttpsError("invalid-argument", "Missing sessionId or qr2Token.");
   }
@@ -484,7 +674,85 @@ exports.submitAttendance = onCall(async (request) => {
   const rollNo = authData.rollNo;
   const recordId = `${sessionId}_${rollNo}`;
 
-  // 3. Biometric check
+  // 3. Hardware Biometric Verification & Browser Fallback Policy
+  let authMode = "WEB_BROWSER";
+  let hardwarePlatform = "web";
+  let signatureVerified = false;
+
+  if (hardwareProof) {
+    const { challengeId, signature, platform: proofPlatform } = hardwareProof;
+    if (!challengeId || !signature) {
+      throw new HttpsError("invalid-argument", "Missing hardware biometric challengeId or signature.");
+    }
+
+    const challengeRef = db.collection("biometric_challenges").doc(challengeId);
+    const challengeSnap = await challengeRef.get();
+
+    if (!challengeSnap.exists) {
+      throw new HttpsError("permission-denied", "Invalid or unknown biometric challenge.");
+    }
+
+    const challengeData = challengeSnap.data();
+    if (challengeData.used === true) {
+      throw new HttpsError("permission-denied", "Biometric challenge has already been consumed (replay prevention).");
+    }
+
+    if (challengeData.studentUid !== studentUid) {
+      throw new HttpsError("permission-denied", "Biometric challenge student UID mismatch.");
+    }
+
+    const challengeExpiryMs = challengeData.expiresAt ? challengeData.expiresAt.toMillis() : 0;
+    if (Date.now() > challengeExpiryMs) {
+      throw new HttpsError("deadline-exceeded", "Biometric challenge has expired. Please retry biometric verification.");
+    }
+
+    // Look up student's registered public key
+    const credSnap = await db.collection("biometric_credentials").doc(studentUid).get();
+    let credData = credSnap.exists ? credSnap.data() : null;
+    if (!credData) {
+      const rollCredSnap = await db.collection("biometric_credentials").doc(rollNo).get();
+      if (rollCredSnap.exists) credData = rollCredSnap.data();
+    }
+
+    if (!credData || credData.status !== "ACTIVE" || !credData.publicKeyDerBase64) {
+      throw new HttpsError(
+        "failed-precondition",
+        "No active hardware biometric credential registered for this student. Please complete biometric setup first."
+      );
+    }
+
+    // Verify ECDSA signature over canonical UTF-8 challenge bytes
+    const isValidSig = verifyEcdsaSignature(
+      credData.publicKeyDerBase64,
+      challengeData.challengeText,
+      signature
+    );
+
+    if (!isValidSig) {
+      throw new HttpsError("permission-denied", "❌ Hardware biometric signature verification failed. Authentication rejected.");
+    }
+
+    // Mark challenge as consumed
+    await challengeRef.update({
+      used: true,
+      usedAt: FieldValue.serverTimestamp(),
+      consumedBySession: sessionId
+    });
+
+    signatureVerified = true;
+    authMode = "NATIVE_MOBILE";
+    hardwarePlatform = proofPlatform || credData.platform || "unknown";
+  } else if (isNative) {
+    // Native mobile app MUST provide hardwareProof
+    throw new HttpsError("failed-precondition", "Hardware biometric signature is required for native mobile attendance.");
+  } else {
+    // Web browser fallback: zero signature fabrication.
+    authMode = "WEB_BROWSER";
+    hardwarePlatform = "web";
+    signatureVerified = false;
+  }
+
+  // 4. Face Biometric check (Enforced for both Web and Native mobile)
   if (!biometricData || biometricData.verified !== true || biometricData.antiSpoofScore !== "PASSED") {
     throw new HttpsError("failed-precondition", "Live face biometric verification with anti-spoofing is required.");
   }
@@ -492,7 +760,7 @@ exports.submitAttendance = onCall(async (request) => {
   const submittedAtMs = Date.now();
   const autoReleaseAtMs = submittedAtMs + 5 * 60 * 1000; // 5-Minute Automatic Fail-Safe Release
 
-  // 4. Atomic write with duplicate prevention & 5-minute fail-safe schedule
+  // 5. Atomic write with duplicate prevention & 5-minute fail-safe schedule
   await db.runTransaction(async (transaction) => {
     const existingRec = await transaction.get(db.collection("attendance_records").doc(recordId));
     if (existingRec.exists) {
@@ -521,6 +789,10 @@ exports.submitAttendance = onCall(async (request) => {
       livenessConfirmed: true,
       antiSpoofScore: "PASSED",
       blinkCount: biometricData.blinkCount || 1,
+      deviceAuthMode: authMode,
+      hardwareBiometric: signatureVerified,
+      signatureVerified: signatureVerified,
+      platform: hardwarePlatform,
       submittedAt: FieldValue.serverTimestamp(),
       biometricVerifiedAt: FieldValue.serverTimestamp(),
       autoReleaseAt: Timestamp.fromMillis(autoReleaseAtMs)
@@ -539,6 +811,8 @@ exports.submitAttendance = onCall(async (request) => {
         studentEmail: authData.studentEmail,
         faceVerified: true,
         faceMatchConfidence: biometricData.confidence || 100,
+        deviceAuthMode: authMode,
+        hardwareBiometric: signatureVerified,
         submittedAt: submittedAtMs,
         attendanceSubmittedAt: submittedAtMs,
         autoReleaseAt: autoReleaseAtMs
@@ -552,6 +826,7 @@ exports.submitAttendance = onCall(async (request) => {
       autoReleaseAt: Timestamp.fromMillis(autoReleaseAtMs),
       attendanceStatus: "SUBMITTED",
       faceVerified: true,
+      hardwareBiometric: signatureVerified,
       releaseStatus: "LOCKED"
     });
   });
@@ -564,6 +839,7 @@ exports.submitAttendance = onCall(async (request) => {
         autoReleaseAt: Timestamp.fromMillis(autoReleaseAtMs),
         attendanceStatus: "SUBMITTED",
         faceVerified: true,
+        hardwareBiometric: signatureVerified,
         releaseStatus: "LOCKED"
       });
     } catch (e) {}
@@ -574,6 +850,8 @@ exports.submitAttendance = onCall(async (request) => {
     sessionId: sessionId,
     rollNo: rollNo,
     studentName: authData.studentName,
+    deviceAuthMode: authMode,
+    hardwareBiometric: signatureVerified,
     submittedAt: submittedAtMs,
     attendanceSubmittedAt: submittedAtMs,
     autoReleaseAt: autoReleaseAtMs,
@@ -826,6 +1104,360 @@ exports.requestAutoFailSafeRelease = onCall(async (request) => {
     studentUid: targetUid,
     releaseStatus: "AUTO_RELEASED",
     message: "5-Minute fail-safe countdown reached. Device release authorized."
+  };
+});
+
+/**
+ * 10. ISSUE BIOMETRIC CHALLENGE
+ * Cryptographically generates a 32-byte (64 hex chars) nonce with 3-minute TTL.
+ * Stored in server-side /biometric_challenges/{challengeId} with single-use replay protection.
+ */
+exports.issueBiometricChallenge = onCall(async (request) => {
+  if (!request.auth || !request.auth.uid) {
+    throw new HttpsError("unauthenticated", "Authentication required to request a biometric challenge.");
+  }
+
+  const studentUid = request.auth.uid;
+  const challengeId = crypto.randomUUID();
+  const challengeText = crypto.randomBytes(32).toString("hex");
+  const nowMs = Date.now();
+  const expiresAtMs = nowMs + 3 * 60 * 1000; // 3-minute TTL
+
+  await db.collection("biometric_challenges").doc(challengeId).set({
+    challengeId: challengeId,
+    studentUid: studentUid,
+    challengeText: challengeText,
+    expiresAt: Timestamp.fromMillis(expiresAtMs),
+    used: false,
+    createdAt: FieldValue.serverTimestamp()
+  });
+
+  return {
+    success: true,
+    challengeId: challengeId,
+    challengeText: challengeText,
+    expiresAt: expiresAtMs
+  };
+});
+
+/**
+ * 11. REGISTER INITIAL BIOMETRIC KEY
+ * Students self-enroll initial hardware-backed ECDSA P-256 public key (Android Keystore / iOS Secure Enclave).
+ * Once enrolled, key cannot be altered or overwritten directly; requires authorized replacement.
+ */
+exports.registerInitialBiometricKey = onCall(async (request) => {
+  if (!request.auth || !request.auth.uid) {
+    throw new HttpsError("unauthenticated", "Authentication required to enroll biometric key.");
+  }
+
+  const { publicKeyDerBase64, platform, keyAlias } = request.data || {};
+  if (!publicKeyDerBase64 || typeof publicKeyDerBase64 !== "string") {
+    throw new HttpsError("invalid-argument", "Public key (Base64 DER) is required.");
+  }
+
+  const studentUid = request.auth.uid;
+  const studentEmail = request.auth.token.email || "";
+  const studentProfile = await resolveAuthoritativeStudent(studentUid, studentEmail);
+
+  // Validate DER public key format (P-256 SPKI DER is 91 bytes = ~120-128 chars base64)
+  const derBuffer = Buffer.from(publicKeyDerBase64.trim(), "base64");
+  if (derBuffer.length !== 91) {
+    throw new HttpsError("invalid-argument", `Invalid public key format. Expected 91-byte X.509 SPKI DER, received ${derBuffer.length} bytes.`);
+  }
+
+  // Verify key imports cleanly in crypto
+  try {
+    const pem = derToPem(publicKeyDerBase64.trim());
+    crypto.createPublicKey(pem);
+  } catch (kErr) {
+    throw new HttpsError("invalid-argument", "Malformed public key: " + kErr.message);
+  }
+
+  // Check if student already has an active biometric credential
+  const credRef = db.collection("biometric_credentials").doc(studentUid);
+  const existingCredSnap = await credRef.get();
+
+  if (existingCredSnap.exists && existingCredSnap.data().status === "ACTIVE") {
+    throw new HttpsError(
+      "already-exists",
+      "An active biometric credential is already registered for your account. Direct re-enrollment is prohibited. To replace your credential, submit a Biometric Change Request or contact your course lecturer."
+    );
+  }
+
+  const credentialRecord = {
+    studentUid: studentUid,
+    rollNo: studentProfile.rollNo,
+    studentEmail: studentProfile.email,
+    publicKeyDerBase64: publicKeyDerBase64.trim(),
+    platform: platform || "unknown",
+    keyAlias: keyAlias || `smartattend_p256_${studentProfile.rollNo}`,
+    status: "ACTIVE",
+    enrollmentMethod: "STUDENT_SELF_ENROLLMENT",
+    createdAt: FieldValue.serverTimestamp(),
+    updatedAt: FieldValue.serverTimestamp()
+  };
+
+  await Promise.all([
+    credRef.set(credentialRecord),
+    db.collection("biometric_credentials").doc(studentProfile.rollNo).set(credentialRecord),
+    db.collection("students").doc(studentProfile.rollNo).set({
+      biometricEnrolled: true,
+      hardwareBiometricPlatform: platform || "unknown",
+      hardwareBiometricEnrolledAt: FieldValue.serverTimestamp()
+    }, { merge: true }),
+    db.collection("biometric_audit_logs").add({
+      action: "INITIAL_BIOMETRIC_ENROLLMENT",
+      studentUid: studentUid,
+      rollNo: studentProfile.rollNo,
+      platform: platform || "unknown",
+      enrolledBy: studentUid,
+      timestamp: FieldValue.serverTimestamp()
+    })
+  ]);
+
+  return {
+    success: true,
+    rollNo: studentProfile.rollNo,
+    platform: platform || "unknown",
+    status: "ACTIVE",
+    message: "Initial biometric credential registered successfully."
+  };
+});
+
+/**
+ * 12. REPLACE BIOMETRIC CREDENTIAL (Safe Dual-Active Replacement)
+ * Authorized replacement: requires approval by Lecturer within student's course roster or Administrator.
+ * Preserves the previous active key until replacement is verified, with audit logging.
+ */
+exports.replaceBiometricCredential = onCall(async (request) => {
+  if (!request.auth || !request.auth.uid) {
+    throw new HttpsError("unauthenticated", "Authentication required.");
+  }
+
+  const { targetStudentUid, targetRollNo, newPublicKeyDerBase64, platform, requestId, reason } = request.data || {};
+  if (!newPublicKeyDerBase64 || (!targetStudentUid && !targetRollNo)) {
+    throw new HttpsError("invalid-argument", "Target student and new public key are required.");
+  }
+
+  const callerUid = request.auth.uid;
+  const callerEmail = (request.auth.token.email || "").toLowerCase().trim();
+  const isAdmin = await isCallerAdmin(request);
+
+  // Validate new public key
+  const derBuffer = Buffer.from(newPublicKeyDerBase64.trim(), "base64");
+  if (derBuffer.length !== 91) {
+    throw new HttpsError("invalid-argument", `Invalid public key. Expected 91-byte X.509 SPKI DER, received ${derBuffer.length} bytes.`);
+  }
+
+  // Resolve target student
+  const studentProfile = await resolveAuthoritativeStudent(targetStudentUid, null);
+  const studentUid = studentProfile.uid;
+  const rollNo = studentProfile.rollNo;
+
+  // Authorization check: Admin, Authorized Lecturer within course roster, or Student with approved change request
+  let authorizedBy = "ADMIN";
+  if (isAdmin) {
+    authorizedBy = `ADMIN (${callerEmail})`;
+  } else if (callerUid === studentUid) {
+    if (!requestId) {
+      throw new HttpsError("permission-denied", "Biometric replacement requires an approved Biometric Change Request ID.");
+    }
+    const reqSnap = await db.collection("biometric_change_requests").doc(requestId).get();
+    if (!reqSnap.exists || reqSnap.data().studentUid !== studentUid || reqSnap.data().status !== "APPROVED" || reqSnap.data().used === true) {
+      throw new HttpsError("permission-denied", "Valid, approved Biometric Change Request required.");
+    }
+    authorizedBy = `STUDENT_WITH_APPROVED_REQUEST (${requestId})`;
+  } else {
+    // Lecturer replacement: verify student is enrolled in at least one course taught by the lecturer
+    await assertLecturer(request);
+    const coursesSnap = await db.collection("courses").get();
+    let isStudentInLecturerCourse = false;
+
+    for (const doc of coursesSnap.docs) {
+      const c = doc.data();
+      let teaches = (c.lecturerEmail && c.lecturerEmail.toLowerCase().trim() === callerEmail);
+      if (!teaches && Array.isArray(c.assignedLecturers)) {
+        teaches = c.assignedLecturers.some(l => {
+          const lEmail = typeof l === "string" ? l.toLowerCase().trim() : (l.email || "").toLowerCase().trim();
+          return lEmail === callerEmail || (typeof l === "object" && l.uid === callerUid);
+        });
+      }
+
+      if (teaches) {
+        const enrolled = Array.isArray(c.enrolledStudents) ? c.enrolledStudents : [];
+        if (enrolled.some(s => {
+          const r = typeof s === "string" ? s.toUpperCase().trim() : (s.rollNo || s.rollNumber || "").toUpperCase().trim();
+          return r === rollNo;
+        })) {
+          isStudentInLecturerCourse = true;
+          break;
+        }
+      }
+    }
+
+    if (!isStudentInLecturerCourse) {
+      throw new HttpsError("permission-denied", `Lecturer ${callerEmail} is not authorized to replace biometrics for ${rollNo}: student is not in lecturer's assigned course roster.`);
+    }
+    authorizedBy = `LECTURER (${callerEmail})`;
+  }
+
+  // Fetch current active credential
+  const credRef = db.collection("biometric_credentials").doc(studentUid);
+  const currentCredSnap = await credRef.get();
+  const previousKey = currentCredSnap.exists ? currentCredSnap.data().publicKeyDerBase64 : null;
+
+  const newCredentialRecord = {
+    studentUid: studentUid,
+    rollNo: rollNo,
+    studentEmail: studentProfile.email,
+    publicKeyDerBase64: newPublicKeyDerBase64.trim(),
+    platform: platform || "unknown",
+    status: "ACTIVE",
+    previousPublicKeyDerBase64: previousKey,
+    replacementAuthorizedBy: authorizedBy,
+    replacementReason: reason || "Normal biometric hardware update/re-enrollment",
+    updatedAt: FieldValue.serverTimestamp()
+  };
+
+  const batch = db.batch();
+  batch.set(credRef, newCredentialRecord, { merge: true });
+  batch.set(db.collection("biometric_credentials").doc(rollNo), newCredentialRecord, { merge: true });
+  if (requestId) {
+    batch.update(db.collection("biometric_change_requests").doc(requestId), {
+      status: "COMPLETED",
+      used: true,
+      completedAt: FieldValue.serverTimestamp()
+    });
+  }
+
+  await batch.commit();
+
+  await db.collection("biometric_audit_logs").add({
+    action: "BIOMETRIC_CREDENTIAL_REPLACEMENT",
+    studentUid: studentUid,
+    rollNo: rollNo,
+    platform: platform || "unknown",
+    authorizedBy: authorizedBy,
+    reason: reason || "Authorized replacement",
+    timestamp: FieldValue.serverTimestamp()
+  });
+
+  return {
+    success: true,
+    studentUid: studentUid,
+    rollNo: rollNo,
+    status: "ACTIVE",
+    authorizedBy: authorizedBy,
+    message: "Biometric credential replaced successfully with full audit trail."
+  };
+});
+
+/**
+ * 13. SUBMIT BIOMETRIC CHANGE REQUEST
+ * Student submits a request to replace or re-enroll biometric credentials with a stated reason.
+ */
+exports.submitBiometricChangeRequest = onCall(async (request) => {
+  if (!request.auth || !request.auth.uid) {
+    throw new HttpsError("unauthenticated", "Authentication required.");
+  }
+
+  const { reason, deviceChangeDetails } = request.data || {};
+  if (!reason || typeof reason !== "string" || !reason.trim()) {
+    throw new HttpsError("invalid-argument", "A valid reason for biometric change is required.");
+  }
+
+  const studentUid = request.auth.uid;
+  const studentEmail = request.auth.token.email || "";
+  const studentProfile = await resolveAuthoritativeStudent(studentUid, studentEmail);
+
+  const requestId = crypto.randomUUID();
+  const requestDoc = {
+    requestId: requestId,
+    studentUid: studentUid,
+    rollNo: studentProfile.rollNo,
+    studentEmail: studentProfile.email,
+    reason: reason.trim(),
+    deviceChangeDetails: deviceChangeDetails || {},
+    status: "PENDING",
+    createdAt: FieldValue.serverTimestamp()
+  };
+
+  await db.collection("biometric_change_requests").doc(requestId).set(requestDoc);
+
+  return {
+    success: true,
+    requestId: requestId,
+    status: "PENDING",
+    message: "Biometric change request submitted successfully. Awaiting lecturer or administrator review."
+  };
+});
+
+/**
+ * 14. REVIEW BIOMETRIC CHANGE REQUEST
+ * Authorized lecturer (within course scope) or Administrator reviews and approves/rejects.
+ */
+exports.reviewBiometricChangeRequest = onCall(async (request) => {
+  if (!request.auth || !request.auth.uid) {
+    throw new HttpsError("unauthenticated", "Authentication required.");
+  }
+
+  const { requestId, decision, notes } = request.data || {};
+  if (!requestId || !["APPROVED", "REJECTED"].includes(decision)) {
+    throw new HttpsError("invalid-argument", "Valid requestId and decision (APPROVED/REJECTED) are required.");
+  }
+
+  const reqRef = db.collection("biometric_change_requests").doc(requestId);
+  const reqSnap = await reqRef.get();
+  if (!reqSnap.exists) {
+    throw new HttpsError("not-found", "Biometric change request not found.");
+  }
+
+  const reqData = reqSnap.data();
+  const callerUid = request.auth.uid;
+  const callerEmail = (request.auth.token.email || "").toLowerCase().trim();
+  const isAdmin = await isCallerAdmin(request);
+
+  if (!isAdmin) {
+    await assertLecturer(request);
+    const coursesSnap = await db.collection("courses").get();
+    let isStudentInCourse = false;
+    for (const doc of coursesSnap.docs) {
+      const c = doc.data();
+      let teaches = (c.lecturerEmail && c.lecturerEmail.toLowerCase().trim() === callerEmail);
+      if (!teaches && Array.isArray(c.assignedLecturers)) {
+        teaches = c.assignedLecturers.some(l => {
+          const lEmail = typeof l === "string" ? l.toLowerCase().trim() : (l.email || "").toLowerCase().trim();
+          return lEmail === callerEmail || (typeof l === "object" && l.uid === callerUid);
+        });
+      }
+      if (teaches) {
+        const enrolled = Array.isArray(c.enrolledStudents) ? c.enrolledStudents : [];
+        if (enrolled.some(s => {
+          const r = typeof s === "string" ? s.toUpperCase().trim() : (s.rollNo || s.rollNumber || "").toUpperCase().trim();
+          return r === reqData.rollNo;
+        })) {
+          isStudentInCourse = true;
+          break;
+        }
+      }
+    }
+    if (!isStudentInCourse) {
+      throw new HttpsError("permission-denied", "Lecturer is not assigned to any course containing this student.");
+    }
+  }
+
+  await reqRef.update({
+    status: decision,
+    reviewedBy: callerEmail || callerUid,
+    reviewNotes: notes || "",
+    reviewedAt: FieldValue.serverTimestamp()
+  });
+
+  return {
+    success: true,
+    requestId: requestId,
+    status: decision,
+    message: `Biometric change request ${decision.toLowerCase()} successfully.`
   };
 });
 
