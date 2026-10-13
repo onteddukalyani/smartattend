@@ -24,25 +24,25 @@ if (typeof window !== "undefined") {
       if (listeners && e.newValue) {
         try {
           const list = JSON.parse(e.newValue);
-          listeners.forEach(cb => { try { cb(list); } catch (_) {} });
-        } catch (_) {}
+          listeners.forEach(cb => { try { cb(list); } catch (_) { } });
+        } catch (_) { }
       }
     } else if (e.key === "smartattend_notifs_faculty") {
       if (e.newValue) {
         try {
           const list = JSON.parse(e.newValue);
-          localFacultyListeners.forEach(cb => { try { cb(list); } catch (_) {} });
-        } catch (_) {}
+          localFacultyListeners.forEach(cb => { try { cb(list); } catch (_) { } });
+        } catch (_) { }
       }
     } else if (e.key === "smartattend_notifs_broadcast_ping") {
       try {
         const facList = getLocalFacultyNotifs();
-        localFacultyListeners.forEach(cb => { try { cb(facList); } catch (_) {} });
+        localFacultyListeners.forEach(cb => { try { cb(facList); } catch (_) { } });
         localStudentListeners.forEach((listeners, rollKey) => {
           const studList = getLocalStudentNotifs(rollKey);
-          listeners.forEach(cb => { try { cb(studList); } catch (_) {} });
+          listeners.forEach(cb => { try { cb(studList); } catch (_) { } });
         });
-      } catch (_) {}
+      } catch (_) { }
     }
   });
 }
@@ -83,7 +83,7 @@ function saveReadNotifIds(storageKey, set) {
   try {
     const arr = Array.from(set).slice(-200);
     localStorage.setItem(`smartattend_read_ids_${storageKey}`, JSON.stringify(arr));
-  } catch (_) {}
+  } catch (_) { }
 }
 
 function getDeletedNotifIds(storageKey) {
@@ -99,7 +99,7 @@ function saveDeletedNotifIds(storageKey, set) {
   try {
     const arr = Array.from(set).slice(-200);
     localStorage.setItem(`smartattend_del_ids_${storageKey}`, JSON.stringify(arr));
-  } catch (_) {}
+  } catch (_) { }
 }
 
 function getLocalStudentNotifs(rollNo) {
@@ -114,7 +114,7 @@ function getLocalStudentNotifs(rollNo) {
 function saveLocalStudentNotifs(rollNo, list) {
   try {
     localStorage.setItem(`smartattend_notifs_student_${rollNo}`, JSON.stringify(list.slice(0, 60)));
-  } catch (_) {}
+  } catch (_) { }
 }
 
 function getLocalFacultyNotifs() {
@@ -129,7 +129,7 @@ function getLocalFacultyNotifs() {
 function saveLocalFacultyNotifs(list) {
   try {
     localStorage.setItem('smartattend_notifs_faculty', JSON.stringify(list.slice(0, 80)));
-  } catch (_) {}
+  } catch (_) { }
 }
 
 /**
@@ -141,7 +141,7 @@ export function playNotificationChime() {
     if (!AudioCtx) return;
     const ctx = new AudioCtx();
     if (ctx.state === "suspended") {
-      ctx.resume().catch(() => {});
+      ctx.resume().catch(() => { });
     }
 
     const now = ctx.currentTime;
@@ -175,7 +175,7 @@ export function playNotificationChime() {
     setTimeout(() => {
       try {
         ctx.close();
-      } catch (_) {}
+      } catch (_) { }
     }, 600);
   } catch (_) {
     // Autoplay or background environment
@@ -222,7 +222,7 @@ export async function sendStudentNotification(
 
     const listeners = localStudentListeners.get(r);
     if (listeners) {
-      listeners.forEach(cb => { try { cb(updated); } catch (_) {} });
+      listeners.forEach(cb => { try { cb(updated); } catch (_) { } });
     }
   });
 
@@ -231,16 +231,16 @@ export async function sendStudentNotification(
     addDoc(collection(db, "students", cleanRoll, "notifications"), {
       ...notifPayload,
       timestamp: serverTimestamp()
-    }).catch(() => {}),
+    }).catch(() => { }),
     addDoc(collection(db, "student_notifications", cleanRoll, "notifications"), {
       ...notifPayload,
       timestamp: serverTimestamp()
-    }).catch(() => {}),
+    }).catch(() => { }),
     addDoc(collection(db, "notifications"), {
       ...notifPayload,
       targetRoles: ["student", "all"],
       timestamp: serverTimestamp()
-    }).catch(() => {})
+    }).catch(() => { })
   ];
 
   if (rollPrefix && rollPrefix !== cleanRoll) {
@@ -248,11 +248,11 @@ export async function sendStudentNotification(
       addDoc(collection(db, "students", rollPrefix, "notifications"), {
         ...notifPayload,
         timestamp: serverTimestamp()
-      }).catch(() => {}),
+      }).catch(() => { }),
       addDoc(collection(db, "student_notifications", rollPrefix, "notifications"), {
         ...notifPayload,
         timestamp: serverTimestamp()
-      }).catch(() => {})
+      }).catch(() => { })
     );
   }
 
@@ -292,7 +292,7 @@ export async function sendFacultyNotification(
   saveLocalFacultyNotifs(updated);
 
   localFacultyListeners.forEach(cb => {
-    try { cb(updated); } catch (_) {}
+    try { cb(updated); } catch (_) { }
   });
 
   // 2. Dispatch to Firestore
@@ -309,7 +309,7 @@ export async function sendFacultyNotification(
       targetRoles: [targetRole, "faculty", "admin", "lecturer", "all"],
       timestamp: serverTimestamp()
     });
-  } catch (_) {}
+  } catch (_) { }
 }
 
 /**
@@ -353,7 +353,7 @@ export async function sendBroadcastNotification({
   const normalizedTargetRoles = Array.isArray(targetRoles)
     ? targetRoles.map(r => String(r).toLowerCase().trim())
     : (targetRoles ? [String(targetRoles).toLowerCase().trim()] : ["student", "lecturer", "admin", "all", "everyone"]);
-  
+
   if (normalizedTargetRoles.length === 0 || normalizedTargetRoles.includes("all") || normalizedTargetRoles.includes("everyone")) {
     normalizedTargetRoles.push("student", "lecturer", "admin", "faculty", "all", "everyone");
   }
@@ -383,12 +383,12 @@ export async function sendBroadcastNotification({
       const existing = getLocalStudentNotifs(rollKey);
       const updated = [payload, ...existing.filter(n => n.id !== payload.id && n.title !== payload.title)];
       saveLocalStudentNotifs(rollKey, updated);
-      listeners.forEach(cb => { try { cb(updated); } catch (_) {} });
+      listeners.forEach(cb => { try { cb(updated); } catch (_) { } });
     });
     try {
       const existingAll = getLocalStudentNotifs("ALL");
       saveLocalStudentNotifs("ALL", [payload, ...existingAll]);
-    } catch (_) {}
+    } catch (_) { }
   }
 
   // 2. Instantly dispatch to in-memory Faculty/Admin listeners & local faculty caches
@@ -396,28 +396,28 @@ export async function sendBroadcastNotification({
     const existing = getLocalFacultyNotifs();
     const updated = [payload, ...existing.filter(n => n.id !== payload.id && n.title !== payload.title)];
     saveLocalFacultyNotifs(updated);
-    localFacultyListeners.forEach(cb => { try { cb(updated); } catch (_) {} });
+    localFacultyListeners.forEach(cb => { try { cb(updated); } catch (_) { } });
   }
 
   // 3. Ping cross-tab storage
   try {
     localStorage.setItem("smartattend_notifs_broadcast_ping", JSON.stringify({ id: payload.id, time: nowMs }));
-  } catch (_) {}
+  } catch (_) { }
 
   // 4. Dispatch to Firestore collections in parallel: broadcast_notifications, announcements, and notifications
   const writes = [
     addDoc(collection(db, "broadcast_notifications"), {
       ...payload,
       timestamp: serverTimestamp()
-    }).catch(() => {}),
+    }).catch(() => { }),
     addDoc(collection(db, "announcements"), {
       ...payload,
       timestamp: serverTimestamp()
-    }).catch(() => {}),
+    }).catch(() => { }),
     addDoc(collection(db, "notifications"), {
       ...payload,
       timestamp: serverTimestamp()
-    }).catch(() => {})
+    }).catch(() => { })
   ];
 
   if (normalizedTargetRoles.some(r => ["faculty", "lecturer", "admin", "all", "everyone"].includes(r))) {
@@ -426,7 +426,7 @@ export async function sendBroadcastNotification({
         ...payload,
         targetRole: normalizedTargetRoles.includes("admin") && !normalizedTargetRoles.includes("lecturer") ? "admin" : "faculty",
         timestamp: serverTimestamp()
-      }).catch(() => {})
+      }).catch(() => { })
     );
   }
 
@@ -536,7 +536,7 @@ export async function approveDeviceResetAction(studentRollNo, approvedByName = "
  * Listens across: students/{roll}/notifications, student_notifications/{roll}/notifications, broadcast_notifications, announcements, and notifications
  */
 export function subscribeToStudentNotifications(studentRollNo, callback, studentEmail = "") {
-  if (!studentRollNo && !studentEmail) return () => {};
+  if (!studentRollNo && !studentEmail) return () => { };
   const cleanRoll = String(studentRollNo || studentEmail).trim().toUpperCase();
   const cleanEmail = String(studentEmail || "").trim().toLowerCase();
   const rollPrefix = cleanRoll.includes("@") ? cleanRoll.split("@")[0].trim().toUpperCase() : cleanRoll;
@@ -586,7 +586,16 @@ export function subscribeToStudentNotifications(studentRollNo, callback, student
       }
     });
 
-    const combined = all
+    const seenIds = new Set();
+    const dedupedAll = [];
+    all.forEach(item => {
+      if (item && item.id && !seenIds.has(item.id)) {
+        seenIds.add(item.id);
+        dedupedAll.push(item);
+      }
+    });
+
+    const combined = dedupedAll
       .filter(n => !currentDeletedSet.has(n.id))
       .map(n => ({
         ...n,
@@ -603,7 +612,7 @@ export function subscribeToStudentNotifications(studentRollNo, callback, student
     const listeners = localStudentListeners.get(primaryKey);
     if (listeners) {
       listeners.forEach(cb => {
-        try { cb(combined); } catch (_) {}
+        try { cb(combined); } catch (_) { }
       });
     }
   };
@@ -618,9 +627,9 @@ export function subscribeToStudentNotifications(studentRollNo, callback, student
         const docs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
         remoteStudentNotifs = [...remoteStudentNotifs.filter(r => !docs.some(d => d.id === r.id)), ...docs];
         mergeAndEmit();
-      }, () => {});
+      }, () => { });
       unsubs.push(unsub);
-    } catch (_) {}
+    } catch (_) { }
 
     try {
       const fbRef = collection(db, "student_notifications", k, "notifications");
@@ -628,9 +637,9 @@ export function subscribeToStudentNotifications(studentRollNo, callback, student
         const docs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
         remoteStudentNotifs = [...remoteStudentNotifs.filter(r => !docs.some(d => d.id === r.id)), ...docs];
         mergeAndEmit();
-      }, () => {});
+      }, () => { });
       unsubs.push(unsub);
-    } catch (_) {}
+    } catch (_) { }
   });
 
   // 2. Broadcast notifications collection listener
@@ -651,9 +660,9 @@ export function subscribeToStudentNotifications(studentRollNo, callback, student
           return roles.some(r => ["student", "students", "all", "everyone", ""].includes(r));
         });
       mergeAndEmit();
-    }, () => {});
+    }, () => { });
     unsubs.push(unsub);
-  } catch (_) {}
+  } catch (_) { }
 
   // 3. Announcements collection listener
   try {
@@ -673,9 +682,9 @@ export function subscribeToStudentNotifications(studentRollNo, callback, student
           return roles.some(r => ["student", "students", "all", "everyone", ""].includes(r));
         });
       mergeAndEmit();
-    }, () => {});
+    }, () => { });
     unsubs.push(unsub);
-  } catch (_) {}
+  } catch (_) { }
 
   // 4. Global notifications collection listener
   try {
@@ -697,9 +706,9 @@ export function subscribeToStudentNotifications(studentRollNo, callback, student
           return roles.some(r => ["student", "students", "all", "everyone", ""].includes(r));
         });
       mergeAndEmit();
-    }, () => {});
+    }, () => { });
     unsubs.push(unsub);
-  } catch (_) {}
+  } catch (_) { }
 
   return () => {
     allKeySet.forEach(k => {
@@ -709,7 +718,7 @@ export function subscribeToStudentNotifications(studentRollNo, callback, student
     });
     unsubs.forEach(u => {
       if (typeof u === "function") {
-        try { u(); } catch (_) {}
+        try { u(); } catch (_) { }
       }
     });
   };
@@ -771,7 +780,16 @@ export function subscribeToFacultyNotifications(callback, roleFilter = "faculty"
       }
     });
 
-    const combined = all
+    const seenFacultyIds = new Set();
+    const dedupedFacultyAll = [];
+    all.forEach(item => {
+      if (item && item.id && !seenFacultyIds.has(item.id)) {
+        seenFacultyIds.add(item.id);
+        dedupedFacultyAll.push(item);
+      }
+    });
+
+    const combined = dedupedFacultyAll
       .filter(n => !currentDeletedSet.has(n.id))
       .map(n => ({
         ...n,
@@ -787,7 +805,7 @@ export function subscribeToFacultyNotifications(callback, roleFilter = "faculty"
 
     localFacultyListeners.forEach(cb => {
       const filtered = combined.filter(isRoleMatching);
-      try { cb(filtered); } catch (_) {}
+      try { cb(filtered); } catch (_) { }
     });
   };
 
@@ -802,9 +820,9 @@ export function subscribeToFacultyNotifications(callback, roleFilter = "faculty"
         ...d.data()
       }));
       mergeAndEmitFaculty();
-    }, () => {});
+    }, () => { });
     unsubs.push(unsub);
-  } catch (_) {}
+  } catch (_) { }
 
   // 2. Broadcast Notifications collection
   try {
@@ -817,9 +835,9 @@ export function subscribeToFacultyNotifications(callback, roleFilter = "faculty"
         }))
         .filter(isRoleMatching);
       mergeAndEmitFaculty();
-    }, () => {});
+    }, () => { });
     unsubs.push(unsub);
-  } catch (_) {}
+  } catch (_) { }
 
   // 3. Announcements collection
   try {
@@ -832,9 +850,9 @@ export function subscribeToFacultyNotifications(callback, roleFilter = "faculty"
         }))
         .filter(isRoleMatching);
       mergeAndEmitFaculty();
-    }, () => {});
+    }, () => { });
     unsubs.push(unsub);
-  } catch (_) {}
+  } catch (_) { }
 
   // 4. Global Notifications collection
   try {
@@ -847,15 +865,15 @@ export function subscribeToFacultyNotifications(callback, roleFilter = "faculty"
         }))
         .filter(isRoleMatching);
       mergeAndEmitFaculty();
-    }, () => {});
+    }, () => { });
     unsubs.push(unsub);
-  } catch (_) {}
+  } catch (_) { }
 
   return () => {
     localFacultyListeners.delete(callback);
     unsubs.forEach(u => {
       if (typeof u === "function") {
-        try { u(); } catch (_) {}
+        try { u(); } catch (_) { }
       }
     });
   };
@@ -889,20 +907,20 @@ export async function markNotificationAsRead(studentRollNo, notificationId) {
 
     const listeners = localStudentListeners.get(r);
     if (listeners) {
-      listeners.forEach(cb => { try { cb(updated); } catch (_) {} });
+      listeners.forEach(cb => { try { cb(updated); } catch (_) { } });
     }
   });
 
   // 3. Attempt Firestore doc updates
   if (studentRollNo && !notificationId.startsWith("loc_")) {
     const updates = [
-      updateDoc(doc(db, "students", cleanRoll, "notifications", notificationId), { read: true, readAt: Date.now() }).catch(() => {}),
-      updateDoc(doc(db, "student_notifications", cleanRoll, "notifications", notificationId), { read: true, readAt: Date.now() }).catch(() => {}),
-      updateDoc(doc(db, "notifications", notificationId), { read: true, readAt: Date.now() }).catch(() => {})
+      updateDoc(doc(db, "students", cleanRoll, "notifications", notificationId), { read: true, readAt: Date.now() }).catch(() => { }),
+      updateDoc(doc(db, "student_notifications", cleanRoll, "notifications", notificationId), { read: true, readAt: Date.now() }).catch(() => { }),
+      updateDoc(doc(db, "notifications", notificationId), { read: true, readAt: Date.now() }).catch(() => { })
     ];
     if (rollPrefix && rollPrefix !== cleanRoll) {
       updates.push(
-        updateDoc(doc(db, "students", rollPrefix, "notifications", notificationId), { read: true, readAt: Date.now() }).catch(() => {})
+        updateDoc(doc(db, "students", rollPrefix, "notifications", notificationId), { read: true, readAt: Date.now() }).catch(() => { })
       );
     }
     await Promise.all(updates);
@@ -934,15 +952,15 @@ export async function markAllStudentNotificationsRead(studentRollNo, notifIds = 
 
     const listeners = localStudentListeners.get(r);
     if (listeners) {
-      listeners.forEach(cb => { try { cb(updated); } catch (_) {} });
+      listeners.forEach(cb => { try { cb(updated); } catch (_) { } });
     }
   });
 
   if (studentRollNo) {
     for (const id of notifIds) {
       if (!id || id.startsWith("loc_")) continue;
-      updateDoc(doc(db, "students", cleanRoll, "notifications", id), { read: true, readAt: Date.now() }).catch(() => {});
-      updateDoc(doc(db, "notifications", id), { read: true, readAt: Date.now() }).catch(() => {});
+      updateDoc(doc(db, "students", cleanRoll, "notifications", id), { read: true, readAt: Date.now() }).catch(() => { });
+      updateDoc(doc(db, "notifications", id), { read: true, readAt: Date.now() }).catch(() => { });
     }
   }
 }
@@ -961,11 +979,11 @@ export async function markFacultyNotificationAsRead(notificationId) {
   const updated = local.map(n => n.id === notificationId ? { ...n, read: true } : n);
   saveLocalFacultyNotifs(updated);
 
-  localFacultyListeners.forEach(cb => { try { cb(updated); } catch (_) {} });
+  localFacultyListeners.forEach(cb => { try { cb(updated); } catch (_) { } });
 
   if (!notificationId.startsWith("loc_")) {
-    updateDoc(doc(db, "faculty_notifications", notificationId), { read: true, readAt: Date.now() }).catch(() => {});
-    updateDoc(doc(db, "notifications", notificationId), { read: true, readAt: Date.now() }).catch(() => {});
+    updateDoc(doc(db, "faculty_notifications", notificationId), { read: true, readAt: Date.now() }).catch(() => { });
+    updateDoc(doc(db, "notifications", notificationId), { read: true, readAt: Date.now() }).catch(() => { });
   }
 }
 
@@ -981,12 +999,12 @@ export async function markAllFacultyNotificationsRead(notifIds = []) {
   const updated = local.map(n => ({ ...n, read: true }));
   saveLocalFacultyNotifs(updated);
 
-  localFacultyListeners.forEach(cb => { try { cb(updated); } catch (_) {} });
+  localFacultyListeners.forEach(cb => { try { cb(updated); } catch (_) { } });
 
   for (const id of notifIds) {
     if (!id || id.startsWith("loc_")) continue;
-    updateDoc(doc(db, "faculty_notifications", id), { read: true, readAt: Date.now() }).catch(() => {});
-    updateDoc(doc(db, "notifications", id), { read: true, readAt: Date.now() }).catch(() => {});
+    updateDoc(doc(db, "faculty_notifications", id), { read: true, readAt: Date.now() }).catch(() => { });
+    updateDoc(doc(db, "notifications", id), { read: true, readAt: Date.now() }).catch(() => { });
   }
 }
 
@@ -1004,11 +1022,11 @@ export async function deleteFacultyNotification(notificationId) {
   const updated = local.filter(n => n.id !== notificationId);
   saveLocalFacultyNotifs(updated);
 
-  localFacultyListeners.forEach(cb => { try { cb(updated); } catch (_) {} });
+  localFacultyListeners.forEach(cb => { try { cb(updated); } catch (_) { } });
 
   if (!notificationId.startsWith("loc_")) {
-    deleteDoc(doc(db, "faculty_notifications", notificationId)).catch(() => {});
-    deleteDoc(doc(db, "notifications", notificationId)).catch(() => {});
+    deleteDoc(doc(db, "faculty_notifications", notificationId)).catch(() => { });
+    deleteDoc(doc(db, "notifications", notificationId)).catch(() => { });
   }
 }
 
@@ -1038,14 +1056,14 @@ export async function deleteStudentNotification(studentRollNo, notificationId) {
 
     const listeners = localStudentListeners.get(r);
     if (listeners) {
-      listeners.forEach(cb => { try { cb(updated); } catch (_) {} });
+      listeners.forEach(cb => { try { cb(updated); } catch (_) { } });
     }
   });
 
   if (studentRollNo && !notificationId.startsWith("loc_")) {
-    deleteDoc(doc(db, "students", cleanRoll, "notifications", notificationId)).catch(() => {});
-    deleteDoc(doc(db, "student_notifications", cleanRoll, "notifications", notificationId)).catch(() => {});
-    deleteDoc(doc(db, "notifications", notificationId)).catch(() => {});
+    deleteDoc(doc(db, "students", cleanRoll, "notifications", notificationId)).catch(() => { });
+    deleteDoc(doc(db, "student_notifications", cleanRoll, "notifications", notificationId)).catch(() => { });
+    deleteDoc(doc(db, "notifications", notificationId)).catch(() => { });
   }
 }
 
@@ -1072,7 +1090,7 @@ export async function reportUserVerificationComplaint(userDetails = {}, errorRea
     };
 
     await addDoc(complaintRef, complaintData);
-  } catch (_) {}
+  } catch (_) { }
 
   // Dispatch real-time alert to all Admins and Lecturers
   await sendFacultyNotification(

@@ -186,6 +186,7 @@ function QrScannerApp() {
 
     // Check Device Owner & Anti-Escape Overlay status on launch
     const [overlayStatus, setOverlayStatus] = useState({ checked: false, canDraw: true });
+    const [showOverlayInstructionsModal, setShowOverlayInstructionsModal] = useState(false);
     const checkDeviceProvisioning = useCallback(async () => {
         if (isNativeApp) {
             try {
@@ -2798,11 +2799,7 @@ function QrScannerApp() {
                             </p>
                             <button
                                 type="button"
-                                onClick={async () => {
-                                    await Kiosk.requestOverlayPermission();
-                                    setTimeout(checkDeviceProvisioning, 1500);
-                                    setTimeout(checkDeviceProvisioning, 3500);
-                                }}
+                                onClick={() => setShowOverlayInstructionsModal(true)}
                                 style={{
                                     display: 'inline-flex',
                                     alignItems: 'center',
@@ -2901,11 +2898,7 @@ function QrScannerApp() {
                         </p>
                         <button
                             type="button"
-                            onClick={async () => {
-                                await Kiosk.requestOverlayPermission();
-                                setTimeout(checkDeviceProvisioning, 1500);
-                                setTimeout(checkDeviceProvisioning, 3500);
-                            }}
+                            onClick={() => setShowOverlayInstructionsModal(true)}
                             style={{
                                 display: 'inline-flex',
                                 alignItems: 'center',
@@ -3037,6 +3030,144 @@ function QrScannerApp() {
                     textAlign: 'left'
                 }}>
                     {errorMessage}
+                </div>
+            )}
+
+            {/* Overlay Permission Instructions Modal */}
+            {showOverlayInstructionsModal && (
+                <div style={{
+                    position: 'fixed',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    background: 'rgba(15, 23, 42, 0.75)',
+                    backdropFilter: 'blur(4px)',
+                    zIndex: 9999,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    padding: '20px'
+                }}>
+                    <div style={{
+                        background: 'var(--surface, #ffffff)',
+                        borderRadius: '20px',
+                        maxWidth: '460px',
+                        width: '100%',
+                        padding: '28px 24px',
+                        boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
+                        border: '1px solid var(--border, #e2e8f0)',
+                        textAlign: 'left'
+                    }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '14px' }}>
+                            <div style={{
+                                width: '44px',
+                                height: '44px',
+                                borderRadius: '12px',
+                                background: '#fef3c7',
+                                color: '#d97706',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                fontSize: '1.4rem',
+                                flexShrink: 0
+                            }}>
+                                <FaShieldAlt />
+                            </div>
+                            <div>
+                                <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800, color: 'var(--text-main, #0f172a)' }}>
+                                    Display Over Other Apps
+                                </h3>
+                                <span style={{ fontSize: '0.8rem', color: '#d97706', fontWeight: 700 }}>
+                                    Required for Kiosk Lock Mode
+                                </span>
+                            </div>
+                        </div>
+
+                        <p style={{ margin: '0 0 16px', fontSize: '0.88rem', color: 'var(--text-muted, #475569)', lineHeight: 1.5 }}>
+                            Android requires this permission to keep SmartAttend pinned in the foreground and protect your attendance from accidental app-switching disqualifications.
+                        </p>
+
+                        <div style={{
+                            background: 'var(--bg-subtle, #f8fafc)',
+                            borderRadius: '12px',
+                            padding: '14px',
+                            marginBottom: '20px',
+                            border: '1px solid var(--border, #e2e8f0)',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '10px'
+                        }}>
+                            <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
+                                <span style={{ background: '#d97706', color: '#ffffff', width: '22px', height: '22px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', fontWeight: 800, flexShrink: 0 }}>1</span>
+                                <span style={{ fontSize: '0.84rem', color: 'var(--text-main, #1e293b)', lineHeight: 1.4 }}>
+                                    Tap <strong>"Open Settings to Enable"</strong> below.
+                                </span>
+                            </div>
+                            <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
+                                <span style={{ background: '#d97706', color: '#ffffff', width: '22px', height: '22px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', fontWeight: 800, flexShrink: 0 }}>2</span>
+                                <span style={{ fontSize: '0.84rem', color: 'var(--text-main, #1e293b)', lineHeight: 1.4 }}>
+                                    Locate and select <strong>"SmartAttend"</strong> in the app list.
+                                </span>
+                            </div>
+                            <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
+                                <span style={{ background: '#d97706', color: '#ffffff', width: '22px', height: '22px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', fontWeight: 800, flexShrink: 0 }}>3</span>
+                                <span style={{ fontSize: '0.84rem', color: 'var(--text-main, #1e293b)', lineHeight: 1.4 }}>
+                                    Switch the toggle to <strong>Allow display over other apps</strong> (turn ON).
+                                </span>
+                            </div>
+                            <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
+                                <span style={{ background: '#d97706', color: '#ffffff', width: '22px', height: '22px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', fontWeight: 800, flexShrink: 0 }}>4</span>
+                                <span style={{ fontSize: '0.84rem', color: 'var(--text-main, #1e293b)', lineHeight: 1.4 }}>
+                                    Tap your device's <strong>Back button</strong> to return to SmartAttend.
+                                </span>
+                            </div>
+                        </div>
+
+                        <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+                            <button
+                                type="button"
+                                onClick={() => setShowOverlayInstructionsModal(false)}
+                                style={{
+                                    padding: '10px 16px',
+                                    borderRadius: '10px',
+                                    background: 'transparent',
+                                    border: '1px solid var(--border, #cbd5e1)',
+                                    color: 'var(--text-muted, #64748b)',
+                                    fontWeight: 700,
+                                    fontSize: '0.86rem',
+                                    cursor: 'pointer'
+                                }}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                onClick={async () => {
+                                    setShowOverlayInstructionsModal(false);
+                                    await Kiosk.requestOverlayPermission();
+                                    setTimeout(checkDeviceProvisioning, 1500);
+                                    setTimeout(checkDeviceProvisioning, 3500);
+                                }}
+                                style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '8px',
+                                    padding: '10px 18px',
+                                    borderRadius: '10px',
+                                    background: 'linear-gradient(135deg, #d97706, #b45309)',
+                                    color: '#ffffff',
+                                    border: 'none',
+                                    fontWeight: 800,
+                                    fontSize: '0.86rem',
+                                    cursor: 'pointer',
+                                    boxShadow: '0 4px 12px rgba(217, 119, 6, 0.3)'
+                                }}
+                            >
+                                <FaShieldAlt /> Open Settings to Enable
+                            </button>
+                        </div>
+                    </div>
                 </div>
             )}
         </div>

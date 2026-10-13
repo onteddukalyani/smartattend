@@ -60,7 +60,14 @@ export function NotificationHistoryModal({
     // State
     const [localNotifications, setLocalNotifications] = useState(notifications || []);
     useEffect(() => {
-        setLocalNotifications(notifications || []);
+        const seen = new Set();
+        const unique = (notifications || []).filter((n) => {
+            const key = n?.id;
+            if (!key || seen.has(key)) return false;
+            seen.add(key);
+            return true;
+        });
+        setLocalNotifications(unique);
     }, [notifications]);
 
     const [activeTab, setActiveTab] = useState('all'); // 'all' | 'security' | 'attendance' | 'accounts' | 'announcements' | 'compose'
@@ -633,13 +640,13 @@ export function NotificationHistoryModal({
                                 </p>
                             </div>
                         ) : (
-                            filteredNotifications.map((n) => {
+                            filteredNotifications.map((n, idx) => {
                                 const isResetRequest = n.type === 'DEVICE_RESET_REQUEST' || n.metadata?.actionType === 'RESET_DEVICE';
                                 const isLoading = actionLoading[n.id];
 
                                 return (
                                     <div
-                                        key={n.id}
+                                        key={n.id ? `${n.id}_${idx}` : `notif_${idx}`}
                                         className={`notif-item-card ${!n.read ? 'unread' : ''}`}
                                     >
                                         <div className="notif-item-header">

@@ -53,13 +53,14 @@ export function LiveFaceEnrollment({
     const [flashEffect, setFlashEffect] = useState(false);
     const [duplicateError, setDuplicateError] = useState("");
     // Aadhaar KYC Interactive State
-    const [checkpoints, setCheckpoints] = useState({
+    const DEFAULT_CHECKPOINTS = {
         CENTER: false,
         LEFT: false,
         RIGHT: false,
         UP: false,
         BLINK: false
-    });
+    };
+    const [checkpoints, setCheckpoints] = useState(DEFAULT_CHECKPOINTS);
     const [currentStep, setCurrentStep] = useState("CENTER");
     const [currentPose, setCurrentPose] = useState("CENTER");
     const [progress, setProgress] = useState(0);
@@ -69,13 +70,22 @@ export function LiveFaceEnrollment({
     useEffect(() => {
         aadhaarEngineRef.current = new AadhaarLivenessEngine({
             onStateChange: (state) => {
-                setCheckpoints(state.checkpoints);
-                setCurrentStep(state.currentStep);
-                setCurrentPose(state.currentPose);
-                setProgress(state.progress);
-                setIsAadhaarVerified(state.isComplete);
+                if (!state) return;
+                const nextCheckpoints = state.checkpoints || (state.completedChallenges ? {
+                    CENTER: state.completedChallenges.includes("CENTER"),
+                    LEFT: state.completedChallenges.includes("TURN_LEFT") || state.completedChallenges.includes("LEFT"),
+                    RIGHT: state.completedChallenges.includes("TURN_RIGHT") || state.completedChallenges.includes("RIGHT"),
+                    UP: state.completedChallenges.includes("TILT_UP") || state.completedChallenges.includes("UP"),
+                    BLINK: state.completedChallenges.includes("BLINK") || state.completedChallenges.includes("SMILE")
+                } : DEFAULT_CHECKPOINTS);
 
-                if (!capturing && !enrolledPhoto) {
+                setCheckpoints(nextCheckpoints);
+                setCurrentStep(state.currentStep || "CENTER");
+                setCurrentPose(state.currentPose || "CENTER");
+                setProgress(state.progress || 0);
+                setIsAadhaarVerified(Boolean(state.isComplete));
+
+                if (!capturing && !enrolledPhoto && state.message) {
                     setStatusMessage(state.message);
                 }
                 if (state.statusType) {
@@ -441,6 +451,8 @@ export function LiveFaceEnrollment({
         startCameraStream();
     };
 
+    const safeCheckpoints = checkpoints || DEFAULT_CHECKPOINTS;
+
     return (
         <div className={`live-enrollment-card aadhaar-auth-card ${hideHeader ? "in-modal" : ""}`}>
             {/* Viewport Container with Aadhaar Multi-Angle Radar HUD */}
@@ -471,19 +483,19 @@ export function LiveFaceEnrollment({
                         </svg>
 
                         {/* Cardinal Direction Checkpoint Nodes */}
-                        <div className={`aadhaar-node node-up ${checkpoints.UP ? "done" : currentStep === "UP" ? "active" : ""}`}>
+                        <div className={`aadhaar-node node-up ${safeCheckpoints.UP ? "done" : currentStep === "UP" ? "active" : ""}`}>
                             <FaArrowUp />
                             <span>UP</span>
                         </div>
-                        <div className={`aadhaar-node node-left ${checkpoints.LEFT ? "done" : currentStep === "LEFT" ? "active" : ""}`}>
+                        <div className={`aadhaar-node node-left ${safeCheckpoints.LEFT ? "done" : currentStep === "LEFT" ? "active" : ""}`}>
                             <FaArrowLeft />
                             <span>LEFT</span>
                         </div>
-                        <div className={`aadhaar-node node-right ${checkpoints.RIGHT ? "done" : currentStep === "RIGHT" ? "active" : ""}`}>
+                        <div className={`aadhaar-node node-right ${safeCheckpoints.RIGHT ? "done" : currentStep === "RIGHT" ? "active" : ""}`}>
                             <FaArrowRight />
                             <span>RIGHT</span>
                         </div>
-                        <div className={`aadhaar-node node-center ${checkpoints.CENTER ? "done" : currentStep === "CENTER" ? "active" : ""}`}>
+                        <div className={`aadhaar-node node-center ${safeCheckpoints.CENTER ? "done" : currentStep === "CENTER" ? "active" : ""}`}>
                             <FaBullseye />
                             <span>FRONT</span>
                         </div>
@@ -586,17 +598,17 @@ export function LiveFaceEnrollment({
             {cameraActive && !enrolledPhoto && (
                 <div className="aadhaar-steps-tray">
                     <div className="aadhaar-pills-row">
-                        <span className={`aadhaar-pill ${checkpoints.CENTER ? "done" : currentStep === "CENTER" ? "current" : ""}`}>
-                            {checkpoints.CENTER ? "✅" : "1️⃣"} Front
+                        <span className={`aadhaar-pill ${safeCheckpoints.CENTER ? "done" : currentStep === "CENTER" ? "current" : ""}`}>
+                            {safeCheckpoints.CENTER ? "✅" : "1️⃣"} Front
                         </span>
-                        <span className={`aadhaar-pill ${checkpoints.LEFT ? "done" : currentStep === "LEFT" ? "current" : ""}`}>
-                            {checkpoints.LEFT ? "✅" : "2️⃣"} Left Turn
+                        <span className={`aadhaar-pill ${safeCheckpoints.LEFT ? "done" : currentStep === "LEFT" ? "current" : ""}`}>
+                            {safeCheckpoints.LEFT ? "✅" : "2️⃣"} Left Turn
                         </span>
-                        <span className={`aadhaar-pill ${checkpoints.RIGHT ? "done" : currentStep === "RIGHT" ? "current" : ""}`}>
-                            {checkpoints.RIGHT ? "✅" : "3️⃣"} Right Turn
+                        <span className={`aadhaar-pill ${safeCheckpoints.RIGHT ? "done" : currentStep === "RIGHT" ? "current" : ""}`}>
+                            {safeCheckpoints.RIGHT ? "✅" : "3️⃣"} Right Turn
                         </span>
-                        <span className={`aadhaar-pill ${checkpoints.UP || checkpoints.BLINK ? "done" : currentStep === "UP" ? "current" : ""}`}>
-                            {checkpoints.UP || checkpoints.BLINK ? "✅" : "4️⃣"} Tilt Up / Blink
+                        <span className={`aadhaar-pill ${safeCheckpoints.UP || safeCheckpoints.BLINK ? "done" : currentStep === "UP" ? "current" : ""}`}>
+                            {safeCheckpoints.UP || safeCheckpoints.BLINK ? "✅" : "4️⃣"} Tilt Up / Blink
                         </span>
                     </div>
 

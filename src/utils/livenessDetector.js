@@ -266,11 +266,32 @@ export class RandomizedChallengeEngine {
     }
 
     notify() {
+        const completed = this.completedChallenges || [];
+        const checkpoints = {
+            CENTER: completed.includes("CENTER"),
+            LEFT: completed.includes("TURN_LEFT") || completed.includes("LEFT"),
+            RIGHT: completed.includes("TURN_RIGHT") || completed.includes("RIGHT"),
+            UP: completed.includes("TILT_UP") || completed.includes("UP"),
+            BLINK: completed.includes("BLINK") || completed.includes("SMILE")
+        };
+        const stepMap = {
+            "CENTER": "CENTER",
+            "TURN_LEFT": "LEFT",
+            "TURN_RIGHT": "RIGHT",
+            "TILT_UP": "UP",
+            "BLINK": "UP",
+            "SMILE": "UP"
+        };
+        const currentStep = this.isComplete ? "COMPLETE" : (stepMap[this.currentChallenge] || "CENTER");
+
         this.onStateChange({
             challenges: this.challenges,
             currentIndex: this.currentIndex,
             currentChallenge: this.currentChallenge,
-            completedChallenges: [...this.completedChallenges],
+            completedChallenges: [...completed],
+            checkpoints,
+            currentStep,
+            currentPose: this.currentChallenge || "CENTER",
             progress: this.progress,
             isComplete: this.isComplete,
             spoofDetected: this.spoofDetected,

@@ -122,24 +122,43 @@ public class KioskPlugin extends Plugin {
         }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(activity)) {
-            try {
-                Intent intent = new Intent(
-                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                    Uri.parse("package:" + activity.getPackageName())
-                );
-                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                activity.startActivity(intent);
+            activity.runOnUiThread(() -> {
+                if (activity.isFinishing() || activity.isDestroyed()) {
+                    JSObject ret = new JSObject();
+                    ret.put("requested", false);
+                    call.resolve(ret);
+                    return;
+                }
+                new androidx.appcompat.app.AlertDialog.Builder(activity)
+                    .setTitle("Permission: Display Over Other Apps")
+                    .setMessage("To activate Lock Mode and prevent attendance disqualification:\n\n" +
+                                "1. Locate 'SmartAttend' in the application list.\n" +
+                                "2. Turn ON 'Allow display over other apps'.\n" +
+                                "3. Tap your device's Back button to return to attendance scanning.")
+                    .setPositiveButton("Open Settings", (dialog, which) -> {
+                        try {
+                            Intent intent = new Intent(
+                                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                Uri.parse("package:" + activity.getPackageName())
+                            );
+                            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                            activity.startActivity(intent);
+                        } catch (Exception e) {
+                            try {
+                                Intent fallbackIntent = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION);
+                                fallbackIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                                activity.startActivity(fallbackIntent);
+                            } catch (Exception ignored) {}
+                        }
+                    })
+                    .setNegativeButton("Cancel", (dialog, which) -> dialog.dismiss())
+                    .setCancelable(true)
+                    .show();
+
                 JSObject ret = new JSObject();
                 ret.put("requested", true);
                 call.resolve(ret);
-            } catch (Exception e) {
-                Intent fallbackIntent = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION);
-                fallbackIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                activity.startActivity(fallbackIntent);
-                JSObject ret = new JSObject();
-                ret.put("requested", true);
-                call.resolve(ret);
-            }
+            });
         } else {
             JSObject ret = new JSObject();
             ret.put("requested", false);
