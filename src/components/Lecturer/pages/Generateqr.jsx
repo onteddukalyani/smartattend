@@ -41,7 +41,8 @@ import {
     FaEye,
     FaEyeSlash,
     FaUserPlus,
-    FaTimes
+    FaTimes,
+    FaMapMarkerAlt
 } from "react-icons/fa";
 import "./Generateqr.css";
 
@@ -74,6 +75,7 @@ function GenerateQR() {
     const [rotationIntervalSec, setRotationIntervalSec] = useState(DEFAULT_ROTATION_INTERVAL);
     const [rotationSecondsLeft, setRotationSecondsLeft] = useState(DEFAULT_ROTATION_INTERVAL);
     const [dynamicQrUrl, setDynamicQrUrl] = useState("");
+    const [geofenceRadius, setGeofenceRadius] = useState(5); // Default 5 metres, adjustable by lecturer (0 = disabled)
     const [classroomCoords, setClassroomCoords] = useState(null);
 
     const [sessionData, setSessionData] = useState(null);
@@ -253,7 +255,7 @@ function GenerateQR() {
             const parsedHours = parseFloat(lectureHours) > 0 ? parseFloat(lectureHours) : 1.0;
             const finalClassCode = normalizeBranchName(classCode || "CSE");
 
-            const result = await createAttendanceSession(finalClassCode, courseCode.trim(), roomNo.trim(), finalBatch, lecturerInfo, parsedHours);
+            const result = await createAttendanceSession(finalClassCode, courseCode.trim(), roomNo.trim(), finalBatch, lecturerInfo, parsedHours, geofenceRadius);
 
             setSessionId(result.sessionId);
             if (result.sessionPin || result.lecturerPin || result.lecturerReleaseCode) {
@@ -267,15 +269,15 @@ function GenerateQR() {
             setPhase("PHASE_1");
             setElapsedSeconds(0);
 
-            // Capture Classroom GPS coordinates for Geofencing (10-metre immutable radius)
-            if (typeof navigator !== "undefined" && navigator.geolocation) {
+            // Capture Classroom GPS coordinates for Geofencing (Configurable radius, 5m default)
+            if (geofenceRadius > 0 && typeof navigator !== "undefined" && navigator.geolocation) {
                 navigator.geolocation.getCurrentPosition(
                     (pos) => {
                         const coords = {
                             latitude: pos.coords.latitude,
                             longitude: pos.coords.longitude,
                             accuracy: pos.coords.accuracy,
-                            radius: 10
+                            radius: geofenceRadius
                         };
                         setClassroomCoords(coords);
                     },
@@ -284,6 +286,8 @@ function GenerateQR() {
                     },
                     { enableHighAccuracy: true, timeout: 6000 }
                 );
+            } else if (geofenceRadius === 0) {
+                setClassroomCoords(null);
             }
 
             // Real-time Faculty & Admin Alert
@@ -794,6 +798,29 @@ function GenerateQR() {
                         </div>
                     </div>
 
+                    {/* Classroom Geofence Distance (Default: 5m) */}
+                    <div className="qr-form-row">
+                        <div className="qr-form-group" style={{ flex: 1 }}>
+                            <label htmlFor="geofence-radius">
+                                <FaMapMarkerAlt /> Geofence Distance <span style={{ fontSize: "0.75rem", fontWeight: 700, color: "#10b981" }}>(Default 5m)</span>
+                            </label>
+                            <select
+                                id="geofence-radius"
+                                value={geofenceRadius}
+                                onChange={(e) => setGeofenceRadius(Number(e.target.value))}
+                                disabled={phase !== "NONE"}
+                            >
+                                <option value={5}>5 Metres (Default - Strict Classroom)</option>
+                                <option value={10}>10 Metres (Standard Classroom)</option>
+                                <option value={15}>15 Metres (Large Lab / Classroom)</option>
+                                <option value={20}>20 Metres (Lecture Hall)</option>
+                                <option value={30}>30 Metres (Auditorium)</option>
+                                <option value={50}>50 Metres (Open Campus / Amphitheatre)</option>
+                                <option value={0}>Disabled (No GPS Restriction)</option>
+                            </select>
+                        </div>
+                    </div>
+
                     {phase === "NONE" ? (
                         <button
                             type="button"
@@ -932,11 +959,11 @@ function GenerateQR() {
                                         gap: "6px",
                                         fontSize: "0.78rem",
                                         fontWeight: 700,
-                                        color: "#059669",
+                                        color: geofenceRadius > 0 ? "#059669" : "#64748b",
                                         marginTop: "6px",
                                         marginBottom: "10px"
                                     }}>
-                                        <span>📍 Classroom Geofence: Strict 10m Active</span>
+                                        <span>📍 Classroom Geofence: {classroomCoords?.radius ? `${classroomCoords.radius}m Active` : (geofenceRadius > 0 ? `${geofenceRadius}m Active` : "Disabled")}</span>
                                         {classroomCoords && <span>(±{Math.round(classroomCoords.accuracy || 0)}m GPS Accuracy)</span>}
                                     </div>
                                 </>
@@ -960,10 +987,10 @@ function GenerateQR() {
                             {/* Classroom Security Notice Projected for Students */}
                             <div className="qr-classroom-security-notice">
                                 <div className="qr-sec-badge">
-                                    <FaShieldAlt /> Strict Anti-Escape &amp; App Lock Policy
+                                    <FaShieldAlt /> Attendance Integrity &amp; Supervision Policy
                                 </div>
                                 <p className="qr-sec-text">
-                                    <strong>⚠️ Critical Attendance Rule:</strong> Do <strong>NOT</strong> switch apps, minimize, or open other applications. Even <strong>ONE</strong> app switch or backgrounding violation will automatically <strong>DISQUALIFY</strong> your attendance across QR 1, during Kiosk lock mode, during QR 2 face verification, and until the lecturer officially releases the class!
+                                    <strong>⚠️ Multi-Platform Policy:</strong> Android devices are pinned in Kiosk Lock Task mode (2 confirmed exits forfeit attendance). iPhone and Web browser users must remain in SmartAttend without switching tabs or locking the screen until verification finishes.
                                 </p>
                             </div>
 

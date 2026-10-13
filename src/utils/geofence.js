@@ -1,12 +1,12 @@
 /**
  * SmartAttend Geofence Engine
  * 
- * Enforces an immutable 10-metre default classroom radius with
+ * Enforces a 5-metre default classroom radius with
  * a strict tri-state decision matrix: PASS, REJECT, or INCONCLUSIVE_RETRY.
  * Never enlarges the radius silently when GPS accuracy is poor.
  */
 
-export const DEFAULT_GEOFENCE_RADIUS_METRES = 10;
+export const DEFAULT_GEOFENCE_RADIUS_METRES = 5;
 export const MAX_ACCEPTABLE_ACCURACY_METRES = 12; // Readings with accuracy > 12m are inconclusive
 export const MAX_RETRY_ATTEMPTS = 3;
 
@@ -44,24 +44,28 @@ export function calculateHaversineDistance(lat1, lon1, lat2, lon2) {
  * @returns {Object} { status: 'PASS' | 'REJECT' | 'INCONCLUSIVE_RETRY' | 'MOCK_DETECTED', distance: number, accuracy: number, message: string }
  */
 export function evaluateGeofence(studentCoords, classroomCoords, retryCount = 0) {
-  if (!classroomCoords || !classroomCoords.latitude || !classroomCoords.longitude) {
-    // If classroom has not registered GPS, allow pass-through with audit notice
+  if (!classroomCoords || !classroomCoords.latitude || !classroomCoords.longitude || classroomCoords.radius === 0 || classroomCoords.enabled === false) {
+    // If classroom has not registered GPS or lecturer disabled geofence, allow pass-through with audit notice
     return {
       status: "PASS",
       distance: 0,
       accuracy: studentCoords?.accuracy || 0,
-      radius: DEFAULT_GEOFENCE_RADIUS_METRES,
+      radius: 0,
       geofenceEnforced: false,
-      message: "Classroom GPS not registered for this session."
+      message: classroomCoords?.radius === 0 ? "Classroom GPS geofence disabled for this session." : "Classroom GPS not registered for this session."
     };
   }
+
+  const radius = (typeof classroomCoords.radius === 'number' && classroomCoords.radius > 0)
+    ? classroomCoords.radius
+    : DEFAULT_GEOFENCE_RADIUS_METRES;
 
   if (!studentCoords || studentCoords.latitude == null || studentCoords.longitude == null) {
     return {
       status: "INCONCLUSIVE_RETRY",
       distance: 999,
       accuracy: 999,
-      radius: classroomCoords.radius || DEFAULT_GEOFENCE_RADIUS_METRES,
+      radius: radius,
       retryCount,
       canRetry: retryCount < MAX_RETRY_ATTEMPTS,
       message: "⚠️ GPS coordinates unavailable. Please enable device location and retry."
@@ -74,12 +78,11 @@ export function evaluateGeofence(studentCoords, classroomCoords, retryCount = 0)
       status: "MOCK_DETECTED",
       distance: 999,
       accuracy: studentCoords.accuracy || 0,
-      radius: classroomCoords.radius || DEFAULT_GEOFENCE_RADIUS_METRES,
+      radius: radius,
       message: "🚨 Mock / Fake GPS detected. Attendance rejected and flagged as anti-proxy violation."
     };
   }
 
-  const radius = classroomCoords.radius || DEFAULT_GEOFENCE_RADIUS_METRES;
   const accuracy = Math.round(studentCoords.accuracy || 0);
   const distance = Math.round(
     calculateHaversineDistance(

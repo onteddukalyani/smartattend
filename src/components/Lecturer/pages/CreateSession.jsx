@@ -6,7 +6,7 @@ import { normalizeBranchName } from "../../../utils/studentDataHelper";
  * Creates a new 2-Phase Attendance Session via Cloud Functions / Firestore
  * Returns session object with sessionId, secure qr1Token, and 60-second qr1ExpiresAt.
  */
-export async function createAttendanceSession(classCode, courseCode, roomNo, batch = "", lecturerInfo = {}, lectureHours = 1.0) {
+export async function createAttendanceSession(classCode, courseCode, roomNo, batch = "", lecturerInfo = {}, lectureHours = 1.0, geofenceRadius = 5) {
     const currentUser = auth.currentUser;
     const lecturerName = lecturerInfo?.name || currentUser?.displayName || (currentUser?.email ? currentUser.email.split("@")[0] : "Lecturer");
     const lecturerEmail = (lecturerInfo?.email || currentUser?.email || "").toLowerCase().trim();
@@ -15,6 +15,7 @@ export async function createAttendanceSession(classCode, courseCode, roomNo, bat
     const finalBatch = (batch && String(batch).trim() !== "" && batch !== "—") ? String(batch).trim() : "2025";
     const parsedHours = Number(lectureHours) > 0 ? Number(lectureHours) : 1.0;
     const finalClassCode = normalizeBranchName(classCode || "CSE");
+    const parsedRadius = typeof geofenceRadius === "number" ? geofenceRadius : 5;
 
     const sessionParams = {
         classCode: finalClassCode,
@@ -22,6 +23,7 @@ export async function createAttendanceSession(classCode, courseCode, roomNo, bat
         roomNo: roomNo,
         batch: finalBatch,
         lectureHours: parsedHours,
+        geofenceRadius: parsedRadius,
         lecturerInfo: {
             name: lecturerName,
             email: lecturerEmail,

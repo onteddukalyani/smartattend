@@ -266,7 +266,7 @@ exports.initiateAttendanceSession = onCall(async (request) => {
     throw new HttpsError("unauthenticated", "Authentication required to initiate session.");
   }
 
-  const { classCode, courseCode, roomNo, batch, lecturerInfo } = request.data || {};
+  const { classCode, courseCode, roomNo, batch, lecturerInfo, geofenceRadius } = request.data || {};
   if (!classCode || !courseCode || !roomNo) {
     throw new HttpsError("invalid-argument", "Missing required session parameters (classCode, courseCode, roomNo).");
   }
@@ -313,6 +313,7 @@ exports.initiateAttendanceSession = onCall(async (request) => {
     courseCode: courseCode,
     roomNo: roomNo,
     batch: batch || "2025",
+    geofenceRadius: typeof geofenceRadius === "number" ? geofenceRadius : 5,
     phase: "PHASE_1",
     status: "ACTIVE",
     active: true,
@@ -671,6 +672,15 @@ exports.submitAttendance = onCall(async (request) => {
   }
 
   const authData = authSnap.data();
+
+  // Strict backend kiosk enforcement for Android: reject if 2 or more confirmed violations or already disqualified
+  if (authData.disqualified === true || (Number(authData.confirmedKioskViolations || authData.violationCount || 0) >= 2 && authData.detectedPlatform === "android")) {
+    throw new HttpsError(
+      "permission-denied",
+      "❌ Attendance rejected: Your attendance for this session was forfeited due to confirmed kiosk escape violations (limit: 2)."
+    );
+  }
+
   const rollNo = authData.rollNo;
   const recordId = `${sessionId}_${rollNo}`;
 
@@ -1460,5 +1470,138 @@ exports.reviewBiometricChangeRequest = onCall(async (request) => {
     message: `Biometric change request ${decision.toLowerCase()} successfully.`
   };
 });
+
+/**
+ * 15. RECORD ATTENDANCE LIFECYCLE EVENT
+ * Enforces platform-specific attendance monitoring policy:
+ * - Android native app:
+ *   - Strict kiosk policy: first confirmed violation produces a warning; second confirmed violation rejects attendance and flags student.
+ *   - Threshold enforced on the backend.
+ * - iPhone native app and website/browser:
+ *   - Detects supported lifecycle signals (visibilitychange, blur, willResignActive).
+ *   - Records event for review without automatic disqualification.
+ *   - Does not treat every hidden-page event as confirmed misconduct.
+ */
+exports.recordAttendanceLifecycleEvent = onCall(async (request) => {
+  if (!request.auth || !request.auth.uid) {
+    throw new HttpsError("unauthenticated", "Authentication required to record lifecycle event.");
+  }
+
+  const { sessionId, eventType, source, platform } = request.data || {};
+  if (!sessionId) {
+    throw new HttpsError("invalid-argument", "Session ID is required.");
+  }
+
+  const studentUid = request.auth.uid;
+  const sessionRef = db.collection("attendance_sessions").doc(sessionId);
+  const authRef = sessionRef.collection("authorizations").doc(studentUid);
+  const authSnap = await authRef.get();
+
+  if (!authSnap.exists) {
+    throw new HttpsError("not-found", "Session authorization not found for this student.");
+  }
+
+  const authData = authSnap.data();
+  const rollNo = authData.rollNo || studentUid;
+  const nowMs = Date.now();
+
+  if (platform === "android" && (eventType === "CONFIRMED_KIOSK_ESCAPE" || eventType === "APP_LEAVE")) {
+    const prevCount = Number(authData.confirmedKioskViolations || authData.violationCount || 0);
+    const nextCount = prevCount + 1;
+    const isDisqualified = nextCount >= 2;
+
+    const violationEntry = {
+      type: "CONFIRMED_KIOSK_ESCAPE",
+      source: source || "kiosk_exit",
+      platform: "android",
+      count: nextCount,
+      timestamp: nowMs,
+      disqualified: isDisqualified
+    };
+
+    const updatePayload = {
+      confirmedKioskViolations: nextCount,
+      violationCount: nextCount,
+      disqualified: isDisqualified,
+      status: isDisqualified ? "FLAGGED_DISQUALIFIED" : "FLAGGED_WARNING",
+      violations: FieldValue.arrayUnion(violationEntry)
+    };
+
+    await authRef.update(updatePayload);
+
+    if (rollNo && rollNo !== studentUid) {
+      try {
+        await sessionRef.collection("authorizations").doc(rollNo).update(updatePayload);
+      } catch (_) {}
+    }
+
+    await sessionRef.update({
+      flaggedViolations: FieldValue.arrayUnion({
+        rollNo: rollNo,
+        studentName: authData.studentName || rollNo,
+        violationType: "CONFIRMED_KIOSK_ESCAPE",
+        count: nextCount,
+        disqualified: isDisqualified,
+        timestamp: nowMs
+      })
+    });
+
+    return {
+      success: true,
+      platform: "android",
+      status: isDisqualified ? "DISQUALIFIED" : "WARNING",
+      violationCount: nextCount,
+      disqualified: isDisqualified,
+      message: isDisqualified
+        ? "Attendance forfeited: 2 confirmed kiosk escape violations."
+        : "Warning: Kiosk exit detected (Violation 1 of 2)."
+    };
+  } else {
+    // iPhone native app and website/browser:
+    // Non-disqualifying audit logging for lecturer review.
+    const eventEntry = {
+      type: "SUSPICIOUS_LIFECYCLE_INTERRUPTION",
+      source: source || "visibility_change",
+      platform: platform || "web",
+      timestamp: nowMs,
+      disqualified: false
+    };
+
+    const updatePayload = {
+      hasSuspiciousInterruption: true,
+      lastInterruptionSource: source || "unknown",
+      lastInterruptionAt: nowMs,
+      lifecycleEvents: FieldValue.arrayUnion(eventEntry)
+    };
+
+    await authRef.update(updatePayload);
+
+    if (rollNo && rollNo !== studentUid) {
+      try {
+        await sessionRef.collection("authorizations").doc(rollNo).update(updatePayload);
+      } catch (_) {}
+    }
+
+    try {
+      await sessionRef.collection("audit_logs").add({
+        event: "LIFECYCLE_INTERRUPTION_REVIEW",
+        studentUid: studentUid,
+        rollNo: rollNo,
+        platform: platform || "web",
+        source: source || "visibility_change",
+        timestamp: FieldValue.serverTimestamp()
+      });
+    } catch (_) {}
+
+    return {
+      success: true,
+      platform: platform || "web",
+      status: "RECORDED_FOR_REVIEW",
+      disqualified: false,
+      message: "Lifecycle interruption recorded for lecturer review."
+    };
+  }
+});
+
 
 

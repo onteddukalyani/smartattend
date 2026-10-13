@@ -78,6 +78,7 @@ export async function initiateSession(sessionParams) {
     courseCode: courseCode,
     roomNo: roomNo,
     batch: batch || "2025",
+    geofenceRadius: typeof sessionParams.geofenceRadius === "number" ? sessionParams.geofenceRadius : 5,
     lectureHours: Number(sessionParams.lectureHours) > 0 ? Number(sessionParams.lectureHours) : 1.0,
     durationHours: Number(sessionParams.lectureHours) > 0 ? Number(sessionParams.lectureHours) : 1.0,
     phase: "PHASE_1",
@@ -517,8 +518,21 @@ export function subscribeToAuthorizations(sessionId, onUpdate) {
 }
 
 /**
- * Student / Supervisor: Record a supervision violation (e.g. app switch / backgrounding)
+ * Reports attendance lifecycle event to backend Cloud Function.
+ * - Android: records kiosk escape, enforces 2-violation threshold on backend.
+ * - iPhone & Web: records suspicious interruption for audit review without automatic disqualification.
  */
+export async function reportAttendanceLifecycleEvent(sessionId, eventData) {
+  try {
+    const fn = httpsCallable(functions, "recordAttendanceLifecycleEvent");
+    const result = await fn({ sessionId, ...eventData });
+    return result.data;
+  } catch (err) {
+    console.warn("Cloud function recordAttendanceLifecycleEvent notice:", err.message || err);
+    return { success: false, status: "OFFLINE_RECORDED" };
+  }
+}
+
 /**
  * Student / Supervisor: Record a supervision violation (e.g. app switch / backgrounding)
  * Supports warning (count = 1) and disqualification (count >= 2).

@@ -31,6 +31,7 @@ import {
     subscribeToSession,
     subscribeToStudentAuthorization,
     recordSessionViolation,
+    reportAttendanceLifecycleEvent,
     verifyLecturerEmergencyPin,
     requestAutoFailSafeUnlock
 } from '../../services/sessionAuthService';
@@ -100,9 +101,11 @@ function QrScannerApp() {
     // iOS Guided Access Lockdown State
     const [showGuidedAccessRequired, setShowGuidedAccessRequired] = useState(false);
 
-    // Web Guardian Supervision State
+    // Web Guardian Supervision & Lifecycle Monitoring State
     const [supervisionViolation, setSupervisionViolation] = useState(false);
     const [violationCount, setViolationCount] = useState(0);
+    const [interruptionWarning, setInterruptionWarning] = useState(false);
+    const interruptedRef = useRef(false);
 
     // Camera & Scanner State
     const [facingMode, setFacingMode] = useState('environment');
@@ -477,66 +480,80 @@ function QrScannerApp() {
         };
     }, [scanState, isNativeApp, navigate]);
 
-    // Web Guardian Supervision: Monitor tab switches or leaving app during active session
+    // Multi-Platform Guardian Supervision & Lifecycle Monitoring
     useEffect(() => {
         const isSessionActive = scanState === 'KIOSK_WAITING_QR2' || scanState === 'BIOMETRIC_SCAN';
         if (!isSessionActive) {
             setSupervisionViolation(false);
+            setInterruptionWarning(false);
+            interruptedRef.current = false;
             return;
         }
 
-        const handleViolationTrigger = (source) => {
-            console.warn(`[Kiosk Guardian] Tab switch or App minimize detected via ${source}!`);
+        const handleViolationTrigger = async (source) => {
+            console.warn(`[Kiosk Guardian] Lifecycle interruption detected via ${source}!`);
 
-            const isIOS = isIOSDevice();
-            if (isIOS) {
-                // iPhone / iOS device: Maintain existing Guided Access strict policy
+            const isAndroidNative = isNativeApp && !isIOSDevice();
+            if (isAndroidNative) {
+                // Android native app: Strict kiosk policy
+                // 1st confirmed violation = warning; 2nd confirmed violation = rejected attendance & flagged student.
+                // Enforce the threshold on the backend.
+                const nextCount = violationCount + 1;
+                setViolationCount(nextCount);
+
+                let backendResult = null;
                 if (activeSessionId) {
-                    recordSessionViolation(activeSessionId, user?.uid, loggedInRollNo, `APP_LEAVE_${source}`, 1, true);
+                    try {
+                        backendResult = await reportAttendanceLifecycleEvent(activeSessionId, {
+                            eventType: 'CONFIRMED_KIOSK_ESCAPE',
+                            source: source,
+                            platform: 'android'
+                        });
+                    } catch (err) {
+                        console.warn('[Kiosk Guardian] Backend event report notice:', err);
+                    }
                 }
-                setViolationCount((prev) => {
-                    const nextCount = prev + 1;
-                    if (nextCount >= 1) {
-                        console.error('[Kiosk Guardian] iOS Security violation detected. Disqualifying attendance session.');
-                        try { localStorage.removeItem(`smartattend_qr1_auth_${activeSessionId}`); } catch (_) { }
-                        try { sessionStorage.removeItem(`smartattend_qr1_auth_${activeSessionId}`); } catch (_) { }
-                        releaseAllMediaTracks();
-                        Kiosk.startKioskMode().catch(() => { });
-                        setErrorMessage('❌ Attendance Disqualified: Security violation detected (App switch / backgrounding). This attempt has been logged in Firebase for Lecturer & Admin audit review.');
-                        setScanState('DISQUALIFIED');
-                        setSupervisionViolation(false);
-                    }
-                    return nextCount;
-                });
-                return;
-            }
 
-            // Android APK / Android Device: violation count threshold = 2
-            setViolationCount((prev) => {
-                const nextCount = prev + 1;
-                if (nextCount >= 2) {
+                if (nextCount >= 2 || (backendResult && backendResult.disqualified)) {
                     console.error(`[Kiosk Guardian] Android Security violation limit reached (count = ${nextCount}). Disqualifying attendance session.`);
-                    if (activeSessionId) {
-                        recordSessionViolation(activeSessionId, user?.uid, loggedInRollNo, `APP_LEAVE_${source}`, nextCount, true);
-                    }
                     try { localStorage.removeItem(`smartattend_qr1_auth_${activeSessionId}`); } catch (_) { }
                     try { sessionStorage.removeItem(`smartattend_qr1_auth_${activeSessionId}`); } catch (_) { }
                     releaseAllMediaTracks();
                     Kiosk.startKioskMode().catch(() => { });
-                    setErrorMessage('❌ Attendance Disqualified: Security violation limit reached (2 violations detected for app switching / backgrounding). Attendance forfeited.');
+                    setErrorMessage('❌ Attendance Disqualified: Security violation limit reached (2 confirmed kiosk exits). Attendance forfeited.');
                     setScanState('DISQUALIFIED');
                     setSupervisionViolation(false);
                 } else {
                     console.warn(`[Kiosk Guardian] Android Security Warning: Violation 1 of 2 recorded.`);
-                    if (activeSessionId) {
-                        recordSessionViolation(activeSessionId, user?.uid, loggedInRollNo, `APP_LEAVE_${source}`, nextCount, false);
-                    }
                     // Immediately re-enforce Kiosk LockTask mode and keep app pinned in foreground
                     Kiosk.startKioskMode().catch(() => { });
                     setSupervisionViolation(true);
                 }
-                return nextCount;
-            });
+                return;
+            }
+
+            // iPhone native app and website/browser:
+            // - Detect supported page/app lifecycle signals (visibilitychange, blur, iOS lifecycle).
+            // - When the student returns, display a warning and record event for review.
+            // - Do NOT claim iOS or browsers can reliably prevent or detect every app switch.
+            // - Do NOT treat every hidden-page event as confirmed misconduct.
+            // - Do NOT automatically reject attendance solely due to ambiguous browser lifecycle events.
+            interruptedRef.current = true;
+            if (activeSessionId) {
+                reportAttendanceLifecycleEvent(activeSessionId, {
+                    eventType: 'SUSPICIOUS_LIFECYCLE_INTERRUPTION',
+                    source: source,
+                    platform: isIOSDevice() ? (isNativeApp ? 'ios' : 'web_ios') : 'web'
+                }).catch(() => { });
+            }
+        };
+
+        const handleReturnToApp = (source) => {
+            if (interruptedRef.current) {
+                console.log(`[Lifecycle] Student returned to SmartAttend after interruption (${source}).`);
+                interruptedRef.current = false;
+                setInterruptionWarning(true);
+            }
         };
 
         let appStateHandle = null;
@@ -544,6 +561,8 @@ function QrScannerApp() {
             CapacitorApp.addListener('appStateChange', ({ isActive }) => {
                 if (!isActive) {
                     handleViolationTrigger('APP_BACKGROUNDED');
+                } else {
+                    handleReturnToApp('APP_FOREGROUNDED');
                 }
             }).then((h) => {
                 appStateHandle = h;
@@ -551,11 +570,9 @@ function QrScannerApp() {
         }
 
         // iOS-specific: subscribe to native GuidedAccessPlugin appSwitchDetected events.
-        // WILL_RESIGN_ACTIVE fires as soon as the student starts swiping up — earlier than appStateChange.
         let iosAppSwitchCleanup = null;
         if (isNativeApp && isIOSDevice()) {
             addAppSwitchListener((switchData) => {
-                // Only flag WILL_RESIGN_ACTIVE once per gesture to avoid double-counting
                 if (switchData.event === 'WILL_RESIGN_ACTIVE') {
                     handleViolationTrigger('IOS_RESIGN_ACTIVE');
                 }
@@ -567,6 +584,8 @@ function QrScannerApp() {
         const handleVisibilityChange = () => {
             if (document.hidden || document.visibilityState === 'hidden') {
                 handleViolationTrigger('VISIBILITY_CHANGE');
+            } else {
+                handleReturnToApp('VISIBILITY_RETURN');
             }
         };
 
@@ -574,8 +593,13 @@ function QrScannerApp() {
             handleViolationTrigger('WINDOW_BLUR');
         };
 
+        const handleFocus = () => {
+            handleReturnToApp('WINDOW_FOCUS');
+        };
+
         document.addEventListener('visibilitychange', handleVisibilityChange);
         window.addEventListener('blur', handleBlur);
+        window.addEventListener('focus', handleFocus);
 
         // ── Anti-Proxy Web Guardian Hardening ────────────────────────────────
         // 1. Block keyboard shortcuts that open DevTools, new tabs, or reveal source
@@ -651,12 +675,13 @@ function QrScannerApp() {
             if (devToolsCheckInterval) clearInterval(devToolsCheckInterval);
             document.removeEventListener('visibilitychange', handleVisibilityChange);
             window.removeEventListener('blur', handleBlur);
+            window.removeEventListener('focus', handleFocus);
             document.removeEventListener('keydown', handleKeyDown, true);
             document.removeEventListener('contextmenu', handleContextMenu);
             document.body.style.userSelect = '';
             document.body.style.webkitUserSelect = '';
         };
-    }, [scanState, isNativeApp, activeSessionId, user, loggedInRollNo]);
+    }, [scanState, isNativeApp, activeSessionId, user, loggedInRollNo, violationCount]);
 
     // Mobile Web App Auto-Launch (If opened via phone camera or Chrome)
     useEffect(() => {
@@ -915,11 +940,11 @@ function QrScannerApp() {
                 console.warn('Biometrics lookup notice:', bioErr);
             }
 
-            // iOS Apple Guided Access Check: Enforce Guided Access lockdown before allowing QR2
-            if (isIOSDevice()) {
+            // iOS Apple Guided Access Check: Only enforce for native iOS app, never web Safari
+            if (isNativeApp && isIOSDevice()) {
                 const gaStatus = await isGuidedAccessEnabled();
                 if (!gaStatus.enabled) {
-                    console.log('[GuidedAccess] iOS device detected with Guided Access OFF. Displaying lock requirement screen.');
+                    console.log('[GuidedAccess] iOS native app detected with Guided Access OFF. Displaying lock requirement screen.');
                     setShowGuidedAccessRequired(true);
                     return;
                 }
@@ -2156,20 +2181,53 @@ function QrScannerApp() {
                     Position your face within the frame. Blink naturally to confirm liveness.
                 </p>
 
-                {/* Biometric Anti-Escape Alert */}
+                {/* Persistent Non-Blocking Reminder Banner */}
                 <div style={{
-                    margin: '0 0 14px 0',
-                    padding: '10px 14px',
-                    borderRadius: '12px',
-                    background: '#fef2f2',
-                    border: '1px solid #fecaca',
-                    color: '#991b1b',
-                    fontSize: '0.8rem',
+                    padding: '8px 12px',
+                    borderRadius: '10px',
+                    background: 'linear-gradient(135deg, #1e293b 0%, #334155 100%)',
+                    color: '#f8fafc',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '6px',
+                    fontSize: '0.78rem',
                     fontWeight: 700,
-                    lineHeight: 1.4
+                    marginBottom: '12px'
                 }}>
-                    ⚠️ <strong>Do NOT switch apps:</strong> Face verification must complete in this active session. Switching apps now will immediately disqualify your attendance!
+                    <FaShieldAlt style={{ color: '#10b981' }} />
+                    <span>Attendance In Progress: Keep SmartAttend active in the foreground.</span>
                 </div>
+
+                {/* On-Return Interruption Warning Banner */}
+                {interruptionWarning && (
+                    <div style={{
+                        margin: '0 0 12px 0',
+                        padding: '10px 14px',
+                        borderRadius: '10px',
+                        background: '#fffbeb',
+                        border: '1.5px solid #f59e0b',
+                        color: '#92400e',
+                        textAlign: 'left',
+                        fontSize: '0.78rem',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: '8px'
+                    }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <FaExclamationTriangle style={{ color: '#d97706', fontSize: '1rem', flexShrink: 0 }} />
+                            <span><strong>Interruption Recorded:</strong> Screen blur detected and logged for instructor review. Remain on this screen.</span>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => setInterruptionWarning(false)}
+                            style={{ background: 'transparent', border: 'none', color: '#b45309', fontWeight: 800, fontSize: '0.75rem', cursor: 'pointer' }}
+                        >
+                            Dismiss
+                        </button>
+                    </div>
+                )}
 
                 {/* Face Scanner Component */}
                 <FaceScanner
@@ -2358,22 +2416,70 @@ function QrScannerApp() {
                     You are <strong>AUTHORIZED</strong> for this session ({loggedInRollNo} · {loggedInName}).
                 </p>
 
-                {/* Anti-Escape Warning Banner */}
+                {/* Persistent Non-Blocking Reminder Banner */}
+                <div style={{
+                    padding: '8px 12px',
+                    borderRadius: '10px',
+                    background: 'linear-gradient(135deg, #1e293b 0%, #334155 100%)',
+                    color: '#f8fafc',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '6px',
+                    fontSize: '0.78rem',
+                    fontWeight: 700,
+                    marginBottom: '12px'
+                }}>
+                    <FaShieldAlt style={{ color: '#10b981' }} />
+                    <span>Attendance In Progress: Keep SmartAttend active in the foreground.</span>
+                </div>
+
+                {/* On-Return Interruption Warning Banner */}
+                {interruptionWarning && (
+                    <div style={{
+                        margin: '0 0 12px 0',
+                        padding: '10px 14px',
+                        borderRadius: '10px',
+                        background: '#fffbeb',
+                        border: '1.5px solid #f59e0b',
+                        color: '#92400e',
+                        textAlign: 'left',
+                        fontSize: '0.78rem',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: '8px'
+                    }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <FaExclamationTriangle style={{ color: '#d97706', fontSize: '1rem', flexShrink: 0 }} />
+                            <span><strong>Interruption Recorded:</strong> Screen blur detected and logged for instructor review. Remain on this screen.</span>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => setInterruptionWarning(false)}
+                            style={{ background: 'transparent', border: 'none', color: '#b45309', fontWeight: 800, fontSize: '0.75rem', cursor: 'pointer' }}
+                        >
+                            Dismiss
+                        </button>
+                    </div>
+                )}
+
+                {/* Supervision Policy Banner */}
                 <div style={{
                     margin: '0 0 16px 0',
                     padding: '12px 16px',
                     borderRadius: '14px',
-                    background: '#fef2f2',
-                    border: '1.5px solid #fca5a5',
-                    color: '#991b1b',
+                    background: '#f8fafc',
+                    border: '1.5px solid #cbd5e1',
+                    color: '#334155',
                     textAlign: 'left',
                     fontSize: '0.82rem',
                     lineHeight: 1.45
                 }}>
-                    <div style={{ fontWeight: 800, color: '#b91c1c', display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '2px' }}>
-                        <FaExclamationTriangle /> Zero-Tolerance Anti-Escape Active:
+                    <div style={{ fontWeight: 800, color: '#4338ca', display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '2px' }}>
+                        <FaShieldAlt /> Attendance Monitoring Active
                     </div>
-                    Do <strong>NOT</strong> switch apps, minimize, or open other applications. Even <strong>ONE</strong> violation will permanently <strong>DISQUALIFY</strong> your attendance! Keep this screen open until you scan QR 2.
+                    Keep SmartAttend open in the foreground. On Android, exiting Kiosk mode twice disqualifies attendance. On iPhone and browsers, background interruptions are logged for instructor review. Keep this screen open until you scan QR 2.
                 </div>
 
                 {/* Instruction Callout */}
@@ -2612,24 +2718,29 @@ function QrScannerApp() {
                 Point camera at the attendance QR code displayed on the lecturer screen.
             </p>
 
-            {/* Zero-Tolerance Anti-Escape / App Switching Policy Banner */}
+            {/* Pre-Scan Attendance Monitoring Policy Warning Card */}
             <div style={{
                 margin: '0 0 18px 0',
                 padding: '14px 16px',
                 borderRadius: '16px',
-                background: 'linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%)',
-                border: '1.5px solid #fca5a5',
-                color: '#991b1b',
+                background: 'linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%)',
+                border: '1.5px solid #86efac',
+                color: '#14532d',
                 textAlign: 'left',
-                boxShadow: '0 4px 14px rgba(220, 38, 38, 0.1)'
+                boxShadow: '0 4px 14px rgba(16, 185, 129, 0.1)'
             }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 800, fontSize: '0.9rem', color: '#b91c1c', marginBottom: '4px' }}>
-                    <FaExclamationTriangle style={{ color: '#dc2626', fontSize: '1.1rem' }} />
-                    <span>ZERO-TOLERANCE SECURITY POLICY</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 800, fontSize: '0.9rem', color: '#15803d', marginBottom: '6px' }}>
+                    <FaShieldAlt style={{ color: '#16a34a', fontSize: '1.1rem' }} />
+                    <span>ATTENDANCE MONITORING POLICY</span>
                 </div>
-                <p style={{ margin: 0, fontSize: '0.82rem', lineHeight: 1.45, color: '#7f1d1d' }}>
-                    Do <strong>NOT</strong> switch apps, minimize, or open other applications. Even <strong>ONE</strong> app switch or backgrounding violation will automatically <strong>DISQUALIFY</strong> your attendance across QR 1, throughout Kiosk lock mode, during QR 2 face verification, and until the lecturer officially releases the class!
-                </p>
+                <div style={{ fontSize: '0.82rem', lineHeight: 1.5, color: '#166534' }}>
+                    <p style={{ margin: '0 0 4px 0' }}>
+                        <strong>• Android Native App:</strong> SmartAttend will be pinned in Kiosk Lock Task mode during attendance. 1st exit produces a warning; 2nd confirmed violation forfeits attendance (enforced on backend).
+                    </p>
+                    <p style={{ margin: 0 }}>
+                        <strong>• iPhone &amp; Web Browsers:</strong> Keep SmartAttend active in the foreground throughout scanning and face verification. Screen interruptions are recorded for instructor review.
+                    </p>
+                </div>
             </div>
 
             {/* Student Info Pill */}
