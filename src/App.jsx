@@ -341,6 +341,7 @@ function App() {
           <Route path="lecturerpage" element={<LecturerPage />} />
           <Route path="student-form" element={<StudentForm />} />
           <Route path="settings" element={<Settings />} />
+          <Route path="profile" element={<Settings />} />
           <Route path="attendance-data" element={<AttendanceData />} />
           <Route path="violations" element={<AttendanceData />} />
           <Route path="facedetection" element={<FaceScanner />} />
@@ -395,6 +396,7 @@ function App() {
           <Route path="scanqr" element={<QrScannerApp />} />
           <Route path="statistics" element={<Statistics />} />
           <Route path="settings" element={<Settings />} />
+          <Route path="profile" element={<Settings />} />
           <Route path="device-setup" element={<DeviceSetupPage />} />
           <Route path="face-enroll" element={<FaceEnrollPage />} />
           <Route path="register-face" element={<FaceEnrollPage />} />
@@ -713,6 +715,21 @@ function App() {
                   : currentRole === "lecturer"
                   ? "/lecturer/settings"
                   : "/student/settings"
+              }
+              replace
+            />
+          }
+        />
+        <Route
+          path="/profile"
+          element={
+            <Navigate
+              to={
+                currentRole === "admin"
+                  ? "/admin/profile"
+                  : currentRole === "lecturer"
+                  ? "/lecturer/profile"
+                  : "/student/profile"
               }
               replace
             />

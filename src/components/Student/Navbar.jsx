@@ -1,8 +1,7 @@
 import {
     FaBars,
     FaUser,
-    FaBell,
-    FaHeadset
+    FaBell
 } from "react-icons/fa";
 import React, { useState } from "react";
 import { Link } from "react-router-dom";
@@ -30,26 +29,6 @@ function Navbar({ onMenuClick, unreadCount = 0, onNotifClick }) {
             </div>
 
             <div className="right-nav">
-                <Link
-                    to="/student/support"
-                    className="nav-support-link-btn"
-                    title="Helpdesk, Feedback & Issue Reporting"
-                    style={{
-                        background: "#f1f5f9",
-                        borderRadius: "12px",
-                        width: "40px",
-                        height: "40px",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        color: "#475569",
-                        fontSize: "1.05rem",
-                        marginRight: "8px",
-                        textDecoration: "none"
-                    }}
-                >
-                    <FaHeadset />
-                </Link>
 
                 <button
                     type="button"
@@ -95,7 +74,7 @@ function Navbar({ onMenuClick, unreadCount = 0, onNotifClick }) {
                     )}
                 </button>
 
-                <Link to="/student/settings" className="nav-profile-btn-link" title="Click to view Settings & Edit Name" style={{ textDecoration: "none" }}>
+                <Link to="/student/profile" className="nav-profile-btn-link" title="Click to view Profile" style={{ textDecoration: "none" }}>
                     <div className="profile">
                         {profileImage && !profileImageFailed ? (
                             <img

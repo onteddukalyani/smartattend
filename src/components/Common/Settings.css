@@ -1363,42 +1363,85 @@
 
 @media (max-width: 768px) {
     .st-settings-page {
-        padding: 16px 14px calc(120px + env(safe-area-inset-bottom, 0px)) !important;
+        padding: 16px 14px calc(110px + env(safe-area-inset-bottom, 0px)) !important;
         gap: 16px;
+        width: 100%;
+        overflow-x: hidden;
     }
 
-    .st-hero-cover-gradient {
-        height: 76px;
-    }
-
-    .st-avatar-container {
-        width: 74px;
-        height: 74px;
-        flex: 0 0 74px;
+    .st-profile-hero-card {
         border-radius: 20px;
     }
 
+    .st-hero-cover-gradient {
+        height: 74px;
+    }
+
+    .st-avatar-container {
+        width: 72px;
+        height: 72px;
+        flex: 0 0 72px;
+        border-radius: 18px;
+        padding: 3px;
+    }
+
     .st-hero-avatar-initial {
-        font-size: 28px;
+        font-size: 26px;
+    }
+
+    .st-avatar-actions-overlay {
+        bottom: -4px;
+        left: -4px;
+        gap: 4px;
+    }
+
+    .st-avatar-btn {
+        width: 26px;
+        height: 26px;
+        font-size: 10px;
+        border-width: 1.5px;
     }
 
     .st-hero-body {
         padding: 0 16px 18px;
-        margin-top: -36px;
+        margin-top: -34px;
+        gap: 16px;
+    }
+
+    .st-hero-title-row {
+        gap: 8px;
     }
 
     .st-user-name {
-        font-size: 20px;
+        font-size: 1.25rem;
+        word-break: break-word;
     }
 
     .st-card {
-        padding: 20px 18px;
-        border-radius: 20px;
+        padding: 18px 16px;
+        border-radius: 18px;
     }
 
     .st-card-header {
-        margin-bottom: 16px;
+        margin-bottom: 14px;
         padding-bottom: 12px;
+        gap: 12px;
+    }
+
+    .st-card-header-icon {
+        width: 38px;
+        height: 38px;
+        flex: 0 0 38px;
+        font-size: 16px;
+        border-radius: 12px;
+    }
+
+    .st-card-title {
+        font-size: 16px;
+    }
+
+    .st-card-subtitle {
+        font-size: 12px;
     }
 
     .st-detail-row {
@@ -1415,52 +1458,438 @@
     }
 }
 
-@media (max-width: 540px) {
+@media (max-width: 640px) {
     .st-hero-profile-group {
         flex-direction: column;
         align-items: flex-start;
         gap: 12px;
+        width: 100%;
+    }
+
+    .st-hero-info {
+        width: 100%;
+    }
+
+    .st-name-display-wrap {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        width: 100%;
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    .st-user-name {
+        font-size: 1.2rem;
+        line-height: 1.25;
+    }
+
+    .st-edit-name-btn {
+        padding: 4px 10px;
+        font-size: 11px;
+        height: 28px;
+        border-radius: 8px;
+        flex-shrink: 0;
+    }
+
+    .st-role-pill {
+        padding: 3px 10px;
+        font-size: 11px;
+        margin-top: 2px;
     }
 
     .st-hero-meta-row {
         flex-direction: column;
         align-items: stretch;
-        gap: 8px;
+        gap: 7px;
         width: 100%;
     }
 
     .st-meta-item {
         width: 100%;
+        display: flex;
+        align-items: center;
         justify-content: space-between;
+        padding: 6px 10px;
+        font-size: 12px;
+        border-radius: 9px;
+        box-sizing: border-box;
     }
 
     .st-meta-text {
-        max-width: calc(100% - 28px);
+        max-width: calc(100% - 32px);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        word-break: break-all;
     }
 
     .st-hero-quick-kpis {
         grid-template-columns: 1fr;
         gap: 8px;
+        width: 100%;
     }
 
-    .st-theme-selector-grid {
-        grid-template-columns: 1fr;
+    .st-kpi-chip {
+        padding: 8px 12px;
+        border-radius: 10px;
+    }
+
+    .st-kpi-label {
+        font-size: 11px;
+    }
+
+    .st-kpi-val {
+        font-size: 12px;
+    }
+
+    /* Detail Row: Mobile Stacked Layout (Native app style with indented value) */
+    .st-detail-row {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 8px;
+        padding: 10px 12px;
+        border-radius: 12px;
+    }
+
+    .st-detail-left {
+        width: 100%;
         gap: 10px;
     }
 
-    .st-detail-desc {
-        display: none; /* Keep key-value pairs compact on tiny screens */
+    .st-detail-icon-wrap {
+        width: 32px;
+        height: 32px;
+        flex: 0 0 32px;
+        font-size: 13px;
+        border-radius: 8px;
     }
 
-    .st-feature-actions {
+    .st-detail-info {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .st-detail-title {
+        font-size: 12.5px;
+        white-space: normal;
+        word-break: break-word;
+        line-height: 1.3;
+    }
+
+    .st-detail-desc {
+        font-size: 10.5px;
+        white-space: normal;
+        display: block;
+        line-height: 1.25;
+    }
+
+    .st-detail-value {
         width: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: flex-start;
+        padding-left: 42px; /* Aligns value under text, indented past the icon */
+        box-sizing: border-box;
+        gap: 8px;
+        flex-wrap: wrap;
+    }
+
+    .st-detail-value .st-text-bold {
+        font-size: 12.5px;
+        word-break: break-word;
+    }
+
+    .st-detail-value .st-code-val,
+    .st-detail-value .st-badge-light {
+        font-size: 11.5px;
+        padding: 2px 8px;
+    }
+
+    .st-btn-mini-edit {
+        padding: 3px 8px;
+        font-size: 11px;
+        border-radius: 6px;
+    }
+
+    /* Feature Cards: Compact & stacked */
+    .st-feature-card {
+        padding: 12px 13px;
+        border-radius: 14px;
+        gap: 10px;
+    }
+
+    .st-feature-main {
+        gap: 10px;
+        align-items: flex-start;
+    }
+
+    .st-feature-icon-wrap {
+        width: 36px;
+        height: 36px;
+        flex: 0 0 36px;
+        font-size: 16px;
+        border-radius: 10px;
+    }
+
+    .st-feature-title-row {
+        gap: 6px;
+        justify-content: space-between;
+    }
+
+    .st-feature-title {
+        font-size: 13px;
+        font-weight: 800;
+        line-height: 1.25;
+    }
+
+    .st-device-status-badge,
+    .st-apk-badge,
+    .st-support-badge {
+        font-size: 9.5px;
+        padding: 2px 6px;
+        border-radius: 5px;
+    }
+
+    .st-feature-desc {
+        font-size: 11px;
+        line-height: 1.35;
+    }
+
+    .st-update-inline-toast {
+        width: 100%;
+        box-sizing: border-box;
+        font-size: 11px;
+        padding: 5px 10px;
+    }
+
+    /* Action Buttons in Cards: Clean, thumb-friendly tap targets */
+    .st-feature-actions {
+        display: flex;
+        flex-direction: column;
+        width: 100%;
+        gap: 7px;
     }
 
     .st-btn-feature-outline,
     .st-btn-feature-filled,
     .st-apk-download-btn {
-        flex: 1;
+        width: 100%;
         justify-content: center;
+        padding: 9px 12px;
+        font-size: 12px;
+        min-height: 40px;
+        box-sizing: border-box;
+        border-radius: 10px;
+    }
+
+    .st-apk-download-btn {
+        order: -1; /* Make downloading the APK the prominent primary CTA */
+        min-height: 42px;
+        font-size: 13px;
+        font-weight: 800;
+        padding: 10px 14px;
+    }
+
+    /* Theme Selector */
+    .st-theme-selector-grid {
+        grid-template-columns: 1fr;
+        gap: 10px;
+        margin-bottom: 14px;
+    }
+
+    .st-theme-tile {
+        padding: 11px 12px;
+        border-radius: 13px;
+    }
+
+    .st-theme-preview-box {
+        height: 48px;
+        border-radius: 8px;
+    }
+
+    .st-theme-title {
+        font-size: 12.5px;
+    }
+
+    .st-theme-desc {
+        font-size: 10.5px;
+    }
+
+    .st-theme-active-check {
+        font-size: 15px;
+        top: 8px;
+        right: 8px;
+    }
+
+    /* Logout & Guest Buttons */
+    .st-settings-actions {
+        padding-top: 8px;
+    }
+
+    .st-logout-btn {
+        width: 100%;
+        min-height: 44px;
+        padding: 11px 16px;
+        font-size: 13px;
+        border-radius: 12px;
+    }
+
+    .st-guest-connect-box {
+        padding: 11px;
+        border-radius: 12px;
+    }
+
+    .st-btn-google-connect {
+        width: 100%;
+        min-height: 44px;
+        padding: 11px 14px;
+        font-size: 12.5px;
+        border-radius: 11px;
+    }
+
+    /* Bottom-Sheet Style Modals on Mobile */
+    .modal-backdrop,
+    .st-custom-modal-overlay {
+        padding: 12px !important;
+        align-items: flex-end !important;
+    }
+
+    .st-name-modal-box,
+    .st-custom-modal-content {
+        width: 100% !important;
+        max-width: 100% !important;
+        max-height: 90vh !important;
+        overflow-y: auto !important;
+        padding: 22px 18px 24px !important;
+        border-radius: 22px 22px 14px 14px !important;
+        box-shadow: 0 -12px 36px rgba(0, 0, 0, 0.3) !important;
+    }
+
+    .st-name-modal-box form > div:last-child,
+    .st-custom-modal-content form > div:last-child {
+        display: flex !important;
+        flex-direction: column-reverse !important;
+        gap: 8px !important;
+        width: 100% !important;
+    }
+
+    .st-name-modal-box form button,
+    .st-custom-modal-content form button {
+        width: 100% !important;
+        justify-content: center !important;
+        min-height: 42px !important;
+        box-sizing: border-box !important;
+    }
+}
+
+@media (max-width: 480px) {
+    .st-settings-page {
+        padding: 12px 10px calc(100px + env(safe-area-inset-bottom, 0px)) !important;
+        gap: 14px;
+    }
+
+    .st-profile-hero-card {
+        border-radius: 18px;
+    }
+
+    .st-hero-cover-gradient {
+        height: 66px;
+    }
+
+    .st-avatar-container {
+        width: 64px;
+        height: 64px;
+        flex: 0 0 64px;
+        border-radius: 16px;
+        padding: 3px;
+    }
+
+    .st-hero-avatar-initial {
+        font-size: 24px;
+    }
+
+    .st-hero-body {
+        padding: 0 12px 15px;
+        margin-top: -30px;
+        gap: 12px;
+    }
+
+    .st-user-name {
+        font-size: 1.15rem;
+    }
+
+    .st-card {
+        padding: 14px 12px;
+        border-radius: 16px;
+    }
+
+    .st-card-header {
+        margin-bottom: 12px;
+        padding-bottom: 10px;
+    }
+
+    .st-card-title {
+        font-size: 15px;
+    }
+
+    .st-card-subtitle {
+        font-size: 11px;
+    }
+}
+
+@media (max-width: 380px) {
+    .st-settings-page {
+        padding: 10px 8px calc(90px + env(safe-area-inset-bottom, 0px)) !important;
+        gap: 12px;
+    }
+
+    .st-card {
+        padding: 12px 10px;
+        border-radius: 14px;
+    }
+
+    .st-avatar-container {
+        width: 58px;
+        height: 58px;
+        flex: 0 0 58px;
+        border-radius: 14px;
+    }
+
+    .st-hero-avatar-initial {
+        font-size: 22px;
+    }
+
+    .st-user-name {
+        font-size: 1.05rem;
+    }
+
+    .st-detail-value {
+        padding-left: 0; /* Stack vertically without indent on ultra-narrow viewports */
+    }
+}
+
+/* Touch Device Tactile Feedback */
+@media (hover: none) and (pointer: coarse) {
+    .st-edit-name-btn,
+    .st-btn-mini-edit,
+    .st-btn-feature-outline,
+    .st-btn-feature-filled,
+    .st-apk-download-btn,
+    .st-logout-btn,
+    .st-theme-tile,
+    .st-mini-copy {
+        -webkit-tap-highlight-color: transparent;
+    }
+
+    .st-edit-name-btn:active,
+    .st-btn-mini-edit:active,
+    .st-btn-feature-outline:active,
+    .st-btn-feature-filled:active,
+    .st-apk-download-btn:active,
+    .st-logout-btn:active,
+    .st-theme-tile:active {
+        transform: scale(0.98);
     }
 }
 

@@ -3,8 +3,7 @@ import React from "react";
 import {
   FaBars,
   FaBell,
-  FaUserCircle,
-  FaHeadset
+  FaUserCircle
 } from "react-icons/fa";
 
 import { useAuth } from "../authcontext";
@@ -45,27 +44,6 @@ const AdminNavbar = ({ onMenuClick, unreadCount = 0, onNotifClick }) => {
       {/* ================= RIGHT ================= */}
 
       <div className="admin-navbar-right">
-
-        <Link
-          to="/admin/support"
-          className="nav-support-link-btn"
-          title="Helpdesk, Feedback & Ticket Manager"
-          style={{
-            background: "#f1f5f9",
-            borderRadius: "12px",
-            width: "40px",
-            height: "40px",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            color: "#475569",
-            fontSize: "1.05rem",
-            marginRight: "10px",
-            textDecoration: "none"
-          }}
-        >
-          <FaHeadset />
-        </Link>
 
         <button
           type="button"
@@ -111,7 +89,7 @@ const AdminNavbar = ({ onMenuClick, unreadCount = 0, onNotifClick }) => {
           )}
         </button>
 
-        <Link to="/admin/settings" style={{ textDecoration: "none", color: "inherit" }} title="Click to view Settings & Edit Name">
+        <Link to="/admin/profile" style={{ textDecoration: "none", color: "inherit" }} title="Click to view Profile">
           <div className="admin-user">
 
             {(profile?.photoURL || profile?.photo || profile?.image || user?.photoURL) ? (
