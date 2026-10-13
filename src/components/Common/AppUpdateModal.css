@@ -676,3 +676,353 @@
   color: #4f46e5;
 }
 
+/* Tabs Bar */
+.st-update-tabs-bar {
+  display: flex;
+  width: 100%;
+  background: var(--bg-muted, #f1f5f9);
+  border-bottom: 1px solid var(--border-color, #e2e8f0);
+}
+
+[data-theme="midnight"] .st-update-tabs-bar {
+  background: #0f172a;
+  border-bottom-color: #334155;
+}
+
+.st-update-tab-btn {
+  flex: 1;
+  padding: 10px 8px;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-muted, #64748b);
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: all 0.2s ease;
+}
+
+[data-theme="midnight"] .st-update-tab-btn {
+  color: #94a3b8;
+}
+
+.st-update-tab-btn:hover {
+  color: var(--text-main, #0f172a);
+  background: rgba(0, 0, 0, 0.02);
+}
+
+[data-theme="midnight"] .st-update-tab-btn:hover {
+  color: #f8fafc;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.st-update-tab-btn.active {
+  color: #6366f1;
+  border-bottom-color: #6366f1;
+  font-weight: 700;
+  background: var(--bg-surface, #ffffff);
+}
+
+[data-theme="midnight"] .st-update-tab-btn.active {
+  color: #818cf8;
+  border-bottom-color: #818cf8;
+  background: #1e293b;
+}
+
+/* Indeterminate Progress Animation */
+.st-progress-bar-fill.indeterminate {
+  background: linear-gradient(90deg, #6366f1 0%, #10b981 50%, #6366f1 100%);
+  background-size: 200% 100%;
+  animation: stIndeterminateStream 1.5s infinite linear;
+}
+
+@keyframes stIndeterminateStream {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+.st-progress-footer-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 4px;
+}
+
+.st-progress-checksum-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.72rem;
+  color: #6366f1;
+  font-weight: 600;
+}
+
+.st-checksum-pass-text {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.75rem;
+  color: #10b981;
+  font-weight: 700;
+  margin: 2px 0 6px;
+}
+
+.st-error-shield-icon {
+  font-size: 1.5rem;
+  color: #ef4444;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.st-mandatory-icon {
+  font-size: 1.3rem;
+  color: #ef4444;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+/* Installation Help Tab */
+.st-update-help-container {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  text-align: left;
+}
+
+.st-help-hero {
+  text-align: center;
+  margin-bottom: 6px;
+}
+
+.st-help-hero-icon {
+  font-size: 1.8rem;
+  color: #6366f1;
+  margin-bottom: 6px;
+}
+
+.st-help-hero h3 {
+  margin: 0 0 4px;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--text-main, #0f172a);
+}
+
+[data-theme="midnight"] .st-help-hero h3 {
+  color: #f8fafc;
+}
+
+.st-help-hero p {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--text-muted, #64748b);
+}
+
+.st-help-step-card {
+  display: flex;
+  gap: 12px;
+  background: var(--bg-muted, #f8fafc);
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+
+[data-theme="midnight"] .st-help-step-card {
+  background: #0f172a;
+  border-color: #334155;
+}
+
+.st-help-step-card.warning {
+  background: rgba(245, 158, 11, 0.08);
+  border-color: rgba(245, 158, 11, 0.25);
+}
+
+.st-step-badge {
+  flex-shrink: 0;
+  background: #6366f1;
+  color: #ffffff;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 6px;
+  height: fit-content;
+}
+
+.st-step-badge.warn {
+  background: #f59e0b;
+}
+
+.st-step-content {
+  flex: 1;
+}
+
+.st-step-content strong {
+  display: block;
+  font-size: 0.82rem;
+  color: var(--text-main, #1e293b);
+  margin-bottom: 2px;
+}
+
+[data-theme="midnight"] .st-step-content strong {
+  color: #f1f5f9;
+}
+
+.st-step-content p {
+  margin: 0;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  color: var(--text-muted, #64748b);
+}
+
+[data-theme="midnight"] .st-step-content p {
+  color: #94a3b8;
+}
+
+.st-step-content code {
+  background: rgba(148, 163, 184, 0.15);
+  padding: 2px 4px;
+  border-radius: 4px;
+  font-size: 0.75rem;
+}
+
+.st-step-content ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  font-size: 0.76rem;
+  color: var(--text-muted, #64748b);
+  line-height: 1.4;
+}
+
+/* History / Changelog Tab */
+.st-update-history-container {
+  width: 100%;
+  text-align: left;
+}
+
+.st-history-title {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text-main, #0f172a);
+  margin: 0 0 12px;
+}
+
+[data-theme="midnight"] .st-history-title {
+  color: #f8fafc;
+}
+
+.st-history-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.st-history-item {
+  position: relative;
+  padding-left: 16px;
+  border-left: 2px solid #6366f1;
+}
+
+.st-history-dot {
+  position: absolute;
+  left: -5px;
+  top: 4px;
+  width: 8px;
+  height: 8px;
+  background: #6366f1;
+  border-radius: 50%;
+}
+
+.st-history-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.st-history-ver {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #6366f1;
+}
+
+.st-history-date {
+  font-size: 0.72rem;
+  color: var(--text-muted, #94a3b8);
+}
+
+.st-history-item-title {
+  margin: 0 0 4px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-main, #1e293b);
+}
+
+[data-theme="midnight"] .st-history-item-title {
+  color: #f1f5f9;
+}
+
+.st-history-notes {
+  margin: 0;
+  padding-left: 16px;
+  font-size: 0.78rem;
+  color: var(--text-muted, #64748b);
+  line-height: 1.4;
+}
+
+[data-theme="midnight"] .st-history-notes {
+  color: #94a3b8;
+}
+
+/* Footer Action Links */
+.st-footer-links-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+}
+
+.st-update-link-btn {
+  background: transparent;
+  border: none;
+  color: #6366f1;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  transition: all 0.15s ease;
+}
+
+.st-update-link-btn:hover {
+  background: rgba(99, 102, 241, 0.08);
+  text-decoration: underline;
+}
+
+.st-support-recovery-btn {
+  width: 100%;
+  background: transparent;
+  border: none;
+  color: var(--text-muted, #64748b);
+  font-size: 0.76rem;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 4px;
+  transition: color 0.15s ease;
+}
+
+.st-support-recovery-btn:hover {
+  color: #6366f1;
+  text-decoration: underline;
+}
+
+

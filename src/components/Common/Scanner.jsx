@@ -46,6 +46,8 @@ import { sendFacultyNotification, sendStudentNotification, reportUserVerificatio
 import { validateRotatingQrPayload } from '../../utils/qrCrypto';
 import { evaluateGeofence } from '../../utils/geofence';
 import { verifyHardwareBiometric } from '../../services/biometricService';
+import { checkForAppUpdate, CURRENT_APP_VERSION, compareVersions } from '../../services/appUpdateService';
+import AppUpdateModal from './AppUpdateModal';
 
 /**
  * Stage 4: Student Two-Phase Attendance Scanner & Supervised Kiosk Controller
@@ -71,6 +73,26 @@ function QrScannerApp() {
     const [dismissedAppBanner, setDismissedAppBanner] = useState(false);
     const [deviceOwnerStatus, setDeviceOwnerStatus] = useState({ checked: false, isDeviceOwner: true, isWeb: false });
     const [deviceIdentity, setDeviceIdentity] = useState(null);
+
+    // App Update Gate (Blocks attendance scanning when mandatory update is required)
+    const [versionBlock, setVersionBlock] = useState(null);
+    const [showUpdateModalFromScanner, setShowUpdateModalFromScanner] = useState(false);
+
+    useEffect(() => {
+        let isMounted = true;
+        checkForAppUpdate().then((info) => {
+            if (!isMounted) return;
+            if (info && info.hasUpdate && (info.isMandatory || compareVersions(info.minRequiredVersion, CURRENT_APP_VERSION) > 0)) {
+                setVersionBlock({
+                    minVersion: info.minRequiredVersion || info.latestVersion,
+                    currentVersion: CURRENT_APP_VERSION,
+                    mandatoryReason: info.mandatoryReason || "A required app update is pending for your device to mark attendance.",
+                    info
+                });
+            }
+        }).catch(() => { });
+        return () => { isMounted = false; };
+    }, []);
 
     // Current State: 'IDLE' | 'AUTHORIZING_QR1' | 'KIOSK_WAITING_QR2' | 'VALIDATING_QR2' | 'BIOMETRIC_SCAN' | 'ATTENDANCE_SUCCESS' | 'DISQUALIFIED'
     const [scanState, setScanState] = useState('IDLE');
@@ -771,7 +793,7 @@ function QrScannerApp() {
             let clientIp = 'Unknown IP';
             try {
                 clientIp = await getClientIpAddress();
-            } catch (_) {}
+            } catch (_) { }
 
             const regLabel = getDeviceDisplayName(registeredType);
             const curLabel = getDeviceDisplayName(detectedType || 'web');
@@ -850,7 +872,7 @@ function QrScannerApp() {
 
         try {
             let clientIp = 'Unknown IP';
-            try { clientIp = await getClientIpAddress(); } catch (_) {}
+            try { clientIp = await getClientIpAddress(); } catch (_) { }
 
             const studentProfileOverride = {
                 rollNo: loggedInRollNo,
@@ -1340,6 +1362,297 @@ function QrScannerApp() {
     };
 
     // =========================================================================
+    // UI VIEW -0: MANDATORY APP UPDATE BLOCK SCREEN
+    // =========================================================================
+    if (versionBlock) {
+        return (
+            <div style={{
+                maxWidth: '540px',
+                margin: '30px auto',
+                padding: '32px 24px',
+                background: 'var(--surface, #ffffff)',
+                borderRadius: '24px',
+                border: '1.5px solid #ef4444',
+                boxShadow: '0 25px 50px -12px rgba(239, 68, 68, 0.25)',
+                color: 'var(--text-main, #0f172a)',
+                textAlign: 'center',
+                position: 'relative'
+            }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', marginBottom: '16px' }}>
+                    <button
+                        type="button"
+                        onClick={() => navigate('/student')}
+                        style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            background: 'transparent',
+                            border: 'none',
+                            color: 'var(--accent, #6366f1)',
+                            fontSize: '0.9rem',
+                            fontWeight: 700,
+                            cursor: 'pointer'
+                        }}
+                    >
+                        <FaArrowLeft /> Back to Dashboard
+                    </button>
+                </div>
+
+                <div style={{
+                    width: '76px',
+                    height: '76px',
+                    borderRadius: '50%',
+                    background: 'linear-gradient(135deg, #dc2626 0%, #ef4444 100%)',
+                    color: '#ffffff',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    margin: '0 auto 16px',
+                    fontSize: '36px',
+                    boxShadow: '0 8px 24px rgba(239, 68, 68, 0.35)'
+                }}>
+                    <FaExclamationTriangle />
+                </div>
+
+                <div style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '6px 14px',
+                    borderRadius: '999px',
+                    background: '#fee2e2',
+                    color: '#dc2626',
+                    fontSize: '0.82rem',
+                    fontWeight: 800,
+                    marginBottom: '12px'
+                }}>
+                    Update Required
+                </div>
+
+                <h2 style={{ fontSize: '1.45rem', fontWeight: 800, color: '#0f172a', margin: '0 0 8px' }}>
+                    SmartAttend Update Required
+                </h2>
+                <p style={{ fontSize: '0.9rem', color: '#475569', lineHeight: 1.5, margin: '0 0 20px' }}>
+                    {versionBlock.mandatoryReason}
+                </p>
+
+                <div style={{
+                    background: 'var(--surface-soft, #f8fafc)',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '16px',
+                    padding: '16px',
+                    marginBottom: '20px',
+                    textAlign: 'left',
+                    fontSize: '0.85rem'
+                }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                        <span style={{ color: '#64748b', fontWeight: 600 }}>Your App Version:</span>
+                        <strong style={{ color: '#dc2626' }}>v{versionBlock.currentVersion}</strong>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: '#64748b', fontWeight: 600 }}>Required Minimum:</span>
+                        <strong style={{ color: '#10b981' }}>v{versionBlock.minVersion}</strong>
+                    </div>
+                </div>
+
+                <button
+                    type="button"
+                    onClick={() => setShowUpdateModalFromScanner(true)}
+                    style={{
+                        width: '100%',
+                        padding: '14px',
+                        borderRadius: '14px',
+                        background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
+                        color: '#ffffff',
+                        border: 'none',
+                        fontSize: '0.95rem',
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                        marginBottom: '10px',
+                        boxShadow: '0 8px 18px rgba(99, 102, 241, 0.35)'
+                    }}
+                >
+                    Update SmartAttend Now (.apk)
+                </button>
+
+                <button
+                    type="button"
+                    onClick={() => navigate('/student/support')}
+                    style={{
+                        width: '100%',
+                        padding: '10px',
+                        borderRadius: '12px',
+                        background: 'transparent',
+                        color: '#64748b',
+                        border: '1px solid #cbd5e1',
+                        fontSize: '0.85rem',
+                        fontWeight: 600,
+                        cursor: 'pointer'
+                    }}
+                >
+                    Emergency Help &amp; Support
+                </button>
+
+                {showUpdateModalFromScanner && versionBlock.info && (
+                    <AppUpdateModal
+                        updateInfo={versionBlock.info}
+                        onClose={() => setShowUpdateModalFromScanner(false)}
+                    />
+                )}
+            </div>
+        );
+    }
+
+    // =========================================================================
+    // UI VIEW: PASSIVE APP UPDATE REQUIRED GATE
+    // =========================================================================
+    if (versionBlock) {
+        return (
+            <div style={{
+                maxWidth: '540px',
+                margin: '30px auto',
+                padding: '32px 24px',
+                background: 'var(--surface, #ffffff)',
+                borderRadius: '24px',
+                border: '1.5px solid #ef4444',
+                boxShadow: '0 25px 50px -12px rgba(239, 68, 68, 0.25)',
+                color: 'var(--text-main, #0f172a)',
+                textAlign: 'center',
+                position: 'relative'
+            }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', marginBottom: '16px' }}>
+                    <button
+                        type="button"
+                        onClick={() => navigate('/student')}
+                        style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            background: 'transparent',
+                            border: 'none',
+                            color: 'var(--accent, #6366f1)',
+                            fontSize: '0.9rem',
+                            fontWeight: 700,
+                            cursor: 'pointer'
+                        }}
+                    >
+                        <FaArrowLeft /> Back to Dashboard
+                    </button>
+                </div>
+
+                <div style={{
+                    width: '76px',
+                    height: '76px',
+                    borderRadius: '50%',
+                    background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
+                    color: '#ffffff',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    margin: '0 auto 16px',
+                    fontSize: '36px',
+                    boxShadow: '0 8px 24px rgba(239, 68, 68, 0.35)'
+                }}>
+                    <FaExclamationTriangle />
+                </div>
+
+                <div style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '6px 14px',
+                    borderRadius: '999px',
+                    background: '#fee2e2',
+                    color: '#dc2626',
+                    fontSize: '0.82rem',
+                    fontWeight: 800,
+                    marginBottom: '12px'
+                }}>
+                    <FaLock /> Mandatory App Update Required
+                </div>
+
+                <h2 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#0f172a', margin: '0 0 8px' }}>
+                    Attendance Protocol Update Required
+                </h2>
+                <p style={{ fontSize: '0.9rem', color: '#475569', lineHeight: 1.5, margin: '0 0 20px' }}>
+                    {versionBlock.mandatoryReason}
+                </p>
+
+                <div style={{
+                    background: 'var(--surface-soft, #f8fafc)',
+                    border: '1.5px solid var(--border, #e2e8f0)',
+                    borderRadius: '16px',
+                    padding: '16px',
+                    textAlign: 'left',
+                    marginBottom: '20px'
+                }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                        <span style={{ fontSize: '0.85rem', color: '#64748b' }}>Your Installed Version:</span>
+                        <strong style={{ fontSize: '0.85rem', color: '#ef4444' }}>v{versionBlock.currentVersion}</strong>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ fontSize: '0.85rem', color: '#64748b' }}>Minimum Required Version:</span>
+                        <strong style={{ fontSize: '0.85rem', color: '#16a34a' }}>v{versionBlock.minVersion}</strong>
+                    </div>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    <button
+                        type="button"
+                        onClick={() => setShowUpdateModalFromScanner(true)}
+                        style={{
+                            width: '100%',
+                            padding: '14px 20px',
+                            borderRadius: '14px',
+                            background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                            color: '#ffffff',
+                            border: 'none',
+                            fontWeight: 800,
+                            fontSize: '1rem',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '10px',
+                            boxShadow: '0 6px 20px rgba(16, 185, 129, 0.4)'
+                        }}
+                    >
+                        <FaDownload /> Update SmartAttend Now
+                    </button>
+
+                    <button
+                        type="button"
+                        onClick={() => navigate('/student/support')}
+                        style={{
+                            width: '100%',
+                            padding: '12px 20px',
+                            borderRadius: '14px',
+                            background: 'var(--surface-soft, #f1f5f9)',
+                            color: '#334155',
+                            border: '1.5px solid var(--border, #cbd5e1)',
+                            fontWeight: 700,
+                            fontSize: '0.9rem',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '8px'
+                        }}
+                    >
+                        Contact Technical Support
+                    </button>
+                </div>
+
+                {showUpdateModalFromScanner && (
+                    <AppUpdateModal
+                        updateInfo={{ ...(versionBlock.info || {}), isOpen: true }}
+                        onClose={() => setShowUpdateModalFromScanner(false)}
+                    />
+                )}
+            </div>
+        );
+    }
+
     // =========================================================================
     // UI VIEW -1: STRICT ANDROID WEB BROWSER BLOCK SCREEN
     // =========================================================================

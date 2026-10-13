@@ -144,10 +144,14 @@ service cloud.firestore {
     }
 
     match /app_updates/{docId} {
+      // Any client can read update manifests to check for updates
       allow read: if true;
-      allow write: if true;
+      // Prohibit all client-side writes. App updates can ONLY be published via Firebase Admin SDK / deployment scripts.
+      // Do not trust exists(/admins/{uid}) while /admins may be publicly writable.
+      allow write: if false;
       match /{document=**} {
-        allow read, write: if true;
+        allow read: if true;
+        allow write: if false;
       }
     }
 

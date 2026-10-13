@@ -69,6 +69,9 @@ dependencies {
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
     implementation project(':capacitor-cordova-android-plugins')
 
+    // AndroidX BiometricPrompt for Class 3 Hardware Fingerprint Authentication
+    implementation "androidx.biometric:biometric:1.1.0"
+
     // Import the Firebase BoM
     implementation platform('com.google.firebase:firebase-bom:34.18.0')
 }

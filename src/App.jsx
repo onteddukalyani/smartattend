@@ -68,26 +68,54 @@ function App() {
   const { user, profile, loading } = useAuth();
   const [updateInfo, setUpdateInfo] = useState(null);
 
-  // 0. Auto-check for APK / App Updates on startup
+  // 0. Auto-check for APK / App Updates on startup & lifecycle resume
   useEffect(() => {
-    const timer = setTimeout(async () => {
+    let lastCheckTime = 0;
+
+    const performUpdateCheck = async (force = false) => {
+      const now = Date.now();
+      // Rate-limit checks to at most once every 60s unless forced
+      if (!force && (now - lastCheckTime) < 60000) return;
+      lastCheckTime = now;
+
       try {
         const info = await checkForAppUpdate();
         if (info && info.hasUpdate) {
           const dismissedVer = localStorage.getItem("smartattend_dismissed_update_version");
           const dismissedTime = parseInt(localStorage.getItem("smartattend_dismissed_update_time") || "0", 10);
-          const isRecentlyDismissed = dismissedVer === info.latestVersion && (Date.now() - dismissedTime) < 24 * 60 * 60 * 1000;
+          const isRecentlyDismissed = dismissedVer === info.latestVersion && (now - dismissedTime) < 24 * 60 * 60 * 1000;
 
           if (info.isMandatory || !isRecentlyDismissed) {
             setUpdateInfo(info);
           }
         }
       } catch (err) {
-        console.warn("[AppUpdate] Startup check notice:", err);
+        console.warn("[AppUpdate] Check notice:", err.message);
       }
-    }, 2500);
+    };
 
-    return () => clearTimeout(timer);
+    // Initial check on mount
+    const timer = setTimeout(() => performUpdateCheck(true), 2500);
+
+    // Lifecycle resume & online reconnection listeners
+    const handleResume = () => {
+      if (document.visibilityState === "visible") {
+        performUpdateCheck(false);
+      }
+    };
+    const handleFocus = () => performUpdateCheck(false);
+    const handleOnline = () => performUpdateCheck(true);
+
+    document.addEventListener("visibilitychange", handleResume);
+    window.addEventListener("focus", handleFocus);
+    window.addEventListener("online", handleOnline);
+
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener("visibilitychange", handleResume);
+      window.removeEventListener("focus", handleFocus);
+      window.removeEventListener("online", handleOnline);
+    };
   }, []);
 
   // 1. Listen for Native Deep Links & App Links (smartattend:// or https://)

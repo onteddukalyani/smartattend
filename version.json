@@ -3,14 +3,30 @@
   "versionCode": 1,
   "releaseDate": "2026-10-01",
   "minRequiredVersion": "1.0.0",
-  "apkUrl": "https://github.com/onteddukalyani/smartattend/raw/main/SmartAttend-release.apk",
-  "title": "SmartAttend Version 1 (v1.0.0)",
+  "apkUrl": "https://raw.githubusercontent.com/onteddukalyani/smartattend/main/SmartAttend-release.apk",
+  "sha256Checksum": "",
+  "fileSizeBytes": 0,
+  "platform": "android",
+  "isMandatory": false,
+  "mandatoryReason": "",
+  "title": "SmartAttend Official Release (v1.0.0)",
   "releaseNotes": [
-    "Official Version 1 Release of SmartAttend",
-    "Modern glassmorphism UI & responsive dark mode styling",
-    "Real-time notifications, attendance management, and analytics",
-    "Multi-role security (Admin, Faculty, Student) with device verification",
-    "Integrated In-App Update system for seamless APK upgrades"
+    "Official Release of SmartAttend with modern glassmorphism UI",
+    "Streamed In-App Update system with SHA-256 integrity checks",
+    "Step-by-step Android installation and source permission guidance",
+    "Real-time attendance management and student verification"
   ],
-  "isMandatory": false
+  "history": [
+    {
+      "version": "1.0.0",
+      "releaseDate": "2026-10-01",
+      "title": "SmartAttend Initial Release",
+      "releaseNotes": [
+        "Initial release of SmartAttend Attendance Management System.",
+        "Role-based portals for Admins, Lecturers, and Students.",
+        "On-device biometric and QR attendance workflow."
+      ]
+    }
+  ]
 }
+

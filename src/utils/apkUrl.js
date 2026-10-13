@@ -7,7 +7,6 @@
 
 export const GITHUB_RAW_APK_URL = 'https://raw.githubusercontent.com/onteddukalyani/smartattend/main/SmartAttend-release.apk';
 export const GITHUB_RELEASE_APK_URL = 'https://github.com/onteddukalyani/smartattend/raw/main/SmartAttend-release.apk';
-export const GITHUB_LATEST_RELEASE_APK_URL = 'https://github.com/onteddukalyani/smartattend/releases/latest/download/SmartAttend-release.apk';
 
 export const APK_MIRRORS = [
   {
@@ -21,12 +20,6 @@ export const APK_MIRRORS = [
     label: 'Mirror 1 (GitHub Direct)',
     url: GITHUB_RELEASE_APK_URL,
     description: 'Direct GitHub repository binary'
-  },
-  {
-    id: 'github_releases',
-    label: 'Mirror 2 (Releases CDN)',
-    url: GITHUB_LATEST_RELEASE_APK_URL,
-    description: 'GitHub Release assets endpoint'
   }
 ];
 

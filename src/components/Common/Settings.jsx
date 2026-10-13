@@ -110,9 +110,10 @@ function Settings() {
             setUpdateCheckResult("");
             const info = await checkForAppUpdate();
             if (info && info.hasUpdate) {
-                setUpdateModalInfo(info);
+                setUpdateModalInfo({ ...info, isOpen: true });
                 setUpdateCheckResult(`Update Available: v${info.latestVersion}`);
             } else {
+                setUpdateModalInfo({ ...(info || {}), isOpen: true });
                 setUpdateCheckResult(`SmartAttend is up-to-date (v${CURRENT_APP_VERSION})`);
                 setTimeout(() => setUpdateCheckResult(""), 4500);
             }
@@ -701,6 +702,22 @@ function Settings() {
                                 >
                                     {checkingUpdate ? <FaSpinner className="st-spin-icon" /> : <FaSyncAlt />}
                                     <span>{checkingUpdate ? "Checking..." : "Check for Updates"}</span>
+                                </button>
+                                <button
+                                    type="button"
+                                    className="st-btn-feature-outline"
+                                    onClick={async () => {
+                                        try {
+                                            setCheckingUpdate(true);
+                                            const info = await checkForAppUpdate();
+                                            setUpdateModalInfo({ ...(info || {}), isOpen: true });
+                                        } finally {
+                                            setCheckingUpdate(false);
+                                        }
+                                    }}
+                                    title="View Release Notes, Changelog and Android Installation Guide"
+                                >
+                                    <FaRocket /> <span>Guide &amp; Notes</span>
                                 </button>
                                 <a
                                     href={getApkDownloadUrl()}

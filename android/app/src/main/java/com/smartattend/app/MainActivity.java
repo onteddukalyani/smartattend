@@ -36,6 +36,7 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle savedInstanceState) {
         sInstance = this;
         registerPlugin(KioskPlugin.class);
+        registerPlugin(BiometricPlugin.class);
         super.onCreate(savedInstanceState);
 
         // Enable Chrome remote debugging for WebView
