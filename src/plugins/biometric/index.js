@@ -3,31 +3,36 @@ import { registerPlugin, Capacitor } from '@capacitor/core';
 /**
  * Native Capacitor BiometricPlugin Registration with Strict Web Isolation
  * 
- * Hardware fingerprint biometric authentication with Android Keystore binding
- * is strictly isolated to the native Android platform. Web browsers do not
- * provide Android Keystore access and will cleanly reject operations without
- * false success fallbacks.
+ * Hardware asymmetric biometric authentication is supported on:
+ * - Native Android: AndroidKeyStore (EC secp256r1, Class 3 BIOMETRIC_STRONG)
+ * - Native iOS: Apple Secure Enclave (EC secp256r1, Face ID / Touch ID)
+ * 
+ * Web browsers (Desktop / Mobile Safari / Chrome) do not provide hardware Keystore/Secure Enclave
+ * access and cleanly report WEB_UNSUPPORTED without false success fallbacks.
  */
 const NativeBiometricPlugin = registerPlugin('BiometricPlugin', {
   web: {
     isHardwareAvailable: async () => {
       return {
+        isNative: false,
         isNativeAndroid: false,
+        isNativeIOS: false,
+        platform: 'web',
         isAvailable: false,
         enrolled: false,
         status: 'WEB_UNSUPPORTED',
-        message: 'Hardware fingerprint authentication is strictly supported on native Android devices only.',
+        message: 'Hardware biometric authentication is supported on native Android and iOS applications only.',
         deviceModel: typeof navigator !== 'undefined' ? navigator.userAgent : 'Web Browser',
         sdkVersion: 0
       };
     },
     createBiometricKey: async () => {
-      const err = new Error('Hardware biometric key generation is restricted to the native SmartAttend Android application.');
+      const err = new Error('Hardware biometric key generation is restricted to native mobile applications.');
       err.code = 'PLATFORM_NOT_SUPPORTED';
       throw err;
     },
     signChallenge: async () => {
-      const err = new Error('Hardware biometric challenge signing is restricted to the native SmartAttend Android application.');
+      const err = new Error('Hardware biometric challenge signing is restricted to native mobile applications.');
       err.code = 'PLATFORM_NOT_SUPPORTED';
       throw err;
     },
@@ -50,19 +55,33 @@ const NativeBiometricPlugin = registerPlugin('BiometricPlugin', {
 });
 
 /**
- * Universal Biometric Controller Interface for SmartAttend Android
+ * Universal Cross-Platform Biometric Controller Interface for SmartAttend (Android & iOS)
  */
 export const Biometric = {
   /**
-   * Check if Class 3 BIOMETRIC_STRONG hardware sensor is present and enrolled.
-   * @returns {Promise<{ isNativeAndroid: boolean, isAvailable: boolean, enrolled: boolean, status: string, message: string, deviceModel: string, sdkVersion: number }>}
+   * Check if hardware biometric sensor is present and enrolled.
+   * On Android: Class 3 BIOMETRIC_STRONG (Fingerprint)
+   * On iOS: Face ID / Touch ID
+   * @returns {Promise<{ isNative?: boolean, isNativeAndroid?: boolean, isNativeIOS?: boolean, platform?: string, isAvailable: boolean, enrolled: boolean, status: string, message: string, deviceModel: string, sdkVersion?: number, biometryType?: string }>}
    */
   async isHardwareAvailable() {
     try {
-      return await NativeBiometricPlugin.isHardwareAvailable();
-    } catch (err) {
+      const result = await NativeBiometricPlugin.isHardwareAvailable();
+      const currentPlatform = Capacitor.getPlatform();
       return {
-        isNativeAndroid: Capacitor.isNativePlatform(),
+        ...result,
+        isNative: Capacitor.isNativePlatform(),
+        isNativeAndroid: currentPlatform === 'android',
+        isNativeIOS: currentPlatform === 'ios',
+        platform: currentPlatform
+      };
+    } catch (err) {
+      const currentPlatform = Capacitor.getPlatform();
+      return {
+        isNative: Capacitor.isNativePlatform(),
+        isNativeAndroid: currentPlatform === 'android',
+        isNativeIOS: currentPlatform === 'ios',
+        platform: currentPlatform,
         isAvailable: false,
         enrolled: false,
         status: 'CHECK_ERROR',
@@ -74,11 +93,12 @@ export const Biometric = {
   },
 
   /**
-   * Generate an EC secp256r1 key in AndroidKeyStore requiring fingerprint authentication per use,
-   * and sign an enrollment challenge to authorize registration.
+   * Generate an EC secp256r1 key in AndroidKeyStore / Apple Secure Enclave requiring biometric authorization per use,
+   * invalidating permanently if new biometrics are added in OS Settings.
+   * Signs an enrollment challenge to authorize registration.
    * 
    * @param {{ keyAlias: string, challenge: string, promptTitle?: string, promptSubtitle?: string }} options
-   * @returns {Promise<{ success: boolean, keyAlias: string, publicKey: string, algorithm: string, signature: string, isInsideSecureHardware: boolean, deviceModel: string, sdkVersion: number }>}
+   * @returns {Promise<{ success: boolean, keyAlias: string, publicKey: string, algorithm: string, signature: string, isInsideSecureHardware: boolean, deviceModel: string, sdkVersion?: number }>}
    */
   async createBiometricKey(options) {
     if (!options?.keyAlias || !options?.challenge) {
@@ -89,7 +109,7 @@ export const Biometric = {
 
   /**
    * Sign an attendance challenge using the registered biometric-bound private key.
-   * Triggers Android BiometricPrompt for fingerprint verification.
+   * Triggers Android BiometricPrompt or Apple Face ID / Touch ID.
    * 
    * @param {{ keyAlias: string, challenge: string, promptTitle?: string, promptSubtitle?: string }} options
    * @returns {Promise<{ success: boolean, keyAlias: string, signature: string, algorithm: string }>}
@@ -102,7 +122,7 @@ export const Biometric = {
   },
 
   /**
-   * Check if a biometric key exists in AndroidKeyStore and verify its hardware status.
+   * Check if a biometric key exists in KeyStore / Keychain and verify its hardware status.
    * 
    * @param {{ keyAlias: string }} options
    * @returns {Promise<{ exists: boolean, keyAlias: string, publicKey?: string, isInsideSecureHardware: boolean, isPermanentlyInvalidated: boolean }>}
@@ -115,7 +135,7 @@ export const Biometric = {
   },
 
   /**
-   * Delete a biometric key from AndroidKeyStore upon revocation.
+   * Delete a biometric key from KeyStore / Keychain.
    * 
    * @param {{ keyAlias: string }} options
    * @returns {Promise<{ success: boolean, deleted: boolean, keyAlias: string }>}

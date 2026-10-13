@@ -19,6 +19,8 @@
 		958DCC812FE993A50072D4E8 /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = 958DCC802FE993A50072D4E8 /* GoogleService-Info.plist */; };
 		9582B6902FE993A70072D4E8 /* GuidedAccessPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9582B68E2FE993A50072D4E8 /* GuidedAccessPlugin.swift */; };
 		9582B6912FE993A70072D4E8 /* GuidedAccessPlugin.m in Sources */ = {isa = PBXBuildFile; fileRef = 9582B68F2FE993A50072D4E8 /* GuidedAccessPlugin.m */; };
+		9582B6922FE993A70072D4E8 /* BiometricPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9582B6942FE993A50072D4E8 /* BiometricPlugin.swift */; };
+		9582B6932FE993A70072D4E8 /* BiometricPlugin.m in Sources */ = {isa = PBXBuildFile; fileRef = 9582B6952FE993A50072D4E8 /* BiometricPlugin.m */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -36,6 +38,8 @@
 		958DCC802FE993A50072D4E8 /* GoogleService-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "GoogleService-Info.plist"; sourceTree = "<group>"; };
 		9582B68E2FE993A50072D4E8 /* GuidedAccessPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GuidedAccessPlugin.swift; sourceTree = "<group>"; };
 		9582B68F2FE993A50072D4E8 /* GuidedAccessPlugin.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = GuidedAccessPlugin.m; sourceTree = "<group>"; };
+		9582B6942FE993A50072D4E8 /* BiometricPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BiometricPlugin.swift; sourceTree = "<group>"; };
+		9582B6952FE993A50072D4E8 /* BiometricPlugin.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = BiometricPlugin.m; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -82,6 +86,8 @@
 				50B271D01FEDC1A000F3C39B /* public */,
 				9582B68E2FE993A50072D4E8 /* GuidedAccessPlugin.swift */,
 				9582B68F2FE993A50072D4E8 /* GuidedAccessPlugin.m */,
+				9582B6942FE993A50072D4E8 /* BiometricPlugin.swift */,
+				9582B6952FE993A50072D4E8 /* BiometricPlugin.m */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -172,6 +178,8 @@
 				9582B6832FE993A70072D4E8 /* SceneDelegate.swift in Sources */,
 				9582B6902FE993A70072D4E8 /* GuidedAccessPlugin.swift in Sources */,
 				9582B6912FE993A70072D4E8 /* GuidedAccessPlugin.m in Sources */,
+				9582B6922FE993A70072D4E8 /* BiometricPlugin.swift in Sources */,
+				9582B6932FE993A70072D4E8 /* BiometricPlugin.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

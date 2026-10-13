@@ -90,5 +90,9 @@
 	<string>SmartAttend allows uploading student profile and biometric photos from your library.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>SmartAttend allows saving student reports, attendance data, and QR codes to your photos.</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>SmartAttend uses Face ID to securely authenticate and bind attendance credentials to your student account.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>SmartAttend requires location access to verify your physical presence inside the classroom during attendance.</string>
 </dict>
 </plist>
