@@ -22,9 +22,14 @@ import {
   computeHeadPose,
   computeFacialRatios,
   computeMotionVariance,
+  computeMAR,
+  computeSmileMetric,
+  MAR_SMILE_THRESHOLD,
+  fuseFaceDescriptors,
   BLINK_CLOSED_THRESHOLD,
   BLINK_OPEN_THRESHOLD,
-  STATIC_VARIANCE_THRESHOLD
+  STATIC_VARIANCE_THRESHOLD,
+  RandomizedChallengeEngine
 } from "../../../utils/livenessDetector";
 import "./FaceScanner.css";
 
@@ -176,6 +181,8 @@ function FaceScanner({
   const [blinkCount, setBlinkCount] = useState(0);
   const [livenessPassed, setLivenessPassed] = useState(false);
   const [isSpoof, setIsSpoof] = useState(false);
+  const challengeEngineRef = useRef(null);
+  const [activeChallenge, setActiveChallenge] = useState(null);
 
   // Reset liveness trackers cleanly
   const resetLivenessState = useCallback(() => {
@@ -190,6 +197,12 @@ function FaceScanner({
     setBlinkCount(0);
     setLivenessPassed(false);
     setIsSpoof(false);
+    if (!challengeEngineRef.current) {
+      challengeEngineRef.current = new RandomizedChallengeEngine();
+    } else {
+      challengeEngineRef.current.reset();
+    }
+    setActiveChallenge(null);
   }, []);
 
   // 1. Initialize Camera and AI Models
@@ -389,64 +402,35 @@ function FaceScanner({
             const liveDescriptor = detection.descriptor;
 
             // -------------------------------------------------------------
-            // A. LIVENESS & ANTI-SPOOFING ENGINE
+            // A. ACTIVE LIVENESS & ANTI-SPOOFING CHALLENGE ENGINE
             // -------------------------------------------------------------
-            // 1. Eye Aspect Ratio (EAR) Blink Detection
-            const leftEye = positions.slice(36, 42);
-            const rightEye = positions.slice(42, 48);
-            const leftEAR = computeEAR(leftEye);
-            const rightEAR = computeEAR(rightEye);
-            const avgEAR = (leftEAR + rightEAR) / 2.0;
-
-            // Track eye transition: OPEN -> CLOSED -> OPEN (1 Natural Blink)
-            if (avgEAR < BLINK_CLOSED_THRESHOLD) {
-              eyeStateRef.current = "closed";
-            } else if (avgEAR >= BLINK_OPEN_THRESHOLD) {
-              if (eyeStateRef.current === "closed") {
-                blinkCountRef.current += 1;
-                livenessConfirmedRef.current = true;
-                spoofDetectedRef.current = false;
-                staticFramesCountRef.current = 0;
-                setBlinkCount(blinkCountRef.current);
-                setLivenessPassed(true);
-                setIsSpoof(false);
-              }
-              eyeStateRef.current = "open";
+            if (!challengeEngineRef.current) {
+              challengeEngineRef.current = new RandomizedChallengeEngine();
             }
 
-            // 2. 3D Facial Micro-Dynamics & Parallax Tracking (Detects Static 2D Photos/Screens)
-            const currentRatios = computeFacialRatios(positions);
-            ratioHistoryRef.current.push(currentRatios);
-            if (ratioHistoryRef.current.length > 20) {
-              ratioHistoryRef.current.shift();
-            }
+            const challengeEngine = challengeEngineRef.current;
+            const isChallengeComplete = challengeEngine.processFrame(detection);
 
-            const motionVariance = computeMotionVariance(ratioHistoryRef.current);
+            setActiveChallenge({
+              message: challengeEngine.message,
+              progress: challengeEngine.progress,
+              currentChallenge: challengeEngine.currentChallenge,
+              currentIndex: challengeEngine.currentIndex,
+              challenges: challengeEngine.challenges,
+              isComplete: challengeEngine.isComplete,
+              spoofDetected: challengeEngine.spoofDetected
+            });
 
-            // If authentic 3D micro-movement is detected
-            if (motionVariance > 0.00065 && ratioHistoryRef.current.length >= 10) {
+            if (challengeEngine.spoofDetected) {
+              spoofDetectedRef.current = true;
+              livenessConfirmedRef.current = false;
+              setIsSpoof(true);
+              setLivenessPassed(false);
+            } else if (isChallengeComplete) {
               livenessConfirmedRef.current = true;
               spoofDetectedRef.current = false;
               setLivenessPassed(true);
               setIsSpoof(false);
-            }
-
-            // If face is completely static for >18 frames without blinks -> Spoof Detected!
-            if (
-              blinkCountRef.current === 0 &&
-              !livenessConfirmedRef.current &&
-              motionVariance < STATIC_VARIANCE_THRESHOLD &&
-              ratioHistoryRef.current.length >= 12
-            ) {
-              staticFramesCountRef.current += 1;
-              if (staticFramesCountRef.current >= STATIC_FRAME_LIMIT) {
-                spoofDetectedRef.current = true;
-                livenessConfirmedRef.current = false;
-                setIsSpoof(true);
-                setLivenessPassed(false);
-              }
-            } else if (motionVariance >= STATIC_VARIANCE_THRESHOLD) {
-              staticFramesCountRef.current = Math.max(0, staticFramesCountRef.current - 1);
             }
 
             // -------------------------------------------------------------
@@ -462,7 +446,7 @@ function FaceScanner({
               setConfidence(conf);
 
               const isMatch = dist <= MATCH_THRESHOLD;
-              const isLive = livenessConfirmedRef.current || blinkCountRef.current >= 1;
+              const isLive = livenessConfirmedRef.current;
               const isSpoofed = spoofDetectedRef.current;
 
               if (isSpoofed) {
@@ -480,7 +464,7 @@ function FaceScanner({
                 consecutiveMatchesRef.current += 1;
                 if (consecutiveMatchesRef.current >= 2) {
                   setStatus("verified");
-                  setFeedback(`✅ Live Face Verified! Match Confidence: ${conf}% (${verifiedStudent.name}) • Liveness: PASS 🛡️`);
+                  setFeedback(`✅ Live Face Verified! Match Confidence: ${conf}% (${verifiedStudent.name}) • Active Challenge Passed 🛡️`);
                   // Halt animation loop and camera immediately to prevent WebView stutter / freezing
                   if (animationRef.current) {
                     cancelAnimationFrame(animationRef.current);
@@ -496,7 +480,7 @@ function FaceScanner({
                     distance: dist,
                     liveness: true,
                     antiSpoof: "PASSED",
-                    blinkCount: blinkCountRef.current,
+                    blinkCount: challengeEngine.blinkCount || 2,
                     student: verifiedStudent
                   });
                 } else {
@@ -507,7 +491,7 @@ function FaceScanner({
               } else if (isMatch && !isLive) {
                 consecutiveMatchesRef.current = 0;
                 setStatus("liveness_check");
-                setFeedback("👁️ Face Matched! Please blink naturally to confirm live presence...");
+                setFeedback(challengeEngine.message || "👁️ Active Challenge: Follow on-screen instructions...");
                 onVerificationChange({
                   verified: false,
                   reason: "LIVENESS_CHECK_REQUIRED",
@@ -541,7 +525,7 @@ function FaceScanner({
               });
 
               const isMatch = bestMatch && minDistance <= MATCH_THRESHOLD;
-              const isLive = livenessConfirmedRef.current || blinkCountRef.current >= 1;
+              const isLive = livenessConfirmedRef.current;
               const isSpoofed = spoofDetectedRef.current;
 
               if (isSpoofed) {
@@ -556,7 +540,7 @@ function FaceScanner({
                 setFeedback(`✅ Live Verified: ${bestMatch.name} (${bestMatch.rollNo}) • ${conf}% Match`);
               } else if (isMatch && !isLive) {
                 setStatus("liveness_check");
-                setFeedback(`👁️ Recognized ${bestMatch.name}. Please blink naturally to confirm liveness...`);
+                setFeedback(challengeEngine.message || `👁️ Recognized ${bestMatch.name}. Complete active challenge...`);
               } else {
                 setStatus("mismatch");
                 setRecognizedStudent(null);
@@ -756,9 +740,19 @@ function FaceScanner({
           <FaShieldAlt /> Anti-Spoof: {isSpoof ? "⚠️ ALERT (Static Photo/Screen)" : livenessPassed ? "PASSED (Live Human)" : "Active 🛡️"}
         </span>
         <span className={`liveness-shield-tag ${livenessPassed ? "live-pass" : ""}`}>
-          {livenessPassed ? <FaEye /> : <FaEyeSlash />} Blink Check: {blinkCount >= 1 ? `✅ Blink Verified (${blinkCount})` : "👁️ Blink to Verify"}
+          {livenessPassed ? <FaEye /> : <FaEyeSlash />} Active Challenge: {livenessPassed ? "✅ Verified" : (activeChallenge ? `${activeChallenge.currentIndex + 1}/3` : "Pending")}
         </span>
       </div>
+
+      {/* Active Anti-Spoofing Challenge HUD */}
+      {status === "liveness_check" && activeChallenge && (
+        <div className="active-challenge-hud">
+          <div className="challenge-prompt-text">{activeChallenge.message}</div>
+          <div className="challenge-progress-bar-bg">
+            <div className="challenge-progress-bar-fill" style={{ width: `${Math.max(10, activeChallenge.progress)}%` }} />
+          </div>
+        </div>
+      )}
 
       {/* Unregistered Alert Banner */}
       {status === "unregistered" && (

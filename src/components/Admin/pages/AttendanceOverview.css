@@ -1055,6 +1055,18 @@
   box-shadow: 0 2px 8px rgba(239, 68, 68, 0.25);
 }
 
+.violation-tab-btn.active-present {
+  background: #10b981;
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.25);
+}
+
+.violation-tab-btn.active-absent {
+  background: #f59e0b;
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(245, 158, 11, 0.25);
+}
+
 .violation-tab-btn.active-reviewed {
   background: #10b981;
   color: #ffffff;
@@ -1065,6 +1077,44 @@
   background: #6366f1;
   color: #ffffff;
   box-shadow: 0 2px 8px rgba(99, 102, 241, 0.25);
+}
+
+.violation-controls-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  width: 100%;
+  margin-top: 12px;
+  margin-bottom: 12px;
+}
+
+.violation-filter-select {
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border, #cbd5e1);
+  background: var(--surface, #ffffff);
+  color: var(--text-main, #1e293b);
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.violation-filter-select:focus {
+  border-color: #6366f1;
+}
+
+.violation-audit-card.absent {
+  background: #fffbeb;
+  border: 1.5px solid #fde68a;
+  box-shadow: 0 2px 8px rgba(245, 158, 11, 0.05);
+}
+
+.violation-card-badge.absent {
+  background: #fef3c7;
+  color: #b45309;
 }
 
 /* Empty State */

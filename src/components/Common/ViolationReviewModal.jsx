@@ -62,20 +62,33 @@ export default function ViolationReviewModal({ violation, onClose, onActionCompl
                 }
             }
 
-            // 1. Update attendance record
+            // 1. Determine canonical status & reviewer metadata
+            const currentUser = auth.currentUser;
+            const reviewerName = currentUser?.displayName || currentUser?.email || 'Lecturer';
+            const reviewerUid = currentUser?.uid || '';
+            const canonicalStatus = status === 'APPROVED' ? 'RESOLVED_PRESENT' : status === 'REJECTED' ? 'RESOLVED_ABSENT' : 'DISMISSED';
+            const defaultNote = canonicalStatus === 'RESOLVED_PRESENT' ? 'Pardoned by lecturer' : canonicalStatus === 'DISMISSED' ? 'Dismissed by lecturer' : 'Rejected by lecturer';
+            const finalNotes = reviewNotes || defaultNote;
+
             const targetIds = new Set();
             if (violation.id) targetIds.add(violation.id);
             if (sessionId && studentRoll) targetIds.add(`${sessionId}_${studentRoll}`);
 
             const recordUpdatePayload = {
                 status: status, // 'APPROVED' | 'REJECTED' | 'DISMISSED'
+                resolutionStatus: canonicalStatus,
                 verificationStatus: status === 'APPROVED' ? 'VERIFIED' : 'REJECTED',
                 flagged: false,
                 disqualified: status === 'REJECTED',
                 hasViolation: false,
+                hadViolation: true, // Permanent historical flag
+                violationReason: violation.violationReason || violation.reason || violation.violationType || 'Security violation',
                 reviewed: true,
+                isReviewed: true,
                 reviewedByRole: 'LECTURER',
-                reviewNotes: reviewNotes || (status === 'APPROVED' ? 'Pardoned by lecturer' : status === 'DISMISSED' ? 'Dismissed by lecturer' : 'Rejected by lecturer'),
+                reviewedByUid: reviewerUid,
+                reviewedByName: reviewerName,
+                reviewNotes: finalNotes,
                 reviewedAt: serverTimestamp(),
                 excused: status === 'APPROVED',
                 dismissed: status === 'DISMISSED',
@@ -87,7 +100,7 @@ export default function ViolationReviewModal({ violation, onClose, onActionCompl
                 await setDoc(recordRef, recordUpdatePayload, { merge: true }).catch(() => {});
             }
 
-            // 2. Update session doc: clean flaggedViolations array & update attendees
+            // 2. Update session doc: PRESERVE in flaggedViolations array with updated status & subcollection
             if (sessionId) {
                 try {
                     const sessionRef = doc(db, 'attendance_sessions', sessionId);
@@ -96,12 +109,48 @@ export default function ViolationReviewModal({ violation, onClose, onActionCompl
                         const sessData = sessionSnap.data();
                         const sessionUpdate = {};
 
-                        // Remove from flaggedViolations array so it never appears in pending review lists
+                        // Update in flaggedViolations array in-place without deleting!
                         if (Array.isArray(sessData?.flaggedViolations)) {
-                            sessionUpdate.flaggedViolations = sessData.flaggedViolations.filter((f) => {
+                            let matchedExisting = false;
+                            sessionUpdate.flaggedViolations = sessData.flaggedViolations.map((f) => {
                                 const fRoll = (f.rollNo || f.studentUid || "").toUpperCase().trim();
-                                return fRoll !== studentRoll && fRoll !== studentUid.toUpperCase() && f.id !== violation.id;
+                                const isTarget = fRoll === studentRoll || fRoll === studentUid.toUpperCase() || f.id === violation.id;
+                                if (!isTarget) return f;
+                                matchedExisting = true;
+                                return {
+                                    ...f,
+                                    status: canonicalStatus,
+                                    isReviewed: true,
+                                    reviewed: true,
+                                    reviewedAt: Date.now(),
+                                    reviewedByRole: 'LECTURER',
+                                    reviewedByUid: reviewerUid,
+                                    reviewedByName: reviewerName,
+                                    reviewNotes: finalNotes,
+                                    resolutionDecision: status
+                                };
                             });
+
+                            if (!matchedExisting) {
+                                sessionUpdate.flaggedViolations.push({
+                                    id: violation.id || `${sessionId}_${studentRoll}`,
+                                    rollNo: studentRoll,
+                                    studentUid: studentUid,
+                                    studentName: studentName,
+                                    violationType: violation.violationType || 'SECURITY_FLAG',
+                                    violationReason: violation.violationReason || violation.reason || 'Security violation',
+                                    timestamp: violation.timestamp || Date.now(),
+                                    status: canonicalStatus,
+                                    isReviewed: true,
+                                    reviewed: true,
+                                    reviewedAt: Date.now(),
+                                    reviewedByRole: 'LECTURER',
+                                    reviewedByUid: reviewerUid,
+                                    reviewedByName: reviewerName,
+                                    reviewNotes: finalNotes,
+                                    resolutionDecision: status
+                                });
+                            }
                         }
 
                         // If approved, ensure student is added to the session's attendees array
@@ -132,6 +181,28 @@ export default function ViolationReviewModal({ violation, onClose, onActionCompl
                             await updateDoc(sessionRef, sessionUpdate).catch(() => {});
                         }
 
+                        // Also persist to /violations subcollection
+                        const violDocId = violation.id || `${sessionId}_${studentRoll}`;
+                        const violSubRef = doc(db, 'attendance_sessions', sessionId, 'violations', violDocId);
+                        await setDoc(violSubRef, {
+                            id: violDocId,
+                            sessionId: sessionId,
+                            rollNo: studentRoll,
+                            studentUid: studentUid,
+                            studentName: studentName,
+                            violationType: violation.violationType || 'SECURITY_FLAG',
+                            violationReason: violation.violationReason || violation.reason || 'Security violation',
+                            status: canonicalStatus,
+                            isReviewed: true,
+                            reviewedAt: Date.now(),
+                            reviewedByUid: reviewerUid,
+                            reviewedByName: reviewerName,
+                            reviewedByRole: 'LECTURER',
+                            reviewNotes: finalNotes,
+                            resolutionDecision: status,
+                            timestamp: violation.timestamp || Date.now()
+                        }, { merge: true }).catch(() => {});
+
                         // Also update authorization subcollection
                         const authRef = doc(db, 'attendance_sessions', sessionId, 'authorizations', studentUid);
                         await setDoc(authRef, {
@@ -139,9 +210,10 @@ export default function ViolationReviewModal({ violation, onClose, onActionCompl
                             released: true,
                             releaseStatus: 'RELEASED',
                             flagged: false,
-                            disqualified: false,
+                            disqualified: status === 'REJECTED',
                             reviewed: true,
-                            excused: status === 'APPROVED'
+                            excused: status === 'APPROVED',
+                            resolutionStatus: canonicalStatus
                         }, { merge: true }).catch(() => {});
                     }
                 } catch (sessErr) {

@@ -1,7 +1,7 @@
 import { doc, getDoc } from "firebase/firestore";
 import { db } from "../firebase";
 import { Capacitor } from "@capacitor/core";
-import { getApkDownloadUrl, GITHUB_RELEASE_APK_URL } from "../utils/apkUrl";
+import { getApkDownloadUrl, GITHUB_RELEASE_APK_URL, getApkMirrors } from "../utils/apkUrl";
 
 export const CURRENT_APP_VERSION = "1.0.0";
 export const CURRENT_APP_VERSION_CODE = 1;
@@ -108,7 +108,8 @@ export async function checkForAppUpdate() {
     releaseNotes: Array.isArray(remoteData.releaseNotes)
       ? remoteData.releaseNotes
       : ["Performance improvements and general bug fixes."],
-    apkUrl
+    apkUrl,
+    mirrors: getApkMirrors()
   };
 }
 
@@ -129,3 +130,137 @@ export function triggerApkDownload(downloadUrl) {
     document.body.removeChild(link);
   }
 }
+
+/**
+ * Stream APK download with progress tracking, transfer speed calculation,
+ * and automatic fallback if streaming or CORS is blocked.
+ * 
+ * @param {Object} options
+ * @param {string} options.url - The APK download URL
+ * @param {function} options.onProgress - Callback ({ percent, receivedBytes, totalBytes, speedKBps, stage })
+ * @param {AbortSignal} [options.signal] - Optional AbortSignal
+ * @returns {Promise<{ success: boolean, fallback?: boolean, error?: string, warning?: string }>}
+ */
+export async function downloadApkWithStream({ url, onProgress, signal }) {
+  const targetUrl = url || getApkDownloadUrl();
+  const startTime = Date.now();
+  let lastSpeedCheckTime = startTime;
+  let lastSpeedCheckBytes = 0;
+  let currentSpeedKBps = 0;
+
+  try {
+    if (onProgress) {
+      onProgress({ percent: 0, receivedBytes: 0, totalBytes: 0, speedKBps: 0, stage: 'connecting' });
+    }
+
+    const response = await fetch(targetUrl, {
+      signal,
+      headers: {
+        'Accept': 'application/vnd.android.package-archive, application/octet-stream, */*'
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(`Server returned HTTP ${response.status} ${response.statusText}`);
+    }
+
+    const contentLengthHeader = response.headers.get('content-length');
+    const totalBytes = contentLengthHeader ? parseInt(contentLengthHeader, 10) : 0;
+    const reader = response.body?.getReader();
+
+    if (!reader) {
+      // If ReadableStream is not supported or null, trigger direct browser download
+      triggerApkDownload(targetUrl);
+      if (onProgress) {
+        onProgress({ percent: 100, receivedBytes: totalBytes, totalBytes, speedKBps: 0, stage: 'direct_triggered' });
+      }
+      return { success: true, fallback: true };
+    }
+
+    let receivedBytes = 0;
+    const chunks = [];
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      chunks.push(value);
+      receivedBytes += value.length;
+
+      const now = Date.now();
+      const timeDelta = (now - lastSpeedCheckTime) / 1000;
+      if (timeDelta >= 0.4) {
+        const bytesDelta = receivedBytes - lastSpeedCheckBytes;
+        currentSpeedKBps = Math.round((bytesDelta / 1024) / timeDelta);
+        lastSpeedCheckTime = now;
+        lastSpeedCheckBytes = receivedBytes;
+      }
+
+      const percent = totalBytes > 0 ? Math.min(100, Math.round((receivedBytes / totalBytes) * 100)) : 0;
+
+      if (onProgress) {
+        onProgress({
+          percent,
+          receivedBytes,
+          totalBytes,
+          speedKBps: currentSpeedKBps,
+          stage: 'downloading'
+        });
+      }
+    }
+
+    if (onProgress) {
+      onProgress({
+        percent: 100,
+        receivedBytes,
+        totalBytes: receivedBytes,
+        speedKBps: currentSpeedKBps,
+        stage: 'processing'
+      });
+    }
+
+    // Assemble blob and trigger file save
+    const blob = new Blob(chunks, { type: 'application/vnd.android.package-archive' });
+    const blobUrl = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = blobUrl;
+    link.download = 'SmartAttend-release.apk';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+    setTimeout(() => {
+      URL.revokeObjectURL(blobUrl);
+    }, 60000);
+
+    if (onProgress) {
+      onProgress({
+        percent: 100,
+        receivedBytes,
+        totalBytes: receivedBytes,
+        speedKBps: 0,
+        stage: 'completed'
+      });
+    }
+
+    return { success: true };
+  } catch (err) {
+    if (signal?.aborted) {
+      return { success: false, error: 'Download cancelled by user' };
+    }
+    console.warn('[AppUpdate] Streamed download failed, falling back to direct browser download:', err);
+    // Graceful fallback to browser's native download manager
+    triggerApkDownload(targetUrl);
+    if (onProgress) {
+      onProgress({
+        percent: 100,
+        receivedBytes: 0,
+        totalBytes: 0,
+        speedKBps: 0,
+        stage: 'direct_fallback'
+      });
+    }
+    return { success: true, fallback: true, warning: err.message };
+  }
+}
+

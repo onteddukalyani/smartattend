@@ -947,17 +947,62 @@ export async function excuseAndReinstateAttendance(sessionId, studentInfo, lectu
       sessionUpdates.attendanceCount = increment(1);
     }
 
-    // Remove from session flaggedViolations array so it never appears again in active pending lists
+    // Preserve in session flaggedViolations array with updated status and audit trail
+    const violDocId = (studentInfo.id && !studentInfo.id.includes("/")) ? studentInfo.id : `${sessionId}_${rollNo}`;
     if (Array.isArray(session?.flaggedViolations)) {
-      sessionUpdates.flaggedViolations = session.flaggedViolations.filter((f) => {
+      let matched = false;
+      sessionUpdates.flaggedViolations = session.flaggedViolations.map((f) => {
         const fRoll = (f.rollNo || f.studentUid || "").toUpperCase().trim();
-        return fRoll !== rollNo && fRoll !== studentUid.toUpperCase() && f.id !== studentInfo.id;
+        if (fRoll === rollNo || fRoll === studentUid.toUpperCase() || f.id === studentInfo.id) {
+          matched = true;
+          return {
+            ...f,
+            reviewed: true,
+            excused: true,
+            status: "APPROVED",
+            resolutionStatus: "RESOLVED_PRESENT",
+            reviewedAt: now,
+            reviewedByName: lecturerName,
+            reviewNotes: excuseReason || "Excused and marked Present"
+          };
+        }
+        return f;
       });
+      if (!matched) {
+        sessionUpdates.flaggedViolations.push({
+          id: violDocId,
+          rollNo: rollNo,
+          studentName: studentName,
+          reviewed: true,
+          excused: true,
+          status: "APPROVED",
+          resolutionStatus: "RESOLVED_PRESENT",
+          reviewedAt: now,
+          reviewedByName: lecturerName,
+          reviewNotes: excuseReason || "Excused and marked Present"
+        });
+      }
     }
 
     await updateDoc(sessionRef, sessionUpdates).catch((err) => {
       console.warn("Session attendee array update notice:", err);
     });
+
+    // Write to session violations audit subcollection
+    const violDocRef = doc(db, "attendance_sessions", sessionId, "violations", violDocId);
+    await setDoc(violDocRef, {
+      id: violDocId,
+      sessionId,
+      rollNo,
+      studentName,
+      status: "APPROVED",
+      resolutionStatus: "RESOLVED_PRESENT",
+      reviewed: true,
+      excused: true,
+      reviewedAt: now,
+      reviewedByName: lecturerName,
+      reviewNotes: excuseReason || "Excused and marked Present"
+    }, { merge: true }).catch(() => { });
 
     // 4. Update session authorization subcollection doc
     const authPayload = {
@@ -1066,29 +1111,76 @@ export async function dismissOrRemoveViolation(sessionId, studentInfo, reviewedB
     const recordDocId = studentInfo.id && studentInfo.id.includes("_") ? studentInfo.id : `${sessionId}_${rollNo}`;
     const recordRef = doc(db, "attendance_records", recordDocId);
 
+    const resolutionStatus = decision === "REJECTED" ? "RESOLVED_ABSENT" : "DISMISSED";
+    const statusVal = decision === "REJECTED" ? "REJECTED" : "DISMISSED";
+
     // Update attendance record as REVIEWED / DISMISSED / REJECTED
     await setDoc(recordRef, {
       reviewed: true,
       reviewedAt: now,
       reviewedByRole: reviewedByRole,
       reviewNotes: notes,
-      status: decision === "REJECTED" ? "REJECTED" : "DISMISSED",
+      status: statusVal,
+      resolutionStatus: resolutionStatus,
       flagged: false,
-      hasViolation: false,
-      dismissed: true
+      hasViolation: true,
+      dismissed: decision !== "REJECTED"
     }, { merge: true }).catch(() => { });
 
-    // Update session document: remove from flaggedViolations array
+    const violDocId = (studentInfo.id && !studentInfo.id.includes("/")) ? studentInfo.id : `${sessionId}_${rollNo}`;
+
+    // Update session document: PRESERVE in flaggedViolations array with audit status
     if (sessionSnap && sessionSnap.exists()) {
       const sessData = sessionSnap.data();
       if (Array.isArray(sessData?.flaggedViolations)) {
-        const updatedFlagged = sessData.flaggedViolations.filter((f) => {
+        let matched = false;
+        const updatedFlagged = sessData.flaggedViolations.map((f) => {
           const fRoll = (f.rollNo || f.studentUid || "").toUpperCase().trim();
-          return fRoll !== rollNo && fRoll !== studentUid.toUpperCase() && f.id !== studentInfo.id;
+          if (fRoll === rollNo || fRoll === studentUid.toUpperCase() || f.id === studentInfo.id) {
+            matched = true;
+            return {
+              ...f,
+              reviewed: true,
+              status: statusVal,
+              resolutionStatus: resolutionStatus,
+              reviewedAt: now,
+              reviewedByRole: reviewedByRole,
+              reviewNotes: notes
+            };
+          }
+          return f;
         });
+        if (!matched) {
+          updatedFlagged.push({
+            id: violDocId,
+            rollNo: rollNo,
+            studentName: studentInfo.studentName || rollNo,
+            reviewed: true,
+            status: statusVal,
+            resolutionStatus: resolutionStatus,
+            reviewedAt: now,
+            reviewedByRole: reviewedByRole,
+            reviewNotes: notes
+          });
+        }
         await updateDoc(sessionRef, { flaggedViolations: updatedFlagged }).catch(() => { });
       }
     }
+
+    // Write to session violations audit subcollection
+    const violDocRef = doc(db, "attendance_sessions", sessionId, "violations", violDocId);
+    await setDoc(violDocRef, {
+      id: violDocId,
+      sessionId,
+      rollNo,
+      studentName: studentInfo.studentName || rollNo,
+      status: statusVal,
+      resolutionStatus: resolutionStatus,
+      reviewed: true,
+      reviewedAt: now,
+      reviewedByRole: reviewedByRole,
+      reviewNotes: notes
+    }, { merge: true }).catch(() => { });
 
     // Update authorization doc in subcollection
     const authRef = doc(db, "attendance_sessions", sessionId, "authorizations", studentUid);

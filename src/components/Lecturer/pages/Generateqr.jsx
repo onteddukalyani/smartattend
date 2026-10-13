@@ -16,6 +16,7 @@ import { sendFacultyNotification, sendBroadcastNotification } from "../../../ser
 import { useAuth } from "../../authcontext";
 import { isCourseAssignedToLecturer } from "../../Common/CoursesManager";
 import { normalizeBranchName } from "../../../utils/studentDataHelper";
+import { generateRotatingQrPayload, DEFAULT_ROTATION_INTERVAL, ROTATION_INTERVALS } from "../../../utils/qrCrypto";
 import {
     FaQrcode,
     FaBookOpen,
@@ -68,6 +69,12 @@ function GenerateQR() {
     const [qr1ExpiresAt, setQr1ExpiresAt] = useState(0);
     const [kioskEndsAt, setKioskEndsAt] = useState(0);
     const [elapsedSeconds, setElapsedSeconds] = useState(0);
+
+    // Dynamic Rotating QR & Geofence State
+    const [rotationIntervalSec, setRotationIntervalSec] = useState(DEFAULT_ROTATION_INTERVAL);
+    const [rotationSecondsLeft, setRotationSecondsLeft] = useState(DEFAULT_ROTATION_INTERVAL);
+    const [dynamicQrUrl, setDynamicQrUrl] = useState("");
+    const [classroomCoords, setClassroomCoords] = useState(null);
 
     const [sessionData, setSessionData] = useState(null);
     const [authorizedStudents, setAuthorizedStudents] = useState([]);
@@ -260,6 +267,25 @@ function GenerateQR() {
             setPhase("PHASE_1");
             setElapsedSeconds(0);
 
+            // Capture Classroom GPS coordinates for Geofencing (10-metre immutable radius)
+            if (typeof navigator !== "undefined" && navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(
+                    (pos) => {
+                        const coords = {
+                            latitude: pos.coords.latitude,
+                            longitude: pos.coords.longitude,
+                            accuracy: pos.coords.accuracy,
+                            radius: 10
+                        };
+                        setClassroomCoords(coords);
+                    },
+                    (err) => {
+                        console.warn("Classroom GPS capture notice:", err.message);
+                    },
+                    { enableHighAccuracy: true, timeout: 6000 }
+                );
+            }
+
             // Real-time Faculty & Admin Alert
             sendFacultyNotification(
                 `Attendance Session Started: ${courseCode.trim()} 🟢`,
@@ -409,9 +435,49 @@ function GenerateQR() {
         }
     };
 
-    // Construct Active QR URL based on current phase
+    // Dynamic Rotating QR Effect (rotates every rotationIntervalSec, default 10s)
+    useEffect(() => {
+        if (!sessionId || phase === "NONE" || phase === "CLOSED") return;
+
+        let isMounted = true;
+        const updateDynamicToken = async () => {
+            const baseToken = phase === "PHASE_1" ? qr1Token : qr2Token;
+            const currentPhaseNum = phase === "PHASE_1" ? "1" : "2";
+            const url = await generateRotatingQrPayload({
+                sessionId,
+                phase: currentPhaseNum,
+                baseToken,
+                intervalSec: rotationIntervalSec,
+                classroomLocation: classroomCoords
+            });
+            if (isMounted) {
+                setDynamicQrUrl(url);
+            }
+        };
+
+        updateDynamicToken();
+
+        setRotationSecondsLeft(rotationIntervalSec);
+        const intervalId = setInterval(() => {
+            setRotationSecondsLeft((prev) => {
+                if (prev <= 1) {
+                    updateDynamicToken();
+                    return rotationIntervalSec;
+                }
+                return prev - 1;
+            });
+        }, 1000);
+
+        return () => {
+            isMounted = false;
+            clearInterval(intervalId);
+        };
+    }, [sessionId, phase, qr1Token, qr2Token, rotationIntervalSec, classroomCoords]);
+
+    // Construct Active QR URL based on current phase and dynamic rotation
     const activeQrUrl = useMemo(() => {
         if (!sessionId) return "";
+        if (dynamicQrUrl) return dynamicQrUrl;
         if (phase === "PHASE_1" && qr1Token) {
             return `${window.location.origin}/student/mark-attendance?session=${encodeURIComponent(sessionId)}&qr1Token=${encodeURIComponent(qr1Token)}&phase=1`;
         }
@@ -419,7 +485,7 @@ function GenerateQR() {
             return `${window.location.origin}/student/mark-attendance?session=${encodeURIComponent(sessionId)}&qr2Token=${encodeURIComponent(qr2Token)}&phase=2`;
         }
         return `${window.location.origin}/student/mark-attendance?session=${encodeURIComponent(sessionId)}`;
-    }, [sessionId, phase, qr1Token, qr2Token]);
+    }, [sessionId, phase, qr1Token, qr2Token, dynamicQrUrl]);
 
     const handleCopyLink = () => {
         if (!activeQrUrl) return;
@@ -807,11 +873,73 @@ function GenerateQR() {
                                 </div>
                             </div>
 
+                            {/* Dynamic Rotating QR HUD */}
+                            {phase !== "CLOSED" && (
+                                <div style={{
+                                    display: "flex",
+                                    justifyContent: "space-between",
+                                    alignItems: "center",
+                                    padding: "8px 14px",
+                                    background: "rgba(99, 102, 241, 0.08)",
+                                    borderRadius: "10px",
+                                    border: "1px solid rgba(99, 102, 241, 0.2)",
+                                    marginBottom: "10px",
+                                    gap: "8px",
+                                    flexWrap: "wrap"
+                                }}>
+                                    <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                                        <FaSyncAlt className="fa-spin" style={{ color: "#6366f1", fontSize: "0.85rem" }} />
+                                        <span style={{ fontSize: "0.84rem", fontWeight: 700, color: "#4338ca" }}>
+                                            Rotating QR Token: <strong style={{ color: "#ef4444" }}>{rotationSecondsLeft}s</strong>
+                                        </span>
+                                    </div>
+
+                                    <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                                        <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--text-muted, #64748b)" }}>Interval:</span>
+                                        <select
+                                            value={rotationIntervalSec}
+                                            onChange={(e) => setRotationIntervalSec(Number(e.target.value))}
+                                            style={{
+                                                padding: "3px 8px",
+                                                borderRadius: "6px",
+                                                fontSize: "0.78rem",
+                                                fontWeight: 700,
+                                                border: "1px solid #cbd5e1",
+                                                background: "#ffffff",
+                                                cursor: "pointer"
+                                            }}
+                                        >
+                                            <option value="5">5s (High Security)</option>
+                                            <option value="10">10s (Recommended)</option>
+                                            <option value="15">15s</option>
+                                            <option value="30">30s</option>
+                                            <option value="60">60s</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            )}
+
                             {/* QR Canvas Frame */}
                             {phase !== "CLOSED" ? (
-                                <div className="qr-code-frame" style={{ borderColor: phase === "PHASE_1" ? "#6366f1" : "#10b981" }}>
-                                    <QRCodeCanvas value={activeQrUrl} size={270} />
-                                </div>
+                                <>
+                                    <div className="qr-code-frame" style={{ borderColor: phase === "PHASE_1" ? "#6366f1" : "#10b981" }}>
+                                        <QRCodeCanvas value={activeQrUrl} size={270} />
+                                    </div>
+                                    <div style={{
+                                        display: "flex",
+                                        alignItems: "center",
+                                        justifyContent: "center",
+                                        gap: "6px",
+                                        fontSize: "0.78rem",
+                                        fontWeight: 700,
+                                        color: "#059669",
+                                        marginTop: "6px",
+                                        marginBottom: "10px"
+                                    }}>
+                                        <span>📍 Classroom Geofence: Strict 10m Active</span>
+                                        {classroomCoords && <span>(±{Math.round(classroomCoords.accuracy || 0)}m GPS Accuracy)</span>}
+                                    </div>
+                                </>
                             ) : (
                                 <div style={{
                                     padding: "30px 20px",

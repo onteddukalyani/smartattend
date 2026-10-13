@@ -43,6 +43,9 @@ import GuidedAccessRequired, { GuidedAccessExitNotice } from '../GuidedAccessReq
 import { isGenericName, normalizeDescriptor } from '../../utils/studentDataHelper';
 import { detectDeviceType, getClientIpAddress, getDeviceDisplayName, isDeviceMatching } from '../../utils/deviceDetection';
 import { sendFacultyNotification, sendStudentNotification, reportUserVerificationComplaint } from '../../services/notificationsService';
+import { validateRotatingQrPayload } from '../../utils/qrCrypto';
+import { evaluateGeofence } from '../../utils/geofence';
+import { verifyHardwareBiometric } from '../../services/biometricService';
 
 /**
  * Stage 4: Student Two-Phase Attendance Scanner & Supervised Kiosk Controller
@@ -950,6 +953,18 @@ function QrScannerApp() {
             releaseAllMediaTracks();
             setScannerActive(false);
 
+            // Hardware Fingerprint Biometric Check (Platform Authenticator)
+            try {
+                const hardwareBio = await verifyHardwareBiometric(user?.uid, "SmartAttend Classroom Verification");
+                if (!hardwareBio.success) {
+                    setErrorMessage(hardwareBio.message || "❌ Hardware fingerprint authentication failed.");
+                    setScanState('KIOSK_WAITING_QR2');
+                    return;
+                }
+            } catch (bioErr) {
+                console.warn("[Scanner] Hardware biometric notice:", bioErr);
+            }
+
             // Move to Live Biometric Face Verification
             setScanState('BIOMETRIC_SCAN');
         } catch (err) {
@@ -964,17 +979,65 @@ function QrScannerApp() {
         }
     };
 
-    // Master Scan Handler
-    const processSessionString = (raw) => {
+    // Master Scan Handler with Dynamic Token Expiry & Geofence Enforcement
+    const processSessionString = async (raw) => {
         if (!raw) return;
-        const payload = parseScannedPayload(raw);
 
+        // 1. Validate Dynamic Rotating Token and Expiry Window
+        const validation = await validateRotatingQrPayload(raw);
+        if (!validation.valid) {
+            console.warn('[Scanner] Rotating QR token validation failed:', validation.error);
+            setErrorMessage(validation.message || '❌ Invalid or expired QR code.');
+            return;
+        }
+
+        const payload = validation.payload || parseScannedPayload(raw);
         if (!payload || !payload.sessionId) {
             setErrorMessage('Invalid QR code format. Please scan a valid SmartAttend session QR code.');
             return;
         }
 
-        // 1. If student is already checked in (in Kiosk Mode waiting for QR 2):
+        // 2. Geofence Check (Enforces immutable 10m classroom radius)
+        const classroomTarget = payload.geo || sessionData?.classroomLocation;
+        if (classroomTarget) {
+            try {
+                const getCoords = () => new Promise((resolve) => {
+                    if (typeof navigator === "undefined" || !navigator.geolocation) {
+                        resolve(null);
+                        return;
+                    }
+                    navigator.geolocation.getCurrentPosition(
+                        (pos) => resolve(pos.coords),
+                        () => resolve(null),
+                        { enableHighAccuracy: true, timeout: 7000 }
+                    );
+                });
+                const studentCoords = await getCoords();
+                const geoEval = evaluateGeofence(studentCoords, classroomTarget);
+
+                if (geoEval.status === "MOCK_DETECTED") {
+                    console.error("[Geofence] Mock location detected!");
+                    if (activeSessionId || payload.sessionId) {
+                        recordSessionViolation(activeSessionId || payload.sessionId, user?.uid, loggedInRollNo, "MOCK_LOCATION_DETECTED");
+                    }
+                    setErrorMessage(geoEval.message);
+                    return;
+                }
+                if (geoEval.status === "REJECT") {
+                    console.error("[Geofence] Geofence rejected:", geoEval);
+                    setErrorMessage(geoEval.message);
+                    return;
+                }
+                if (geoEval.status === "INCONCLUSIVE_RETRY") {
+                    setErrorMessage(geoEval.message);
+                    return;
+                }
+            } catch (geoErr) {
+                console.warn("[Geofence] Check notice:", geoErr);
+            }
+        }
+
+        // 3. If student is already checked in (in Kiosk Mode waiting for QR 2):
         // STRICTLY IGNORE any QR 1 scans until QR 2 is released by lecturer!
         if (scanState === 'KIOSK_WAITING_QR2' || activeSessionId) {
             const isQR2 = Boolean(payload.qr2Token || payload.phase === '2' || payload.phase === 'PHASE_2' || (sessionData?.phase === 'PHASE_2' && payload.sessionId === activeSessionId));
@@ -992,7 +1055,7 @@ function QrScannerApp() {
             return;
         }
 
-        // 2. Initial state (student has not scanned QR 1 yet):
+        // 4. Initial state (student has not scanned QR 1 yet):
         if (payload.qr1Token || payload.phase === '1' || payload.phase === 'PHASE_1') {
             handleProcessQR1(payload.sessionId, payload.qr1Token);
         } else if (payload.qr2Token || payload.phase === '2' || payload.phase === 'PHASE_2') {

@@ -26,8 +26,12 @@ import { mergeAllStudentRecords, normalizeBranchName } from "../../../utils/stud
 
 const AttendanceOverview = () => {
   const navigate = useNavigate();
+  const todayStr = useMemo(() => new Date().toISOString().slice(0, 10), []);
   const [activeViewTab, setActiveViewTab] = useState("overview"); // "overview" | "matrix"
-  const [violationFilterTab, setViolationFilterTab] = useState("PENDING"); // "PENDING" | "REVIEWED" | "ALL"
+  const [violationFilterTab, setViolationFilterTab] = useState("ALL"); // "ALL" | "PENDING" | "RESOLVED_PRESENT" | "RESOLVED_ABSENT"
+  const [violationDateFilter, setViolationDateFilter] = useState("TODAY"); // "TODAY" | "ALL" | "YYYY-MM-DD"
+  const [violationClassFilter, setViolationClassFilter] = useState("ALL"); // "ALL" | classCode
+  const [availableClasses, setAvailableClasses] = useState([]);
   const [search, setSearch] = useState("");
   const [students, setStudents] = useState([]);
   const [recentSessions, setRecentSessions] = useState([]);
@@ -44,42 +48,90 @@ const AttendanceOverview = () => {
     totalViolations: 0
   });
 
-  const pendingViolations = useMemo(() => {
-    return flaggedViolations.filter(v => !v.isReviewed);
-  }, [flaggedViolations]);
+  const filteredViolationsByClassAndDate = useMemo(() => {
+    return flaggedViolations.filter((v) => {
+      // 1. Class / Course filter
+      if (violationClassFilter !== "ALL") {
+        const vClass = (v.classCode || "").toUpperCase().trim();
+        const vCourse = (v.courseCode || "").toUpperCase().trim();
+        const target = violationClassFilter.toUpperCase().trim();
+        if (vClass !== target && vCourse !== target) {
+          return false;
+        }
+      }
 
-  const reviewedViolations = useMemo(() => {
-    return flaggedViolations.filter(v => v.isReviewed);
-  }, [flaggedViolations]);
+      // 2. Date filter (defaults to TODAY)
+      const rawDate = v.timestamp || v.submittedAt || v.sessionDate || v.createdAt;
+      if (violationDateFilter === "TODAY") {
+        if (!rawDate) return true;
+        const dStr = new Date(typeof rawDate === "string" ? rawDate : Number(rawDate)).toISOString().slice(0, 10);
+        if (dStr !== todayStr) return false;
+      } else if (violationDateFilter !== "ALL") {
+        if (!rawDate) return false;
+        const dStr = new Date(typeof rawDate === "string" ? rawDate : Number(rawDate)).toISOString().slice(0, 10);
+        if (dStr !== violationDateFilter) return false;
+      }
+
+      return true;
+    });
+  }, [flaggedViolations, violationClassFilter, violationDateFilter, todayStr]);
+
+  const pendingViolations = useMemo(() => {
+    return filteredViolationsByClassAndDate.filter((v) => !v.isReviewed);
+  }, [filteredViolationsByClassAndDate]);
+
+  const resolvedPresentViolations = useMemo(() => {
+    return filteredViolationsByClassAndDate.filter(
+      (v) => v.isReviewed && (v.resolutionStatus === "RESOLVED_PRESENT" || v.status === "APPROVED" || v.excused === true)
+    );
+  }, [filteredViolationsByClassAndDate]);
+
+  const resolvedAbsentViolations = useMemo(() => {
+    return filteredViolationsByClassAndDate.filter(
+      (v) => v.isReviewed && (v.resolutionStatus === "RESOLVED_ABSENT" || v.status === "REJECTED")
+    );
+  }, [filteredViolationsByClassAndDate]);
 
   const displayedViolations = useMemo(() => {
     if (violationFilterTab === "PENDING") return pendingViolations;
-    if (violationFilterTab === "REVIEWED") return reviewedViolations;
-    return flaggedViolations;
-  }, [violationFilterTab, pendingViolations, reviewedViolations, flaggedViolations]);
+    if (violationFilterTab === "RESOLVED_PRESENT") return resolvedPresentViolations;
+    if (violationFilterTab === "RESOLVED_ABSENT") return resolvedAbsentViolations;
+    return filteredViolationsByClassAndDate;
+  }, [violationFilterTab, pendingViolations, resolvedPresentViolations, resolvedAbsentViolations, filteredViolationsByClassAndDate]);
 
   const computeOverview = (authDocs, studentsDocs, usersDocs, sessionsDocs, recordsDocs, complaintsDocs = []) => {
     try {
       const totalSessionsCount = sessionsDocs.length;
       const totalRecordsCount = recordsDocs.length;
 
-      // 1. Gather all Flagged Violations (Pending & Reviewed history)
+      // Extract distinct class/course codes for the filter dropdown
+      const classCodesSet = new Set();
+      sessionsDocs.forEach((sDoc) => {
+        const s = typeof sDoc.data === "function" ? sDoc.data() : sDoc;
+        if (s.classCode) classCodesSet.add(s.classCode);
+        if (s.courseCode) classCodesSet.add(s.courseCode);
+      });
+      setAvailableClasses(Array.from(classCodesSet).sort());
+
+      // 1. Gather all Flagged Violations (Records, Session arrays, and Security complaints)
       const violationsList = [];
+
+      // A. Violations from attendance_records
       recordsDocs.forEach((docSnap) => {
         const d = typeof docSnap.data === "function" ? docSnap.data() : docSnap;
+        const isResolvedPresent = d.status === "APPROVED" || d.excused === true;
+        const isResolvedAbsent = d.status === "REJECTED";
+        const isDismissed = d.status === "DISMISSED" || d.dismissed === true;
         const isReviewedOrResolved =
           d.reviewed === true ||
           Boolean(d.reviewedByRole) ||
           Boolean(d.reviewedAt) ||
-          d.excused === true ||
-          d.resolved === true ||
-          d.dismissed === true ||
+          isResolvedPresent ||
+          isResolvedAbsent ||
+          isDismissed ||
           d.flagged === false ||
           d.hasViolation === false ||
-          d.status === "APPROVED" ||
           d.status === "RESOLVED" ||
-          d.status === "DISMISSED" ||
-          d.status === "REJECTED" ||
           d.status === "ATTENDED" ||
           d.status === "PRESENT";
 
@@ -96,14 +148,70 @@ const AttendanceOverview = () => {
           Boolean(d.violationType);
 
         if (isViolationRecord) {
+          const resStatus = isResolvedPresent
+            ? "RESOLVED_PRESENT"
+            : isResolvedAbsent
+            ? "RESOLVED_ABSENT"
+            : isDismissed
+            ? "DISMISSED"
+            : isReviewedOrResolved
+            ? "RESOLVED"
+            : "PENDING";
+
           violationsList.push({
             id: docSnap.id || d.id,
             isReviewed: isReviewedOrResolved,
+            resolutionStatus: d.resolutionStatus || resStatus,
+            timestamp: d.timestamp || d.submittedAt || d.createdAt || Date.now(),
             ...d
           });
         }
       });
 
+      // B. Violations from attendance_sessions (s.flaggedViolations array)
+      sessionsDocs.forEach((sDoc) => {
+        const s = typeof sDoc.data === "function" ? sDoc.data() : sDoc;
+        const sId = sDoc.id || s.id;
+        if (Array.isArray(s.flaggedViolations)) {
+          s.flaggedViolations.forEach((f, idx) => {
+            const isResolvedPresent = f.resolutionStatus === "RESOLVED_PRESENT" || f.status === "APPROVED" || f.excused === true;
+            const isResolvedAbsent = f.resolutionStatus === "RESOLVED_ABSENT" || f.status === "REJECTED";
+            const isDismissed = f.resolutionStatus === "DISMISSED" || f.status === "DISMISSED" || f.dismissed === true;
+            const isReviewed = f.reviewed === true || Boolean(f.reviewedAt) || Boolean(f.reviewedByName) || isResolvedPresent || isResolvedAbsent || isDismissed;
+
+            const resStatus = isResolvedPresent
+              ? "RESOLVED_PRESENT"
+              : isResolvedAbsent
+              ? "RESOLVED_ABSENT"
+              : isDismissed
+              ? "DISMISSED"
+              : isReviewed
+              ? "RESOLVED"
+              : "PENDING";
+
+            violationsList.push({
+              id: f.id || `${sId}_${f.rollNo || idx}`,
+              sessionId: sId,
+              classCode: s.classCode || s.courseCode || "General",
+              courseCode: s.courseCode || s.classCode || "General",
+              lecturerName: s.lecturerName || "Faculty",
+              sessionDate: s.createdAt,
+              rollNo: f.rollNo || f.studentUid || "UNKNOWN",
+              studentName: f.studentName || f.fullName || f.rollNo || "Unknown Student",
+              violationReason: f.violationReason || f.violationType || f.reason || "App Switched or Screen Locked",
+              timestamp: f.timestamp || f.occurredAt || s.createdAt || Date.now(),
+              status: f.status || (isReviewed ? (isResolvedPresent ? "APPROVED" : isResolvedAbsent ? "REJECTED" : "DISMISSED") : "FLAGGED"),
+              resolutionStatus: f.resolutionStatus || resStatus,
+              isReviewed: isReviewed,
+              reviewedByName: f.reviewedByName,
+              reviewNotes: f.reviewNotes,
+              ...f
+            });
+          });
+        }
+      });
+
+      // C. Violations from security_complaints
       complaintsDocs.forEach((cSnap) => {
         const c = typeof cSnap.data === "function" ? cSnap.data() : cSnap;
         const isResolvedComplaint = c?.status === "RESOLVED" || c?.status === "DISMISSED" || c?.status === "CLOSED" || c?.resolved === true;
@@ -113,9 +221,11 @@ const AttendanceOverview = () => {
             rollNo: c.rollNo || c.rollNumber || "UNKNOWN",
             studentName: c.userName || c.name || c.rollNo,
             classCode: c.context || "Security System",
+            courseCode: c.context || "Security System",
             violationReason: c.reason || "Security verification flagged",
             timestamp: c.reportedAt || (c.timestamp ? new Date(c.timestamp).getTime() : Date.now()),
             status: c.status || (isResolvedComplaint ? "RESOLVED" : "OPEN_COMPLAINT"),
+            resolutionStatus: isResolvedComplaint ? "DISMISSED" : "PENDING",
             isReviewed: isResolvedComplaint,
             ...c
           });
@@ -125,9 +235,10 @@ const AttendanceOverview = () => {
       // Deduplicate violations by ID or roll+timestamp
       const uniqueViolations = [];
       const seenViolIds = new Set();
-      violationsList.forEach(v => {
-        if (!seenViolIds.has(v.id)) {
-          seenViolIds.add(v.id);
+      violationsList.forEach((v) => {
+        const key = v.id || `${v.sessionId}_${v.rollNo}`;
+        if (!seenViolIds.has(key)) {
+          seenViolIds.add(key);
           uniqueViolations.push(v);
         }
       });
@@ -444,17 +555,26 @@ const AttendanceOverview = () => {
 
       {/* FLAGGED VIOLATIONS & ANTI-PROXY AUDIT SECTION */}
       <section className="attendance-section">
-        <div className="section-heading" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "12px" }}>
+        <div className="section-heading" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "12px" }}>
           <div>
             <h2 style={{ display: "flex", alignItems: "center", gap: "8px", margin: 0 }}>
               <FaShieldAlt style={{ color: "#ef4444" }} />
-              Anti-Proxy Violations &amp; Security Audits ({flaggedViolations.length})
+              Anti-Proxy Violations &amp; Security Audits ({filteredViolationsByClassAndDate.length})
             </h2>
-            <p style={{ margin: "4px 0 0 0" }}>App switch detections, device mismatch alerts, and security review logs</p>
+            <p style={{ margin: "4px 0 0 0" }}>
+              Permanent audit records for app switches, lockout violations, and administrative review decisions.
+            </p>
           </div>
 
           {/* Filter Tabs */}
           <div className="violation-filter-bar">
+            <button
+              type="button"
+              onClick={() => setViolationFilterTab("ALL")}
+              className={`violation-tab-btn ${violationFilterTab === "ALL" ? "active-all" : ""}`}
+            >
+              📋 All ({filteredViolationsByClassAndDate.length})
+            </button>
             <button
               type="button"
               onClick={() => setViolationFilterTab("PENDING")}
@@ -464,18 +584,59 @@ const AttendanceOverview = () => {
             </button>
             <button
               type="button"
-              onClick={() => setViolationFilterTab("REVIEWED")}
-              className={`violation-tab-btn ${violationFilterTab === "REVIEWED" ? "active-reviewed" : ""}`}
+              onClick={() => setViolationFilterTab("RESOLVED_PRESENT")}
+              className={`violation-tab-btn ${violationFilterTab === "RESOLVED_PRESENT" ? "active-present" : ""}`}
             >
-              ✅ Reviewed ({reviewedViolations.length})
+              ✅ Resolved Present ({resolvedPresentViolations.length})
             </button>
             <button
               type="button"
-              onClick={() => setViolationFilterTab("ALL")}
-              className={`violation-tab-btn ${violationFilterTab === "ALL" ? "active-all" : ""}`}
+              onClick={() => setViolationFilterTab("RESOLVED_ABSENT")}
+              className={`violation-tab-btn ${violationFilterTab === "RESOLVED_ABSENT" ? "active-absent" : ""}`}
             >
-              📋 All ({flaggedViolations.length})
+              ❌ Resolved Absent ({resolvedAbsentViolations.length})
             </button>
+          </div>
+        </div>
+
+        {/* Filter Controls Row: Class and Date selectors */}
+        <div className="violation-controls-row">
+          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            <span style={{ fontSize: "0.82rem", fontWeight: 700, color: "var(--text-muted, #64748b)" }}>Class / Course:</span>
+            <select
+              value={violationClassFilter}
+              onChange={(e) => setViolationClassFilter(e.target.value)}
+              className="violation-filter-select"
+            >
+              <option value="ALL">🏫 All Classes &amp; Courses</option>
+              {availableClasses.map((code) => (
+                <option key={code} value={code}>
+                  {code}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            <span style={{ fontSize: "0.82rem", fontWeight: 700, color: "var(--text-muted, #64748b)" }}>Session Date:</span>
+            <select
+              value={violationDateFilter}
+              onChange={(e) => setViolationDateFilter(e.target.value)}
+              className="violation-filter-select"
+            >
+              <option value="TODAY">📅 Today ({todayStr})</option>
+              <option value="ALL">🗓️ All Dates (Historical)</option>
+              <option value="CUSTOM">🔍 Custom Date...</option>
+            </select>
+            {violationDateFilter !== "TODAY" && violationDateFilter !== "ALL" && (
+              <input
+                type="date"
+                value={violationDateFilter === "CUSTOM" ? todayStr : violationDateFilter}
+                onChange={(e) => setViolationDateFilter(e.target.value)}
+                className="violation-filter-select"
+                style={{ padding: "6px 10px" }}
+              />
+            )}
           </div>
         </div>
 
@@ -483,22 +644,36 @@ const AttendanceOverview = () => {
           <div className="violation-empty-state">
             <p className={violationFilterTab === "PENDING" ? "empty-pending" : "empty-other"}>
               {violationFilterTab === "PENDING"
-                ? "✅ No pending violations to review! All attendance sessions are clear."
-                : "No historical violation records found in this view."}
+                ? "✅ No pending violations to review! All attendance sessions for this filter are clear."
+                : violationFilterTab === "RESOLVED_PRESENT"
+                ? "No violations resolved as Present in this date/class filter."
+                : violationFilterTab === "RESOLVED_ABSENT"
+                ? "No violations resolved as Absent in this date/class filter."
+                : "No violation records found matching the selected class and date."}
             </p>
           </div>
         ) : (
           <div className="violation-cards-grid">
             {displayedViolations.map((v) => {
               const isResolved = Boolean(v.isReviewed);
-              const statusLabel = isResolved
-                ? (v.status === "APPROVED" || v.excused ? "Approved (Present) ✅" : v.status === "REJECTED" ? "Rejected (Absent) ❌" : "Reviewed & Dismissed 🛡️")
-                : (v.status || "PENDING_REVIEW");
+              const isPresent = v.resolutionStatus === "RESOLVED_PRESENT" || v.status === "APPROVED" || v.excused === true;
+              const isAbsent = v.resolutionStatus === "RESOLVED_ABSENT" || v.status === "REJECTED";
+              
+              const cardClass = !isResolved ? "pending" : isPresent ? "resolved" : isAbsent ? "absent" : "resolved";
+              const badgeClass = !isResolved ? "pending" : isPresent ? "resolved" : isAbsent ? "absent" : "resolved";
+              
+              const statusLabel = !isResolved
+                ? (v.status || "PENDING REVIEW 🚨")
+                : isPresent
+                ? "Resolved (Present) ✅"
+                : isAbsent
+                ? "Resolved (Absent) ❌"
+                : "Dismissed 🛡️";
 
               return (
                 <div
                   key={v.id}
-                  className={`violation-audit-card ${isResolved ? "resolved" : "pending"}`}
+                  className={`violation-audit-card ${cardClass}`}
                 >
                   <div className="violation-card-top">
                     <div>
@@ -507,21 +682,33 @@ const AttendanceOverview = () => {
                       </strong>
                       <div className="violation-student-roll">
                         {v.rollNo || "N/A"}
+                        {v.classCode && (
+                          <span style={{ marginLeft: "8px", fontWeight: 600, color: "var(--accent, #6366f1)" }}>
+                            • {v.classCode}
+                          </span>
+                        )}
                       </div>
                     </div>
-                    <span className={`violation-card-badge ${isResolved ? "resolved" : "pending"}`}>
+                    <span className={`violation-card-badge ${badgeClass}`}>
                       {statusLabel}
                     </span>
                   </div>
 
                   <p className="violation-reason-text">
-                    {v.violationReason || v.reason || "App Switched or Device Mismatch"}
+                    {v.violationReason || v.reason || "App Switched or Screen Locked"}
                     {v.reviewNotes && <span className="violation-note-text">• Note: {v.reviewNotes}</span>}
+                    {v.reviewedByName && (
+                      <span className="violation-note-text" style={{ fontStyle: "italic", opacity: 0.9 }}>
+                        • Reviewed by: {v.reviewedByName}
+                      </span>
+                    )}
                   </p>
 
                   <div className="violation-card-footer">
                     <span className="violation-time-text">
-                      {v.timestamp || v.submittedAt ? new Date(v.timestamp || v.submittedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "Recently"}
+                      {v.timestamp || v.submittedAt
+                        ? new Date(v.timestamp || v.submittedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+                        : "Recently"}
                     </span>
                     <button
                       type="button"
@@ -720,7 +907,24 @@ const AttendanceOverview = () => {
           violation={selectedViolation}
           onClose={() => setSelectedViolation(null)}
           onActionComplete={(violId, decision) => {
-            setFlaggedViolations((prev) => prev.filter((v) => v.id !== violId));
+            setFlaggedViolations((prev) =>
+              prev.map((v) =>
+                v.id === violId
+                  ? {
+                      ...v,
+                      isReviewed: true,
+                      reviewed: true,
+                      resolutionStatus: decision,
+                      status:
+                        decision === "RESOLVED_PRESENT"
+                          ? "APPROVED"
+                          : decision === "RESOLVED_ABSENT"
+                          ? "REJECTED"
+                          : "DISMISSED"
+                    }
+                  : v
+              )
+            );
             loadAttendanceData();
           }}
         />

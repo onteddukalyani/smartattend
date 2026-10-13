@@ -818,14 +818,23 @@ export function SessionAttendanceData() {
                 id: violationItem.id
             }, profile?.role || "LECTURER", "DISMISSED", "Dismissed by faculty");
 
-            // Optimistically update session state so card disappears immediately
+            // Optimistically update session state: mark as reviewed/dismissed in-place so pending list updates while preserving audit history
             setSession((prev) => {
                 if (!prev) return prev;
                 return {
                     ...prev,
-                    flaggedViolations: (prev.flaggedViolations || []).filter((f) => {
+                    flaggedViolations: (prev.flaggedViolations || []).map((f) => {
                         const r = (f.rollNo || f.studentUid || "").toUpperCase().trim();
-                        return r !== cleanRoll && f.id !== violationItem.id;
+                        if (r === cleanRoll || f.id === violationItem.id) {
+                            return {
+                                ...f,
+                                reviewed: true,
+                                dismissed: true,
+                                resolutionStatus: "DISMISSED",
+                                status: "DISMISSED"
+                            };
+                        }
+                        return f;
                     })
                 };
             });

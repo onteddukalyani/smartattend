@@ -171,6 +171,11 @@ service cloud.firestore {
         allow read, write: if request.auth != null;
       }
 
+      // Violations subcollection: permanent audit records and lecturer reviews
+      match /violations/{violationId} {
+        allow read, write: if request.auth != null;
+      }
+
       // Audit logs for release and security events
       match /audit_logs/{logId} {
         allow read, write: if request.auth != null;
