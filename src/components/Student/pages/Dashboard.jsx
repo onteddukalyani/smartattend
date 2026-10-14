@@ -31,7 +31,8 @@ import {
     FaArrowRight,
     FaEdit,
     FaCheck,
-    FaMobileAlt
+    FaMobileAlt,
+    FaFingerprint
 } from "react-icons/fa";
 import { MdQrCodeScanner } from "react-icons/md";
 import { db } from "../../../firebase";
@@ -242,6 +243,14 @@ export default function StudentDashboard() {
         (!profile?.faceRemovedAt && Array.isArray(profile?.faceDescriptor) && profile.faceDescriptor.length === 128)
     );
 
+    const hasHwRegistered = Boolean(
+        fetchedStudentData?.hardwareBiometricEnrolled ||
+        fetchedStudentData?.biometricEnrolled ||
+        profile?.hardwareBiometricEnrolled ||
+        profile?.biometricEnrolled
+    );
+    const isDualBioRegistered = hasFaceRegistered && hasHwRegistered;
+
     // Device Resolution & Mismatch Guard
     const registeredDevice = fetchedStudentData?.deviceType || fetchedStudentData?.registeredDeviceType || profile?.deviceType || profile?.registeredDeviceType || currentDeviceType;
     const detectedPlatform = detectDeviceType();
@@ -428,6 +437,12 @@ export default function StudentDashboard() {
     // Initial Face Biometric Enrollment Handler (Student Side)
     const handleEnrollStudentFace = async (enrollData) => {
         if (!enrollData || !enrollData.faceDescriptor || !activeRollNo) return;
+
+        // Security Lock: Prevent re-enrolling or editing once registered
+        if (hasFaceRegistered) {
+            alert("🔒 Biometrics Locked:\n\nYour facial biometrics are already enrolled and permanently protected. Students cannot re-enroll or edit biometrics.\n\nPlease contact your Course Lecturer or Administrator if an authorized reset is needed.");
+            return;
+        }
 
         try {
             setFaceSaving(true);
@@ -737,7 +752,13 @@ export default function StudentDashboard() {
                             </span>
                             <span
                                 className="student-sub-badge"
-                                onClick={() => setShowFaceModal(true)}
+                                onClick={() => {
+                                    if (hasFaceRegistered) {
+                                        setShowLockedFaceModal(true);
+                                    } else {
+                                        setShowFaceModal(true);
+                                    }
+                                }}
                                 style={{
                                     cursor: "pointer",
                                     background: hasFaceRegistered ? "#dcfce7" : "#fef3c7",
@@ -748,10 +769,10 @@ export default function StudentDashboard() {
                                     alignItems: "center",
                                     gap: "5px"
                                 }}
-                                title={hasFaceRegistered ? "Facial biometrics registered. Click to view or re-enroll face camera" : "Click to register your face biometrics"}
+                                title={hasFaceRegistered ? "Facial biometrics registered & locked. Click to view security status" : "Click to register your face biometrics"}
                             >
                                 {hasFaceRegistered ? (
-                                    <><FaCheckCircle size={11} /> Face Enrolled (Click to Re-enroll)</>
+                                    <><FaLock size={11} /> Face Enrolled (Locked 🔒)</>
                                 ) : (
                                     <><FaCamera size={11} /> Face Pending (Click to Enroll)</>
                                 )}
@@ -952,23 +973,30 @@ export default function StudentDashboard() {
                 </div>
             )}
 
-            {/* Face Registration Pending Banner */}
-            {!hasFaceRegistered && (
+            {/* Dual In-App Biometrics Pending Banner */}
+            {!isDualBioRegistered && (
                 <div className="face-pending-alert-banner">
                     <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
                         <FaExclamationTriangle className="face-pending-icon" />
                         <div>
                             <h4>
-                                Facial Biometrics Enrollment Required
+                                {!hasFaceRegistered && !hasHwRegistered
+                                    ? "100% In-App Dual Biometrics Required"
+                                    : !hasFaceRegistered
+                                    ? "In-App Face Biometrics Required"
+                                    : "In-App Device Fingerprint Required"}
                             </h4>
                             <p>
-                                You haven't registered your face yet. Register your biometric data once to mark attendance in class sessions.
+                                {!hasFaceRegistered && !hasHwRegistered
+                                    ? "Register both your 3D Face and Device Fingerprint directly inside the SmartAttend app before attending class sessions."
+                                    : !hasFaceRegistered
+                                    ? "Complete your live 3D Face scan in-app to verify your identity for attendance."
+                                    : "Touch your fingerprint sensor in-app to bind this phone to your account."}
                             </p>
                         </div>
                     </div>
-                    <button
-                        type="button"
-                        onClick={() => setShowFaceModal(true)}
+                    <Link
+                        to="/student/face-enroll"
                         style={{
                             display: "inline-flex",
                             alignItems: "center",
@@ -977,15 +1005,16 @@ export default function StudentDashboard() {
                             borderRadius: "10px",
                             background: "linear-gradient(135deg, #6366f1, #4f46e5)",
                             color: "#ffffff",
-                            border: "none",
+                            textDecoration: "none",
                             fontWeight: 700,
                             fontSize: "0.88rem",
                             cursor: "pointer",
-                            boxShadow: "0 4px 12px rgba(99, 102, 241, 0.25)"
+                            boxShadow: "0 4px 12px rgba(99, 102, 241, 0.25)",
+                            whiteSpace: "nowrap"
                         }}
                     >
-                        <FaCamera /> Register Face Now
-                    </button>
+                        <FaFingerprint /> Complete Biometrics In-App
+                    </Link>
                 </div>
             )}
 
@@ -1459,40 +1488,78 @@ export default function StudentDashboard() {
                                 <FaCamera /> Biometric AI Recognition
                             </div>
                             <h2 style={{ margin: "0 0 6px", fontSize: "1.35rem", fontWeight: 800, color: "var(--text-main, #0f172a)" }}>
-                                {hasFaceRegistered ? "Update / Re-enroll Facial Biometrics" : "Register Facial Biometrics"}
+                                {hasFaceRegistered ? "Facial Biometrics Registered & Locked" : "Register Facial Biometrics"}
                             </h2>
                             <p style={{ margin: 0, fontSize: "0.88rem", color: "var(--text-muted, #64748b)" }}>
                                 Roll Number: <strong style={{ color: "#6366f1" }}>{activeRollNo}</strong> • Student: <strong>{studentName}</strong>
                             </p>
                         </div>
 
-                        <LiveFaceEnrollment
-                            hideHeader={true}
-                            targetRollNo={activeRollNo}
-                            targetEmail={user?.email}
-                            targetName={studentName}
-                            onFaceEnrolled={handleEnrollStudentFace}
-                        />
-
-                        {faceSaving && (
-                            <div style={{ marginTop: "16px", textAlign: "center", color: "#6366f1", fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}>
-                                <FaSpinner className="fa-spin" /> Saving biometric facial descriptors to database...
+                        {hasFaceRegistered ? (
+                            <div style={{ textAlign: "center", padding: "16px 0" }}>
+                                <div style={{
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    gap: "8px",
+                                    padding: "8px 18px",
+                                    borderRadius: "999px",
+                                    background: "#dcfce7",
+                                    color: "#15803d",
+                                    fontWeight: 800,
+                                    fontSize: "0.9rem",
+                                    marginBottom: "16px"
+                                }}>
+                                    <FaLock /> Biometrics Permanently Locked 🔒
+                                </div>
+                                <p style={{ fontSize: "0.9rem", color: "var(--text-muted, #64748b)", lineHeight: 1.55, margin: "0 0 20px" }}>
+                                    Your 3D facial biometrics are officially registered and locked. Institutional policy strictly prohibits students from re-enrolling or editing biometrics after initial setup.
+                                </p>
+                                <button
+                                    type="button"
+                                    onClick={() => setShowFaceModal(false)}
+                                    style={{
+                                        padding: "10px 24px",
+                                        borderRadius: "10px",
+                                        background: "var(--surface-soft, #f1f5f9)",
+                                        border: "1px solid var(--border, #cbd5e1)",
+                                        fontWeight: 700,
+                                        cursor: "pointer"
+                                    }}
+                                >
+                                    Close
+                                </button>
                             </div>
-                        )}
+                        ) : (
+                            <>
+                                <LiveFaceEnrollment
+                                    hideHeader={true}
+                                    targetRollNo={activeRollNo}
+                                    targetEmail={user?.email}
+                                    targetName={studentName}
+                                    onFaceEnrolled={handleEnrollStudentFace}
+                                />
 
-                        {faceSuccessMsg && (
-                            <div style={{
-                                marginTop: "16px",
-                                padding: "12px 16px",
-                                background: "#dcfce7",
-                                color: "#15803d",
-                                borderRadius: "10px",
-                                fontWeight: 700,
-                                textAlign: "center",
-                                fontSize: "0.95rem"
-                            }}>
-                                {faceSuccessMsg}
-                            </div>
+                                {faceSaving && (
+                                    <div style={{ marginTop: "16px", textAlign: "center", color: "#6366f1", fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}>
+                                        <FaSpinner className="fa-spin" /> Saving biometric facial descriptors to database...
+                                    </div>
+                                )}
+
+                                {faceSuccessMsg && (
+                                    <div style={{
+                                        marginTop: "16px",
+                                        padding: "12px 16px",
+                                        background: "#dcfce7",
+                                        color: "#15803d",
+                                        borderRadius: "10px",
+                                        fontWeight: 700,
+                                        textAlign: "center",
+                                        fontSize: "0.95rem"
+                                    }}>
+                                        {faceSuccessMsg}
+                                    </div>
+                                )}
+                            </>
                         )}
                     </div>
                 </div>

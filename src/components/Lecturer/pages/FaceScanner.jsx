@@ -345,7 +345,7 @@ function FaceScanner({
     if (verifiedStudent && (!verifiedStudent.faceDescriptor || !Array.isArray(verifiedStudent.faceDescriptor) || verifiedStudent.faceDescriptor.length !== 128)) {
       resetLivenessState();
       setStatus("unregistered");
-      setFeedback(`⚠️ No registered face biometrics found for ${verifiedStudent.name || "Student"} (Roll No: ${verifiedStudent.rollNo || rollNo}). Attendance cannot be marked until face is registered by Lecturer or Admin.`);
+      setFeedback(`⚠️ No registered face biometrics found for ${verifiedStudent.name || "Student"} (Roll No: ${verifiedStudent.rollNo || rollNo}). Please complete in-app Face Registration in the Biometric Registration hub before marking attendance.`);
       onVerificationChange({ verified: false, reason: "NO_REGISTERED_FACE", student: verifiedStudent });
       return;
     }

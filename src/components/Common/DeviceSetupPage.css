@@ -325,6 +325,136 @@
   color: #67d3d6;
 }
 
+/* --------------------------------------------------------------------------
+   Dual-Biometric Verification Requirement Banner
+   -------------------------------------------------------------------------- */
+.device-dual-bio-banner {
+  margin: 0 0 24px;
+  padding: 20px 22px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.06) 0%, rgba(16, 185, 129, 0.06) 100%);
+  border: 1.5px solid rgba(99, 102, 241, 0.25);
+  box-shadow: 0 4px 18px rgba(99, 102, 241, 0.05);
+}
+
+.device-dual-bio-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: rgba(99, 102, 241, 0.12);
+  color: #4338ca;
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  margin-bottom: 10px;
+}
+
+.device-dual-bio-intro {
+  margin: 0 0 14px;
+  font-size: 0.92rem;
+  color: var(--text-main, #1e293b);
+  line-height: 1.5;
+}
+
+.device-dual-bio-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 14px;
+}
+
+.device-dual-bio-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: var(--surface, #ffffff);
+  border: 1px solid var(--border, #e2e8f0);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.03);
+}
+
+.bio-card-icon-wrap {
+  width: 42px;
+  height: 42px;
+  flex: 0 0 42px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.25rem;
+}
+
+.bio-card-icon-wrap.phone-bio {
+  background: rgba(99, 102, 241, 0.12);
+  color: #6366f1;
+}
+
+.bio-card-icon-wrap.inapp-bio {
+  background: rgba(16, 185, 129, 0.12);
+  color: #10b981;
+}
+
+.bio-card-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.bio-card-text h3 {
+  margin: 0 0 4px;
+  font-size: 0.96rem;
+  font-weight: 800;
+  color: var(--text-main, #0f172a);
+}
+
+.bio-card-text p {
+  margin: 0;
+  font-size: 0.83rem;
+  color: var(--text-muted, #64748b);
+  line-height: 1.45;
+}
+
+.bio-quick-enroll-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  font-size: 0.82rem;
+  font-weight: 750;
+  color: #059669;
+  text-decoration: none;
+  transition: gap 0.15s ease;
+}
+
+.bio-quick-enroll-link:hover {
+  gap: 9px;
+  text-decoration: underline;
+}
+
+[data-theme="midnight"] .device-dual-bio-banner {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.1) 0%, rgba(16, 185, 129, 0.08) 100%);
+  border-color: rgba(99, 102, 241, 0.35);
+}
+
+[data-theme="midnight"] .device-dual-bio-badge {
+  background: rgba(99, 102, 241, 0.25);
+  color: #a5b4fc;
+}
+
+[data-theme="midnight"] .device-dual-bio-card {
+  background: #1a233a;
+  border-color: #2b3b54;
+}
+
+[data-theme="midnight"] .bio-card-text h3 {
+  color: #f1f5f9;
+}
+
+[data-theme="midnight"] .bio-quick-enroll-link {
+  color: #34d399;
+}
+
 @media (max-width: 640px) {
   .device-setup-page {
     padding: 18px 14px calc(96px + env(safe-area-inset-bottom, 0px));

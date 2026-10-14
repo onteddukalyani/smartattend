@@ -6,7 +6,9 @@ import {
   FaArrowLeft,
   FaDownload,
   FaInfoCircle,
-  FaShieldAlt
+  FaShieldAlt,
+  FaFingerprint,
+  FaCamera
 } from "react-icons/fa";
 import { useAuth } from "../authcontext";
 import { isIOSDevice } from "../../services/guidedAccessService";
@@ -136,10 +138,55 @@ export default function DeviceSetupPage() {
       </button>
 
       <header className="device-setup-header">
-        <span className="device-setup-kicker"><FaShieldAlt /> DEVICE SETUP</span>
+        <span className="device-setup-kicker"><FaShieldAlt /> DEVICE SETUP &amp; BIOMETRIC VERIFICATION</span>
         <h1>Prepare your phone for attendance</h1>
-        <p>Choose your phone type to see installation and attendance instructions.</p>
+        <p>Choose your phone type below to see installation, lock mode, and biometric instructions.</p>
       </header>
+
+      {/* Mandatory Dual-Biometric Banner (Both Android and iPhone) */}
+      <section className="device-dual-bio-banner" aria-label="Biometric Requirements">
+        <div className="device-dual-bio-badge">
+          <FaShieldAlt /> 100% IN-APP DUAL-BIOMETRIC REGISTRATION (ANDROID &amp; IPHONE)
+        </div>
+        <p className="device-dual-bio-intro">
+          To prevent proxy attendance, every student must register <strong>BOTH</strong> biometrics directly inside the SmartAttend app before scanning. You do not need to navigate out of the app:
+        </p>
+        <div className="device-dual-bio-grid">
+          <div className="device-dual-bio-card">
+            <div className="bio-card-icon-wrap inapp-bio">
+              <FaCamera />
+            </div>
+            <div className="bio-card-text">
+              <h3>1. In-App 3D Face Registration</h3>
+              <p>
+                Complete your live <strong>3D Face Scan</strong> right inside SmartAttend with active anti-spoofing (blink, head turn, smile). Encrypted facial vectors are securely saved.
+              </p>
+              {profile?.role === "student" && (
+                <Link to="/student/face-enroll" className="bio-quick-enroll-link">
+                  Open Face Registration <FaArrowLeft style={{ transform: "rotate(180deg)" }} />
+                </Link>
+              )}
+            </div>
+          </div>
+
+          <div className="device-dual-bio-card">
+            <div className="bio-card-icon-wrap phone-bio">
+              <FaFingerprint />
+            </div>
+            <div className="bio-card-text">
+              <h3>2. In-App Device Fingerprint</h3>
+              <p>
+                Register your <strong>Fingerprint / Touch ID</strong> directly in SmartAttend. Tapping the in-app button prompts your device sensor and binds your physical phone cryptographically.
+              </p>
+              {profile?.role === "student" && (
+                <Link to="/student/face-enroll" className="bio-quick-enroll-link">
+                  Open Fingerprint Registration <FaArrowLeft style={{ transform: "rotate(180deg)" }} />
+                </Link>
+              )}
+            </div>
+          </div>
+        </div>
+      </section>
 
       <div className="device-platform-tabs" role="tablist" aria-label="Phone type">
         <button
@@ -167,8 +214,8 @@ export default function DeviceSetupPage() {
           <div className="device-instructions-heading android">
             <FaAndroid />
             <div>
-              <h2>Android app</h2>
-              <p>Install the SmartAttend APK before marking attendance.</p>
+              <h2>Android Setup Checklist</h2>
+              <p>Install the SmartAttend APK and register both face and fingerprint biometrics directly inside the app.</p>
             </div>
           </div>
 
@@ -183,11 +230,21 @@ export default function DeviceSetupPage() {
           )}
 
           <ol className="device-instruction-list">
-            <li>Open the APK link on your Android phone and download the installer.</li>
-            <li>Open the downloaded APK. If Android asks, allow your browser or file manager to install unknown apps, then confirm Install.</li>
-            <li>Open SmartAttend and sign in with your student account.</li>
-            <li>Allow camera access. If prompted for attendance lock permissions, follow the Android Settings prompt and return to SmartAttend.</li>
-            <li>Scan the lecturer's QR codes in order. Keep SmartAttend open until attendance finishes or the lecturer releases the device.</li>
+            <li>
+              <strong>Download &amp; Install APK:</strong> Open the APK link on your Android phone and download the installer. Allow <span className="device-step-tag">Install unknown apps</span> if prompted.
+            </li>
+            <li>
+              <strong>Register Face Biometrics In-App:</strong> Launch SmartAttend, sign in, open <span className="device-step-tag">Sidebar</span> <span className="device-path-arrow">→</span> <span className="device-step-tag">Biometric Registration</span>, and complete your live 3D face scan with the front camera.
+            </li>
+            <li>
+              <strong>Register Fingerprint Directly In-App:</strong> On the same page, tap the <span className="device-step-tag">Device Fingerprint</span> tab and tap <span className="device-step-tag">Touch Sensor to Register Fingerprint In-App</span>. Touch your phone's sensor to bind this phone to your account.
+            </li>
+            <li>
+              <strong>Allow Camera &amp; Lock Permissions:</strong> If prompted for lock permissions, grant <span className="device-step-tag">Display over other apps</span> so SmartAttend can pin attendance mode.
+            </li>
+            <li>
+              <strong>Mark Attendance:</strong> Scan the lecturer's QR codes in order. Touch the in-app fingerprint sensor when prompted, then verify your face to complete attendance.
+            </li>
           </ol>
           <p className="device-setup-caveat">Kiosk lock availability depends on the Android app and device provisioning. If lock mode is unavailable, contact your administrator before class.</p>
         </section>
@@ -196,17 +253,33 @@ export default function DeviceSetupPage() {
           <div className="device-instructions-heading ios">
             <FaApple />
             <div>
-              <h2>iPhone web app</h2>
-              <p>Install SmartAttend from Safari, then use Guided Access during attendance.</p>
+              <h2>iPhone Setup Checklist</h2>
+              <p>Install the Home Screen web app, enable Guided Access, and register both biometrics directly in the app.</p>
             </div>
           </div>
 
           <ol className="device-instruction-list">
-            <li>Open the SmartAttend website in Safari. Tap Share, then <strong>Add to Home Screen</strong>.</li>
-            <li>Open <span className="device-step-tag">iPhone Settings</span> <span className="device-path-arrow">→</span> <span className="device-step-tag">Accessibility</span> <span className="device-path-arrow">→</span> <span className="device-step-tag">Guided Access</span>. Turn it on and set a passcode.</li>
-            <li>Launch SmartAttend from the Home Screen icon and sign in with your student account.</li>
-            <li>Before scanning attendance QR codes, triple-click the Side button (or Home button on supported older devices) and tap Start.</li>
-            <li>After the lecturer ends the attendance flow, triple-click again and enter your Guided Access passcode to exit.</li>
+            <li>
+              <strong>Install to Home Screen:</strong> Open the SmartAttend website in Safari. Tap the Share icon, then select <span className="device-step-tag">Add to Home Screen</span> (PWA Mode).
+            </li>
+            <li>
+              <strong>Turn On Guided Access:</strong> Open <span className="device-step-tag">iPhone Settings</span> <span className="device-path-arrow">→</span> <span className="device-step-tag">Accessibility</span> <span className="device-path-arrow">→</span> <span className="device-step-tag">Guided Access</span>. Turn it on and set a passcode.
+            </li>
+            <li>
+              <strong>Register Face Biometrics In-App:</strong> Launch SmartAttend from the Home Screen, sign in, open <span className="device-step-tag">Sidebar</span> <span className="device-path-arrow">→</span> <span className="device-step-tag">Biometric Registration</span>, and complete your live 3D face scan.
+            </li>
+            <li>
+              <strong>Register Device Biometrics In-App:</strong> Switch to the <span className="device-step-tag">Device Fingerprint</span> tab and tap <span className="device-step-tag">Touch Sensor to Register Fingerprint In-App</span> to authorize Face ID / Touch ID directly within the app.
+            </li>
+            <li>
+              <strong>Start Guided Access Before Scanning:</strong> Before scanning attendance QR codes, triple-click the Side button (or Home button) and tap Start.
+            </li>
+            <li>
+              <strong>Mark Attendance:</strong> Scan the lecturer's QR codes and complete the live face scan. Keep SmartAttend active in the foreground throughout attendance.
+            </li>
+            <li>
+              <strong>Exit After Session:</strong> After the lecturer ends attendance, triple-click again and enter your Guided Access passcode to exit.
+            </li>
           </ol>
 
           <div className="device-setup-note">

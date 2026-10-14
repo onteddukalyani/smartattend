@@ -11,7 +11,9 @@ import {
     FaInfoCircle,
     FaExternalLinkAlt,
     FaLock,
-    FaNetworkWired
+    FaNetworkWired,
+    FaFingerprint,
+    FaCamera
 } from 'react-icons/fa';
 import { Capacitor } from '@capacitor/core';
 import { db } from '../../firebase';
@@ -278,6 +280,43 @@ export function DeviceOnboardingModal({ isOpen, onClose }) {
                         <h3 className="device-option-title">iPhone (iOS)</h3>
                         <span className="device-option-tag tag-ios">PWA + Guided Access</span>
                     </div>
+                </div>
+
+                {/* Mandatory In-App Dual Biometrics Banner */}
+                <div style={{
+                    margin: '16px 0',
+                    padding: '13px 16px',
+                    borderRadius: '16px',
+                    background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.08) 0%, rgba(79, 70, 229, 0.04) 100%)',
+                    border: '1.5px solid rgba(99, 102, 241, 0.25)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '12px'
+                }}>
+                    <FaFingerprint style={{ fontSize: '1.8rem', color: '#6366f1', flexShrink: 0 }} />
+                    <div style={{ flex: 1, fontSize: '0.84rem', color: '#334155' }}>
+                        <strong style={{ color: '#4338ca', display: 'block', marginBottom: '2px' }}>
+                            100% In-App Dual Biometrics Required
+                        </strong>
+                        Both 3D Face Biometrics and Device Fingerprint are registered directly inside SmartAttend.
+                    </div>
+                    <Link
+                        to="/student/face-enroll"
+                        onClick={onClose}
+                        style={{
+                            padding: '7px 14px',
+                            borderRadius: '10px',
+                            background: '#6366f1',
+                            color: '#ffffff',
+                            fontWeight: '700',
+                            fontSize: '0.8rem',
+                            textDecoration: 'none',
+                            whiteSpace: 'nowrap',
+                            boxShadow: '0 2px 8px rgba(99, 102, 241, 0.3)'
+                        }}
+                    >
+                        Register In-App
+                    </Link>
                 </div>
 
                 {hasDeviceMismatch && (

@@ -5,6 +5,7 @@ import {
     FaTimes,
     FaBookOpen,
     FaCamera,
+    FaFingerprint,
     FaHeadset
 } from "react-icons/fa";
 import { MdQrCodeScanner } from "react-icons/md";
@@ -20,7 +21,7 @@ function Sidebar({ hidden, onClose }) {
     const menu = [
         { icon: <FaHome />, text: "Dashboard", path: "/student" },
         { icon: <FaBookOpen />, text: "My Courses", path: "/student/courses" },
-        { icon: <FaCamera />, text: "Face Registration", path: "/student/face-enroll" },
+        { icon: <FaFingerprint />, text: "Biometric Registration", path: "/student/face-enroll" },
         { icon: <MdQrCodeScanner />, text: "Mark Attendance", path: "/student/mark-attendance" },
         { icon: <BsBarChart />, text: "My Attendance", path: "/student/statistics" },
         { icon: <FaHeadset />, text: "Help & Feedback", path: "/student/support" },

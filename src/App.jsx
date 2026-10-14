@@ -401,6 +401,9 @@ function App() {
           <Route path="face-enroll" element={<FaceEnrollPage />} />
           <Route path="register-face" element={<FaceEnrollPage />} />
           <Route path="live-face-enroll" element={<FaceEnrollPage />} />
+          <Route path="biometrics" element={<FaceEnrollPage />} />
+          <Route path="fingerprint" element={<FaceEnrollPage />} />
+          <Route path="fingerprint-enroll" element={<FaceEnrollPage />} />
           <Route path="support" element={<SupportFeedbackPage />} />
           <Route path="feedback" element={<SupportFeedbackPage />} />
           <Route path="contact" element={<SupportFeedbackPage />} />
@@ -602,6 +605,51 @@ function App() {
         />
         <Route
           path="/live-face-enroll"
+          element={
+            <Navigate
+              to={
+                currentRole === "student"
+                  ? "/student/face-enroll"
+                  : currentRole === "lecturer"
+                  ? "/lecturer/face-enroll"
+                  : "/admin/face-enroll"
+              }
+              replace
+            />
+          }
+        />
+        <Route
+          path="/biometrics"
+          element={
+            <Navigate
+              to={
+                currentRole === "student"
+                  ? "/student/face-enroll"
+                  : currentRole === "lecturer"
+                  ? "/lecturer/face-enroll"
+                  : "/admin/face-enroll"
+              }
+              replace
+            />
+          }
+        />
+        <Route
+          path="/fingerprint"
+          element={
+            <Navigate
+              to={
+                currentRole === "student"
+                  ? "/student/face-enroll"
+                  : currentRole === "lecturer"
+                  ? "/lecturer/face-enroll"
+                  : "/admin/face-enroll"
+              }
+              replace
+            />
+          }
+        />
+        <Route
+          path="/biometric-enroll"
           element={
             <Navigate
               to={
