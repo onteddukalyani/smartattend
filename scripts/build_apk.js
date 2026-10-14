@@ -104,6 +104,12 @@ try {
       fs.copyFileSync(srcApk, path.join(distDir, 'SmartAttend-release.apk'));
     }
 
+    const publicDir = path.join(rootDir, 'public');
+    if (fs.existsSync(publicDir)) {
+      fs.copyFileSync(srcApk, path.join(publicDir, 'SmartAttend-release.apk'));
+      fs.copyFileSync(srcApk, path.join(publicDir, 'SmartAttend-debug.apk'));
+    }
+
     const stats = fs.statSync(destApk);
     const sizeMb = (stats.size / (1024 * 1024)).toFixed(2);
     console.log(`\n========================================`);

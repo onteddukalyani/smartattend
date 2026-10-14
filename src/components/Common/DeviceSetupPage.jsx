@@ -43,37 +43,37 @@ export function RoleFirstLoginGuide({ role, basePath }) {
 
   const guide = isAdmin
     ? {
-        title: "Administrator first-login guide",
-        intro: "Set up your institutional workspace and keep account access, courses, and attendance records organized.",
-        steps: [
-          "Review the dashboard for student, lecturer, course, and attendance activity.",
-          "Use Manage Admins and Manage Lecturers to add or maintain staff access.",
-          "Use Manage Students to create or update student records and check their approval or account status.",
-          "Create courses, assign lecturers, and maintain each course's student roster.",
-          "Review Classes and Attendance for session records and attendance issues.",
-          "Open Settings to review your profile and the Android/iPhone device instructions."
-        ],
-        links: [
-          { to: "/admin/students", label: "Manage students" },
-          { to: "/admin/courses", label: "Manage courses" }
-        ]
-      }
+      title: "Administrator first-login guide",
+      intro: "Set up your institutional workspace and keep account access, courses, and attendance records organized.",
+      steps: [
+        "Review the dashboard for student, lecturer, course, and attendance activity.",
+        "Use Manage Admins and Manage Lecturers to add or maintain staff access.",
+        "Use Manage Students to create or update student records and check their approval or account status.",
+        "Create courses, assign lecturers, and maintain each course's student roster.",
+        "Review Classes and Attendance for session records and attendance issues.",
+        "Open Settings to review your profile and the Android/iPhone device instructions."
+      ],
+      links: [
+        { to: "/admin/students", label: "Manage students" },
+        { to: "/admin/courses", label: "Manage courses" }
+      ]
+    }
     : {
-        title: "Lecturer first-login guide",
-        intro: "Use your assigned courses to manage student rosters, run attendance sessions, and review your class records.",
-        steps: [
-          "Open Courses to review courses assigned to your lecturer account.",
-          "Manage student details and add or remove students only within courses assigned to you.",
-          "Use New Session to start attendance and present the QR codes in the requested order.",
-          "Use Classes, Active Sessions, and Attendance to review your sessions and student records.",
-          "Admin and Lecturer lists are view-only; only administrators can manage those accounts.",
-          "Open Settings to review your profile and the Android/iPhone device instructions."
-        ],
-        links: [
-          { to: "/lecturer/courses", label: "Review my courses" },
-          { to: "/lecturer/lecturerpage", label: "Start a session" }
-        ]
-      };
+      title: "Lecturer first-login guide",
+      intro: "Use your assigned courses to manage student rosters, run attendance sessions, and review your class records.",
+      steps: [
+        "Open Courses to review courses assigned to your lecturer account.",
+        "Manage student details and add or remove students only within courses assigned to you.",
+        "Use New Session to start attendance and present the QR codes in the requested order.",
+        "Use Classes, Active Sessions, and Attendance to review your sessions and student records.",
+        "Admin and Lecturer lists are view-only; only administrators can manage those accounts.",
+        "Open Settings to review your profile and the Android/iPhone device instructions."
+      ],
+      links: [
+        { to: "/lecturer/courses", label: "Review my courses" },
+        { to: "/lecturer/lecturerpage", label: "Start a session" }
+      ]
+    };
 
   const dismiss = () => {
     try {
@@ -146,7 +146,7 @@ export default function DeviceSetupPage() {
       {/* Mandatory Dual-Biometric Banner (Both Android and iPhone) */}
       <section className="device-dual-bio-banner" aria-label="Biometric Requirements">
         <div className="device-dual-bio-badge">
-          <FaShieldAlt /> 100% IN-APP DUAL-BIOMETRIC REGISTRATION (ANDROID &amp; IPHONE)
+          <FaShieldAlt /> DUAL-BIOMETRIC REGISTRATION
         </div>
         <p className="device-dual-bio-intro">
           To prevent proxy attendance, every student must register <strong>BOTH</strong> biometrics directly inside the SmartAttend app before scanning. You do not need to navigate out of the app:
@@ -157,7 +157,7 @@ export default function DeviceSetupPage() {
               <FaCamera />
             </div>
             <div className="bio-card-text">
-              <h3>1. In-App 3D Face Registration</h3>
+              <h3>1. SmartAttend 3D Face Registration</h3>
               <p>
                 Complete your live <strong>3D Face Scan</strong> right inside SmartAttend with active anti-spoofing (blink, head turn, smile). Encrypted facial vectors are securely saved.
               </p>
