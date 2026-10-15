@@ -152,6 +152,9 @@ export default function StudentDashboard() {
                         } else if (d.faceRegistered && !prev.faceRegistered) {
                             changes.push("Facial biometrics enrolled");
                         }
+                        if ((d.photoRemovedAt && !prev.photoRemovedAt) || (prev.photoURL && !d.photoURL && !d.image)) {
+                            changes.push("Profile photo removed");
+                        }
 
                         if (changes.length > 0) {
                             lastChangeNotifiedRef.current = Date.now();

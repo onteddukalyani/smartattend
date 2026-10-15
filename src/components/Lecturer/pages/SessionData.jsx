@@ -703,6 +703,11 @@ export function SessionAttendanceData() {
     const sessionId = params.sessionId || params["*"] || "";
     const [session, setSession] = useState(null);
     const [records, setRecords] = useState([]);
+    const [authorizations, setAuthorizations] = useState([]);
+    const [enrolledStudents, setEnrolledStudents] = useState([]);
+    const [allStudentsMap, setAllStudentsMap] = useState(new Map());
+    const [rosterTab, setRosterTab] = useState("ALL"); // "ALL" | "PRESENT" | "PENDING" | "DISQUALIFIED" | "ABSENT"
+    const [searchTerm, setSearchTerm] = useState("");
     const [loading, setLoading] = useState(true);
     const [selectedStudentForModal, setSelectedStudentForModal] = useState(null);
     const [showExcuseModal, setShowExcuseModal] = useState(false);
@@ -724,8 +729,6 @@ export function SessionAttendanceData() {
 
     const basePath = isCurrentAdminPath ? "/admin/classes" : "/lecturer/attendance-sessions";
 
-    const { sortedItems: sortedRecords, sortConfig, requestSort } = useTableSort(records, "rollNo", "asc");
-
     const userEmail = (user?.email || "").toLowerCase().trim();
     const userUid = user?.uid;
     const userPrefix = userEmail.split("@")[0].toLowerCase().trim();
@@ -740,19 +743,28 @@ export function SessionAttendanceData() {
         (session?.lecturerName && userName && session.lecturerName.toLowerCase().trim() === userName)
     );
 
-    const removeRecord = async (record) => {
+    const removeRecord = async (recordOrMember) => {
         if (!isSessionOwner) {
             alert(`❌ Permission Denied: This class belongs to ${session?.lecturerName || "another lecturer"}. Only the assigned lecturer or an administrator can modify records.`);
             return;
         }
 
-        if (!window.confirm(`Remove attendance for ${record.fullName || "this student"}?`)) {
+        const recId = recordOrMember.recordId || recordOrMember.id;
+        const cleanRoll = (recordOrMember.rollNo || "").toUpperCase().trim();
+        const studentDisplayName = recordOrMember.name || recordOrMember.fullName || recordOrMember.rollNo || "this student";
+
+        if (!window.confirm(`Remove attendance for ${studentDisplayName}?`)) {
             return;
         }
 
         try {
-            await deleteDoc(doc(db, "attendance_records", record.id));
-            setRecords((currentRecords) => currentRecords.filter(({ id }) => id !== record.id));
+            if (recId) {
+                await deleteDoc(doc(db, "attendance_records", recId)).catch(() => {});
+            }
+            if (cleanRoll && session?.id) {
+                await deleteDoc(doc(db, "attendance_records", `${session.id}_${cleanRoll}`)).catch(() => {});
+            }
+            setRecords((currentRecords) => currentRecords.filter(({ id, rollNo }) => id !== recId && String(rollNo || "").toUpperCase() !== cleanRoll));
         } catch (error) {
             console.error("Error removing attendance record:", error);
             window.alert("Could not remove attendance record.");
@@ -847,6 +859,7 @@ export function SessionAttendanceData() {
     useEffect(() => {
         let isMounted = true;
         let unsubscribeRecords = () => { };
+        let unsubscribeAuths = () => { };
 
         const getAttendance = async () => {
             if (!sessionId) {
@@ -917,7 +930,6 @@ export function SessionAttendanceData() {
                                     createdAt: first.submittedAt || Date.now()
                                 };
                             } else {
-                                // Synthesize clean fallback rather than failing
                                 sessData = {
                                     id: sessionId,
                                     classCode: sessionId.split("_")[0] || "Class Session",
@@ -1013,7 +1025,7 @@ export function SessionAttendanceData() {
                                     studentEmail: att.studentEmail || att.email || "",
                                     deviceType: att.deviceType || "",
                                     submittedAt: att.submittedAt || att.timestamp || att.time || sessData.createdAt,
-                                    faceVerified: att.faceVerified ?? true,
+                                    faceVerified: Boolean(att.faceVerified),
                                     excused: att.excused ?? false,
                                     status: att.status || "APPROVED"
                                 });
@@ -1034,6 +1046,52 @@ export function SessionAttendanceData() {
                     if (isMounted) setLoading(false);
                 });
 
+                // Real-time listener for authorizations subcollection (QR 1 check-ins)
+                const authColRef = collection(db, "attendance_sessions", actualSessionId, "authorizations");
+                unsubscribeAuths = onSnapshot(authColRef, (authSnapshot) => {
+                    if (!isMounted) return;
+                    const authList = authSnapshot.docs.map((d) => ({
+                        id: d.id,
+                        ...d.data()
+                    }));
+                    setAuthorizations(authList);
+                }, (err) => {
+                    console.warn("Notice loading session authorizations:", err);
+                });
+
+                // Load Course Enrolled Students & Student Directory
+                try {
+                    const courseKey = (sessData.courseCode || sessData.classCode || "").toUpperCase().trim();
+                    const [coursesSnap, studentsSnap] = await Promise.all([
+                        getDocs(collection(db, "courses")).catch(() => ({ docs: [] })),
+                        getDocs(collection(db, "students")).catch(() => ({ docs: [] }))
+                    ]);
+
+                    if (isMounted) {
+                        const sMap = new Map();
+                        studentsSnap.docs.forEach((docSnap) => {
+                            const d = docSnap.data();
+                            const roll = String(d.rollNo || docSnap.id || "").toUpperCase().trim();
+                            if (roll) sMap.set(roll, { id: docSnap.id, ...d });
+                        });
+                        setAllStudentsMap(sMap);
+
+                        if (courseKey) {
+                            const matchedCourse = coursesSnap.docs
+                                .map((d) => ({ id: d.id, ...d.data() }))
+                                .find((c) => {
+                                    const code = String(c.courseCode || c.code || c.id || "").toUpperCase().trim();
+                                    return code === courseKey || code.replace(/[^A-Z0-9]/g, "") === courseKey.replace(/[^A-Z0-9]/g, "");
+                                });
+                            if (matchedCourse && Array.isArray(matchedCourse.enrolledStudents)) {
+                                setEnrolledStudents(matchedCourse.enrolledStudents);
+                            }
+                        }
+                    }
+                } catch (metaErr) {
+                    console.warn("Notice loading course/student metadata:", metaErr);
+                }
+
             } catch (error) {
                 console.error("Error getting attendance:", error);
                 if (isMounted) setLoading(false);
@@ -1045,8 +1103,229 @@ export function SessionAttendanceData() {
         return () => {
             isMounted = false;
             unsubscribeRecords();
+            unsubscribeAuths();
         };
     }, [sessionId, user]);
+
+    // Helpers to detect disqualifications and violations
+    const checkIsDisqualified = (item) => {
+        if (!item) return false;
+        if (item.disqualified === true) return true;
+        const s = String(item.status || "").toUpperCase();
+        if (s === "DISQUALIFIED" || s === "FLAGGED_DISQUALIFIED" || s === "REJECTED") return true;
+        if (Number(item.violationCount || item.confirmedKioskViolations || 0) >= 2) return true;
+        if (Array.isArray(item.violations) && item.violations.some(v => v.disqualified === true || Number(v.count || 0) >= 2)) return true;
+        return false;
+    };
+
+    const checkHasViolation = (item) => {
+        if (!item) return false;
+        if (checkIsDisqualified(item)) return true;
+        if (item.hasViolation === true || item.flagged === true) return true;
+        const s = String(item.status || "").toUpperCase();
+        if (s.startsWith("FLAGGED") || s.includes("VIOLATION") || s.includes("ESCAPE")) return true;
+        if (Array.isArray(item.violations) && item.violations.length > 0) return true;
+        if (Number(item.violationCount || item.confirmedKioskViolations || 0) > 0) return true;
+        return false;
+    };
+
+    // Full Unified Roster Construction: Merges Enrolled, Authorizations, Flagged Violations, and Records
+    const allMembersList = useMemo(() => {
+        const map = new Map();
+
+        // 1. Enrolled students from course baseline (Marked as ABSENT by default)
+        (enrolledStudents || []).forEach((stud, idx) => {
+            const roll = (typeof stud === "string" ? stud : stud.rollNo || stud.rollNumber || "").toUpperCase().trim();
+            if (!roll) return;
+            const sMeta = allStudentsMap.get(roll);
+            map.set(roll, {
+                id: roll,
+                rollNo: roll,
+                name: (typeof stud === "object" && stud.name) || sMeta?.name || sMeta?.fullName || "Student",
+                email: (typeof stud === "object" && stud.email) || sMeta?.email || "",
+                department: sMeta?.branch || sMeta?.department || session?.classCode || "CSE",
+                batch: sMeta?.batch || session?.batch || "2025",
+                status: "ABSENT",
+                statusLabel: "Absent (Not Scanned)",
+                scannedAt: null,
+                submittedAt: null,
+                deviceType: "",
+                verificationType: "NONE",
+                violationReason: null,
+                violationCount: 0,
+                excused: false,
+                faceVerified: false
+            });
+        });
+
+        // 2. Authorizations subcollection (Students who scanned QR 1)
+        (authorizations || []).forEach((auth) => {
+            const roll = (auth.rollNo || auth.studentUid || auth.id || "").toUpperCase().trim();
+            if (!roll) return;
+            const sMeta = allStudentsMap.get(roll);
+            const existing = map.get(roll);
+
+            const isDisq = checkIsDisqualified(auth);
+            const hasV = isDisq || checkHasViolation(auth);
+
+            const vReason = auth.violationReason ||
+                (Array.isArray(auth.violations) && auth.violations.length > 0 ? (auth.violations[auth.violations.length - 1].reason || auth.violations[0].reason) : null) ||
+                (isDisq ? "Attendance forfeited: 2 confirmed kiosk exits" : hasV ? "App switch / supervision warning" : null);
+
+            const status = isDisq ? "DISQUALIFIED" : hasV ? "FLAGGED" : "PENDING_QR2";
+            const statusLabel = isDisq ? "Disqualified (App Switch)" : hasV ? "Flagged Warning" : "Pending QR 2 (In Kiosk)";
+
+            map.set(roll, {
+                id: auth.studentUid || roll,
+                rollNo: roll,
+                name: auth.studentName || auth.fullName || existing?.name || sMeta?.name || "Student",
+                email: auth.studentEmail || existing?.email || sMeta?.email || "",
+                department: existing?.department || sMeta?.branch || session?.classCode || "CSE",
+                batch: existing?.batch || sMeta?.batch || session?.batch || "2025",
+                status: status,
+                statusLabel: statusLabel,
+                scannedAt: auth.scannedAt || auth.timestamp || auth.authorizedAt,
+                submittedAt: null,
+                deviceType: auth.deviceType || auth.platform || existing?.deviceType || "",
+                verificationType: isDisq ? "DISQUALIFIED" : "QR1_AUTHORIZED",
+                violationReason: vReason,
+                violationCount: Number(auth.violationCount || auth.confirmedKioskViolations || (isDisq ? 2 : hasV ? 1 : 0)),
+                excused: auth.excused === true,
+                faceVerified: false,
+                released: auth.released === true
+            });
+        });
+
+        // 3. Session flagged violations overlay
+        (session?.flaggedViolations || []).forEach((f) => {
+            const roll = (f.rollNo || f.studentUid || "").toUpperCase().trim();
+            if (!roll) return;
+            const isReviewed = f.reviewed === true || f.excused === true || f.resolved === true || f.dismissed === true;
+            if (isReviewed) return;
+
+            const existing = map.get(roll);
+            const isDisq = f.disqualified === true || f.status === "FLAGGED_DISQUALIFIED" || Number(f.count || f.violationCount || 0) >= 2 || existing?.status === "DISQUALIFIED";
+            const sMeta = allStudentsMap.get(roll);
+
+            map.set(roll, {
+                id: f.studentUid || roll,
+                rollNo: roll,
+                name: f.studentName || existing?.name || sMeta?.name || "Student",
+                email: existing?.email || sMeta?.email || "",
+                department: existing?.department || sMeta?.branch || session?.classCode || "CSE",
+                batch: existing?.batch || sMeta?.batch || session?.batch || "2025",
+                status: isDisq ? "DISQUALIFIED" : "FLAGGED",
+                statusLabel: isDisq ? "Disqualified (App Switch)" : "Flagged Warning",
+                scannedAt: existing?.scannedAt || f.timestamp,
+                submittedAt: existing?.submittedAt || null,
+                deviceType: existing?.deviceType || "",
+                verificationType: isDisq ? "DISQUALIFIED" : "FLAGGED",
+                violationReason: f.violationReason || f.violationType || (isDisq ? "Attendance forfeited: 2 confirmed kiosk exits" : "App switch detected"),
+                violationCount: Number(f.count || f.violationCount || (isDisq ? 2 : 1)),
+                excused: false,
+                faceVerified: false
+            });
+        });
+
+        // 4. Attendance records & Attendees (Students who reached QR 2 and submitted, or excused)
+        (records || []).forEach((rec) => {
+            const roll = (rec.rollNo || "").toUpperCase().trim();
+            if (!roll) return;
+            const sMeta = allStudentsMap.get(roll);
+            const existing = map.get(roll);
+
+            const isExcused = rec.excused === true;
+            const isDisq = !isExcused && (rec.disqualified === true || rec.status === "FLAGGED_DISQUALIFIED");
+
+            let status = "PRESENT";
+            let statusLabel = "Reached QR 2 (Present)";
+            if (isDisq) {
+                status = "DISQUALIFIED";
+                statusLabel = "Disqualified (App Switch)";
+            } else if (isExcused) {
+                status = "PRESENT";
+                statusLabel = "Excused (Present)";
+            } else if (rec.faceVerified) {
+                statusLabel = "Face Verified (Present)";
+            } else {
+                statusLabel = "QR Verified (Present)";
+            }
+
+            map.set(roll, {
+                id: rec.id || roll,
+                recordId: rec.id,
+                rollNo: roll,
+                name: rec.fullName || rec.name || rec.studentName || existing?.name || sMeta?.name || "Student",
+                email: rec.studentEmail || rec.email || existing?.email || sMeta?.email || "",
+                department: existing?.department || sMeta?.branch || session?.classCode || "CSE",
+                batch: existing?.batch || sMeta?.batch || session?.batch || "2025",
+                status: status,
+                statusLabel: statusLabel,
+                scannedAt: existing?.scannedAt || rec.submittedAt,
+                submittedAt: rec.submittedAt || rec.timestamp || rec.time,
+                deviceType: rec.deviceType || existing?.deviceType || "",
+                verificationType: isExcused ? "EXCUSED" : rec.faceVerified ? "FACE_VERIFIED" : "QR_VERIFIED",
+                violationReason: isDisq ? (rec.violationReason || "Security violation limit reached") : null,
+                violationCount: isDisq ? 2 : 0,
+                excused: isExcused,
+                faceVerified: Boolean(rec.faceVerified),
+                rawRecord: rec
+            });
+        });
+
+        return Array.from(map.values()).sort((a, b) => {
+            return a.rollNo.localeCompare(b.rollNo, undefined, { numeric: true, sensitivity: "base" });
+        });
+    }, [enrolledStudents, authorizations, session?.flaggedViolations, records, allStudentsMap, session?.classCode, session?.batch]);
+
+    // Summary Metric Counts
+    const { totalCount, presentCount, pendingCount, disqualifiedCount, absentCount } = useMemo(() => {
+        let pres = 0;
+        let pend = 0;
+        let disq = 0;
+        let abs = 0;
+
+        allMembersList.forEach((m) => {
+            if (m.status === "PRESENT") pres++;
+            else if (m.status === "PENDING_QR2") pend++;
+            else if (m.status === "DISQUALIFIED" || m.status === "FLAGGED") disq++;
+            else if (m.status === "ABSENT") abs++;
+        });
+
+        return {
+            totalCount: allMembersList.length,
+            presentCount: pres,
+            pendingCount: pend,
+            disqualifiedCount: disq,
+            absentCount: abs
+        };
+    }, [allMembersList]);
+
+    // Tab-Filtered and Search-Filtered Roster
+    const filteredMembers = useMemo(() => {
+        return allMembersList.filter((m) => {
+            if (rosterTab === "PRESENT" && m.status !== "PRESENT") return false;
+            if (rosterTab === "PENDING" && m.status !== "PENDING_QR2") return false;
+            if (rosterTab === "DISQUALIFIED" && m.status !== "DISQUALIFIED" && m.status !== "FLAGGED") return false;
+            if (rosterTab === "ABSENT" && m.status !== "ABSENT") return false;
+
+            if (searchTerm.trim()) {
+                const q = searchTerm.toLowerCase().trim();
+                const roll = (m.rollNo || "").toLowerCase();
+                const name = (m.name || "").toLowerCase();
+                const email = (m.email || "").toLowerCase();
+                return roll.includes(q) || name.includes(q) || email.includes(q);
+            }
+            return true;
+        });
+    }, [allMembersList, rosterTab, searchTerm]);
+
+    const { sortedItems: sortedMembers, sortConfig, requestSort } = useTableSort(filteredMembers, "rollNo", "asc");
+
+    const isSessionLive = Boolean(
+        session?.active !== false &&
+        (session?.phase === "PHASE_1" || session?.phase === "PHASE_2" || session?.status === "ACTIVE" || (session?.expiresAt || 0) > Date.now())
+    );
 
     if (loading) {
         return (
@@ -1080,7 +1359,7 @@ export function SessionAttendanceData() {
     return (
         <div className="attendance-data-page">
             <div className="session-actions-bar" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "10px" }}>
-                <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+                <div style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
                     <button className="back-to-sessions-btn" onClick={() => navigate(basePath)}>⬅️ Back to Sessions</button>
                     {isSessionOwner ? (
                         <button
@@ -1119,9 +1398,33 @@ export function SessionAttendanceData() {
                             <span>👁️ Read-Only Session ({session?.lecturerName || "Assigned Faculty"})</span>
                         </div>
                     )}
+
+                    {isSessionLive && (
+                        <button
+                            type="button"
+                            onClick={() => navigate(`/lecturer/lecturerpage?session=${session.id}`)}
+                            style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "6px",
+                                padding: "8px 16px",
+                                borderRadius: "10px",
+                                background: "linear-gradient(135deg, #6366f1, #4f46e5)",
+                                color: "#ffffff",
+                                border: "none",
+                                fontWeight: 750,
+                                cursor: "pointer",
+                                fontSize: "0.85rem",
+                                boxShadow: "0 2px 8px rgba(99, 102, 241, 0.3)"
+                            }}
+                            title="Open live projector screen with rotating QR codes & kiosk monitor"
+                        >
+                            <FaQrcode /> 📺 Live QR &amp; Kiosk Hub
+                        </button>
+                    )}
                 </div>
 
-                {records.length > 0 && (
+                {allMembersList.length > 0 && (
                     <button
                         className="download-excel-btn"
                         onClick={() => downloadExcel("session-attendance-table", `Attendance-${session.classCode || "Class"}-${new Date().toISOString().slice(0, 10)}`)}
@@ -1131,6 +1434,69 @@ export function SessionAttendanceData() {
                 )}
             </div>
 
+            {/* Prominent Live Session Banner */}
+            {isSessionLive && (
+                <div style={{
+                    margin: "16px 0 20px",
+                    padding: "16px 20px",
+                    borderRadius: "16px",
+                    background: "linear-gradient(135deg, rgba(99, 102, 241, 0.08), rgba(79, 70, 229, 0.12))",
+                    border: "1.5px solid rgba(99, 102, 241, 0.35)",
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    flexWrap: "wrap",
+                    gap: "14px"
+                }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "12px", minWidth: 0, flex: 1 }}>
+                        <div style={{
+                            background: "#6366f1",
+                            color: "#ffffff",
+                            padding: "6px 12px",
+                            borderRadius: "10px",
+                            fontSize: "0.78rem",
+                            fontWeight: 800,
+                            letterSpacing: "0.04em",
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: "6px",
+                            whiteSpace: "nowrap"
+                        }}>
+                            <span>● LIVE SESSION IN PROGRESS</span>
+                        </div>
+                        <div>
+                            <h4 style={{ margin: "0 0 2px", fontSize: "1rem", color: "#0f172a", fontWeight: 800 }}>
+                                {session.phase === "PHASE_2" ? "Phase 2: Biometric Verification Active" : "Phase 1: Student Check-in & Kiosk Lock Active"}
+                            </h4>
+                            <p style={{ margin: 0, fontSize: "0.82rem", color: "#64748b" }}>
+                                Students are actively checking in. Open the live projector screen to show rotating QR codes and monitor kiosk modes.
+                            </p>
+                        </div>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={() => navigate(`/lecturer/lecturerpage?session=${session.id}`)}
+                        style={{
+                            padding: "9px 18px",
+                            borderRadius: "10px",
+                            background: "#6366f1",
+                            color: "#ffffff",
+                            border: "none",
+                            fontWeight: 750,
+                            fontSize: "0.86rem",
+                            cursor: "pointer",
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: "8px",
+                            boxShadow: "0 4px 12px rgba(99, 102, 241, 0.3)",
+                            whiteSpace: "nowrap"
+                        }}
+                    >
+                        <FaQrcode /> 📺 Open Live QR Code &amp; Kiosk Hub →
+                    </button>
+                </div>
+            )}
+
             <h2>Attendance - {session.classCode}</h2>
             <div className="session-summary-box">
                 <span className="session-summary-item"><strong>Lecturer:</strong> {session.lecturerName || "Faculty"}</span>
@@ -1139,7 +1505,31 @@ export function SessionAttendanceData() {
                 <span className="session-summary-item"><strong>Duration:</strong> {session.lectureHours || session.durationHours || 1.0} hr(s)</span>
                 <span className="session-summary-item"><strong>Room:</strong> {session.roomNo || "N/A"}</span>
                 <span className="session-summary-item"><strong>Session Date:</strong> {sessionDateTime.dateStr}</span>
-                <span className="session-summary-item"><strong>Total Present:</strong> <strong style={{ color: "#10b981" }}>{records.length}</strong></span>
+                <span className="session-summary-item"><strong>Present:</strong> <strong style={{ color: "#10b981" }}>{presentCount}</strong> / {totalCount}</span>
+            </div>
+
+            {/* Summary KPI Cards Grid */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: "12px", margin: "20px 0" }}>
+                <div style={{ background: "#ffffff", padding: "14px 16px", borderRadius: "14px", border: "1px solid #e2e8f0", boxShadow: "0 2px 8px rgba(0,0,0,0.02)" }}>
+                    <span style={{ fontSize: "0.72rem", fontWeight: 750, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.04em" }}>Total Roster</span>
+                    <div style={{ fontSize: "1.55rem", fontWeight: 800, color: "#0f172a", marginTop: "4px" }}>{totalCount}</div>
+                </div>
+                <div style={{ background: "#ffffff", padding: "14px 16px", borderRadius: "14px", border: "1px solid #e2e8f0", boxShadow: "0 2px 8px rgba(0,0,0,0.02)" }}>
+                    <span style={{ fontSize: "0.72rem", fontWeight: 750, color: "#059669", textTransform: "uppercase", letterSpacing: "0.04em" }}>Present (Submitted)</span>
+                    <div style={{ fontSize: "1.55rem", fontWeight: 800, color: "#059669", marginTop: "4px" }}>{presentCount}</div>
+                </div>
+                <div style={{ background: "#ffffff", padding: "14px 16px", borderRadius: "14px", border: "1px solid #e2e8f0", boxShadow: "0 2px 8px rgba(0,0,0,0.02)" }}>
+                    <span style={{ fontSize: "0.72rem", fontWeight: 750, color: "#d97706", textTransform: "uppercase", letterSpacing: "0.04em" }}>Pending QR 2 (In Kiosk)</span>
+                    <div style={{ fontSize: "1.55rem", fontWeight: 800, color: "#d97706", marginTop: "4px" }}>{pendingCount}</div>
+                </div>
+                <div style={{ background: "#ffffff", padding: "14px 16px", borderRadius: "14px", border: "1px solid #e2e8f0", boxShadow: "0 2px 8px rgba(0,0,0,0.02)" }}>
+                    <span style={{ fontSize: "0.72rem", fontWeight: 750, color: "#dc2626", textTransform: "uppercase", letterSpacing: "0.04em" }}>Disqualified / Flagged</span>
+                    <div style={{ fontSize: "1.55rem", fontWeight: 800, color: "#dc2626", marginTop: "4px" }}>{disqualifiedCount}</div>
+                </div>
+                <div style={{ background: "#ffffff", padding: "14px 16px", borderRadius: "14px", border: "1px solid #e2e8f0", boxShadow: "0 2px 8px rgba(0,0,0,0.02)" }}>
+                    <span style={{ fontSize: "0.72rem", fontWeight: 750, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.04em" }}>Absent (Not Scanned)</span>
+                    <div style={{ fontSize: "1.55rem", fontWeight: 800, color: "#64748b", marginTop: "4px" }}>{absentCount}</div>
+                </div>
             </div>
 
             {/* Flagged Violations Section & Quick Pardon / Dismiss Hub */}
@@ -1199,11 +1589,64 @@ export function SessionAttendanceData() {
                 </div>
             )}
 
-            {records.length === 0 ? (
+            {/* Roster Filter Tabs & Search Bar */}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "12px", margin: "24px 0 16px" }}>
+                <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                    {[
+                        { key: "ALL", label: `All Members (${totalCount})` },
+                        { key: "PRESENT", label: `Present (${presentCount})` },
+                        { key: "PENDING", label: `Pending QR 2 (${pendingCount})` },
+                        { key: "DISQUALIFIED", label: `Disqualified (${disqualifiedCount})` },
+                        { key: "ABSENT", label: `Absent (${absentCount})` }
+                    ].map((tab) => (
+                        <button
+                            key={tab.key}
+                            type="button"
+                            onClick={() => setRosterTab(tab.key)}
+                            style={{
+                                padding: "7px 14px",
+                                borderRadius: "10px",
+                                border: rosterTab === tab.key ? "1.5px solid #6366f1" : "1px solid #cbd5e1",
+                                background: rosterTab === tab.key ? "#6366f1" : "#ffffff",
+                                color: rosterTab === tab.key ? "#ffffff" : "#475569",
+                                fontWeight: 750,
+                                fontSize: "0.82rem",
+                                cursor: "pointer",
+                                transition: "all 0.15s ease",
+                                boxShadow: rosterTab === tab.key ? "0 2px 8px rgba(99, 102, 241, 0.25)" : "none"
+                            }}
+                        >
+                            {tab.label}
+                        </button>
+                    ))}
+                </div>
+
+                <input
+                    type="text"
+                    placeholder="Filter by roll number, name, or email..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    style={{
+                        padding: "8px 14px",
+                        borderRadius: "10px",
+                        border: "1.5px solid #cbd5e1",
+                        fontSize: "0.85rem",
+                        minWidth: "260px",
+                        outline: "none"
+                    }}
+                />
+            </div>
+
+            {/* Roster Table */}
+            {filteredMembers.length === 0 ? (
                 <div className="classes-empty-card">
                     <div className="classes-empty-icon">👥</div>
-                    <h3>No Submissions Yet</h3>
-                    <p>No students have submitted attendance for this session yet. As students scan the QR code, their attendance will appear here live in real-time.</p>
+                    <h3>No Students Found</h3>
+                    <p>
+                        {allMembersList.length === 0
+                            ? "No students have scanned QR or enrolled in this course yet."
+                            : "No students matching the selected filter."}
+                    </p>
                 </div>
             ) : (
                 <div className="attendance-table-scroll">
@@ -1213,80 +1656,191 @@ export function SessionAttendanceData() {
                                 <th className="sortable-th" onClick={() => requestSort("rollNo")} title="Click to sort by Roll Number">
                                     Roll Number <SortIcon sortConfig={sortConfig} columnKey="rollNo" />
                                 </th>
-                                <th className="sortable-th" onClick={() => requestSort("fullName")} title="Click to sort by Name">
-                                    Name <SortIcon sortConfig={sortConfig} columnKey="fullName" />
+                                <th className="sortable-th" onClick={() => requestSort("name")} title="Click to sort by Name">
+                                    Name <SortIcon sortConfig={sortConfig} columnKey="name" />
+                                </th>
+                                <th className="sortable-th" onClick={() => requestSort("status")} title="Click to sort by Status">
+                                    Verification &amp; Status <SortIcon sortConfig={sortConfig} columnKey="status" />
                                 </th>
                                 <th>Class Code</th>
                                 <th>Room No</th>
-                                <th className="sortable-th" onClick={() => requestSort("submittedAt")} title="Click to sort by Date">
-                                    Date <SortIcon sortConfig={sortConfig} columnKey="submittedAt" />
-                                </th>
                                 <th className="sortable-th" onClick={() => requestSort("submittedAt")} title="Click to sort by Time">
-                                    Time <SortIcon sortConfig={sortConfig} columnKey="submittedAt" />
+                                    Date &amp; Time <SortIcon sortConfig={sortConfig} columnKey="submittedAt" />
                                 </th>
-                                <th>Verification &amp; Status</th>
+                                <th>Device / Platform</th>
                                 <th>Actions</th>
                             </tr>
                         </thead>
                         <tbody>
-                            {sortedRecords.map((record) => {
-                                const recordDateTime = formatSessionDateTime(record.submittedAt);
+                            {sortedMembers.map((member) => {
+                                const memberTime = member.submittedAt || member.scannedAt;
+                                const dt = memberTime ? formatSessionDateTime(memberTime) : sessionDateTime;
                                 return (
                                     <tr
-                                        key={record.id}
+                                        key={member.rollNo}
                                         onClick={() => setSelectedStudentForModal({
-                                            id: record.studentUid || record.rollNo,
-                                            rollNo: record.rollNo,
-                                            name: record.fullName || record.name || record.studentName || "Student",
-                                            email: record.studentEmail || record.email || "",
-                                            department: session?.department || session?.classCode || "CSE",
-                                            batch: session?.batch || "2025"
+                                            id: member.id || member.rollNo,
+                                            rollNo: member.rollNo,
+                                            name: member.name,
+                                            email: member.email,
+                                            department: member.department,
+                                            batch: member.batch
                                         })}
                                         style={{ cursor: "pointer" }}
                                         title="Click to view student profile & attendance history"
                                     >
-                                        <td><strong>{record.rollNo}</strong></td>
-                                        <td>{record.fullName || record.name || record.studentName || "Student"}</td>
+                                        <td><strong>{member.rollNo}</strong></td>
+                                        <td>{member.name}</td>
+                                        <td>
+                                            {member.status === "PRESENT" ? (
+                                                <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                                                    {member.excused ? (
+                                                        <span style={{ color: "#10b981", fontWeight: 750, fontSize: "0.82rem" }}>
+                                                            ✅ Excused (Present)
+                                                        </span>
+                                                    ) : member.faceVerified ? (
+                                                        <span style={{ color: "#10b981", fontWeight: 750, fontSize: "0.82rem" }}>
+                                                            ✅ Face Verified
+                                                        </span>
+                                                    ) : (
+                                                        <span style={{ color: "#6366f1", fontWeight: 750, fontSize: "0.82rem" }}>
+                                                            📱 QR Verified
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            ) : member.status === "PENDING_QR2" ? (
+                                                <span style={{
+                                                    background: "#fef3c7",
+                                                    color: "#b45309",
+                                                    border: "1px solid #fde68a",
+                                                    padding: "3px 8px",
+                                                    borderRadius: "6px",
+                                                    fontWeight: 750,
+                                                    fontSize: "0.78rem",
+                                                    display: "inline-flex",
+                                                    alignItems: "center",
+                                                    gap: "4px"
+                                                }}>
+                                                    <FaClock /> Pending QR 2 (In Kiosk)
+                                                </span>
+                                            ) : member.status === "DISQUALIFIED" ? (
+                                                <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                                                    <span style={{
+                                                        background: "#fee2e2",
+                                                        color: "#b91c1c",
+                                                        border: "1px solid #fca5a5",
+                                                        padding: "3px 8px",
+                                                        borderRadius: "6px",
+                                                        fontWeight: 750,
+                                                        fontSize: "0.78rem",
+                                                        display: "inline-flex",
+                                                        alignItems: "center",
+                                                        gap: "4px"
+                                                    }}>
+                                                        <FaExclamationTriangle /> Disqualified (App Switch)
+                                                    </span>
+                                                    {member.violationReason && (
+                                                        <span style={{ fontSize: "0.72rem", color: "#9f1239" }}>
+                                                            {member.violationReason}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            ) : member.status === "FLAGGED" ? (
+                                                <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                                                    <span style={{
+                                                        background: "#ffedd5",
+                                                        color: "#c2410c",
+                                                        border: "1px solid #fed7aa",
+                                                        padding: "3px 8px",
+                                                        borderRadius: "6px",
+                                                        fontWeight: 750,
+                                                        fontSize: "0.78rem",
+                                                        display: "inline-flex",
+                                                        alignItems: "center",
+                                                        gap: "4px"
+                                                    }}>
+                                                        <FaExclamationTriangle /> Flagged Warning (1/2)
+                                                    </span>
+                                                    {member.violationReason && (
+                                                        <span style={{ fontSize: "0.72rem", color: "#c2410c" }}>
+                                                            {member.violationReason}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            ) : (
+                                                <span style={{
+                                                    background: "#f1f5f9",
+                                                    color: "#64748b",
+                                                    border: "1px solid #cbd5e1",
+                                                    padding: "3px 8px",
+                                                    borderRadius: "6px",
+                                                    fontWeight: 700,
+                                                    fontSize: "0.78rem",
+                                                    display: "inline-flex",
+                                                    alignItems: "center",
+                                                    gap: "4px"
+                                                }}>
+                                                    <FaTimes /> Absent (Not Scanned)
+                                                </span>
+                                            )}
+                                        </td>
                                         <td>{session.classCode}</td>
                                         <td>{session.roomNo || "N/A"}</td>
-                                        <td>{recordDateTime.dateStr}</td>
-                                        <td>{recordDateTime.timeStr}</td>
                                         <td>
                                             <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-                                                {record.excused ? (
-                                                    <span style={{ color: "#10b981", fontWeight: 750, fontSize: "0.82rem" }}>
-                                                        ✅ Excused (Present)
-                                                    </span>
-                                                ) : record.faceVerified ? (
-                                                    <span style={{ color: "#10b981", fontWeight: 700, fontSize: "0.82rem" }}>
-                                                        ✅ Face Verified
-                                                    </span>
-                                                ) : (
-                                                    <span style={{ color: "#6366f1", fontWeight: 700, fontSize: "0.82rem" }}>
-                                                        📱 QR Verified
-                                                    </span>
-                                                )}
-                                                {record.deviceType && (
-                                                    <span style={{
-                                                        fontSize: "0.72rem",
-                                                        fontWeight: 700,
-                                                        color: record.deviceType === "android" ? "#059669" : record.deviceType === "ios" ? "#0284c7" : "#64748b"
-                                                    }}>
-                                                        {record.deviceType === "android" ? "🤖 Android APK" : record.deviceType === "ios" ? "🍎 iPhone iOS" : record.deviceType}
-                                                    </span>
-                                                )}
+                                                <span>{dt.dateStr}</span>
+                                                <span style={{ fontSize: "0.76rem", color: "#64748b" }}>{memberTime ? dt.timeStr : "—"}</span>
                                             </div>
+                                        </td>
+                                        <td>
+                                            {member.deviceType ? (
+                                                <span style={{
+                                                    fontSize: "0.76rem",
+                                                    fontWeight: 700,
+                                                    color: member.deviceType === "android" ? "#059669" : member.deviceType === "ios" ? "#0284c7" : "#64748b"
+                                                }}>
+                                                    {member.deviceType === "android" ? "🤖 Android APK" : member.deviceType === "ios" ? "🍎 iPhone iOS" : member.deviceType}
+                                                </span>
+                                            ) : (
+                                                <span style={{ fontSize: "0.74rem", color: "#94a3b8" }}>—</span>
+                                            )}
                                         </td>
                                         <td onClick={(e) => e.stopPropagation()}>
                                             {isSessionOwner ? (
-                                                <button
-                                                    type="button"
-                                                    className="remove-session-btn"
-                                                    style={{ margin: 0, padding: "6px 12px", fontSize: "0.82rem" }}
-                                                    onClick={() => removeRecord(record)}
-                                                >
-                                                    Remove
-                                                </button>
+                                                member.status === "PRESENT" ? (
+                                                    <button
+                                                        type="button"
+                                                        className="remove-session-btn"
+                                                        style={{ margin: 0, padding: "5px 10px", fontSize: "0.78rem" }}
+                                                        onClick={() => removeRecord(member)}
+                                                        title="Remove student attendance record"
+                                                    >
+                                                        Remove
+                                                    </button>
+                                                ) : (
+                                                    <button
+                                                        type="button"
+                                                        style={{
+                                                            margin: 0,
+                                                            padding: "5px 12px",
+                                                            fontSize: "0.78rem",
+                                                            borderRadius: "8px",
+                                                            border: "none",
+                                                            background: "#10b981",
+                                                            color: "#ffffff",
+                                                            fontWeight: 750,
+                                                            cursor: "pointer",
+                                                            display: "inline-flex",
+                                                            alignItems: "center",
+                                                            gap: "4px",
+                                                            boxShadow: "0 2px 6px rgba(16, 185, 129, 0.25)"
+                                                        }}
+                                                        onClick={() => handleExcuseStudentFromSession(member.rollNo, "Manually verified & excused by lecturer in classroom")}
+                                                        title="Pardon / Excuse student and mark Present"
+                                                    >
+                                                        <FaCheck /> ➕ Excuse / Reinstate
+                                                    </button>
+                                                )
                                             ) : (
                                                 <span style={{ color: "#94a3b8", fontSize: "0.78rem", fontWeight: 600 }}>
                                                     Read-Only

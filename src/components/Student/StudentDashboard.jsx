@@ -27,7 +27,14 @@ function StudentDashboard() {
         const unsub = subscribeToStudentNotifications(activeRollNo, (newNotifs) => {
             setNotifications(newNotifs || []);
         }, cleanEmail);
-        return () => unsub();
+
+        const handleOpenModal = () => setShowNotifModal(true);
+        window.addEventListener("smartattend:open_notification_modal", handleOpenModal);
+
+        return () => {
+            unsub();
+            window.removeEventListener("smartattend:open_notification_modal", handleOpenModal);
+        };
     }, [activeRollNo, cleanEmail]);
 
     const unreadCount = notifications.filter(n => !n.read).length;

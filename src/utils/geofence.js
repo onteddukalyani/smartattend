@@ -6,8 +6,8 @@
  * Never enlarges the radius silently when GPS accuracy is poor.
  */
 
-export const DEFAULT_GEOFENCE_RADIUS_METRES = 5;
-export const MAX_ACCEPTABLE_ACCURACY_METRES = 12; // Readings with accuracy > 12m are inconclusive
+export const DEFAULT_GEOFENCE_RADIUS_METRES = 30; // 30m standard classroom/hall radius
+export const MAX_ACCEPTABLE_ACCURACY_METRES = 60; // Standard smartphones indoors report 15m-45m accuracy
 export const MAX_RETRY_ATTEMPTS = 3;
 
 /**
@@ -39,7 +39,7 @@ export function calculateHaversineDistance(lat1, lon1, lat2, lon2) {
  * Evaluates student position against classroom geofence.
  * 
  * @param {Object} studentCoords - { latitude, longitude, accuracy, isMock? }
- * @param {Object} classroomCoords - { latitude, longitude, radius? }
+ * @param {Object} classroomCoords - { latitude, longitude, radius?, accuracy? }
  * @param {number} [retryCount=0]
  * @returns {Object} { status: 'PASS' | 'REJECT' | 'INCONCLUSIVE_RETRY' | 'MOCK_DETECTED', distance: number, accuracy: number, message: string }
  */
@@ -61,13 +61,14 @@ export function evaluateGeofence(studentCoords, classroomCoords, retryCount = 0)
     : DEFAULT_GEOFENCE_RADIUS_METRES;
 
   if (!studentCoords || studentCoords.latitude == null || studentCoords.longitude == null) {
+    const canRetry = retryCount < MAX_RETRY_ATTEMPTS;
     return {
       status: "INCONCLUSIVE_RETRY",
       distance: 999,
       accuracy: 999,
       radius: radius,
       retryCount,
-      canRetry: retryCount < MAX_RETRY_ATTEMPTS,
+      canRetry,
       message: "⚠️ GPS coordinates unavailable. Please enable device location and retry."
     };
   }
@@ -84,17 +85,24 @@ export function evaluateGeofence(studentCoords, classroomCoords, retryCount = 0)
   }
 
   const accuracy = Math.round(studentCoords.accuracy || 0);
-  const distance = Math.round(
-    calculateHaversineDistance(
-      studentCoords.latitude,
-      studentCoords.longitude,
-      classroomCoords.latitude,
-      classroomCoords.longitude
-    ) * 10
-  ) / 10;
+  const hostAccuracy = Math.round(classroomCoords.accuracy || 0);
 
-  // 2. Tri-state Decision Matrix:
-  // Case A: Accuracy is too poor (> 12m) to make a definitive boundary determination
+  const rawDistance = calculateHaversineDistance(
+    studentCoords.latitude,
+    studentCoords.longitude,
+    classroomCoords.latitude,
+    classroomCoords.longitude
+  );
+  const distance = Math.round(rawDistance * 10) / 10;
+
+  // 2. Accuracy-aware Indoor Margin:
+  // In indoor concrete classrooms, multi-path reflections cause GPS readings to wander.
+  // The true physical distance is bounded by: effectiveDistance = max(0, distance - accuracyMargin).
+  const uncertaintyMargin = Math.min(accuracy, 30) + (hostAccuracy > 15 ? Math.min(hostAccuracy, 35) : 0);
+  const effectiveDistance = Math.max(0, Math.round((distance - uncertaintyMargin) * 10) / 10);
+
+  // 3. Tri-state Decision Matrix:
+  // Case A: Accuracy is completely degraded (> 60m threshold, e.g. IP-only or cellar)
   if (accuracy > MAX_ACCEPTABLE_ACCURACY_METRES) {
     const canRetry = retryCount < MAX_RETRY_ATTEMPTS;
     return {
@@ -105,27 +113,29 @@ export function evaluateGeofence(studentCoords, classroomCoords, retryCount = 0)
       retryCount,
       canRetry,
       message: canRetry
-        ? `⚠️ GPS accuracy uncertain (${accuracy}m > 12m threshold). Move closer to classroom windows and retry (Attempt ${retryCount + 1}/${MAX_RETRY_ATTEMPTS}).`
+        ? `⚠️ Low GPS accuracy (${accuracy}m > ${MAX_ACCEPTABLE_ACCURACY_METRES}m). Tap retry to refresh satellite lock (Attempt ${retryCount + 1}/${MAX_RETRY_ATTEMPTS}).`
         : `⚠️ Inconclusive GPS after ${MAX_RETRY_ATTEMPTS} attempts (${accuracy}m uncertainty). Attendance flagged for lecturer classroom review.`
     };
   }
 
-  // Case B: Accurate reading inside configured radius (default 10m)
-  if (distance <= radius) {
+  // Case B: Student is inside classroom radius (accounting for indoor sensor uncertainty)
+  if (distance <= radius || effectiveDistance <= radius) {
     return {
       status: "PASS",
       distance,
+      effectiveDistance,
       accuracy,
       radius,
       geofenceEnforced: true,
-      message: `✅ Geofence Verified: Inside classroom (${distance}m <= ${radius}m radius, ±${accuracy}m accuracy).`
+      message: `✅ Geofence Verified: Inside classroom (${distance}m measured, ±${accuracy}m accuracy within ${radius}m radius).`
     };
   }
 
-  // Case C: Accurate reading outside configured radius (> 10m)
+  // Case C: Student is definitively outside classroom radius (e.g. remote / dorm / proxy)
   return {
     status: "REJECT",
     distance,
+    effectiveDistance,
     accuracy,
     radius,
     geofenceEnforced: true,

@@ -40,6 +40,26 @@ export async function isHardwareBiometricAvailable() {
   }
 }
 
+function bufferToBase64Url(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  for (let i = 0; i < bytes.byteLength; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function base64UrlToBuffer(base64url) {
+  let b64 = base64url.replace(/-/g, "+").replace(/_/g, "/");
+  while (b64.length % 4 !== 0) b64 += "=";
+  const binary = atob(b64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes.buffer;
+}
+
 /**
  * Enrolls or registers an initial hardware biometric key for the student.
  * 
@@ -52,29 +72,74 @@ export async function enrollHardwareBiometric(studentUid) {
       if (typeof window !== "undefined" && window.PublicKeyCredential && PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable) {
         const isAvailable = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
         if (isAvailable && navigator.credentials && navigator.credentials.create) {
-          const challenge = new Uint8Array(32);
-          window.crypto.getRandomValues(challenge);
+          let options = null;
+          let challengeId = "";
+          try {
+            const genFn = httpsCallable(functions, "generateWebAuthnRegistrationOptions");
+            const res = await genFn({
+              rpId: window.location.hostname || "localhost",
+              origin: window.location.origin
+            });
+            if (res.data?.options) {
+              options = res.data.options;
+              challengeId = res.data.challengeId;
+            }
+          } catch (genErr) {
+            console.warn("[BiometricService] Server WebAuthn options notice, using client defaults:", genErr);
+          }
+
+          const challengeBuf = options?.challenge ? base64UrlToBuffer(options.challenge) : new Uint8Array(32);
+          if (!options?.challenge) window.crypto.getRandomValues(challengeBuf);
+
+          const userIdBuf = options?.user?.id
+            ? (typeof options.user.id === "string" ? new TextEncoder().encode(options.user.id) : base64UrlToBuffer(options.user.id))
+            : new TextEncoder().encode(studentUid || "student");
+
           const cred = await navigator.credentials.create({
             publicKey: {
-              challenge,
-              rp: { name: "SmartAttend", id: window.location.hostname || "localhost" },
+              challenge: challengeBuf,
+              rp: options?.rp || { name: "SmartAttend", id: window.location.hostname || "localhost" },
               user: {
-                id: new TextEncoder().encode(studentUid || "student"),
-                name: studentUid || "student",
-                displayName: "SmartAttend Verified Student"
+                id: userIdBuf,
+                name: options?.user?.name || studentUid || "student",
+                displayName: options?.user?.displayName || "SmartAttend Student"
               },
-              pubKeyCredParams: [{ alg: -7, type: "public-key" }, { alg: -257, type: "public-key" }],
-              authenticatorSelection: {
+              pubKeyCredParams: options?.pubKeyCredParams || [{ alg: -7, type: "public-key" }, { alg: -257, type: "public-key" }],
+              authenticatorSelection: options?.authenticatorSelection || {
                 authenticatorAttachment: "platform",
                 userVerification: "preferred"
               },
               timeout: 60000
             }
           });
+
+          if (cred && challengeId) {
+            try {
+              const verifyFn = httpsCallable(functions, "verifyWebAuthnRegistration");
+              await verifyFn({
+                challengeId: challengeId,
+                origin: window.location.origin,
+                rpId: window.location.hostname || "localhost",
+                response: {
+                  id: cred.id,
+                  rawId: bufferToBase64Url(cred.rawId),
+                  response: {
+                    attestationObject: bufferToBase64Url(cred.response.attestationObject),
+                    clientDataJSON: bufferToBase64Url(cred.response.clientDataJSON),
+                    transports: typeof cred.response.getTransports === "function" ? cred.response.getTransports() : []
+                  },
+                  type: cred.type
+                }
+              });
+            } catch (verErr) {
+              console.warn("[BiometricService] Server verification of WebAuthn registration notice:", verErr);
+            }
+          }
+
           if (cred) {
             return {
               success: true,
-              platform: "web",
+              platform: "webauthn",
               message: "Device hardware biometric / platform authenticator enrolled successfully."
             };
           }

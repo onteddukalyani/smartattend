@@ -19,9 +19,16 @@ function LecturerDashboard() {
   useEffect(() => {
     const unsub = subscribeToFacultyNotifications((newNotifs) => {
       setFacultyNotifs(newNotifs || []);
-    }, "lecturer");
-    return () => unsub();
-  }, []);
+    }, "lecturer", user?.email);
+
+    const handleOpenModal = () => setShowNotifModal(true);
+    window.addEventListener("smartattend:open_notification_modal", handleOpenModal);
+
+    return () => {
+      unsub();
+      window.removeEventListener("smartattend:open_notification_modal", handleOpenModal);
+    };
+  }, [user?.email]);
 
   const unreadCount = facultyNotifs.filter(n => !n.read).length;
 

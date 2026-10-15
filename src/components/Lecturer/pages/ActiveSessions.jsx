@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { QRCodeCanvas } from "qrcode.react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { collection, onSnapshot } from "firebase/firestore";
 import { db } from "../../../firebase";
 import { useAuth } from "../../authcontext";
@@ -8,6 +8,7 @@ import { FaQrcode, FaClock, FaCheckCircle, FaDoorOpen, FaUsers } from "react-ico
 import './ActiveSessions.css';
 
 function ActiveSessions() {
+    const navigate = useNavigate();
     const { user, profile } = useAuth();
     const [activeSessions, setActiveSessions] = useState([]);
     const [recentSessions, setRecentSessions] = useState([]);
@@ -112,6 +113,46 @@ function ActiveSessions() {
                                     <small className="active-session-expiry">
                                         <FaClock /> Expires {session.expiresAt ? new Date(session.expiresAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "Soon"}
                                     </small>
+
+                                    <div style={{ marginTop: "8px", display: "flex", gap: "8px", flexWrap: "wrap", justifyContent: "center", width: "100%" }}>
+                                        <span style={{
+                                            fontSize: "0.78rem",
+                                            fontWeight: 750,
+                                            color: "#6366f1",
+                                            display: "inline-flex",
+                                            alignItems: "center",
+                                            gap: "4px"
+                                        }}>
+                                            <FaUsers /> View Full Roster ({session.attendanceCount || 0} Submitted) →
+                                        </span>
+                                    </div>
+
+                                    <button
+                                        type="button"
+                                        onClick={(e) => {
+                                            e.preventDefault();
+                                            e.stopPropagation();
+                                            navigate(`/lecturer/lecturerpage?session=${session.id}`);
+                                        }}
+                                        style={{
+                                            marginTop: "6px",
+                                            padding: "6px 14px",
+                                            borderRadius: "8px",
+                                            background: "linear-gradient(135deg, #6366f1, #4f46e5)",
+                                            color: "#ffffff",
+                                            border: "none",
+                                            fontSize: "0.78rem",
+                                            fontWeight: 750,
+                                            cursor: "pointer",
+                                            display: "inline-flex",
+                                            alignItems: "center",
+                                            gap: "6px",
+                                            boxShadow: "0 2px 8px rgba(99, 102, 241, 0.25)"
+                                        }}
+                                        title="Open Live Projector & Kiosk Monitor Screen"
+                                    >
+                                        <FaQrcode /> 📺 Live Projector QR
+                                    </button>
                                 </div>
                             </Link>
                         ))}

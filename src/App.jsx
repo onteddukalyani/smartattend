@@ -11,7 +11,9 @@ import { FaGraduationCap, FaSpinner } from "react-icons/fa";
 import ProtectedRoute from "./components/ProtectedRoute";
 import { useAuth } from "./components/authcontext";
 import AppUpdateModal from "./components/Common/AppUpdateModal";
+import HeadsUpNotification from "./components/Common/HeadsUpNotification";
 import { checkForAppUpdate } from "./services/appUpdateService";
+import { requestAppNotificationPermissions } from "./services/nativeNotificationService";
 import "./App.css";
 
 // Lazy-loaded components for instant initial page loads and code splitting
@@ -117,6 +119,13 @@ function App() {
       window.removeEventListener("online", handleOnline);
     };
   }, []);
+
+  // Request native Android 13+ and Web Notification permissions when user is authenticated
+  useEffect(() => {
+    if (user) {
+      requestAppNotificationPermissions().catch(() => {});
+    }
+  }, [user]);
 
   // 1. Listen for Native Deep Links & App Links (smartattend:// or https://)
   useEffect(() => {
@@ -895,6 +904,7 @@ function App() {
         <Route path="*" element={<Navigate to={defaultDashboard} replace />} />
       </Routes>
     </Suspense>
+    <HeadsUpNotification />
     <AppUpdateModal updateInfo={updateInfo} onClose={() => setUpdateInfo(null)} />
     </>
   );

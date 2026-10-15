@@ -37,6 +37,7 @@ public class MainActivity extends BridgeActivity {
         sInstance = this;
         registerPlugin(KioskPlugin.class);
         registerPlugin(BiometricPlugin.class);
+        registerPlugin(NativeNotificationPlugin.class);
         super.onCreate(savedInstanceState);
 
         // Enable Chrome remote debugging for WebView

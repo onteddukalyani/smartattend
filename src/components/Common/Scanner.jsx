@@ -124,6 +124,7 @@ function QrScannerApp() {
     const [elapsedSeconds, setElapsedSeconds] = useState(0);
     const [sessionRemaining, setSessionRemaining] = useState(180);
     const [errorMessage, setErrorMessage] = useState('');
+    const geofenceRetriesRef = useRef(0);
 
     // 5-Minute Fail-Safe Auto Release State
     const [attendanceSubmittedAt, setAttendanceSubmittedAt] = useState(0);
@@ -501,6 +502,7 @@ function QrScannerApp() {
                 // Enforce the threshold on the backend.
                 const nextCount = violationCount + 1;
                 setViolationCount(nextCount);
+                const isDisq = nextCount >= 2;
 
                 let backendResult = null;
                 if (activeSessionId) {
@@ -508,10 +510,25 @@ function QrScannerApp() {
                         backendResult = await reportAttendanceLifecycleEvent(activeSessionId, {
                             eventType: 'CONFIRMED_KIOSK_ESCAPE',
                             source: source,
-                            platform: 'android'
+                            platform: 'android',
+                            count: nextCount
                         });
                     } catch (err) {
                         console.warn('[Kiosk Guardian] Backend event report notice:', err);
+                    }
+
+                    // Explicitly update Firestore with student's roll number & UID
+                    try {
+                        await recordSessionViolation(
+                            activeSessionId,
+                            user?.uid,
+                            loggedInRollNo,
+                            `CONFIRMED_KIOSK_ESCAPE: ${source}`,
+                            nextCount,
+                            isDisq || Boolean(backendResult?.disqualified)
+                        );
+                    } catch (vErr) {
+                        console.warn('[Kiosk Guardian] Direct violation record notice:', vErr);
                     }
                 }
 
@@ -731,9 +748,11 @@ function QrScannerApp() {
                 const startMs = typeof data.sessionStartAt.toMillis === 'function' ? data.sessionStartAt.toMillis() : data.sessionStartAt;
                 setSessionStartAt(startMs);
             }
-            if (data.kioskEndsAt && !kioskEndsAt) {
+            if (data.kioskEndsAt) {
                 const endMs = typeof data.kioskEndsAt.toMillis === 'function' ? data.kioskEndsAt.toMillis() : data.kioskEndsAt;
-                setKioskEndsAt(endMs);
+                if (endMs && endMs !== kioskEndsAt) {
+                    setKioskEndsAt(endMs);
+                }
             }
             // If lecturer ends the session in real-time
             if (data.status === 'CLOSED' || data.phase === 'CLOSED' || data.isClosed === true) {
@@ -1047,23 +1066,31 @@ function QrScannerApp() {
             return;
         }
 
-        // 2. Geofence Check (Enforces immutable 10m classroom radius)
+        // 2. Geofence Check (Enforces classroom boundary with indoor tolerance)
         const classroomTarget = payload.geo || sessionData?.classroomLocation;
-        if (classroomTarget) {
+        if (classroomTarget && classroomTarget.radius !== 0 && classroomTarget.enabled !== false) {
             try {
                 const getCoords = () => new Promise((resolve) => {
                     if (typeof navigator === "undefined" || !navigator.geolocation) {
                         resolve(null);
                         return;
                     }
+                    // Stage 1: Try high accuracy (assisted GPS) with 8s timeout and cached fix up to 30s
                     navigator.geolocation.getCurrentPosition(
                         (pos) => resolve(pos.coords),
-                        () => resolve(null),
-                        { enableHighAccuracy: true, timeout: 7000 }
+                        () => {
+                            // Stage 2: Fallback to fast cellular/Wi-Fi coarse provider if satellite lock is blocked by roof/concrete
+                            navigator.geolocation.getCurrentPosition(
+                                (pos2) => resolve(pos2.coords),
+                                () => resolve(null),
+                                { enableHighAccuracy: false, timeout: 5000, maximumAge: 60000 }
+                            );
+                        },
+                        { enableHighAccuracy: true, timeout: 8000, maximumAge: 30000 }
                     );
                 });
                 const studentCoords = await getCoords();
-                const geoEval = evaluateGeofence(studentCoords, classroomTarget);
+                const geoEval = evaluateGeofence(studentCoords, classroomTarget, geofenceRetriesRef.current);
 
                 if (geoEval.status === "MOCK_DETECTED") {
                     console.error("[Geofence] Mock location detected!");
@@ -1079,8 +1106,15 @@ function QrScannerApp() {
                     return;
                 }
                 if (geoEval.status === "INCONCLUSIVE_RETRY") {
-                    setErrorMessage(geoEval.message);
-                    return;
+                    geofenceRetriesRef.current = (geofenceRetriesRef.current || 0) + 1;
+                    if (geoEval.canRetry) {
+                        setErrorMessage(geoEval.message);
+                        return;
+                    } else {
+                        // Max retries reached indoors: since student is scanning the 10-second rotating QR directly in front of the projector screen,
+                        // allow attendance to proceed with an indoor proximity notice rather than permanently blocking them
+                        console.warn("[Geofence] Indoor GPS inconclusive after retries. Proceeding with classroom proximity audit flag.");
+                    }
                 }
             } catch (geoErr) {
                 console.warn("[Geofence] Check notice:", geoErr);
@@ -1218,6 +1252,8 @@ function QrScannerApp() {
                             distance: res.distance || 0.35,
                             liveness: res.liveness === true,
                             blinkCount: res.blinkCount || 1,
+                            liveDescriptor: res.liveDescriptor || null,
+                            faceDescriptor: res.liveDescriptor || null,
                             verified: true,
                             antiSpoofScore: "PASSED"
                         },

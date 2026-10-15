@@ -329,7 +329,7 @@ export function computeStudentMetrics(coursesDocs = [], sessionsDocs = [], recor
                 createdAt: s.createdAt || s.timestamp || Date.now(),
                 isPresent,
                 submittedAt: myRecord ? (myRecord.submittedAt || s.createdAt) : null,
-                faceVerified: myRecord?.faceVerified ?? true
+                faceVerified: Boolean(myRecord?.faceVerified)
             };
         }).sort((a, b) => parseTimestampMillis(b.createdAt) - parseTimestampMillis(a.createdAt));
 

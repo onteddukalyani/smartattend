@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useSearchParams, Link, useNavigate } from "react-router-dom";
 import { QRCodeCanvas } from "qrcode.react";
-import { collection, getDocs } from "firebase/firestore";
+import { collection, getDocs, onSnapshot } from "firebase/firestore";
 import { db } from "../../../firebase";
 import { createAttendanceSession } from "./CreateSession";
 import {
@@ -9,6 +9,7 @@ import {
     subscribeToSession,
     subscribeToAuthorizations,
     closeAttendanceSession,
+    extendAttendanceSession,
     releaseIndividualStudentDevice,
     excuseAndReinstateAttendance
 } from "../../../services/sessionAuthService";
@@ -42,7 +43,10 @@ import {
     FaEyeSlash,
     FaUserPlus,
     FaTimes,
-    FaMapMarkerAlt
+    FaMapMarkerAlt,
+    FaInfoCircle,
+    FaChevronDown,
+    FaChevronUp
 } from "react-icons/fa";
 import "./Generateqr.css";
 
@@ -57,10 +61,15 @@ function GenerateQR() {
     const [classCode, setClassCode] = useState(normalizeBranchName(searchParams.get("classCode") || ""));
     const [batch, setBatch] = useState(searchParams.get("batch") || "2025");
     const [lectureHours, setLectureHours] = useState("1.0"); // Optional lecture duration in hours
+    const [timetablePreset, setTimetablePreset] = useState("standard"); // "fast" | "express" | "standard" | "extended" | "custom"
+    const [qr1Seconds, setQr1Seconds] = useState(60);   // Phase 1 (QR1 check-in) window
+    const [qr2Seconds, setQr2Seconds] = useState(120);  // Phase 2 (QR2 biometric verification) window
+    const [sessionDurationMinutes, setSessionDurationMinutes] = useState("3");
+    const [customDurationMinutes, setCustomDurationMinutes] = useState("3");
     const [availableCourses, setAvailableCourses] = useState([]);
 
     // Authoritative 2-Phase Session State (0:00 -> 1:00 -> 3:00)
-    const [sessionId, setSessionId] = useState("");
+    const [sessionId, setSessionId] = useState(searchParams.get("sessionId") || searchParams.get("session") || "");
     const [sessionPin, setSessionPin] = useState("");
     const [showPin, setShowPin] = useState(false);
     const [phase, setPhase] = useState("NONE"); // "NONE" | "PHASE_1" | "PHASE_2" | "CLOSED"
@@ -75,11 +84,13 @@ function GenerateQR() {
     const [rotationIntervalSec, setRotationIntervalSec] = useState(DEFAULT_ROTATION_INTERVAL);
     const [rotationSecondsLeft, setRotationSecondsLeft] = useState(DEFAULT_ROTATION_INTERVAL);
     const [dynamicQrUrl, setDynamicQrUrl] = useState("");
-    const [geofenceRadius, setGeofenceRadius] = useState(5); // Default 5 metres, adjustable by lecturer (0 = disabled)
+    const [geofenceRadius, setGeofenceRadius] = useState(30); // Default 30 metres (standard classroom/lab), adjustable by lecturer (0 = disabled)
     const [classroomCoords, setClassroomCoords] = useState(null);
+    const [classroomGpsStatus, setClassroomGpsStatus] = useState("IDLE"); // "IDLE" | "ACTIVE" | "UNAVAILABLE" | "DISABLED"
 
     const [sessionData, setSessionData] = useState(null);
     const [authorizedStudents, setAuthorizedStudents] = useState([]);
+    const [attendanceRecords, setAttendanceRecords] = useState([]);
     const [releasingStudentId, setReleasingStudentId] = useState(null);
     const [excusingStudentId, setExcusingStudentId] = useState(null);
 
@@ -96,6 +107,7 @@ function GenerateQR() {
     const [isTransitioning, setIsTransitioning] = useState(false);
     const [errorMessage, setErrorMessage] = useState("");
     const [copied, setCopied] = useState(false);
+    const [showSessionDetails, setShowSessionDetails] = useState(false);
 
     const timerRef = useRef(null);
 
@@ -159,13 +171,29 @@ function GenerateQR() {
             setAuthorizedStudents(authList);
         });
 
+        const unsubRecords = onSnapshot(collection(db, "attendance_records"), (recordsSnapshot) => {
+            const target = String(sessionId).trim().toLowerCase();
+            const matching = recordsSnapshot.docs
+                .filter((d) => {
+                    const data = d.data();
+                    const sid = String(data.sessionId || data.session_id || "").trim().toLowerCase();
+                    const docId = String(d.id).trim().toLowerCase();
+                    return sid === target || docId.startsWith(`${target}_`) || docId === target;
+                })
+                .map((d) => ({ id: d.id, ...d.data() }));
+            setAttendanceRecords(matching);
+        }, (err) => {
+            console.warn("Notice subscribing to attendance records in QR hub:", err);
+        });
+
         return () => {
             unsubSession();
             unsubAuths();
+            unsubRecords();
         };
     }, [sessionId]);
 
-    // 3. Authoritative Session Timeline Engine (0:00 to 3:00)
+    // 3. Authoritative Session Timeline Engine (Dynamic configurable session duration)
     useEffect(() => {
         if (!sessionStartAt || !kioskEndsAt) {
             if (timerRef.current) clearInterval(timerRef.current);
@@ -173,25 +201,29 @@ function GenerateQR() {
         }
 
         const updateTimeline = () => {
+            const totalSeconds = (kioskEndsAt && sessionStartAt && kioskEndsAt > sessionStartAt)
+                ? Math.max(30, Math.round((kioskEndsAt - sessionStartAt) / 1000))
+                : 180;
+
             if (phase === "CLOSED" || sessionData?.phase === "CLOSED" || sessionData?.status === "CLOSED" || sessionData?.active === false) {
                 setPhase("CLOSED");
-                setElapsedSeconds(180);
+                setElapsedSeconds(totalSeconds);
                 if (timerRef.current) clearInterval(timerRef.current);
                 return;
             }
 
             const now = Date.now();
-            const elapsed = Math.min(180, Math.floor((now - sessionStartAt) / 1000));
+            const elapsed = Math.min(totalSeconds, Math.floor((now - sessionStartAt) / 1000));
             setElapsedSeconds(elapsed);
 
-            if (now >= kioskEndsAt || elapsed >= 180) {
+            if (now >= kioskEndsAt || elapsed >= totalSeconds) {
                 setPhase("CLOSED");
-                setElapsedSeconds(180);
+                setElapsedSeconds(totalSeconds);
                 if (timerRef.current) clearInterval(timerRef.current);
                 if (sessionId) {
                     closeAttendanceSession(sessionId).catch(() => {});
                 }
-            } else if (phase === "PHASE_2" || sessionData?.phase === "PHASE_2" || now >= qr1ExpiresAt || elapsed >= 60) {
+            } else if (phase === "PHASE_2" || sessionData?.phase === "PHASE_2" || now >= qr1ExpiresAt) {
                 setPhase("PHASE_2");
             } else {
                 setPhase("PHASE_1");
@@ -254,8 +286,25 @@ function GenerateQR() {
             const finalBatch = (batch && batch.trim() !== "") ? batch.trim() : "2025";
             const parsedHours = parseFloat(lectureHours) > 0 ? parseFloat(lectureHours) : 1.0;
             const finalClassCode = normalizeBranchName(classCode || "CSE");
+            const effectiveQr1Sec = Math.max(15, Number(qr1Seconds) || 60);
+            const effectiveQr2Sec = Math.max(15, Number(qr2Seconds) || 120);
+            const effectiveTotalSec = effectiveQr1Sec + effectiveQr2Sec;
+            const effectiveDurationMinutes = Math.round((effectiveTotalSec / 60) * 10) / 10;
 
-            const result = await createAttendanceSession(finalClassCode, courseCode.trim(), roomNo.trim(), finalBatch, lecturerInfo, parsedHours, geofenceRadius);
+            const result = await createAttendanceSession(
+                finalClassCode,
+                courseCode.trim(),
+                roomNo.trim(),
+                finalBatch,
+                lecturerInfo,
+                parsedHours,
+                geofenceRadius,
+                effectiveDurationMinutes,
+                {
+                    qr1DurationSeconds: effectiveQr1Sec,
+                    qr2DurationSeconds: effectiveQr2Sec
+                }
+            );
 
             setSessionId(result.sessionId);
             if (result.sessionPin || result.lecturerPin || result.lecturerReleaseCode) {
@@ -269,25 +318,45 @@ function GenerateQR() {
             setPhase("PHASE_1");
             setElapsedSeconds(0);
 
-            // Capture Classroom GPS coordinates for Geofencing (Configurable radius, 5m default)
+            // Capture Classroom GPS coordinates for Geofencing (Configurable radius, 30m default)
             if (geofenceRadius > 0 && typeof navigator !== "undefined" && navigator.geolocation) {
-                navigator.geolocation.getCurrentPosition(
-                    (pos) => {
-                        const coords = {
-                            latitude: pos.coords.latitude,
-                            longitude: pos.coords.longitude,
-                            accuracy: pos.coords.accuracy,
-                            radius: geofenceRadius
-                        };
-                        setClassroomCoords(coords);
-                    },
-                    (err) => {
-                        console.warn("Classroom GPS capture notice:", err.message);
-                    },
-                    { enableHighAccuracy: true, timeout: 6000 }
-                );
+                const captureHostGps = () => {
+                    navigator.geolocation.getCurrentPosition(
+                        (pos) => {
+                            setClassroomCoords({
+                                latitude: pos.coords.latitude,
+                                longitude: pos.coords.longitude,
+                                accuracy: pos.coords.accuracy,
+                                radius: geofenceRadius
+                            });
+                            setClassroomGpsStatus("ACTIVE");
+                        },
+                        () => {
+                            // Fallback to coarse / Wi-Fi location provider if high-accuracy GPS times out on laptop/desktop
+                            navigator.geolocation.getCurrentPosition(
+                                (pos2) => {
+                                    setClassroomCoords({
+                                        latitude: pos2.coords.latitude,
+                                        longitude: pos2.coords.longitude,
+                                        accuracy: pos2.coords.accuracy,
+                                        radius: geofenceRadius
+                                    });
+                                    setClassroomGpsStatus("ACTIVE");
+                                },
+                                (err2) => {
+                                    console.warn("Classroom GPS unavailable on lecturer device:", err2?.message || err2);
+                                    setClassroomGpsStatus("UNAVAILABLE");
+                                },
+                                { enableHighAccuracy: false, timeout: 5000, maximumAge: 300000 }
+                            );
+                        },
+                        { enableHighAccuracy: true, timeout: 5000, maximumAge: 60000 }
+                    );
+                };
+                captureHostGps();
             } else if (geofenceRadius === 0) {
                 setClassroomCoords(null);
+                setClassroomGpsStatus("DISABLED");
             }
 
             // Real-time Faculty & Admin Alert
@@ -316,18 +385,82 @@ function GenerateQR() {
         }
     };
 
-    // 5. Early Transition to Phase 2 (Sets clock to 1:00 and starts Phase 2 immediately)
+    // Live Geofence Update Handler: Allows lecturer to adjust or disable geofence in real time without restarting session
+    const handleUpdateGeofenceRadius = (newRadius) => {
+        const r = Number(newRadius);
+        setGeofenceRadius(r);
+        if (r === 0) {
+            setClassroomCoords(null);
+            setClassroomGpsStatus("DISABLED");
+        } else if (classroomCoords) {
+            setClassroomCoords((prev) => prev ? { ...prev, radius: r } : { radius: r });
+            setClassroomGpsStatus("ACTIVE");
+        } else if (typeof navigator !== "undefined" && navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(
+                (pos) => {
+                    setClassroomCoords({
+                        latitude: pos.coords.latitude,
+                        longitude: pos.coords.longitude,
+                        accuracy: pos.coords.accuracy,
+                        radius: r
+                    });
+                    setClassroomGpsStatus("ACTIVE");
+                },
+                () => {
+                    navigator.geolocation.getCurrentPosition(
+                        (pos2) => {
+                            setClassroomCoords({
+                                latitude: pos2.coords.latitude,
+                                longitude: pos2.coords.longitude,
+                                accuracy: pos2.coords.accuracy,
+                                radius: r
+                            });
+                            setClassroomGpsStatus("ACTIVE");
+                        },
+                        (err2) => {
+                            console.warn("Classroom GPS unavailable on lecturer device:", err2?.message || err2);
+                            setClassroomGpsStatus("UNAVAILABLE");
+                        },
+                        { enableHighAccuracy: false, timeout: 5000, maximumAge: 300000 }
+                    );
+                },
+                { enableHighAccuracy: true, timeout: 5000, maximumAge: 60000 }
+            );
+        }
+    };
+
+    // Live Dynamic Session Time Adjustment (Lecturer / Admin can add or remove running session time live)
+    const handleAdjustSessionTime = async (deltaSeconds) => {
+        if (!sessionId) return;
+        try {
+            const res = await extendAttendanceSession(sessionId, deltaSeconds);
+            const newEnds = res?.newEndsMs || ((kioskEndsAt || Date.now()) + deltaSeconds * 1000);
+            setKioskEndsAt(newEnds);
+            const sign = deltaSeconds >= 0 ? "+" : "";
+            const unit = Math.abs(deltaSeconds) >= 60 ? `${deltaSeconds / 60}m` : `${deltaSeconds}s`;
+            alert(`✅ Session duration adjusted by ${sign}${unit}.`);
+        } catch (err) {
+            console.error("Failed to adjust session time:", err);
+            alert("Could not adjust session: " + (err.message || err));
+        }
+    };
+    const handleExtendSession = (mins) => handleAdjustSessionTime(mins * 60);
+
+    // 5. Early Transition to Phase 2 (Starts Phase 2 immediately while preserving total duration)
     const handleForcePhase2 = async () => {
         if (!sessionId) return;
         setIsTransitioning(true);
         try {
             const now = Date.now();
-            const newStartAt = now - 60000; // Aligns elapsed time to 1:00 (60s)
-            const newEndsAt = newStartAt + 180000; // Gives full 2 mins (120s) until 3:00
+            const currentTotalMs = (kioskEndsAt && sessionStartAt && kioskEndsAt > sessionStartAt)
+                ? (kioskEndsAt - sessionStartAt)
+                : 180000;
+            const newStartAt = now - 60000; // Aligns elapsed time to Phase 2 start
+            const newEndsAt = newStartAt + currentTotalMs;
             setSessionStartAt(newStartAt);
             setQr1ExpiresAt(now);
             setKioskEndsAt(newEndsAt);
-            setElapsedSeconds(60); // Jumps clock to 1:00
+            setElapsedSeconds(60);
             setPhase("PHASE_2");
             await transitionSessionToPhase2(sessionId);
         } catch (error) {
@@ -339,14 +472,17 @@ function GenerateQR() {
         }
     };
 
-    // Helper: End session immediately, release all student kiosks, and jump clock to 3:00
+    // Helper: End session immediately, release all student kiosks, and jump clock to end
     const handleEndSessionAndReleaseAll = async () => {
         if (!window.confirm("End attendance session immediately and release all student devices from Kiosk mode?")) {
             return;
         }
         if (timerRef.current) clearInterval(timerRef.current);
+        const totalSec = (kioskEndsAt && sessionStartAt && kioskEndsAt > sessionStartAt)
+            ? Math.round((kioskEndsAt - sessionStartAt) / 1000)
+            : 180;
         setPhase("CLOSED");
-        setElapsedSeconds(180); // Sets clock to 3:00 / 3:00
+        setElapsedSeconds(totalSec);
         try {
             if (sessionId) {
                 await closeAttendanceSession(sessionId);
@@ -516,74 +652,204 @@ function GenerateQR() {
         }
     };
 
+    // Comprehensive Disqualification & Violation Detection Helpers
+    const checkIsDisqualified = (st) => {
+        if (!st) return false;
+        if (st.disqualified === true) return true;
+        const s = String(st.status || "").toUpperCase();
+        if (s === "DISQUALIFIED" || s === "FLAGGED_DISQUALIFIED" || s === "REJECTED") return true;
+        if (Number(st.violationCount || st.confirmedKioskViolations || 0) >= 2) return true;
+        if (Array.isArray(st.violations) && st.violations.some(v => v.disqualified === true || Number(v.count || 0) >= 2)) return true;
+        return false;
+    };
+
+    const checkHasViolation = (st) => {
+        if (!st) return false;
+        if (checkIsDisqualified(st)) return true;
+        if (st.hasViolation === true || st.flagged === true) return true;
+        const s = String(st.status || "").toUpperCase();
+        if (s.startsWith("FLAGGED") || s.includes("VIOLATION") || s.includes("ESCAPE")) return true;
+        if (Array.isArray(st.violations) && st.violations.length > 0) return true;
+        if (Number(st.violationCount || st.confirmedKioskViolations || 0) > 0) return true;
+        return false;
+    };
+
     // Deduplicated list of students (guarantees no student/device is shown twice or more)
     const uniqueStudentsList = useMemo(() => {
-        if (!authorizedStudents || !Array.isArray(authorizedStudents)) return [];
         const map = new Map();
 
-        authorizedStudents.forEach((st) => {
+        // 1. Process authorized students (QR 1 check-ins)
+        (authorizedStudents || []).forEach((st) => {
             const roll = (st.rollNo || st.studentUid || st.id || "").toUpperCase().trim();
             if (!roll) return;
+
+            const isDisq = checkIsDisqualified(st);
+            const hasV = isDisq || checkHasViolation(st);
+            const vCount = Math.max(Number(st.violationCount || st.confirmedKioskViolations || 0), isDisq ? 2 : hasV ? 1 : 0);
 
             if (!map.has(roll)) {
                 map.set(roll, {
                     ...st,
                     rollNo: roll,
                     studentName: st.studentName || st.fullName || roll,
-                    studentUid: st.studentUid || st.id || roll
+                    studentUid: st.studentUid || st.id || roll,
+                    disqualified: isDisq,
+                    hasViolation: hasV,
+                    violationCount: vCount,
+                    violations: Array.isArray(st.violations) ? st.violations : []
                 });
             } else {
                 const existing = map.get(roll);
+                const mergedDisq = isDisq || existing.disqualified === true;
+                const mergedHasV = hasV || existing.hasViolation === true || mergedDisq;
+                const mergedVCount = Math.max(vCount, Number(existing.violationCount || 0));
+                const allViolations = [
+                    ...(Array.isArray(existing.violations) ? existing.violations : []),
+                    ...(Array.isArray(st.violations) ? st.violations : [])
+                ];
+
                 map.set(roll, {
                     ...existing,
                     ...st,
                     rollNo: roll,
                     studentName: st.studentName || existing.studentName || roll,
                     released: st.released === true || existing.released === true,
-                    status: st.status || existing.status,
-                    flagged: st.flagged === true || existing.flagged === true
+                    status: (st.status === "FLAGGED_DISQUALIFIED" || st.status === "DISQUALIFIED") ? st.status : (existing.status || st.status),
+                    flagged: st.flagged === true || existing.flagged === true,
+                    disqualified: mergedDisq,
+                    hasViolation: mergedHasV,
+                    violationCount: mergedVCount,
+                    violations: allViolations
                 });
             }
         });
 
+        // 2. Also incorporate any students present in attendance_records (e.g. submitted or disqualified records)
+        (attendanceRecords || []).forEach((rec) => {
+            const roll = (rec.rollNo || rec.studentUid || "").toUpperCase().trim();
+            if (!roll) return;
+
+            const isDisq = checkIsDisqualified(rec);
+            const hasV = isDisq || checkHasViolation(rec);
+
+            if (!map.has(roll)) {
+                map.set(roll, {
+                    id: rec.id || roll,
+                    rollNo: roll,
+                    studentName: rec.fullName || rec.name || rec.studentName || roll,
+                    studentUid: rec.studentUid || roll,
+                    disqualified: isDisq,
+                    hasViolation: hasV,
+                    violationCount: isDisq ? 2 : hasV ? 1 : 0,
+                    violations: [],
+                    status: rec.status || (isDisq ? "FLAGGED_DISQUALIFIED" : "APPROVED"),
+                    isAttended: rec.excused || rec.faceVerified || rec.status === "APPROVED" || rec.status === "ATTENDED"
+                });
+            } else {
+                const existing = map.get(roll);
+                if (isDisq) {
+                    existing.disqualified = true;
+                    existing.hasViolation = true;
+                    existing.status = "FLAGGED_DISQUALIFIED";
+                    existing.violationCount = Math.max(existing.violationCount || 0, 2);
+                    if (rec.violationReason && !existing.violationReason) {
+                        existing.violationReason = rec.violationReason;
+                    }
+                }
+            }
+        });
+
         return Array.from(map.values()).sort((a, b) => (a.rollNo || "").localeCompare(b.rollNo || ""));
-    }, [authorizedStudents]);
+    }, [authorizedStudents, attendanceRecords]);
 
     const attendeesSet = useMemo(() => {
-        return new Set(
+        const set = new Set(
             (sessionData?.attendees || []).map((a) => (a.rollNo || a.studentUid || "").toUpperCase().trim())
         );
-    }, [sessionData?.attendees]);
+        (attendanceRecords || []).forEach((rec) => {
+            const roll = (rec.rollNo || rec.studentUid || "").toUpperCase().trim();
+            const isExcused = rec.excused === true;
+            const isDisq = !isExcused && checkIsDisqualified(rec);
+            if (roll && !isDisq && (isExcused || rec.faceVerified || rec.status === "APPROVED" || rec.status === "ATTENDED")) {
+                set.add(roll);
+            }
+        });
+        return set;
+    }, [sessionData?.attendees, attendanceRecords]);
 
     const flaggedMap = useMemo(() => {
         const map = new Map();
         (sessionData?.flaggedViolations || []).forEach((f) => {
             const isReviewed = f.reviewed === true || f.excused === true || f.resolved === true || f.dismissed === true || f.status === "RESOLVED" || f.status === "APPROVED" || f.status === "DISMISSED";
             if (isReviewed) return;
-            const r = (f.rollNo || f.studentUid || "").toUpperCase().trim();
-            if (r) map.set(r, f.violationReason || f.violationType || "App switched / screen capture violation");
+            const r = (f.rollNo || "").toUpperCase().trim();
+            const u = (f.studentUid || "").toUpperCase().trim();
+            const isDisq = f.disqualified === true || f.status === "FLAGGED_DISQUALIFIED" || Number(f.count || f.violationCount || 0) >= 2;
+            const reason = f.violationReason || f.violationType || (isDisq ? "Attendance forfeited: 2 confirmed kiosk exits" : "App switched / screen capture violation");
+            const entry = { reason, isDisqualified: isDisq };
+            if (r) map.set(r, entry);
+            if (u) map.set(u, entry);
         });
+
+        // Also incorporate any disqualified records from attendanceRecords
+        (attendanceRecords || []).forEach((rec) => {
+            const roll = (rec.rollNo || rec.studentUid || "").toUpperCase().trim();
+            if (roll && checkIsDisqualified(rec) && !map.has(roll)) {
+                map.set(roll, {
+                    reason: rec.violationReason || "Attendance forfeited: 2 confirmed kiosk exits",
+                    isDisqualified: true
+                });
+            }
+        });
+
         return map;
-    }, [sessionData?.flaggedViolations]);
+    }, [sessionData?.flaggedViolations, attendanceRecords]);
 
     // Enrich student records with attendance, violation, and excuse state
     const enrichedStudentsList = useMemo(() => {
         return uniqueStudentsList.map((st) => {
             const roll = (st.rollNo || "").toUpperCase().trim();
-            const isAttended = attendeesSet.has(roll) || st.status === "ATTENDED" || st.status === "APPROVED" || st.attended === true || st.excused === true;
-            const isExcused = st.excused === true || (isAttended && (flaggedMap.has(roll) || st.flagged || st.hasViolation));
-            const hasViolation = !isExcused && !isAttended && (flaggedMap.has(roll) || st.status === "FLAGGED_DISQUALIFIED" || st.flagged === true || (Array.isArray(st.violations) && st.violations.length > 0));
-            const violationReason = flaggedMap.get(roll) || st.violationReason || (st.violations?.[0]?.reason) || "App switch detected";
+            const uid = (st.studentUid || "").toUpperCase().trim();
+            const flagEntry = flaggedMap.get(roll) || flaggedMap.get(uid);
+
+            const isAttended = attendeesSet.has(roll) || attendeesSet.has(uid) || st.status === "ATTENDED" || st.status === "APPROVED" || st.attended === true || st.excused === true;
+            const isExcused = st.excused === true || (isAttended && (flagEntry || st.flagged || st.hasViolation || st.disqualified));
+
+            const isDisqualified = !isExcused && !isAttended && (
+                st.disqualified === true ||
+                checkIsDisqualified(st) ||
+                (flagEntry && flagEntry.isDisqualified) ||
+                (sessionData?.flaggedViolations || []).some(f =>
+                    (f.disqualified === true || f.status === "FLAGGED_DISQUALIFIED" || Number(f.count || f.violationCount || 0) >= 2) &&
+                    ((f.rollNo && f.rollNo.toUpperCase().trim() === roll) || (f.studentUid && f.studentUid.toUpperCase().trim() === uid))
+                )
+            );
+
+            const hasViolation = isDisqualified || (!isExcused && !isAttended && (
+                Boolean(flagEntry) ||
+                checkHasViolation(st) ||
+                st.status === "FLAGGED_WARNING" ||
+                st.status === "FLAGGED_DISQUALIFIED" ||
+                st.flagged === true ||
+                st.hasViolation === true ||
+                (Array.isArray(st.violations) && st.violations.length > 0)
+            ));
+
+            const violationReason = flagEntry?.reason ||
+                st.violationReason ||
+                (Array.isArray(st.violations) && st.violations.length > 0 ? (st.violations[st.violations.length - 1].reason || st.violations[0].reason) : null) ||
+                (isDisqualified ? "Attendance forfeited: 2 confirmed kiosk exits" : "App switch detected");
 
             return {
                 ...st,
                 isAttended,
+                isDisqualified,
                 hasViolation,
                 violationReason,
                 isExcused
             };
         });
-    }, [uniqueStudentsList, attendeesSet, flaggedMap]);
+    }, [uniqueStudentsList, attendeesSet, flaggedMap, sessionData?.flaggedViolations]);
 
     // Live Metrics: Total scanned QR 1, Reached QR 2 (Attended), Pending QR 2, and Violations Count
     const { totalScannedQR1, reachedQR2Count, pendingQR2Count, violationsCount } = useMemo(() => {
@@ -594,11 +860,10 @@ function GenerateQR() {
         enrichedStudentsList.forEach((st) => {
             if (st.isAttended) {
                 reachedQR2++;
+            } else if (st.isDisqualified || st.hasViolation) {
+                violations++;
             } else {
                 pendingQR2++;
-            }
-            if (st.hasViolation && !st.isAttended) {
-                violations++;
             }
         });
 
@@ -614,8 +879,8 @@ function GenerateQR() {
     const filteredRoster = useMemo(() => {
         return enrichedStudentsList.filter((st) => {
             if (rosterFilterTab === "PRESENT" && !st.isAttended) return false;
-            if (rosterFilterTab === "PENDING" && (st.isAttended || (st.hasViolation && !st.isAttended))) return false;
-            if (rosterFilterTab === "VIOLATIONS" && (!st.hasViolation || st.isAttended)) return false;
+            if (rosterFilterTab === "PENDING" && (st.isAttended || st.isDisqualified || st.hasViolation)) return false;
+            if (rosterFilterTab === "VIOLATIONS" && (!st.isDisqualified && !st.hasViolation || st.isAttended)) return false;
 
             if (searchTerm.trim()) {
                 const term = searchTerm.toLowerCase().trim();
@@ -634,25 +899,41 @@ function GenerateQR() {
         return `${m}:${String(s).padStart(2, "0")}`;
     };
 
-    const qr1Remaining = Math.max(0, 60 - elapsedSeconds);
-    const sessionRemaining = Math.max(0, 180 - elapsedSeconds);
+    const totalDurationSeconds = useMemo(() => {
+        if (kioskEndsAt && sessionStartAt && kioskEndsAt > sessionStartAt) {
+            return Math.max(30, Math.round((kioskEndsAt - sessionStartAt) / 1000));
+        }
+        return Math.max(30, Number(qr1Seconds) + Number(qr2Seconds));
+    }, [kioskEndsAt, sessionStartAt, qr1Seconds, qr2Seconds]);
+
+    const qr1TotalSeconds = useMemo(() => {
+        if (qr1ExpiresAt && sessionStartAt && qr1ExpiresAt > sessionStartAt) {
+            return Math.max(10, Math.round((qr1ExpiresAt - sessionStartAt) / 1000));
+        }
+        return Math.max(10, Number(qr1Seconds));
+    }, [qr1ExpiresAt, sessionStartAt, qr1Seconds]);
+
+    const qr1Remaining = Math.max(0, qr1ExpiresAt ? Math.floor((qr1ExpiresAt - Date.now()) / 1000) : (qr1TotalSeconds - elapsedSeconds));
+    const sessionRemaining = Math.max(0, kioskEndsAt ? Math.floor((kioskEndsAt - Date.now()) / 1000) : (totalDurationSeconds - elapsedSeconds));
+    const totalDurationMinutesDisplay = (totalDurationSeconds / 60).toFixed(1).replace(/\.0$/, "");
 
     return (
         <div className="qrpage">
             {/* Header */}
             <div className="qrpage-header">
                 <div className="qrpage-header-badge">
-                    <FaShieldAlt /> 2-Phase Attendance Protocol
+                    <FaShieldAlt /> 2-Phase Protocol &bull; {formatMmSs(totalDurationSeconds)} Total Window
                 </div>
                 <h1>Generate Attendance QR</h1>
-                <p>
-                    <strong>Phase 1 (0:00–1:00):</strong> Student Check-in &amp; Kiosk Lock &bull; <strong>Phase 2 (1:00–3:00):</strong> Biometric Verification
+                <p className="qrpage-subtitle">
+                    <strong>Phase 1 (0:00–{formatMmSs(qr1TotalSeconds)}):</strong> Instant Check-in &amp; Device Binding &bull; <strong>Phase 2 ({formatMmSs(qr1TotalSeconds)}–{formatMmSs(totalDurationSeconds)}):</strong> Biometric Verification <span className="qr-header-timing-pill">({totalDurationMinutesDisplay}m total)</span>
                 </p>
             </div>
 
-            <div className="qrpage-layout">
-                {/* 1. Session Setup Builder */}
-                <section className="qr-builder">
+            {phase === "NONE" ? (
+                <div className="qrpage-layout">
+                    {/* 1. Session Setup Builder */}
+                    <section className="qr-builder">
                     <div className="qr-section-heading">
                         <span className="qr-step">01</span>
                         <div>
@@ -798,26 +1079,128 @@ function GenerateQR() {
                         </div>
                     </div>
 
-                    {/* Classroom Geofence Distance (Default: 5m) */}
+                    {/* Classroom Geofence Distance (Default: 30m) */}
                     <div className="qr-form-row">
                         <div className="qr-form-group" style={{ flex: 1 }}>
-                            <label htmlFor="geofence-radius">
-                                <FaMapMarkerAlt /> Geofence Distance <span style={{ fontSize: "0.75rem", fontWeight: 700, color: "#10b981" }}>(Default 5m)</span>
+                            <label htmlFor="geofence-radius" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                <span><FaMapMarkerAlt /> Geofence Distance <span style={{ fontSize: "0.75rem", fontWeight: 700, color: "#10b981" }}>(Default 30m)</span></span>
+                                {phase !== "NONE" && <span style={{ fontSize: "0.72rem", background: "rgba(99, 102, 241, 0.15)", color: "#6366f1", padding: "2px 6px", borderRadius: "4px", fontWeight: 700 }}>⚡ Live Adjustable</span>}
                             </label>
                             <select
                                 id="geofence-radius"
                                 value={geofenceRadius}
-                                onChange={(e) => setGeofenceRadius(Number(e.target.value))}
-                                disabled={phase !== "NONE"}
+                                onChange={(e) => handleUpdateGeofenceRadius(Number(e.target.value))}
                             >
-                                <option value={5}>5 Metres (Default - Strict Classroom)</option>
-                                <option value={10}>10 Metres (Standard Classroom)</option>
-                                <option value={15}>15 Metres (Large Lab / Classroom)</option>
-                                <option value={20}>20 Metres (Lecture Hall)</option>
-                                <option value={30}>30 Metres (Auditorium)</option>
-                                <option value={50}>50 Metres (Open Campus / Amphitheatre)</option>
-                                <option value={0}>Disabled (No GPS Restriction)</option>
+                                <option value={30}>30 Metres (Recommended - Standard Classroom &amp; Lab)</option>
+                                <option value={20}>20 Metres (Small Classroom)</option>
+                                <option value={50}>50 Metres (Large Hall / Auditorium)</option>
+                                <option value={100}>100 Metres (Open Campus / Amphitheatre)</option>
+                                <option value={0}>Disabled (Rotating QR Security Only - No GPS Restriction)</option>
                             </select>
+                        </div>
+                    </div>
+
+                    {/* Attendance Session Timetable & Granular QR1 + QR2 Duration Breakdown */}
+                    <div className="qr-form-row">
+                        <div className="qr-form-group" style={{ flex: 1 }}>
+                            <label htmlFor="timetable-preset-select" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                <span><FaClock /> Attendance Session Timetable <span style={{ fontSize: "0.75rem", fontWeight: 700, color: "#6366f1" }}>({Math.round((qr1Seconds + qr2Seconds) / 60 * 10) / 10} Min Total)</span></span>
+                                {phase !== "NONE" && <span style={{ fontSize: "0.72rem", background: "rgba(99, 102, 241, 0.15)", color: "#6366f1", padding: "2px 6px", borderRadius: "4px", fontWeight: 700 }}>⚡ Live Adjustable</span>}
+                            </label>
+                            <div className="qr-preset-grid">
+                                {[
+                                    { id: "fast", icon: "⚡", title: "1m Quick", badge: "30s + 30s", desc: "Rapid check-in & scan", qr1: 30, qr2: 30 },
+                                    { id: "express", icon: "⏱️", title: "2m Express", badge: "45s + 75s", desc: "Smooth class flow", qr1: 45, qr2: 75 },
+                                    { id: "standard", icon: "🛡️", title: "3m Standard", badge: "60s + 120s", desc: "Recommended default", qr1: 60, qr2: 120 },
+                                    { id: "extended", icon: "⏳", title: "5m Extended", badge: "90s + 210s", desc: "Large lecture hall", qr1: 90, qr2: 210 },
+                                    { id: "custom", icon: "🛠️", title: "Custom", badge: "Manual", desc: "Specify QR1 & QR2", qr1: qr1Seconds, qr2: qr2Seconds }
+                                ].map((preset) => (
+                                    <button
+                                        key={preset.id}
+                                        type="button"
+                                        className={`qr-preset-card ${timetablePreset === preset.id ? "active" : ""}`}
+                                        onClick={() => {
+                                            setTimetablePreset(preset.id);
+                                            if (preset.id !== "custom") {
+                                                setQr1Seconds(preset.qr1);
+                                                setQr2Seconds(preset.qr2);
+                                            }
+                                        }}
+                                        disabled={phase !== "NONE"}
+                                    >
+                                        <div className="qr-preset-header">
+                                            <span className="qr-preset-icon">{preset.icon}</span>
+                                            <span className="qr-preset-badge">{preset.badge}</span>
+                                        </div>
+                                        <div className="qr-preset-title">{preset.title}</div>
+                                        <div className="qr-preset-desc">{preset.desc}</div>
+                                    </button>
+                                ))}
+                            </div>
+
+                            {/* Granular Breakdown Controls */}
+                            <div style={{
+                                marginTop: "10px",
+                                padding: "10px 12px",
+                                background: "rgba(99, 102, 241, 0.05)",
+                                border: "1px solid rgba(99, 102, 241, 0.15)",
+                                borderRadius: "8px"
+                            }}>
+                                <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", alignItems: "center" }}>
+                                    <div style={{ flex: 1, minWidth: "140px" }}>
+                                        <span style={{ fontSize: "0.74rem", fontWeight: 700, color: "#4f46e5", display: "block", marginBottom: "4px" }}>
+                                            Phase 1: QR1 Check-in
+                                        </span>
+                                        {timetablePreset === "custom" ? (
+                                            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                                                <input
+                                                    type="number"
+                                                    min="15"
+                                                    max="600"
+                                                    step="5"
+                                                    value={qr1Seconds}
+                                                    onChange={(e) => setQr1Seconds(Math.max(15, parseInt(e.target.value) || 15))}
+                                                    disabled={phase !== "NONE"}
+                                                    style={{ width: "80px", padding: "5px 8px", borderRadius: "6px", border: "1px solid #cbd5e1", fontSize: "0.85rem" }}
+                                                />
+                                                <span style={{ fontSize: "0.75rem", color: "#64748b" }}>seconds</span>
+                                            </div>
+                                        ) : (
+                                            <span style={{ fontSize: "0.85rem", fontWeight: 700, color: "#1e293b" }}>{qr1Seconds} seconds</span>
+                                        )}
+                                    </div>
+
+                                    <div style={{ flex: 1, minWidth: "140px" }}>
+                                        <span style={{ fontSize: "0.74rem", fontWeight: 700, color: "#059669", display: "block", marginBottom: "4px" }}>
+                                            Phase 2: QR2 Biometric
+                                        </span>
+                                        {timetablePreset === "custom" ? (
+                                            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                                                <input
+                                                    type="number"
+                                                    min="15"
+                                                    max="1800"
+                                                    step="5"
+                                                    value={qr2Seconds}
+                                                    onChange={(e) => setQr2Seconds(Math.max(15, parseInt(e.target.value) || 15))}
+                                                    disabled={phase !== "NONE"}
+                                                    style={{ width: "80px", padding: "5px 8px", borderRadius: "6px", border: "1px solid #cbd5e1", fontSize: "0.85rem" }}
+                                                />
+                                                <span style={{ fontSize: "0.75rem", color: "#64748b" }}>seconds</span>
+                                            </div>
+                                        ) : (
+                                            <span style={{ fontSize: "0.85rem", fontWeight: 700, color: "#1e293b" }}>{qr2Seconds} seconds</span>
+                                        )}
+                                    </div>
+
+                                    <div style={{ flex: 1, minWidth: "120px", textAlign: "right" }}>
+                                        <span style={{ fontSize: "0.72rem", color: "#64748b", fontWeight: 600 }}>Total Duration:</span>
+                                        <div style={{ fontSize: "0.95rem", fontWeight: 800, color: "#0f172a" }}>
+                                            {formatMmSs(qr1Seconds + qr2Seconds)}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
 
@@ -828,7 +1211,7 @@ function GenerateQR() {
                             className="genqr-btn"
                             disabled={isGenerating}
                         >
-                            <span>{isGenerating ? "Initializing Timeline..." : "Start 3-Minute Attendance Session"}</span>
+                            <span>{isGenerating ? "Initializing Timeline..." : `Start Attendance Session (${totalDurationMinutesDisplay} Min)`}</span>
                             {!isGenerating ? <FaArrowRight /> : <FaSyncAlt className="fa-spin" />}
                         </button>
                     ) : (
@@ -844,20 +1227,82 @@ function GenerateQR() {
                     {errorMessage && <p className="qr-error" role="alert">{errorMessage}</p>}
                 </section>
 
-                {/* 2. QR Code Display & Authoritative 3-Minute Session Timeline */}
-                <section className={`qr-result ${sessionId ? "qr-result-ready" : ""}`}>
-                    {sessionId ? (
-                        <>
-                            {/* Authoritative Timeline Bar */}
-                            <div className="qr-timeline-bar">
+                {/* 2. QR Code Display Preview (Setup Mode) */}
+                <section className="qr-result">
+                    <div className="qr-empty-state">
+                        <div className="qr-empty-mark">
+                            <FaQrcode />
+                        </div>
+                        <h2>Your 2-Phase QR Session Will Appear Here</h2>
+                        <p>Select a course code, department and room, then click generate.</p>
+                        <div className="qr-empty-hint">
+                            <span>⚡ 0:00–{formatMmSs(qr1Seconds)} Check-in ({Math.round(qr1Seconds / 60 * 10) / 10}m) &bull; {formatMmSs(qr1Seconds)}–{formatMmSs(qr1Seconds + qr2Seconds)} Biometrics ({Math.round(qr2Seconds / 60 * 10) / 10}m)</span>
+                        </div>
+                    </div>
+                </section>
+            </div>
+        ) : (
+            <div className="qrpage-active-split">
+                {/* Left Column: Compact Projector HUD */}
+                <aside className="qr-active-left-col">
+                    <section className="qr-result qr-result-ready qr-compact-hud">
+                        {/* Authoritative Timeline Bar */}
+                        <div className="qr-timeline-bar">
                                 <div className="qr-timeline-clock-wrap">
                                     <span className="qr-timeline-label">Session Clock</span>
-                                    <span className="qr-timeline-clock">{formatMmSs(elapsedSeconds)} / 3:00</span>
+                                    <span className="qr-timeline-clock">{formatMmSs(elapsedSeconds)} / {formatMmSs(totalDurationSeconds)}</span>
                                 </div>
+
+                                {/* Live Session Time Adjustment Controls (Add & Remove Time) */}
+                                {phase !== "CLOSED" && (
+                                    <div className="qr-adjust-pills-bar">
+                                        <span className="qr-adjust-label">Adjust Time</span>
+                                        <button
+                                            type="button"
+                                            onClick={() => handleAdjustSessionTime(30)}
+                                            className="qr-adjust-pill plus"
+                                            title="Add 30 seconds"
+                                        >
+                                            +30s
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => handleAdjustSessionTime(60)}
+                                            className="qr-adjust-pill plus"
+                                            title="Add 1 minute"
+                                        >
+                                            +1m
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => handleAdjustSessionTime(120)}
+                                            className="qr-adjust-pill plus"
+                                            title="Add 2 minutes"
+                                        >
+                                            +2m
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => handleAdjustSessionTime(-30)}
+                                            className="qr-adjust-pill minus"
+                                            title="Remove 30 seconds"
+                                        >
+                                            -30s
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => handleAdjustSessionTime(-60)}
+                                            className="qr-adjust-pill minus"
+                                            title="Remove 1 minute"
+                                        >
+                                            -1m
+                                        </button>
+                                    </div>
+                                )}
 
                                 <div className="qr-timeline-phase-wrap">
                                     <span className={`qr-phase-tag ${phase === "PHASE_1" ? "p1" : phase === "PHASE_2" ? "p2" : "closed"}`}>
-                                        {phase === "PHASE_1" ? "⚡ Phase 1 (0:00–1:00)" : phase === "PHASE_2" ? "🎯 Phase 2 (1:00–3:00)" : "🔒 Session Closed"}
+                                        {phase === "PHASE_1" ? `⚡ Phase 1 (0:00–${formatMmSs(qr1TotalSeconds)})` : phase === "PHASE_2" ? `🎯 Phase 2 (${formatMmSs(qr1TotalSeconds)}–${formatMmSs(totalDurationSeconds)})` : "🔒 Session Closed"}
                                     </span>
                                 </div>
                             </div>
@@ -946,25 +1391,140 @@ function GenerateQR() {
                                 </div>
                             )}
 
+                            {/* Animated HUD Timeline Progress Bar */}
+                            {phase !== "CLOSED" && (
+                                <div className="qr-hud-progress-track">
+                                    <div
+                                        className={`qr-hud-progress-fill ${phase === "PHASE_1" ? "phase-1" : "phase-2"}`}
+                                        style={{
+                                            width: `${Math.min(100, Math.max(0, ((totalDurationSeconds - elapsedSeconds) / Math.max(1, totalDurationSeconds)) * 100))}%`
+                                        }}
+                                    />
+                                </div>
+                            )}
+
                             {/* QR Canvas Frame */}
                             {phase !== "CLOSED" ? (
                                 <>
-                                    <div className="qr-code-frame" style={{ borderColor: phase === "PHASE_1" ? "#6366f1" : "#10b981" }}>
-                                        <QRCodeCanvas value={activeQrUrl} size={270} />
+                                    <div className={`qr-code-frame cyber-frame ${phase === "PHASE_1" ? "phase-1" : "phase-2"}`}>
+                                        <span className="qr-corner-bracket tl" />
+                                        <span className="qr-corner-bracket tr" />
+                                        <span className="qr-corner-bracket bl" />
+                                        <span className="qr-corner-bracket br" />
+                                        <QRCodeCanvas value={activeQrUrl} size={215} />
                                     </div>
                                     <div style={{
                                         display: "flex",
                                         alignItems: "center",
                                         justifyContent: "center",
-                                        gap: "6px",
+                                        gap: "8px",
                                         fontSize: "0.78rem",
                                         fontWeight: 700,
-                                        color: geofenceRadius > 0 ? "#059669" : "#64748b",
+                                        color: geofenceRadius > 0 && classroomCoords ? "#059669" : geofenceRadius > 0 && classroomGpsStatus === "UNAVAILABLE" ? "#d97706" : "#64748b",
                                         marginTop: "6px",
-                                        marginBottom: "10px"
+                                        marginBottom: "10px",
+                                        flexWrap: "wrap"
                                     }}>
-                                        <span>📍 Classroom Geofence: {classroomCoords?.radius ? `${classroomCoords.radius}m Active` : (geofenceRadius > 0 ? `${geofenceRadius}m Active` : "Disabled")}</span>
-                                        {classroomCoords && <span>(±{Math.round(classroomCoords.accuracy || 0)}m GPS Accuracy)</span>}
+                                        {classroomCoords ? (
+                                            <>
+                                                <span>📍 Classroom Geofence: {classroomCoords.radius}m Active (±{Math.round(classroomCoords.accuracy || 0)}m Host GPS)</span>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleUpdateGeofenceRadius(0)}
+                                                    style={{
+                                                        background: "none",
+                                                        border: "1px solid #f87171",
+                                                        padding: "2px 8px",
+                                                        borderRadius: "6px",
+                                                        fontSize: "0.72rem",
+                                                        color: "#dc2626",
+                                                        fontWeight: 700,
+                                                        cursor: "pointer"
+                                                    }}
+                                                    title="Click to disable GPS if students in this classroom have weak satellite reception"
+                                                >
+                                                    Disable GPS
+                                                </button>
+                                            </>
+                                        ) : classroomGpsStatus === "UNAVAILABLE" ? (
+                                            <>
+                                                <span style={{ color: "#d97706" }}>⚠️ Host PC GPS Timed Out (Geofence bypassed · Rotating QR Token Active)</span>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleUpdateGeofenceRadius(geofenceRadius || 30)}
+                                                    style={{
+                                                        background: "none",
+                                                        border: "1px solid #f59e0b",
+                                                        padding: "2px 8px",
+                                                        borderRadius: "6px",
+                                                        fontSize: "0.72rem",
+                                                        color: "#d97706",
+                                                        fontWeight: 700,
+                                                        cursor: "pointer"
+                                                    }}
+                                                    title="Retry capturing host location"
+                                                >
+                                                    🔄 Retry GPS
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleUpdateGeofenceRadius(0)}
+                                                    style={{
+                                                        background: "none",
+                                                        border: "1px solid #cbd5e1",
+                                                        padding: "2px 8px",
+                                                        borderRadius: "6px",
+                                                        fontSize: "0.72rem",
+                                                        color: "#64748b",
+                                                        fontWeight: 700,
+                                                        cursor: "pointer"
+                                                    }}
+                                                    title="Dismiss and keep GPS disabled"
+                                                >
+                                                    Disable
+                                                </button>
+                                            </>
+                                        ) : geofenceRadius > 0 ? (
+                                            <>
+                                                <span>📍 Classroom Geofence: {geofenceRadius}m Active</span>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleUpdateGeofenceRadius(0)}
+                                                    style={{
+                                                        background: "none",
+                                                        border: "1px solid #f87171",
+                                                        padding: "2px 8px",
+                                                        borderRadius: "6px",
+                                                        fontSize: "0.72rem",
+                                                        color: "#dc2626",
+                                                        fontWeight: 700,
+                                                        cursor: "pointer"
+                                                    }}
+                                                >
+                                                    Disable GPS
+                                                </button>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <span>📍 Classroom Geofence: Disabled</span>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleUpdateGeofenceRadius(30)}
+                                                    style={{
+                                                        background: "none",
+                                                        border: "1px solid #10b981",
+                                                        padding: "2px 8px",
+                                                        borderRadius: "6px",
+                                                        fontSize: "0.72rem",
+                                                        color: "#059669",
+                                                        fontWeight: 700,
+                                                        cursor: "pointer"
+                                                    }}
+                                                >
+                                                    Enable 30m GPS
+                                                </button>
+                                            </>
+                                        )}
                                     </div>
                                 </>
                             ) : (
@@ -979,7 +1539,7 @@ function GenerateQR() {
                                     <FaCheckDouble style={{ fontSize: "2.5rem", color: "#10b981", marginBottom: "10px" }} />
                                     <h3 style={{ margin: "0 0 6px", fontSize: "1.15rem", fontWeight: 800 }}>Attendance Session Completed</h3>
                                     <p style={{ margin: 0, fontSize: "0.86rem", color: "var(--text-muted, #64748b)" }}>
-                                        Fixed 2-minute deadline elapsed. All student devices have been unlocked from Kiosk mode.
+                                        Session window ({formatMmSs(totalDurationSeconds)}) elapsed. All student devices have been unlocked from Kiosk mode.
                                     </p>
                                 </div>
                             )}
@@ -994,13 +1554,13 @@ function GenerateQR() {
                                 </p>
                             </div>
 
-                            {/* Phase 1 Status (0:00 to 1:00) */}
+                            {/* Phase 1 Status */}
                             {phase === "PHASE_1" && (
                                 <div className="qr-phase-panel">
                                     <div className={`qr-countdown-badge ${qr1Remaining > 15 ? "normal" : "urgent"}`}>
                                         <FaClock />
                                         <span>QR 1 Auto-Switches in:</span>
-                                        <strong>{qr1Remaining}s (at 1:00)</strong>
+                                        <strong>{qr1Remaining}s (at {formatMmSs(qr1TotalSeconds)})</strong>
                                     </div>
 
                                     <div className="qr-metric-row">
@@ -1025,7 +1585,7 @@ function GenerateQR() {
                                 </div>
                             )}
 
-                            {/* Phase 2 Status (1:00 to 3:00) */}
+                            {/* Phase 2 Status */}
                             {phase === "PHASE_2" && (
                                 <div className="qr-phase-panel">
                                     <div style={{
@@ -1038,7 +1598,7 @@ function GenerateQR() {
                                         fontWeight: 700,
                                         marginBottom: "4px"
                                     }}>
-                                        🔒 Phase 2 Active: Only {totalScannedQR1} students who checked in during 0:00–1:00 can submit attendance.
+                                        🔒 Phase 2 Active: Only {totalScannedQR1} students who checked in during 0:00–{formatMmSs(qr1TotalSeconds)} can submit attendance.
                                     </div>
 
                                     <div className="qr-metric-row">
@@ -1057,17 +1617,25 @@ function GenerateQR() {
                                         marginBottom: "8px",
                                         fontWeight: 600
                                     }}>
-                                        ⏱️ All student devices unlock automatically at <strong>3:00 ({sessionRemaining}s remaining)</strong>.
+                                        ⏱️ All student devices unlock automatically at <strong>{formatMmSs(totalDurationSeconds)} ({sessionRemaining}s remaining)</strong>.
                                     </div>
                                 </div>
                             )}
 
-                            {/* Session Finished Status (T >= 3:00) */}
+                            {/* Session Finished Status */}
                             {phase === "CLOSED" && (
                                 <div className="qr-phase-panel">
                                     <div className="qr-closed-box">
                                         ✅ Total Present: {reachedQR2Count || sessionData?.attendanceCount || 0} / {uniqueStudentsList.length} Students
                                     </div>
+                                    <button
+                                        type="button"
+                                        onClick={handleResetSession}
+                                        className="qr-reset-btn"
+                                        style={{ marginTop: "10px", width: "100%" }}
+                                    >
+                                        <FaSyncAlt /> Start New Attendance Session
+                                    </button>
                                 </div>
                             )}
 
@@ -1091,25 +1659,52 @@ function GenerateQR() {
                                     </button>
                                 )}
                             </div>
-                        </>
-                    ) : (
-                        <div className="qr-empty-state">
-                            <div className="qr-empty-mark">
-                                <FaQrcode />
-                            </div>
-                            <h2>Your 2-Phase QR Session Will Appear Here</h2>
-                            <p>Select a course code, department and room, then click generate.</p>
-                            <div className="qr-empty-hint">
-                                <span>⚡ 0:00–1:00 Check-in (1m) &bull; 1:00–3:00 Biometrics (2m)</span>
-                            </div>
-                        </div>
-                    )}
-                </section>
-            </div>
 
-            {/* 3. Live Attendance & QR 1 / QR 2 Status Dashboard */}
-            {sessionId && (
-                <section className="qr-live-tracking-section">
+                            {/* Collapsible Session Setup & Parameter Details */}
+                            <div className="qr-session-details-drawer">
+                                <button
+                                    type="button"
+                                    onClick={() => setShowSessionDetails((prev) => !prev)}
+                                    className="qr-details-toggle-btn"
+                                >
+                                    <span><FaInfoCircle /> Session Setup &amp; Parameters</span>
+                                    {showSessionDetails ? <FaChevronUp /> : <FaChevronDown />}
+                                </button>
+                                {showSessionDetails && (
+                                    <div className="qr-details-body">
+                                        <div className="qr-detail-item">
+                                            <span>Course</span>
+                                            <strong>{courseCode}</strong>
+                                        </div>
+                                        <div className="qr-detail-item">
+                                            <span>Class &amp; Batch</span>
+                                            <strong>{classCode} ({batch})</strong>
+                                        </div>
+                                        <div className="qr-detail-item">
+                                            <span>Room</span>
+                                            <strong>{roomNo}</strong>
+                                        </div>
+                                        <div className="qr-detail-item">
+                                            <span>Duration</span>
+                                            <strong>{lectureHours} hr</strong>
+                                        </div>
+                                        <div className="qr-detail-item">
+                                            <span>Geofence</span>
+                                            <strong>{geofenceRadius > 0 ? `${geofenceRadius}m Active` : "Disabled"}</strong>
+                                        </div>
+                                        <div className="qr-detail-item">
+                                            <span>Timetable</span>
+                                            <strong>{formatMmSs(qr1TotalSeconds)} (QR1) + {formatMmSs(totalDurationSeconds - qr1TotalSeconds)} (QR2)</strong>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        </section>
+                    </aside>
+
+                    {/* Right Column: Live Attendance & Student Roster */}
+                    <main className="qr-active-right-col">
+                        <section className="qr-live-tracking-section qr-compact-roster">
                     <div className="qr-tracking-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "12px" }}>
                         <div>
                             <h3 className="qr-tracking-title">
@@ -1380,7 +1975,7 @@ function GenerateQR() {
                                                                 alignItems: "center",
                                                                 gap: "4px"
                                                             }}>
-                                                                <FaExclamationTriangle /> Disqualified (App Switch)
+                                                                <FaExclamationTriangle /> {student.isDisqualified ? "Disqualified (App Switch)" : "Flagged Warning"}
                                                             </span>
                                                             <span style={{ fontSize: "0.72rem", color: "#9f1239" }}>
                                                                 {student.violationReason}
@@ -1465,7 +2060,9 @@ function GenerateQR() {
                         </div>
                     )}
                 </section>
-            )}
+            </main>
+        </div>
+    )}
 
             {/* 4. Manual Excuse & Add Student Modal */}
             {showManualExcuseModal && (

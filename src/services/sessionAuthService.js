@@ -45,12 +45,28 @@ export async function initiateSession(sessionParams) {
     console.warn("Cloud function initiateAttendanceSession notice (using direct Firestore engine):", cloudErr.message || cloudErr);
   }
 
-  // Direct Firestore Fallback with exact same timeline and tokens
+  // Direct Firestore Fallback with configurable session timeline and tokens
   const currentUser = auth.currentUser;
   const nowMs = Date.now();
-  const qr1ExpiresMs = nowMs + 60 * 1000;    // T = 60s (1 min)
-  const qr2StartsMs = nowMs + 60 * 1000;     // T = 60s
-  const kioskEndsMs = nowMs + 180 * 1000;    // T = 180s (3 min total: 1 min QR 1 + 2 min QR 2)
+
+  let qr1DurationSec = 60;
+  let qr2DurationSec = 120;
+
+  if (Number(sessionParams.qr1DurationSeconds) > 0 && Number(sessionParams.qr2DurationSeconds) > 0) {
+    qr1DurationSec = Math.max(15, Math.min(600, Math.round(Number(sessionParams.qr1DurationSeconds))));
+    qr2DurationSec = Math.max(15, Math.min(1800, Math.round(Number(sessionParams.qr2DurationSeconds))));
+  } else if (Number(sessionParams.durationMinutes) > 0) {
+    const totalMinutes = Number(sessionParams.durationMinutes);
+    const totalSec = Math.round(totalMinutes * 60);
+    qr1DurationSec = Math.min(60, Math.max(20, Math.round(totalSec / 3)));
+    qr2DurationSec = totalSec - qr1DurationSec;
+  }
+
+  const totalDurationMs = (qr1DurationSec + qr2DurationSec) * 1000;
+  const qr1ExpiresMs = nowMs + (qr1DurationSec * 1000);
+  const qr2StartsMs = qr1ExpiresMs;
+  const kioskEndsMs = nowMs + totalDurationMs;
+  const durationMin = Math.round(((qr1DurationSec + qr2DurationSec) / 60) * 10) / 10;
 
   const qr1Token = generateRandomHex(20);
   const qr1TokenHash = await sha256(qr1Token);
@@ -78,9 +94,13 @@ export async function initiateSession(sessionParams) {
     courseCode: courseCode,
     roomNo: roomNo,
     batch: batch || "2025",
-    geofenceRadius: typeof sessionParams.geofenceRadius === "number" ? sessionParams.geofenceRadius : 5,
+    geofenceRadius: typeof sessionParams.geofenceRadius === "number" ? sessionParams.geofenceRadius : 30,
     lectureHours: Number(sessionParams.lectureHours) > 0 ? Number(sessionParams.lectureHours) : 1.0,
     durationHours: Number(sessionParams.lectureHours) > 0 ? Number(sessionParams.lectureHours) : 1.0,
+    qr1DurationSeconds: qr1DurationSec,
+    qr2DurationSeconds: qr2DurationSec,
+    totalDurationSeconds: qr1DurationSec + qr2DurationSec,
+    durationMinutes: durationMin,
     phase: "PHASE_1",
     status: "ACTIVE",
     active: true,
@@ -125,6 +145,7 @@ export async function initiateSession(sessionParams) {
     qr1ExpiresAt: qr1ExpiresMs,
     qr2StartsAt: qr2StartsMs,
     kioskEndsAt: kioskEndsMs,
+    durationMinutes: durationMin,
     phase: "PHASE_1",
     status: "ACTIVE",
     sessionPin: rawPin,
@@ -470,7 +491,7 @@ export async function submitVerifiedAttendance(sessionId, qr2Token, biometricDat
             "ATTENDANCE_SUCCESS",
             "SmartAttend Guard"
           );
-        } catch (_) {}
+        } catch (_) { }
       }
       return result.data;
     }
@@ -523,14 +544,52 @@ export function subscribeToAuthorizations(sessionId, onUpdate) {
  * - iPhone & Web: records suspicious interruption for audit review without automatic disqualification.
  */
 export async function reportAttendanceLifecycleEvent(sessionId, eventData) {
+  let cloudSuccess = false;
+  let cloudResult = null;
   try {
     const fn = httpsCallable(functions, "recordAttendanceLifecycleEvent");
     const result = await fn({ sessionId, ...eventData });
-    return result.data;
+    if (result && result.data && result.data.success) {
+      cloudSuccess = true;
+      cloudResult = result.data;
+    }
   } catch (err) {
-    console.warn("Cloud function recordAttendanceLifecycleEvent notice:", err.message || err);
-    return { success: false, status: "OFFLINE_RECORDED" };
+    console.warn("Cloud function recordAttendanceLifecycleEvent notice (falling back to direct Firestore update):", err.message || err);
   }
+
+  // If cloud function ran successfully, return its result
+  if (cloudSuccess && cloudResult) {
+    return cloudResult;
+  }
+
+  // Fallback to client-side Firestore recording so lecturer dashboard always receives violations in real-time
+  const currentUser = auth.currentUser;
+  const studentUid = currentUser?.uid || "";
+  const rollNo = (currentUser?.email ? currentUser.email.split("@")[0] : "").toUpperCase().trim();
+  const nextCount = Number(eventData?.count || 1);
+  const isDisqualified = eventData?.eventType === "CONFIRMED_KIOSK_ESCAPE" ? (nextCount >= 2) : false;
+
+  if (sessionId) {
+    try {
+      await recordSessionViolation(
+        sessionId,
+        studentUid,
+        rollNo,
+        eventData?.source || eventData?.eventType || "KIOSK_ESCAPE",
+        nextCount,
+        isDisqualified
+      );
+    } catch (fbErr) {
+      console.warn("Notice updating session violation directly in Firestore:", fbErr);
+    }
+  }
+
+  return {
+    success: true,
+    status: isDisqualified ? "DISQUALIFIED" : "WARNING",
+    violationCount: nextCount,
+    disqualified: isDisqualified
+  };
 }
 
 /**
@@ -559,27 +618,33 @@ export async function recordSessionViolation(sessionId, studentUid, rollNo, reas
     // 1. Update session authorizations subcollection
     if (studentUid) {
       const authRef = doc(db, "attendance_sessions", sessionId, "authorizations", studentUid);
-      await updateDoc(authRef, {
+      await setDoc(authRef, {
+        studentUid: studentUid,
+        rollNo: cleanRoll || studentUid,
+        status: status,
         violations: arrayUnion(violationPayload),
         violationCount: count,
         hasViolation: true,
         disqualified: disqualified
-      }).catch(() => { });
+      }, { merge: true }).catch(() => { });
     }
 
     if (cleanRoll && cleanRoll !== studentUid) {
       const authRollRef = doc(db, "attendance_sessions", sessionId, "authorizations", cleanRoll);
-      await updateDoc(authRollRef, {
+      await setDoc(authRollRef, {
+        studentUid: studentUid || cleanRoll,
+        rollNo: cleanRoll,
+        status: status,
         violations: arrayUnion(violationPayload),
         violationCount: count,
         hasViolation: true,
         disqualified: disqualified
-      }).catch(() => { });
+      }, { merge: true }).catch(() => { });
     }
 
     // 2. Append to top-level session document flaggedViolations array (for Lecturer & Admin real-time dashboard audit)
     const sessionRef = doc(db, "attendance_sessions", sessionId);
-    await updateDoc(sessionRef, {
+    await setDoc(sessionRef, {
       flaggedViolations: arrayUnion({
         rollNo: cleanRoll,
         studentUid: studentUid || cleanRoll,
@@ -590,13 +655,13 @@ export async function recordSessionViolation(sessionId, studentUid, rollNo, reas
         violationCount: count,
         disqualified: disqualified
       })
-    }).catch(() => { });
+    }, { merge: true }).catch(() => { });
 
     // 3. Write record into attendance_records collection
     if (cleanRoll) {
       const recordDocId = `${sessionId}_${cleanRoll}`;
       const recordRef = doc(db, "attendance_records", recordDocId);
-      
+
       if (disqualified) {
         await setDoc(recordRef, {
           sessionId: sessionId,
@@ -714,7 +779,7 @@ export async function excuseAndReinstateAttendance(sessionId, studentInfo, lectu
                 isCallerAdmin = true;
               }
             }
-          } catch (_) {}
+          } catch (_) { }
 
           if (!isCallerAdmin) {
             const assignedFaculty = session.lecturerName || session.lecturerEmail || "Lecturer A";
@@ -749,7 +814,7 @@ export async function excuseAndReinstateAttendance(sessionId, studentInfo, lectu
       flagged: false,
       disqualified: false,
       hasViolation: false,
-      faceVerified: true,
+      faceVerified: Boolean(studentInfo.faceVerified),
       excused: true,
       excusedAt: now,
       excusedBy: lecturerName,
@@ -766,7 +831,6 @@ export async function excuseAndReinstateAttendance(sessionId, studentInfo, lectu
     const alreadyAttended = Array.isArray(session?.attendees) && session.attendees.some(
       (a) => (a.rollNo || a.studentUid || "").toUpperCase().trim() === rollNo
     );
-
     const attendeeObj = {
       id: recordDocId,
       rollNo: rollNo,
@@ -774,7 +838,7 @@ export async function excuseAndReinstateAttendance(sessionId, studentInfo, lectu
       fullName: studentName,
       email: studentEmail,
       studentEmail: studentEmail,
-      faceVerified: true,
+      faceVerified: Boolean(studentInfo.faceVerified),
       excused: true,
       status: "APPROVED",
       submittedAt: now
@@ -850,7 +914,7 @@ export async function excuseAndReinstateAttendance(sessionId, studentInfo, lectu
       releaseStatus: "RELEASED",
       released: true,
       qr1Verified: true,
-      faceVerified: true,
+      faceVerified: Boolean(studentInfo.faceVerified),
       flagged: false,
       disqualified: false,
       excused: true,
@@ -938,7 +1002,7 @@ export async function dismissOrRemoveViolation(sessionId, studentInfo, reviewedB
                 isCallerAdmin = true;
               }
             }
-          } catch (_) {}
+          } catch (_) { }
 
           if (!isCallerAdmin) {
             const assignedFaculty = sessData.lecturerName || sessData.lecturerEmail || "Lecturer A";
@@ -1034,6 +1098,84 @@ export async function dismissOrRemoveViolation(sessionId, studentInfo, reviewedB
     return { success: true };
   } catch (err) {
     console.error("Error dismissing violation:", err);
+    throw err;
+  }
+}
+
+/**
+ * Lecturer / Admin: Dynamically adjust running session timing live by adding or removing time.
+ * Supports positive or negative deltaSeconds, additionalSeconds, or additionalMinutes.
+ * Tries Cloud Function first, with direct Firestore update fallback.
+ */
+export async function extendAttendanceSession(sessionId, adjustment = 1) {
+  if (!sessionId) throw new Error("Session ID is required to adjust session.");
+
+  let deltaSec = 60;
+  let phaseTarget = undefined;
+  if (typeof adjustment === "object" && adjustment !== null) {
+    if (typeof adjustment.deltaSeconds === "number") deltaSec = adjustment.deltaSeconds;
+    else if (typeof adjustment.additionalSeconds === "number") deltaSec = adjustment.additionalSeconds;
+    else if (typeof adjustment.additionalMinutes === "number") deltaSec = Math.round(adjustment.additionalMinutes * 60);
+    if (adjustment.phaseTarget) phaseTarget = adjustment.phaseTarget;
+  } else if (typeof adjustment === "number") {
+    deltaSec = Math.abs(adjustment) >= 15 ? adjustment : Math.round(adjustment * 60);
+  }
+
+  const deltaMs = deltaSec * 1000;
+
+  try {
+    const fn = httpsCallable(functions, "extendAttendanceSession");
+    const payload = { sessionId, deltaSeconds: deltaSec, additionalMinutes: deltaSec / 60 };
+    if (phaseTarget) payload.phaseTarget = phaseTarget;
+    const result = await fn(payload);
+    if (result?.data?.success) {
+      return result.data;
+    }
+  } catch (cloudErr) {
+    console.warn("Cloud function extendAttendanceSession notice (using direct Firestore update):", cloudErr.message || cloudErr);
+  }
+
+  // Direct Firestore Fallback
+  try {
+    const sessionRef = doc(db, "attendance_sessions", sessionId);
+    const snap = await getDoc(sessionRef);
+    if (!snap.exists()) throw new Error("Attendance session not found.");
+    const data = snap.data();
+
+    const currentEndsMs = typeof data.kioskEndsAt?.toMillis === "function"
+      ? data.kioskEndsAt.toMillis()
+      : (Number(data.kioskEndsAt) || (Date.now() + 60000));
+
+    const newEndsMs = Math.max(Date.now() + 15000, currentEndsMs + deltaMs);
+    const startMs = typeof data.sessionStartAt?.toMillis === "function"
+      ? data.sessionStartAt.toMillis()
+      : (Number(data.sessionStartAt) || Date.now());
+    const newTotalDurationSec = Math.max(30, Math.round((newEndsMs - startMs) / 1000));
+    const newTotalDurationMin = Math.max(1, Math.round(newTotalDurationSec / 60));
+
+    await Promise.all([
+      updateDoc(sessionRef, {
+        kioskEndsAt: newEndsMs,
+        expiresAt: newEndsMs,
+        totalDurationSeconds: newTotalDurationSec,
+        durationMinutes: newTotalDurationMin,
+        updatedAt: Date.now()
+      }),
+      updateDoc(doc(db, "attendance_sessions", sessionId, "security", "tokens"), {
+        kioskEndsAt: newEndsMs
+      }).catch(() => { })
+    ]);
+
+    return {
+      success: true,
+      sessionId,
+      newEndsMs,
+      deltaSeconds: deltaSec,
+      totalDurationSeconds: newTotalDurationSec,
+      totalDurationMinutes: newTotalDurationMin
+    };
+  } catch (err) {
+    console.error("Failed to adjust attendance session:", err);
     throw err;
   }
 }

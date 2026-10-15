@@ -5,9 +5,9 @@
 
 .qrpage {
     min-height: calc(100vh - 80px);
-    padding: clamp(20px, 3vw, 40px) clamp(16px, 3vw, 32px);
+    padding: 16px clamp(14px, 2.5vw, 28px);
     color: var(--text-main, #1e293b);
-    max-width: 1240px;
+    max-width: 1440px;
     margin: 0 auto;
     box-sizing: border-box;
     font-family: inherit;
@@ -31,28 +31,29 @@
    --------------------------------------------------------- */
 .qrpage-header {
     text-align: center;
-    margin-bottom: 28px;
+    margin-bottom: 16px;
 }
 
 .qrpage-header-badge {
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    padding: 6px 16px;
+    padding: 4px 14px;
     background: rgba(99, 102, 241, 0.1);
     border: 1px solid rgba(99, 102, 241, 0.25);
     border-radius: 999px;
     color: #6366f1;
-    font-size: 0.78rem;
+    font-size: 0.76rem;
     font-weight: 800;
-    letter-spacing: 0.08em;
+    letter-spacing: 0.06em;
     text-transform: uppercase;
-    margin-bottom: 12px;
+    margin-bottom: 6px;
+    transition: all 0.3s ease;
 }
 
 .qrpage-header h1 {
-    margin: 0 0 8px;
-    font-size: clamp(1.6rem, 3.2vw, 2.2rem);
+    margin: 0 0 4px;
+    font-size: clamp(1.4rem, 2.6vw, 1.95rem);
     font-weight: 800;
     letter-spacing: -0.025em;
     color: var(--text-main, #0f172a);
@@ -62,21 +63,39 @@
     color: #ffffff;
 }
 
-.qrpage-header p {
+.qrpage-header p,
+.qrpage-subtitle {
     margin: 0 auto;
     color: var(--text-muted, #64748b);
-    font-size: 0.92rem;
-    line-height: 1.5;
-    max-width: 640px;
+    font-size: 0.88rem;
+    line-height: 1.45;
+    max-width: 820px;
+    transition: all 0.25s ease;
+}
+
+.qr-header-timing-pill {
+    display: inline-block;
+    background: rgba(99, 102, 241, 0.12);
+    color: #4f46e5;
+    padding: 1px 7px;
+    border-radius: 6px;
+    font-weight: 750;
+    font-size: 0.78rem;
+    margin-left: 4px;
+}
+
+[data-theme="midnight"] .qr-header-timing-pill {
+    background: rgba(99, 102, 241, 0.28);
+    color: #c7d2fe;
 }
 
 /* ---------------------------------------------------------
-   Layout Grid (2 Columns)
+   Layout Grid (2 Columns Setup Mode)
    --------------------------------------------------------- */
 .qrpage-layout {
     display: grid;
     grid-template-columns: minmax(310px, 1fr) minmax(360px, 1.2fr);
-    gap: 24px;
+    gap: 20px;
     align-items: stretch;
 }
 
@@ -726,6 +745,7 @@
     border-radius: 12px;
     background: var(--surface, #ffffff);
     -webkit-overflow-scrolling: touch;
+    max-height: 480px;
 }
 
 .qr-roster-table {
@@ -1167,4 +1187,474 @@
         grid-template-columns: 1fr;
         gap: 10px;
     }
+}
+
+/* =========================================================
+   BEAUTIFUL ULTRA-MODERN PROJECTOR HUD & CYBER-SCANNER STYLES
+   ========================================================= */
+
+/* Cyber-Scanner QR Frame with Glowing Corner Accents */
+.qr-code-frame.cyber-frame {
+    position: relative;
+    padding: 22px;
+    background: #ffffff;
+    border-radius: 24px;
+    border: 3px solid #6366f1;
+    box-shadow: 0 16px 40px rgba(99, 102, 241, 0.2), 0 0 24px rgba(99, 102, 241, 0.12);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin: 12px 0 18px;
+    transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.qr-code-frame.cyber-frame.phase-1 {
+    border-color: #6366f1;
+    box-shadow: 0 18px 45px rgba(99, 102, 241, 0.25), 0 0 28px rgba(99, 102, 241, 0.15);
+}
+
+.qr-code-frame.cyber-frame.phase-2 {
+    border-color: #10b981;
+    box-shadow: 0 18px 45px rgba(16, 185, 129, 0.25), 0 0 28px rgba(16, 185, 129, 0.15);
+}
+
+/* Cyber Corner Brackets */
+.qr-corner-bracket {
+    position: absolute;
+    width: 18px;
+    height: 18px;
+    border-color: inherit;
+    border-style: solid;
+    pointer-events: none;
+    transition: all 0.3s ease;
+}
+
+.qr-corner-bracket.tl {
+    top: 8px;
+    left: 8px;
+    border-width: 3px 0 0 3px;
+    border-top-left-radius: 6px;
+}
+
+.qr-corner-bracket.tr {
+    top: 8px;
+    right: 8px;
+    border-width: 3px 3px 0 0;
+    border-top-right-radius: 6px;
+}
+
+.qr-corner-bracket.bl {
+    bottom: 8px;
+    left: 8px;
+    border-width: 0 0 3px 3px;
+    border-bottom-left-radius: 6px;
+}
+
+.qr-corner-bracket.br {
+    bottom: 8px;
+    right: 8px;
+    border-width: 0 3px 3px 0;
+    border-bottom-right-radius: 6px;
+}
+
+/* Interactive Timetable Preset Card Grid */
+.qr-preset-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+    gap: 10px;
+    margin-top: 8px;
+    margin-bottom: 12px;
+}
+
+.qr-preset-card {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    padding: 12px 14px;
+    border-radius: 14px;
+    border: 1.5px solid var(--border, #e2e8f0);
+    background: var(--surface, #ffffff);
+    cursor: pointer;
+    transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+    position: relative;
+    overflow: hidden;
+    text-align: left;
+}
+
+.qr-preset-card:hover:not(:disabled) {
+    transform: translateY(-2px);
+    border-color: #818cf8;
+    box-shadow: 0 6px 18px rgba(99, 102, 241, 0.12);
+}
+
+.qr-preset-card.active {
+    border-color: #6366f1;
+    background: linear-gradient(145deg, rgba(99, 102, 241, 0.08) 0%, rgba(79, 70, 229, 0.03) 100%);
+    box-shadow: 0 4px 16px rgba(99, 102, 241, 0.18);
+}
+
+.qr-preset-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    margin-bottom: 4px;
+}
+
+.qr-preset-icon {
+    font-size: 1.1rem;
+}
+
+.qr-preset-badge {
+    font-size: 0.7rem;
+    font-weight: 800;
+    padding: 2px 6px;
+    border-radius: 999px;
+    background: rgba(99, 102, 241, 0.12);
+    color: #4f46e5;
+}
+
+.qr-preset-title {
+    font-size: 0.88rem;
+    font-weight: 800;
+    color: var(--text-main, #0f172a);
+    margin: 2px 0 3px;
+}
+
+.qr-preset-desc {
+    font-size: 0.72rem;
+    color: var(--text-muted, #64748b);
+    line-height: 1.3;
+}
+
+/* Beautiful Live Time Adjustment Pills */
+.qr-adjust-pills-bar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 8px;
+    background: rgba(241, 245, 249, 0.85);
+    border: 1px solid rgba(226, 232, 240, 0.9);
+    border-radius: 999px;
+    backdrop-filter: blur(8px);
+}
+
+.qr-adjust-label {
+    font-size: 0.72rem;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--text-muted, #64748b);
+    padding: 0 4px;
+}
+
+.qr-adjust-pill {
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 0.76rem;
+    font-weight: 800;
+    cursor: pointer;
+    border: 1px solid transparent;
+    transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+}
+
+.qr-adjust-pill:hover {
+    transform: translateY(-1px) scale(1.04);
+}
+
+.qr-adjust-pill:active {
+    transform: translateY(0) scale(0.97);
+}
+
+.qr-adjust-pill.plus {
+    background: #e0e7ff;
+    color: #4338ca;
+    border-color: #c7d2fe;
+}
+
+.qr-adjust-pill.plus:hover {
+    background: #6366f1;
+    color: #ffffff;
+    border-color: #4f46e5;
+    box-shadow: 0 3px 10px rgba(99, 102, 241, 0.35);
+}
+
+.qr-adjust-pill.minus {
+    background: #fee2e2;
+    color: #b91c1c;
+    border-color: #fecaca;
+}
+
+.qr-adjust-pill.minus:hover {
+    background: #ef4444;
+    color: #ffffff;
+    border-color: #dc2626;
+    box-shadow: 0 3px 10px rgba(239, 68, 68, 0.35);
+}
+
+/* Animated HUD Progress Track */
+.qr-hud-progress-track {
+    width: 100%;
+    height: 6px;
+    background: rgba(226, 232, 240, 0.6);
+    border-radius: 999px;
+    overflow: hidden;
+    margin: 8px 0 14px;
+    position: relative;
+}
+
+.qr-hud-progress-fill {
+    height: 100%;
+    border-radius: 999px;
+    transition: width 1s linear, background-color 0.4s ease;
+}
+
+.qr-hud-progress-fill.phase-1 {
+    background: linear-gradient(90deg, #6366f1, #818cf8);
+    box-shadow: 0 0 8px rgba(99, 102, 241, 0.5);
+}
+
+.qr-hud-progress-fill.phase-2 {
+    background: linear-gradient(90deg, #10b981, #34d399);
+    box-shadow: 0 0 8px rgba(16, 185, 129, 0.5);
+}
+
+/* Midnight Dark Theme Support for New HUD Elements */
+[data-theme="midnight"] .qr-preset-card {
+    background: #181c2b;
+    border-color: rgba(255, 255, 255, 0.08);
+}
+
+[data-theme="midnight"] .qr-preset-card.active {
+    border-color: #818cf8;
+    background: linear-gradient(145deg, rgba(99, 102, 241, 0.2) 0%, rgba(79, 70, 229, 0.08) 100%);
+    box-shadow: 0 4px 20px rgba(99, 102, 241, 0.3);
+}
+
+[data-theme="midnight"] .qr-preset-title {
+    color: #f1f5f9;
+}
+
+[data-theme="midnight"] .qr-preset-desc {
+    color: #94a3b8;
+}
+
+[data-theme="midnight"] .qr-adjust-pills-bar {
+    background: rgba(24, 28, 43, 0.85);
+    border-color: rgba(255, 255, 255, 0.1);
+}
+
+[data-theme="midnight"] .qr-adjust-label {
+    color: #94a3b8;
+}
+
+[data-theme="midnight"] .qr-hud-progress-track {
+    background: rgba(255, 255, 255, 0.08);
+}
+
+/* =========================================================
+   Active Session Screen-Efficient Split Layout (Side-by-Side)
+   Prevents Page Expansion & Puts QR Code and Roster Side-by-Side
+   ========================================================= */
+.qrpage-active-split {
+    display: grid;
+    grid-template-columns: minmax(360px, 430px) minmax(520px, 1fr);
+    gap: 20px;
+    align-items: start;
+    width: 100%;
+}
+
+@media (max-width: 1040px) {
+    .qrpage-active-split {
+        grid-template-columns: 1fr;
+    }
+}
+
+.qr-active-left-col,
+.qr-active-right-col {
+    min-width: 0;
+    width: 100%;
+}
+
+/* Compact Left Column: Projector HUD */
+.qr-compact-hud {
+    padding: 16px 18px !important;
+    display: flex;
+    flex-direction: column;
+    box-sizing: border-box;
+}
+
+.qr-compact-hud .qr-timeline-bar {
+    padding: 6px 12px;
+    margin-bottom: 8px;
+}
+
+.qr-compact-hud .qr-pin-bar {
+    padding: 5px 12px;
+    margin-bottom: 8px;
+}
+
+.qr-compact-hud .qr-result-heading {
+    margin-bottom: 8px;
+}
+
+.qr-compact-hud .qr-result-heading h2 {
+    font-size: 1.05rem;
+}
+
+.qr-compact-hud .qr-code-frame.cyber-frame {
+    padding: 10px;
+    margin: 6px auto;
+    max-width: 245px;
+}
+
+.qr-compact-hud .qr-classroom-security-notice {
+    padding: 6px 10px;
+    margin: 6px 0;
+    border-radius: 8px;
+}
+
+.qr-compact-hud .qr-sec-text {
+    font-size: 0.72rem;
+    line-height: 1.35;
+}
+
+.qr-compact-hud .qr-phase-panel {
+    padding: 8px 12px;
+    margin-top: 6px;
+}
+
+.qr-compact-hud .qr-action-footer {
+    margin-top: 8px;
+    padding-top: 8px;
+    gap: 8px;
+}
+
+/* Compact Right Column: Live Student Roster & Tracking */
+.qr-compact-roster {
+    margin-top: 0 !important;
+    padding: 16px 20px !important;
+    box-sizing: border-box;
+}
+
+.qr-compact-roster .qr-tracking-header {
+    margin-bottom: 10px;
+}
+
+.qr-compact-roster .qr-tracking-title {
+    font-size: 1.15rem;
+}
+
+.qr-compact-roster .qr-tracking-desc {
+    margin: 0 0 8px;
+    font-size: 0.8rem;
+}
+
+.qr-compact-roster .qr-metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr) !important;
+    gap: 8px !important;
+    margin-bottom: 10px !important;
+}
+
+@media (max-width: 768px) {
+    .qr-compact-roster .qr-metrics-grid {
+        grid-template-columns: repeat(2, 1fr) !important;
+    }
+}
+
+.qr-compact-roster .qr-kpi-card {
+    padding: 8px 10px;
+    gap: 8px;
+    border-radius: 10px;
+}
+
+.qr-compact-roster .qr-kpi-icon {
+    width: 32px;
+    height: 32px;
+    font-size: 0.95rem;
+    flex: 0 0 32px;
+    border-radius: 8px;
+}
+
+.qr-compact-roster .qr-kpi-val {
+    font-size: 1.15rem;
+}
+
+.qr-compact-roster .qr-kpi-label {
+    font-size: 0.65rem;
+}
+
+.qr-compact-roster .qr-kpi-sub {
+    font-size: 0.62rem;
+}
+
+/* Collapsible Session Setup Drawer in HUD */
+.qr-session-details-drawer {
+    margin-top: 10px;
+    border-top: 1px dashed var(--border, #e2e8f0);
+    padding-top: 8px;
+}
+
+.qr-details-toggle-btn {
+    background: none;
+    border: none;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: var(--text-muted, #64748b);
+    cursor: pointer;
+    padding: 4px 6px;
+    border-radius: 6px;
+    transition: background 0.15s ease;
+}
+
+.qr-details-toggle-btn:hover {
+    background: rgba(99, 102, 241, 0.08);
+    color: #4f46e5;
+}
+
+.qr-details-body {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 6px 12px;
+    padding: 8px 10px;
+    margin-top: 6px;
+    background: var(--surface-soft, #f8fafc);
+    border-radius: 8px;
+    font-size: 0.76rem;
+    color: var(--text-main, #334155);
+}
+
+[data-theme="midnight"] .qr-details-body {
+    background: #181c2b;
+    color: #cbd5e1;
+}
+
+.qr-detail-item {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.qr-detail-item span {
+    font-size: 0.68rem;
+    color: var(--text-muted, #64748b);
+    text-transform: uppercase;
+    font-weight: 700;
+}
+
+.qr-detail-item strong {
+    font-size: 0.82rem;
+    color: var(--text-main, #1e293b);
+}
+
+[data-theme="midnight"] .qr-detail-item strong {
+    color: #f1f5f9;
 }

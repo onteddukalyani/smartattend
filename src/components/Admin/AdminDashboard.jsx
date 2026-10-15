@@ -40,9 +40,16 @@ const AdminDashboard = () => {
   useEffect(() => {
     const unsub = subscribeToFacultyNotifications((newNotifs) => {
       setFacultyNotifs(newNotifs || []);
-    }, "admin");
-    return () => unsub();
-  }, []);
+    }, "admin", user?.email);
+
+    const handleOpenModal = () => setShowNotifModal(true);
+    window.addEventListener("smartattend:open_notification_modal", handleOpenModal);
+
+    return () => {
+      unsub();
+      window.removeEventListener("smartattend:open_notification_modal", handleOpenModal);
+    };
+  }, [user?.email]);
 
   const unreadCount = facultyNotifs.filter(n => !n.read).length;
 

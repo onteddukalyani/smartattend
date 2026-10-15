@@ -92,7 +92,7 @@ export default function ViolationReviewModal({ violation, onClose, onActionCompl
                 reviewedAt: serverTimestamp(),
                 excused: status === 'APPROVED',
                 dismissed: status === 'DISMISSED',
-                faceVerified: status === 'APPROVED' ? true : (violation.faceVerified ?? false)
+                faceVerified: Boolean(violation.faceVerified)
             };
 
             for (const recId of targetIds) {
@@ -165,7 +165,7 @@ export default function ViolationReviewModal({ violation, onClose, onActionCompl
                                 studentName: studentName,
                                 fullName: studentName,
                                 email: studentEmail,
-                                faceVerified: true,
+                                faceVerified: Boolean(violation.faceVerified),
                                 excused: true,
                                 status: 'APPROVED',
                                 submittedAt: violation.submittedAt || violation.timestamp || Date.now()

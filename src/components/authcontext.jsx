@@ -14,7 +14,8 @@ import {
   collection,
   getDocs,
   query,
-  where
+  where,
+  onSnapshot
 } from "firebase/firestore";
 
 import {
@@ -312,8 +313,18 @@ export const AuthProvider = ({ children }) => {
 
     const resolvedName = databaseName || (databaseRole === "student" ? (cleanRollNo || "Student") : prefix);
 
-    // Use profile photo from database if present, or fallback to photo from the login email (Google account)
-    const resolvedPhoto = registeredUser.photoURL || registeredUser.photo || registeredUser.image || registeredUser.avatar || registeredUser.profilePic || currentUser.photoURL || currentUser.providerData?.[0]?.photoURL || "";
+    // Strict profile photo resolution: Check if photo was explicitly deleted or removed
+    const hasPhotoRemoval = Boolean(
+      registeredUser.photoRemovedAt ||
+      registeredUser.photoDeleted === true ||
+      registeredUser.photoURL === "" ||
+      registeredUser.photo === ""
+    );
+
+    const dbPhoto = registeredUser.photoURL || registeredUser.photo || registeredUser.image || registeredUser.avatar || registeredUser.profilePic || "";
+    const resolvedPhoto = hasPhotoRemoval
+      ? ""
+      : (dbPhoto || currentUser.photoURL || currentUser.providerData?.[0]?.photoURL || "");
 
     // Strict biometrics check: If removed by admin or invalid vector, immediately mark false
     const hasFaceRemoval = Boolean(
@@ -457,6 +468,61 @@ export const AuthProvider = ({ children }) => {
     };
   }, []);
 
+  // =========================================================
+  // REAL-TIME PROFILE SYNCHRONIZATION (Instant onSnapshot Sync)
+  // Reflects staff photo removal, name edits, device resets instantly!
+  // =========================================================
+  useEffect(() => {
+    if (!user || !user.email) return;
+
+    const cleanEmail = user.email.toLowerCase().trim();
+    const prefix = cleanEmail.split("@")[0].toLowerCase().trim();
+    const role = normalizeRole(profile?.role || "student");
+    const rollNo = (profile?.rollNo || (role === "student" ? prefix.toUpperCase() : "")).trim().toUpperCase();
+
+    const targets = [];
+    if (role === "student" && rollNo) {
+      targets.push({ coll: "students", id: rollNo });
+    }
+    if (role === "lecturer") {
+      targets.push({ coll: "lecturers", id: cleanEmail });
+      targets.push({ coll: "lecturers", id: prefix });
+    }
+    if (role === "admin") {
+      targets.push({ coll: "admins", id: cleanEmail });
+      targets.push({ coll: "admins", id: prefix });
+    }
+    targets.push({ coll: "users", id: cleanEmail });
+    if (rollNo) targets.push({ coll: "users", id: rollNo });
+
+    const unsubs = [];
+    targets.forEach(({ coll, id }) => {
+      if (!id) return;
+      try {
+        const unsub = onSnapshot(doc(db, coll, id), (snap) => {
+          if (!snap.exists()) return;
+          const freshData = snap.data();
+          setProfile((prev) => {
+            if (!prev) return prev;
+            const merged = { ...prev, ...freshData };
+            const enriched = buildEnrichedProfile(merged, user);
+            try {
+              localStorage.setItem(`smartattend-cached-profile-${user.uid}`, JSON.stringify(enriched));
+            } catch (_) {}
+            return enriched;
+          });
+        }, () => {});
+        unsubs.push(unsub);
+      } catch (_) {}
+    });
+
+    return () => {
+      unsubs.forEach(u => {
+        try { u(); } catch (_) {}
+      });
+    };
+  }, [user?.uid, user?.email, profile?.role, profile?.rollNo]);
+
 
   // =========================================================
   // GOOGLE LOGIN (STRICT READ-ONLY: ONLY PRE-REGISTERED USERS ALLOWED, ZERO WRITES)
@@ -562,8 +628,18 @@ export const AuthProvider = ({ children }) => {
 
     const resolvedName = databaseName || (databaseRole === "student" ? (cleanRollNo || "Student") : prefix);
 
-    // Use profile photo from database if present, or fallback to photo from the login email (Google account)
-    const resolvedPhoto = registeredUser.photoURL || registeredUser.photo || registeredUser.image || registeredUser.avatar || registeredUser.profilePic || currentUser.photoURL || currentUser.providerData?.[0]?.photoURL || "";
+    // Strict profile photo resolution: Check if photo was explicitly deleted or removed
+    const hasPhotoRemoval = Boolean(
+      registeredUser.photoRemovedAt ||
+      registeredUser.photoDeleted === true ||
+      registeredUser.photoURL === "" ||
+      registeredUser.photo === ""
+    );
+
+    const dbPhoto = registeredUser.photoURL || registeredUser.photo || registeredUser.image || registeredUser.avatar || registeredUser.profilePic || "";
+    const resolvedPhoto = hasPhotoRemoval
+      ? ""
+      : (dbPhoto || currentUser.photoURL || currentUser.providerData?.[0]?.photoURL || "");
 
     const enrichedProfile = {
       id: registeredUser.id || cleanRollNo || cleanEmail,

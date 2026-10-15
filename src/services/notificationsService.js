@@ -10,6 +10,7 @@ import {
   limit,
   serverTimestamp
 } from "firebase/firestore";
+import { triggerRealAppNotification, seedExistingNotificationIds } from "./nativeNotificationService";
 
 // In-Memory Subscriber Dispatchers
 const localStudentListeners = new Map();
@@ -238,7 +239,7 @@ export async function sendStudentNotification(
     }).catch(() => { }),
     addDoc(collection(db, "notifications"), {
       ...notifPayload,
-      targetRoles: ["student", "all"],
+      targetRoles: ["student"],
       timestamp: serverTimestamp()
     }).catch(() => { })
   ];
@@ -339,6 +340,66 @@ export async function sendLecturerNotification(
 }
 
 /**
+ * Send targeted notification to a particular Lecturer
+ */
+export async function sendLecturerDirectNotification(
+  targetLecturerEmailOrId,
+  title,
+  message,
+  type = "LECTURER_ALERT",
+  senderName = "System",
+  metadata = {}
+) {
+  if (!targetLecturerEmailOrId) return { success: false, error: "Missing lecturer email or ID" };
+  const cleanLecturer = String(targetLecturerEmailOrId).trim().toLowerCase();
+  const nowMs = Date.now();
+
+  const notifPayload = {
+    id: "loc_lect_" + nowMs + "_" + Math.random().toString(36).substring(2, 7),
+    targetLecturer: cleanLecturer,
+    recipientEmail: cleanLecturer,
+    recipientRole: "lecturer",
+    targetRoles: ["lecturer", "faculty"],
+    title: title,
+    message: message,
+    type: type,
+    senderName: senderName,
+    read: false,
+    createdAt: nowMs,
+    timestamp: new Date().toISOString(),
+    metadata: metadata || {}
+  };
+
+  // 1. Update local faculty cache
+  const existing = getLocalFacultyNotifs();
+  const updated = [notifPayload, ...existing.filter(n => n.id !== notifPayload.id && n.title !== notifPayload.title)];
+  saveLocalFacultyNotifs(updated);
+
+  localFacultyListeners.forEach(cb => {
+    try { cb(updated); } catch (_) { }
+  });
+
+  // 2. Dispatch to Firestore collections
+  const writes = [
+    addDoc(collection(db, "lecturers", cleanLecturer, "notifications"), {
+      ...notifPayload,
+      timestamp: serverTimestamp()
+    }).catch(() => { }),
+    addDoc(collection(db, "faculty_notifications"), {
+      ...notifPayload,
+      timestamp: serverTimestamp()
+    }).catch(() => { }),
+    addDoc(collection(db, "notifications"), {
+      ...notifPayload,
+      timestamp: serverTimestamp()
+    }).catch(() => { })
+  ];
+
+  await Promise.all(writes);
+  return { success: true };
+}
+
+/**
  * Broadcast an announcement to Students, Lecturers, and/or Admins
  */
 export async function sendBroadcastNotification({
@@ -354,11 +415,20 @@ export async function sendBroadcastNotification({
     ? targetRoles.map(r => String(r).toLowerCase().trim())
     : (targetRoles ? [String(targetRoles).toLowerCase().trim()] : ["student", "lecturer", "admin", "all", "everyone"]);
 
-  if (normalizedTargetRoles.length === 0 || normalizedTargetRoles.includes("all") || normalizedTargetRoles.includes("everyone")) {
+  if (normalizedTargetRoles.includes("all") || normalizedTargetRoles.includes("everyone")) {
     normalizedTargetRoles.push("student", "lecturer", "admin", "faculty", "all", "everyone");
   }
 
   const nowMs = Date.now();
+
+  const isOnlyStudent = normalizedTargetRoles.every(r => ["student", "students"].includes(r));
+  const isOnlyLecturer = normalizedTargetRoles.every(r => ["lecturer", "faculty", "professors"].includes(r));
+  const isOnlyAdmin = normalizedTargetRoles.every(r => ["admin", "admins"].includes(r));
+
+  let resolvedTargetRole = "all";
+  if (isOnlyStudent) resolvedTargetRole = "student";
+  else if (isOnlyLecturer) resolvedTargetRole = "faculty";
+  else if (isOnlyAdmin) resolvedTargetRole = "admin";
 
   const payload = {
     id: "loc_broad_" + nowMs + "_" + Math.random().toString(36).substring(2, 7),
@@ -366,7 +436,7 @@ export async function sendBroadcastNotification({
     message: message || "",
     type: type || "BROADCAST_ANNOUNCEMENT",
     targetRoles: Array.from(new Set(normalizedTargetRoles)),
-    targetRole: normalizedTargetRoles.includes("student") ? "all" : (normalizedTargetRoles.includes("lecturer") ? "faculty" : "admin"),
+    targetRole: resolvedTargetRole,
     senderName: senderName || (senderRole === "admin" ? "Campus Administrator" : "Course Lecturer"),
     senderRole: senderRole || "admin",
     isAnnouncement: true,
@@ -424,7 +494,7 @@ export async function sendBroadcastNotification({
     writes.push(
       addDoc(collection(db, "faculty_notifications"), {
         ...payload,
-        targetRole: normalizedTargetRoles.includes("admin") && !normalizedTargetRoles.includes("lecturer") ? "admin" : "faculty",
+        targetRole: resolvedTargetRole,
         timestamp: serverTimestamp()
       }).catch(() => { })
     );
@@ -567,6 +637,7 @@ export function subscribeToStudentNotifications(studentRollNo, callback, student
   let remoteBroadcastNotifs = [];
   let remoteAnnouncements = [];
   let remoteGlobalNotifs = [];
+  let isInitialStudentLoad = true;
 
   const mergeAndEmit = () => {
     const currentReadSet = getReadNotifIds(primaryKey);
@@ -608,6 +679,27 @@ export function subscribeToStudentNotifications(studentRollNo, callback, student
       });
 
     allKeySet.forEach(k => saveLocalStudentNotifs(k, combined));
+
+    if (isInitialStudentLoad) {
+      isInitialStudentLoad = false;
+      seedExistingNotificationIds(combined);
+    } else {
+      // Trigger real-app OS & heads-up banner for fresh incoming notifications
+      const now = Date.now();
+      combined.forEach(n => {
+        const ageMs = now - getTimestampMs(n);
+        if (ageMs < 90000 && !n.read) {
+          triggerRealAppNotification({
+            id: n.id,
+            title: n.title,
+            message: n.message,
+            type: n.type,
+            senderName: n.senderName,
+            metadata: n.metadata
+          });
+        }
+      });
+    }
 
     const listeners = localStudentListeners.get(primaryKey);
     if (listeners) {
@@ -697,7 +789,9 @@ export function subscribeToStudentNotifications(studentRollNo, callback, student
         }))
         .filter(n => {
           const targetRoll = (n.studentRollNo || n.recipientRollNo || n.recipientRollPrefix || "").toUpperCase().trim();
-          if (targetRoll && (targetRoll === cleanRoll || targetRoll === rollPrefix || targetRoll === emailPrefix || targetRoll === "ALL")) return true;
+          if (targetRoll) {
+            return targetRoll === cleanRoll || targetRoll === rollPrefix || targetRoll === emailPrefix || targetRoll === "ALL";
+          }
           const rawRoles = n.targetRoles || n.targetRole || [];
           const roles = Array.isArray(rawRoles)
             ? rawRoles.map(r => String(r).toLowerCase().trim())
@@ -727,7 +821,7 @@ export function subscribeToStudentNotifications(studentRollNo, callback, student
 /**
  * Subscribe to real-time notifications for Lecturers & Admins
  */
-export function subscribeToFacultyNotifications(callback, roleFilter = "faculty") {
+export function subscribeToFacultyNotifications(callback, roleFilter = "faculty", currentLecturerEmail = "") {
   const readSet = getReadNotifIds("faculty");
   const deletedSet = getDeletedNotifIds("faculty");
 
@@ -736,14 +830,34 @@ export function subscribeToFacultyNotifications(callback, roleFilter = "faculty"
     .filter(n => !deletedSet.has(n.id))
     .map(n => (readSet.has(n.id) ? { ...n, read: true } : n));
 
-  let filteredLocal = initialCached;
+  const cleanLecturerEmail = String(currentLecturerEmail || "").toLowerCase().trim();
+  const lecturerPrefix = cleanLecturerEmail ? cleanLecturerEmail.split("@")[0] : "";
   const filterRoleNorm = String(roleFilter).toLowerCase();
 
   const isRoleMatching = (n) => {
+    // 1. Direct targeted notification to specific lecturer
+    const targetLecturer = String(n.targetLecturer || n.recipientEmail || "").toLowerCase().trim();
+    if (targetLecturer) {
+      if (!cleanLecturerEmail) return false;
+      return targetLecturer === cleanLecturerEmail || targetLecturer === lecturerPrefix;
+    }
+
+    // 2. Direct student notifications should not appear in faculty announcements
+    if (n.recipientRollNo && !n.targetRole && !n.targetRoles && n.recipientRole === "student") {
+      return false;
+    }
+
+    // 3. Target role filtering
     const rawRoles = n.targetRoles || n.targetRole || [];
     const roles = Array.isArray(rawRoles)
       ? rawRoles.map(r => String(r).toLowerCase().trim())
       : (rawRoles ? [String(rawRoles).toLowerCase().trim()] : []);
+
+    // Exclude notifications designated strictly for students only
+    if (roles.length > 0 && roles.every(r => ["student", "students"].includes(r))) {
+      return false;
+    }
+
     if (roles.length === 0) return true;
     if (filterRoleNorm === "admin") {
       return roles.some(r => ["admin", "admins", "faculty", "all", "everyone", ""].includes(r));
@@ -752,7 +866,7 @@ export function subscribeToFacultyNotifications(callback, roleFilter = "faculty"
     }
   };
 
-  filteredLocal = initialCached.filter(isRoleMatching);
+  const filteredLocal = initialCached.filter(isRoleMatching);
   callback(filteredLocal);
 
   localFacultyListeners.add(callback);
@@ -761,6 +875,7 @@ export function subscribeToFacultyNotifications(callback, roleFilter = "faculty"
   let remoteBroadcastNotifs = [];
   let remoteAnnouncements = [];
   let remoteGlobalNotifs = [];
+  let isInitialFacultyLoad = true;
 
   const mergeAndEmitFaculty = () => {
     const currentReadSet = getReadNotifIds("faculty");
@@ -802,6 +917,27 @@ export function subscribeToFacultyNotifications(callback, roleFilter = "faculty"
       });
 
     saveLocalFacultyNotifs(combined);
+
+    if (isInitialFacultyLoad) {
+      isInitialFacultyLoad = false;
+      seedExistingNotificationIds(combined);
+    } else {
+      // Trigger real-app notifications for newly incoming faculty notifications
+      const now = Date.now();
+      combined.filter(isRoleMatching).forEach(n => {
+        const ageMs = now - getTimestampMs(n);
+        if (ageMs < 90000 && !n.read) {
+          triggerRealAppNotification({
+            id: n.id,
+            title: n.title,
+            message: n.message,
+            type: n.type,
+            senderName: n.senderName,
+            metadata: n.metadata
+          });
+        }
+      });
+    }
 
     localFacultyListeners.forEach(cb => {
       const filtered = combined.filter(isRoleMatching);

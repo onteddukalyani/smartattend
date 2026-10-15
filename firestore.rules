@@ -108,6 +108,7 @@ service cloud.firestore {
       }
     }
 
+
     match /support_tickets/{ticketId} {
       allow read, write: if true;
       match /{document=**} {
@@ -162,27 +163,103 @@ service cloud.firestore {
     match /attendance_sessions/{sessionId} {
       // Authenticated users can read session documents
       allow read: if request.auth != null;
-      allow create, update, delete: if request.auth != null;
+
+      // Creation: Only lecturers, admins, or users establishing session ownership
+      allow create: if request.auth != null && (
+        exists(/databases/$(database)/documents/lecturers/$(request.auth.uid)) ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+        request.resource.data.ownerId == request.auth.uid
+      );
+
+      // Deletion: Only the session owner lecturer or an administrator
+      allow delete: if request.auth != null && (
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+        resource.data.ownerId == request.auth.uid ||
+        resource.data.ownerEmail == request.auth.token.email
+      );
+
+      // Update: Lecturers and admins have full update authority.
+      // Students CANNOT modify ownership, deadlines, active status, phase, kiosk settings, tokens, pins, or course metadata.
+      allow update: if request.auth != null && (
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+        exists(/databases/$(database)/documents/lecturers/$(request.auth.uid)) ||
+        resource.data.ownerId == request.auth.uid ||
+        resource.data.ownerEmail == request.auth.token.email ||
+        (
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+            'ownerId', 'ownerEmail', 'createdBy', 'lecturerName', 'lecturerEmail',
+            'kioskEndsAt', 'expiresAt', 'qr1ExpiresAt', 'qr2StartsAt', 'sessionStartAt', 'startedAt', 'createdAt',
+            'qr1DurationSeconds', 'qr2DurationSeconds', 'totalDurationSeconds', 'durationMinutes',
+            'active', 'status', 'phase', 'kioskModeEnabled', 'strictKiosk',
+            'qr1Token', 'qr2Token', 'qr1TokenHash', 'qr2TokenHash',
+            'sessionPin', 'releaseCode', 'lecturerPin', 'lecturerReleaseCode',
+            'sessionPinHash', 'lecturerPinHash', 'lecturerReleaseCodeHash', 'security',
+            'courseId', 'courseCode', 'classCode', 'batch', 'department', 'semester',
+            'geofence', 'geofenceEnabled', 'location'
+          ])
+        )
+      );
 
       // Private Security Tokens: NEVER readable or writable by client SDKs
       // Only Cloud Functions Admin SDK can read/write tokens and Session PIN hashes
       match /security/{docId} {
         allow read, write: if false;
+        match /{document=**} {
+          allow read, write: if false;
+        }
       }
 
       // Authorizations subcollection: student devices and lecturers
-      match /authorizations/{studentUid} {
-        allow read, write: if request.auth != null;
+      // Students can only write to documents matching their authenticated UID or their own roll number
+      match /authorizations/{authDocId} {
+        allow read: if request.auth != null;
+        allow write: if request.auth != null && (
+          exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+          exists(/databases/$(database)/documents/lecturers/$(request.auth.uid)) ||
+          request.auth.uid == authDocId ||
+          (request.resource.data.studentUid == request.auth.uid && (resource == null || resource.data.studentUid == request.auth.uid))
+        );
+        match /{document=**} {
+          allow read: if request.auth != null;
+          allow write: if false;
+        }
       }
 
       // Violations subcollection: permanent audit records and lecturer reviews
       match /violations/{violationId} {
-        allow read, write: if request.auth != null;
+        allow read: if request.auth != null;
+        allow create: if request.auth != null;
+        allow update, delete: if request.auth != null && (
+          exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+          exists(/databases/$(database)/documents/lecturers/$(request.auth.uid))
+        );
+        match /{document=**} {
+          allow read: if request.auth != null;
+          allow write: if false;
+        }
       }
 
       // Audit logs for release and security events
       match /audit_logs/{logId} {
-        allow read, write: if request.auth != null;
+        allow read: if request.auth != null;
+        allow write: if request.auth != null && (
+          exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+          exists(/databases/$(database)/documents/lecturers/$(request.auth.uid))
+        );
+        match /{document=**} {
+          allow read: if request.auth != null;
+          allow write: if false;
+        }
+      }
+
+      // Time adjustments audit records: only Cloud Functions Admin SDK can write
+      match /time_adjustments/{adjustmentId} {
+        allow read: if request.auth != null;
+        allow write: if false;
+        match /{document=**} {
+          allow read: if request.auth != null;
+          allow write: if false;
+        }
       }
     }
 

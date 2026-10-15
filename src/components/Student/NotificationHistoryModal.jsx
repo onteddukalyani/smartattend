@@ -34,6 +34,7 @@ import {
     sendBroadcastNotification,
     sendStudentNotification,
     sendFacultyNotification,
+    sendLecturerDirectNotification,
     playNotificationChime,
     getTimestampMs
 } from '../../services/notificationsService';
@@ -79,8 +80,9 @@ export function NotificationHistoryModal({
 
     // Broadcast Form State (For Admin & Lecturer)
     const [composerForm, setComposerForm] = useState({
-        targetAudience: effectiveRole === 'admin' ? 'all' : 'student', // 'student' | 'lecturer' | 'admin' | 'all' | 'specific'
+        targetAudience: effectiveRole === 'admin' ? 'all' : 'student', // 'student' | 'lecturer' | 'admin' | 'all' | 'specific' | 'specific_lecturer'
         specificRoll: '',
+        specificLecturer: '',
         title: '',
         message: '',
         urgency: 'GENERAL_NOTICE' // 'GENERAL_NOTICE' | 'SECURITY_ALERT' | 'CLASS_UPDATE' | 'SYSTEM_UPDATE'
@@ -295,11 +297,37 @@ export function NotificationHistoryModal({
                     read: false
                 };
                 setLocalNotifications(prev => [localItem, ...prev]);
+            } else if (composerForm.targetAudience === 'specific_lecturer') {
+                const targetLect = composerForm.specificLecturer.trim().toLowerCase();
+                if (!targetLect) {
+                    setErrorMessage('Please specify the Lecturer email or ID.');
+                    setSendingBroadcast(false);
+                    return;
+                }
+                await sendLecturerDirectNotification(
+                    targetLect,
+                    composerForm.title.trim(),
+                    composerForm.message.trim(),
+                    composerForm.urgency,
+                    senderName
+                );
+                const localItem = {
+                    id: "loc_lect_" + nowMs,
+                    title: composerForm.title.trim(),
+                    message: composerForm.message.trim(),
+                    type: composerForm.urgency,
+                    senderName,
+                    senderRole: effectiveRole,
+                    targetLecturer: targetLect,
+                    createdAt: nowMs,
+                    read: false
+                };
+                setLocalNotifications(prev => [localItem, ...prev]);
             } else {
                 let targetRoles = ['student', 'lecturer', 'faculty', 'admin', 'all'];
-                if (composerForm.targetAudience === 'student') targetRoles = ['student', 'all'];
-                else if (composerForm.targetAudience === 'lecturer') targetRoles = ['lecturer', 'faculty', 'all'];
-                else if (composerForm.targetAudience === 'admin') targetRoles = ['admin', 'all'];
+                if (composerForm.targetAudience === 'student') targetRoles = ['student'];
+                else if (composerForm.targetAudience === 'lecturer') targetRoles = ['lecturer', 'faculty'];
+                else if (composerForm.targetAudience === 'admin') targetRoles = ['admin'];
 
                 await sendBroadcastNotification({
                     targetRoles,
@@ -326,10 +354,11 @@ export function NotificationHistoryModal({
                 setLocalNotifications(prev => [localItem, ...prev]);
             }
 
-            setSuccessMessage('🚀 Announcement broadcast transmitted successfully in real-time!');
+            setSuccessMessage('🚀 Notification broadcast transmitted successfully in real-time!');
             setComposerForm({
                 targetAudience: effectiveRole === 'admin' ? 'all' : 'student',
                 specificRoll: '',
+                specificLecturer: '',
                 title: '',
                 message: '',
                 urgency: 'GENERAL_NOTICE'
@@ -552,6 +581,17 @@ export function NotificationHistoryModal({
                                         />
                                         <FaUserEdit /> Specific Student
                                     </label>
+
+                                    <label className={`audience-option ${composerForm.targetAudience === 'specific_lecturer' ? 'selected' : ''}`}>
+                                        <input
+                                            type="radio"
+                                            name="targetAudience"
+                                            value="specific_lecturer"
+                                            checked={composerForm.targetAudience === 'specific_lecturer'}
+                                            onChange={(e) => setComposerForm({ ...composerForm, targetAudience: e.target.value })}
+                                        />
+                                        <FaChalkboardTeacher /> Particular Lecturer
+                                    </label>
                                 </div>
                             </div>
 
@@ -563,6 +603,19 @@ export function NotificationHistoryModal({
                                         placeholder="e.g. 25BCS001"
                                         value={composerForm.specificRoll}
                                         onChange={(e) => setComposerForm({ ...composerForm, specificRoll: e.target.value })}
+                                        required
+                                    />
+                                </div>
+                            )}
+
+                            {composerForm.targetAudience === 'specific_lecturer' && (
+                                <div className="compose-field">
+                                    <label>Lecturer Email or ID</label>
+                                    <input
+                                        type="text"
+                                        placeholder="e.g. lecturer@university.edu"
+                                        value={composerForm.specificLecturer}
+                                        onChange={(e) => setComposerForm({ ...composerForm, specificLecturer: e.target.value })}
                                         required
                                     />
                                 </div>

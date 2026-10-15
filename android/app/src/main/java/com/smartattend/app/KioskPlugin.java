@@ -132,9 +132,10 @@ public class KioskPlugin extends Plugin {
                 new androidx.appcompat.app.AlertDialog.Builder(activity)
                     .setTitle("Permission: Display Over Other Apps")
                     .setMessage("To activate Lock Mode and prevent attendance disqualification:\n\n" +
-                                "1. Locate 'SmartAttend' in the application list.\n" +
-                                "2. Turn ON 'Allow display over other apps'.\n" +
-                                "3. Tap your device's Back button to return to attendance scanning.")
+                                "1. Go to App info of SmartAttend and click on settings icon ther then remove restricted settings.\n"+
+                                "2. Locate 'SmartAttend' in the application list.\n" +
+                                "3. Turn ON 'Allow display over other apps'.\n" +
+                                "4. Tap your device's Back button to return to attendance scanning.")
                     .setPositiveButton("Open Settings", (dialog, which) -> {
                         try {
                             Intent intent = new Intent(

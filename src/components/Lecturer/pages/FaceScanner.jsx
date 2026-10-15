@@ -481,7 +481,8 @@ function FaceScanner({
                     liveness: true,
                     antiSpoof: "PASSED",
                     blinkCount: challengeEngine.blinkCount || 2,
-                    student: verifiedStudent
+                    student: verifiedStudent,
+                    liveDescriptor: Array.from(liveDescriptor)
                   });
                 } else {
                   setStatus("scanning");

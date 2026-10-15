@@ -1,0 +1,306 @@
+/* =========================================================================
+   REAL-APP HEADS-UP NOTIFICATION BANNER (DYNAMIC ISLAND / WHATSAPP STYLE)
+   ========================================================================= */
+
+.headsup-container {
+    position: fixed;
+    top: 14px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 92%;
+    max-width: 480px;
+    z-index: 999999;
+    pointer-events: none;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.headsup-card {
+    pointer-events: auto;
+    position: relative;
+    background: rgba(15, 23, 42, 0.94);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    box-shadow: 0 20px 45px -10px rgba(0, 0, 0, 0.65),
+                0 0 0 1px rgba(255, 255, 255, 0.08),
+                0 0 30px -5px rgba(99, 102, 241, 0.25);
+    border-radius: 18px;
+    padding: 12px 14px;
+    color: #f8fafc;
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    cursor: pointer;
+    user-select: none;
+    animation: headsupSlideDown 0.38s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    transition: transform 0.2s ease, opacity 0.25s ease, box-shadow 0.2s ease;
+    will-change: transform, opacity;
+}
+
+.headsup-card:hover {
+    transform: translateY(2px) scale(1.01);
+    box-shadow: 0 24px 50px -10px rgba(0, 0, 0, 0.75),
+                0 0 35px -5px rgba(99, 102, 241, 0.4);
+}
+
+.headsup-card.dismissing {
+    animation: headsupSlideUp 0.3s cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+
+/* Category Accent Borders */
+.headsup-card.announcement {
+    border-left: 4px solid #c084fc;
+    box-shadow: 0 20px 45px -10px rgba(0, 0, 0, 0.65), 0 0 25px rgba(192, 132, 252, 0.2);
+}
+
+.headsup-card.session {
+    border-left: 4px solid #34d399;
+    box-shadow: 0 20px 45px -10px rgba(0, 0, 0, 0.65), 0 0 25px rgba(52, 211, 153, 0.2);
+}
+
+.headsup-card.profile {
+    border-left: 4px solid #fbbf24;
+    box-shadow: 0 20px 45px -10px rgba(0, 0, 0, 0.65), 0 0 25px rgba(251, 191, 36, 0.2);
+}
+
+.headsup-card.security {
+    border-left: 4px solid #f87171;
+    box-shadow: 0 20px 45px -10px rgba(0, 0, 0, 0.65), 0 0 25px rgba(248, 113, 113, 0.25);
+}
+
+/* Icon Container */
+.headsup-icon-wrapper {
+    width: 40px;
+    height: 40px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.25rem;
+    flex-shrink: 0;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.headsup-icon-wrapper.announcement {
+    background: linear-gradient(135deg, rgba(168, 85, 247, 0.3), rgba(147, 51, 234, 0.15));
+    border-color: rgba(168, 85, 247, 0.35);
+}
+
+.headsup-icon-wrapper.session {
+    background: linear-gradient(135deg, rgba(16, 185, 129, 0.3), rgba(5, 150, 105, 0.15));
+    border-color: rgba(16, 185, 129, 0.35);
+}
+
+.headsup-icon-wrapper.profile {
+    background: linear-gradient(135deg, rgba(245, 158, 11, 0.3), rgba(217, 119, 6, 0.15));
+    border-color: rgba(245, 158, 11, 0.35);
+}
+
+.headsup-icon-wrapper.security {
+    background: linear-gradient(135deg, rgba(239, 68, 68, 0.3), rgba(220, 38, 38, 0.15));
+    border-color: rgba(239, 68, 68, 0.35);
+}
+
+/* Content Area */
+.headsup-body {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.headsup-header-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.headsup-app-label {
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #94a3b8;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.headsup-badge {
+    font-size: 0.65rem;
+    padding: 1px 6px;
+    border-radius: 999px;
+    background: rgba(99, 102, 241, 0.2);
+    color: #a5b4fc;
+    border: 1px solid rgba(99, 102, 241, 0.3);
+    font-weight: 600;
+}
+
+.headsup-badge.announcement {
+    background: rgba(192, 132, 252, 0.2);
+    color: #e9d5ff;
+    border-color: rgba(192, 132, 252, 0.3);
+}
+
+.headsup-badge.session {
+    background: rgba(52, 211, 153, 0.2);
+    color: #a7f3d0;
+    border-color: rgba(52, 211, 153, 0.3);
+}
+
+.headsup-badge.profile {
+    background: rgba(251, 191, 36, 0.2);
+    color: #fde68a;
+    border-color: rgba(251, 191, 36, 0.3);
+}
+
+.headsup-badge.security {
+    background: rgba(248, 113, 113, 0.2);
+    color: #fecaca;
+    border-color: rgba(248, 113, 113, 0.3);
+}
+
+.headsup-time {
+    font-size: 0.68rem;
+    color: #64748b;
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.headsup-title {
+    font-size: 0.88rem;
+    font-weight: 700;
+    color: #ffffff;
+    line-height: 1.25;
+    margin: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.headsup-message {
+    font-size: 0.78rem;
+    color: #cbd5e1;
+    line-height: 1.35;
+    margin: 0;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    word-break: break-word;
+}
+
+/* Close & Dismiss Button */
+.headsup-close-btn {
+    background: transparent;
+    border: none;
+    color: #94a3b8;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: 0.85rem;
+    transition: background 0.15s ease, color 0.15s ease;
+    flex-shrink: 0;
+    margin-top: -2px;
+    margin-right: -4px;
+}
+
+.headsup-close-btn:hover {
+    background: rgba(255, 255, 255, 0.12);
+    color: #ffffff;
+}
+
+/* Progress bar timer */
+.headsup-progress-bar {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    height: 3px;
+    background: linear-gradient(90deg, #6366f1, #a855f7);
+    border-radius: 0 0 18px 18px;
+    width: 100%;
+    animation: headsupProgress 6.5s linear forwards;
+}
+
+.headsup-progress-bar.announcement {
+    background: linear-gradient(90deg, #a855f7, #ec4899);
+}
+
+.headsup-progress-bar.session {
+    background: linear-gradient(90deg, #10b981, #3b82f6);
+}
+
+.headsup-progress-bar.profile {
+    background: linear-gradient(90deg, #f59e0b, #ef4444);
+}
+
+.headsup-progress-bar.security {
+    background: linear-gradient(90deg, #ef4444, #b91c1c);
+}
+
+/* Keyframes */
+@keyframes headsupSlideDown {
+    0% {
+        opacity: 0;
+        transform: translateY(-50px) scale(0.92);
+    }
+    100% {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+@keyframes headsupSlideUp {
+    0% {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+    100% {
+        opacity: 0;
+        transform: translateY(-50px) scale(0.92);
+    }
+}
+
+@keyframes headsupProgress {
+    0% {
+        width: 100%;
+    }
+    100% {
+        width: 0%;
+    }
+}
+
+@media (max-width: 480px) {
+    .headsup-container {
+        top: 8px;
+        width: 95%;
+    }
+
+    .headsup-card {
+        padding: 10px 12px;
+        border-radius: 16px;
+    }
+
+    .headsup-icon-wrapper {
+        width: 36px;
+        height: 36px;
+        font-size: 1.1rem;
+    }
+
+    .headsup-title {
+        font-size: 0.84rem;
+    }
+
+    .headsup-message {
+        font-size: 0.74rem;
+    }
+}

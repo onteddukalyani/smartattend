@@ -447,55 +447,18 @@ function StudentForm() {
                         confidence: faceVerificationData?.confidence || 100,
                         distance: faceVerificationData?.distance !== undefined ? Number(faceVerificationData.distance.toFixed(4)) : 0.35,
                         liveness: faceVerificationData?.liveness === true,
-                        blinkCount: faceVerificationData?.blinkCount || 1
+                        blinkCount: faceVerificationData?.blinkCount || 1,
+                        liveDescriptor: faceVerificationData?.liveDescriptor || null,
+                        faceDescriptor: faceVerificationData?.liveDescriptor || null,
+                        verified: true,
+                        antiSpoofScore: "PASSED"
                     }
                 );
             } catch (authServErr) {
-                console.warn("Notice submitting via sessionAuthService, writing direct record:", authServErr);
-                // Fallback direct write
-                await setDoc(attendanceRef, {
-                    sessionId: sessionId,
-                    ownerId: sessionData.ownerId || sessionData.ownerEmail || sessionData.lecturerEmail || "system",
-                    lecturerName: sessionData.lecturerName || "",
-                    lecturerEmail: sessionData.lecturerEmail || sessionData.ownerEmail || "",
-                    courseCode: sessionData.courseCode || "N/A",
-                    classCode: normalizeBranchName(sessionData.classCode || "CSE"),
-                    batch: resolvedBatch,
-                    roomNo: sessionData.roomNo || "N/A",
-                    rollNo: cleanRollNo,
-                    fullName: cleanFullName,
-                    studentName: cleanFullName,
-                    name: cleanFullName,
-                    studentEmail: studentEmail,
-                    studentUid: user?.uid || "",
-                    faceVerified: true,
-                    faceMatchConfidence: faceVerificationData?.confidence || 100,
-                    faceDistance: faceVerificationData?.distance !== undefined ? Number(faceVerificationData.distance.toFixed(4)) : null,
-                    livenessConfirmed: faceVerificationData?.liveness === true,
-                    antiSpoofScore: "PASSED",
-                    blinkCount: faceVerificationData?.blinkCount || 1,
-                    biometricVerifiedAt: Date.now(),
-                    submittedAt: Date.now()
-                });
-
-                try {
-                    await updateDoc(sessionRef, {
-                        attendees: arrayUnion({
-                            id: `${sessionId}_${cleanRollNo}`,
-                            rollNo: cleanRollNo,
-                            studentName: cleanFullName,
-                            fullName: cleanFullName,
-                            email: studentEmail,
-                            studentEmail: studentEmail,
-                            faceVerified: true,
-                            faceMatchConfidence: faceVerificationData?.confidence || 100,
-                            submittedAt: Date.now()
-                        }),
-                        attendanceCount: increment(1)
-                    });
-                } catch (sessUpdateErr) {
-                    console.warn("Session attendee array update warning:", sessUpdateErr);
-                }
+                console.error("Attendance submission rejected by server:", authServErr);
+                alert(`❌ Attendance Submission Failed: ${authServErr.message || "Security verification rejected."}`);
+                setSubmitting(false);
+                return;
             }
 
             // Persist the student's active roll number for immediate dashboard recognition
