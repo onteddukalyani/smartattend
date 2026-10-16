@@ -50,7 +50,7 @@ public class MainActivity extends BridgeActivity {
             }, 100);
         }
 
-        // On first app launch after install, present particular instructions before opening "Display over other apps"
+        // On app launch after install, present complete instructions for Restricted Settings & Overlay Permission
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
             android.content.SharedPreferences prefs = getSharedPreferences("smartattend_prefs", MODE_PRIVATE);
             boolean alreadyPrompted = prefs.getBoolean("prompted_overlay_on_launch", false);
@@ -58,33 +58,69 @@ public class MainActivity extends BridgeActivity {
                 prefs.edit().putBoolean("prompted_overlay_on_launch", true).apply();
                 mainHandler.postDelayed(() -> {
                     if (isFinishing() || isDestroyed()) return;
-                    new androidx.appcompat.app.AlertDialog.Builder(this)
-                        .setTitle("Permission: Display Over Other Apps")
-                        .setMessage("SmartAttend requires 'Display over other apps' permission to activate Kiosk Lock Mode and secure your attendance sessions.\n\n" +
-                                    "Instructions:\n" +
-                                    "1. Tap 'Open Settings' below.\n" +
-                                    "2. In the list that appears, find and tap 'SmartAttend'.\n" +
-                                    "3. Turn ON the switch for 'Allow display over other apps'.\n" +
-                                    "4. Tap your device's Back button to return to SmartAttend.")
-                        .setPositiveButton("Open Settings", (dialog, which) -> {
-                            try {
-                                Intent intent = new Intent(
-                                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                                    Uri.parse("package:" + getPackageName())
-                                );
-                                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                                startActivity(intent);
-                            } catch (Exception e) {
+                    boolean isAndroid13Plus = Build.VERSION.SDK_INT >= 33;
+                    androidx.appcompat.app.AlertDialog.Builder builder = new androidx.appcompat.app.AlertDialog.Builder(this);
+                    if (isAndroid13Plus) {
+                        builder.setTitle("⚠️ Action Required: Allow Restricted Settings & Overlay")
+                            .setMessage("SmartAttend requires 'Display over other apps' to lock attendance sessions and prevent proxy attendance.\n\n" +
+                                        "📌 Android 13+ Security Step (Downloaded APK):\n" +
+                                        "Because SmartAttend is installed as an APK, Android restricts special permissions by default.\n\n" +
+                                        "Step 1: Tap '1. Open App Info' below.\n" +
+                                        "Step 2: Tap the 3 DOTS (⋮) at top-right corner of App Info.\n" +
+                                        "Step 3: Tap 'Allow restricted settings' and verify your Fingerprint or PIN.\n" +
+                                        "Step 4: Return here and tap '2. Enable Overlay' to turn the switch ON.")
+                            .setPositiveButton("1. Open App Info (3 Dots ⋮)", (dialog, which) -> {
                                 try {
-                                    Intent fallback = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION);
-                                    fallback.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                                    startActivity(fallback);
+                                    Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+                                    intent.setData(Uri.parse("package:" + getPackageName()));
+                                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                                    startActivity(intent);
                                 } catch (Exception ignored) {}
-                            }
-                        })
-                        .setNegativeButton("Later", (dialog, which) -> dialog.dismiss())
-                        .setCancelable(true)
-                        .show();
+                            })
+                            .setNeutralButton("2. Enable Overlay", (dialog, which) -> {
+                                try {
+                                    Intent intent = new Intent(
+                                        Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                        Uri.parse("package:" + getPackageName())
+                                    );
+                                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                                    startActivity(intent);
+                                } catch (Exception e) {
+                                    try {
+                                        Intent fallback = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION);
+                                        fallback.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                                        startActivity(fallback);
+                                    } catch (Exception ignored) {}
+                                }
+                            })
+                            .setNegativeButton("Close", (dialog, which) -> dialog.dismiss());
+                    } else {
+                        builder.setTitle("Permission: Display Over Other Apps")
+                            .setMessage("SmartAttend requires 'Display over other apps' permission to activate Kiosk Lock Mode and secure your attendance sessions.\n\n" +
+                                        "Instructions:\n" +
+                                        "1. Tap 'Open Settings' below.\n" +
+                                        "2. In the list that appears, find and tap 'SmartAttend'.\n" +
+                                        "3. Turn ON the switch for 'Allow display over other apps'.\n" +
+                                        "4. Tap your device's Back button to return to SmartAttend.")
+                            .setPositiveButton("Open Settings", (dialog, which) -> {
+                                try {
+                                    Intent intent = new Intent(
+                                        Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                        Uri.parse("package:" + getPackageName())
+                                    );
+                                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                                    startActivity(intent);
+                                } catch (Exception e) {
+                                    try {
+                                        Intent fallback = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION);
+                                        fallback.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                                        startActivity(fallback);
+                                    } catch (Exception ignored) {}
+                                }
+                            })
+                            .setNegativeButton("Later", (dialog, which) -> dialog.dismiss());
+                    }
+                    builder.setCancelable(true).show();
                 }, 1500);
             }
         }

@@ -52,7 +52,7 @@ export async function removeStudentFaceAndBiometrics(studentOrRoll) {
       isFaceRegistered: deleteField(),
       faceEnrolledAt: deleteField(),
       enrolledAt: deleteField(),
-      aadhaarVerified: deleteField(),
+      biometricVerified: deleteField(),
       biometricRegistered: deleteField(),
       faceRegistered: false,
       biometricEnrolled: false,
@@ -356,7 +356,7 @@ export async function checkDuplicateFaceBiometrics(
     for (const profile of registeredProfiles.values()) {
       const dist = calculateFaceDistance(newDescriptor, profile.faceDescriptor);
       if (dist <= threshold) {
-        const confidence = Math.max(0, Math.min(100, Math.round((1 - (dist / 0.60)) * 100)));
+        const confidence = Math.max(65, Math.min(99, Math.round(100 - (dist / 0.60) * 35)));
         return {
           isDuplicate: true,
           conflictStudent: {

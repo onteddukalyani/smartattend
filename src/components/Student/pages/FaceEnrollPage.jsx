@@ -12,18 +12,22 @@ import {
     FaRedo,
     FaExclamationTriangle,
     FaInfoCircle,
-    FaLock
+    FaLock,
+    FaCog
 } from "react-icons/fa";
 import { doc, setDoc, deleteField, onSnapshot } from "firebase/firestore";
 import { Capacitor } from "@capacitor/core";
 import { db } from "../../../firebase";
 import { useAuth } from "../../authcontext";
 import { LiveFaceEnrollment } from "../../Common/LiveFaceEnrollment";
+import FaceScanner from "../../Lecturer/pages/FaceScanner";
 import { checkDuplicateFaceBiometrics } from "../../../utils/biometricManager";
+import { Biometric } from "../../../plugins/biometric";
 import {
     isHardwareBiometricAvailable,
     enrollHardwareBiometric,
-    verifyHardwareBiometric
+    verifyHardwareBiometric,
+    openBiometricSettings
 } from "../../../services/biometricService";
 import "./FaceEnrollPage.css";
 
@@ -34,6 +38,10 @@ export default function FaceEnrollPage() {
 
     // Real-time Enrollment Status
     const [hasFaceRegistered, setHasFaceRegistered] = useState(false);
+    const [registeredDescriptor, setRegisteredDescriptor] = useState(null);
+    const [showFaceTest, setShowFaceTest] = useState(false);
+    const [faceTestResult, setFaceTestResult] = useState("");
+    const [isReEnrolling, setIsReEnrolling] = useState(false);
     const [hasHwRegistered, setHasHwRegistered] = useState(false);
     const [faceSaving, setFaceSaving] = useState(false);
     const [faceSuccessMsg, setFaceSuccessMsg] = useState("");
@@ -44,6 +52,8 @@ export default function FaceEnrollPage() {
     const [hwEnrollError, setHwEnrollError] = useState("");
     const [hwTesting, setHwTesting] = useState(false);
     const [hwTestResult, setHwTestResult] = useState("");
+    const [hwInfo, setHwInfo] = useState(null);
+    const [keyExistsOnDevice, setKeyExistsOnDevice] = useState(true);
 
     const emailRoll = (user?.email || "").split("@")[0].trim().toUpperCase();
     const activeRollNo = (profile?.rollNo || emailRoll || "").trim().toUpperCase();
@@ -52,14 +62,42 @@ export default function FaceEnrollPage() {
     const isNative = Capacitor.isNativePlatform();
     const platform = Capacitor.getPlatform();
 
+    const refreshHwStatus = async () => {
+        try {
+            const info = await isHardwareBiometricAvailable();
+            setHwInfo(info);
+            if (isNative) {
+                const st = await Biometric.getBiometricKeyStatus({ keyAlias: "smartattend_biometric_key" });
+                setKeyExistsOnDevice(Boolean(st.exists && !st.isPermanentlyInvalidated));
+            }
+        } catch (e) {
+            console.warn("HW status check notice:", e);
+        }
+    };
+
+    useEffect(() => {
+        refreshHwStatus();
+    }, [isNative, hasHwRegistered]);
+
     // Live Snapshot for Real-Time Status Tracking
     useEffect(() => {
         if (!activeRollNo) return;
         const unsub = onSnapshot(doc(db, "students", activeRollNo), (snap) => {
             if (snap.exists()) {
                 const data = snap.data();
-                setHasFaceRegistered(Boolean(data.faceRegistered || data.hasFaceRegistered || (data.faceDescriptor && data.faceDescriptor.length > 0)));
-                setHasHwRegistered(Boolean(data.hardwareBiometricEnrolled || data.biometricEnrolled));
+                const validDescriptor = (
+                    data.faceDescriptor &&
+                    Array.isArray(data.faceDescriptor) &&
+                    data.faceDescriptor.length === 128
+                ) ? data.faceDescriptor : null;
+
+                setRegisteredDescriptor(validDescriptor);
+                setHasFaceRegistered(Boolean(validDescriptor));
+                setHasHwRegistered(Boolean(data.hardwareBiometricEnrolled));
+            } else {
+                setRegisteredDescriptor(null);
+                setHasFaceRegistered(false);
+                setHasHwRegistered(false);
             }
         }, (err) => console.warn("Biometric status snap warning:", err));
         return () => unsub();
@@ -68,9 +106,9 @@ export default function FaceEnrollPage() {
     const handleFaceEnrolled = async (enrollData) => {
         if (!enrollData || !enrollData.faceDescriptor || !activeRollNo) return;
 
-        // Security Lock: Prevent re-enrolling or editing once registered
-        if (hasFaceRegistered) {
-            alert("🔒 Biometrics Locked:\n\nYour facial biometrics are already registered and permanently protected. Students cannot re-enroll or edit biometrics.\n\nPlease contact your Course Lecturer or Administrator if an authorized reset is needed.");
+        // Security Lock: Allow if not registered or if explicitly re-enrolling
+        if (hasFaceRegistered && !isReEnrolling) {
+            alert("🔒 Biometrics Locked:\n\nYour facial biometrics are already registered and permanently protected. To update, tap 'Re-Enroll Face Biometrics'.");
             return;
         }
 
@@ -109,6 +147,9 @@ export default function FaceEnrollPage() {
             await setDoc(doc(db, "users", activeRollNo), updatePayload, { merge: true }).catch(() => {});
 
             setHasFaceRegistered(true);
+            setRegisteredDescriptor(cleanVector);
+            setIsReEnrolling(false);
+            setShowFaceTest(false);
             setFaceSuccessMsg("✅ Face biometrics registered & saved! Next: Register your Device Fingerprint below.");
             setTimeout(() => {
                 setFaceSuccessMsg("");
@@ -123,9 +164,9 @@ export default function FaceEnrollPage() {
     };
 
     // In-App Fingerprint / Device Biometrics Registration Handler
-    const handleEnrollFingerprint = async () => {
-        // Security Lock: Prevent re-enrolling or editing once registered
-        if (hasHwRegistered) {
+    const handleEnrollFingerprint = async (isRebind = false) => {
+        // Security Lock: Prevent re-enrolling or editing once registered unless re-binding this phone's keystore
+        if (hasHwRegistered && !isRebind) {
             alert("🔒 Biometrics Locked:\n\nYour device fingerprint is already registered and permanently protected. Students cannot re-enroll or edit biometrics.\n\nPlease contact your Course Lecturer or Administrator if an authorized reset is needed.");
             return;
         }
@@ -148,8 +189,10 @@ export default function FaceEnrollPage() {
                 await setDoc(doc(db, "users", activeRollNo), hwPayload, { merge: true }).catch(() => {});
 
                 setHasHwRegistered(true);
+                setKeyExistsOnDevice(true);
                 setHwEnrollMsg("✅ Fingerprint & Device Biometrics Enrolled In-App Successfully!");
                 setTimeout(() => setHwEnrollMsg(""), 4500);
+                refreshHwStatus();
             } else {
                 setHwEnrollError(res.message || "Failed to register fingerprint. Please try again.");
             }
@@ -196,13 +239,13 @@ export default function FaceEnrollPage() {
                 </div>
             </div>
 
-            {/* Direct In-App Biometrics Notice */}
+            {/* Cryptographic Device Biometrics Notice */}
             <div className="inapp-bio-guarantee-banner">
                 <FaShieldAlt className="guarantee-icon" />
                 <div>
-                    <strong>100% In-App Biometric Registration</strong>
+                    <strong>Hardware-Bound Biometric Security</strong>
                     <p>
-                        Both your <strong>3D Face Biometrics</strong> and <strong>Device Fingerprint</strong> are captured directly inside SmartAttend. No need to leave the app or change external phone settings.
+                        SmartAttend binds your physical device's hardware chip ({isNative ? (platform === "android" ? "Android Keystore" : "Apple Secure Enclave") : "Platform Authenticator"}) and 3D facial vectors to your student account for anti-proxy attendance security.
                     </p>
                 </div>
             </div>
@@ -292,10 +335,10 @@ export default function FaceEnrollPage() {
                 {/* Tab 1: Live 3D Face Enrollment / Locked Card */}
                 {activeTab === "face" && (
                     <div className="bio-tab-content">
-                        {hasFaceRegistered ? (
+                        {hasFaceRegistered && !isReEnrolling ? (
                             <div className="bio-locked-state-card">
                                 <div className="bio-locked-badge">
-                                    <FaLock /> 3D Face Biometrics Locked
+                                    <FaLock /> 3D Face Biometrics Registered
                                 </div>
                                 <div className="bio-locked-avatar-wrap">
                                     {profile?.photoURL ? (
@@ -314,16 +357,119 @@ export default function FaceEnrollPage() {
                                 <div className="bio-locked-alert-box">
                                     <FaLock className="lock-inline-icon" />
                                     <div>
-                                        <strong>One-Time Enrollment Policy Active 🔒</strong>
+                                        <strong>Biometric Vector Authenticated 🛡️</strong>
                                         <p>
-                                            Your 128-dimensional facial biometric descriptors are officially registered. To prevent identity fraud and proxy attendance, students cannot re-record, modify, or delete their facial biometrics.
+                                            Your 128-dimensional facial biometric profile is active and verified for attendance. You can test face recognition below or update your biometrics if needed.
                                         </p>
                                     </div>
                                 </div>
 
-                                <div className="bio-locked-help-note">
-                                    <FaInfoCircle /> If an authorized biometric reset is required due to hardware or enrollment errors, please contact your Course Lecturer or System Administrator.
+                                {/* Action Buttons: Test Live Verification & Re-Enroll */}
+                                <div style={{ display: "flex", gap: "12px", justifyContent: "center", flexWrap: "wrap", margin: "16px 0" }}>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setShowFaceTest((prev) => !prev);
+                                            setFaceTestResult("");
+                                        }}
+                                        style={{
+                                            display: "inline-flex",
+                                            alignItems: "center",
+                                            gap: "8px",
+                                            padding: "10px 18px",
+                                            borderRadius: "10px",
+                                            background: "linear-gradient(135deg, #4f46e5 0%, #6366f1 100%)",
+                                            color: "#ffffff",
+                                            border: "none",
+                                            fontWeight: 700,
+                                            fontSize: "0.88rem",
+                                            cursor: "pointer"
+                                        }}
+                                    >
+                                        <FaCamera /> {showFaceTest ? "Close Face Test" : "Test Live Face Verification"}
+                                    </button>
+
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            if (window.confirm("Do you want to re-record your 3D facial biometrics? This will replace your previous facial template with a fresh live scan.")) {
+                                                setShowFaceTest(false);
+                                                setIsReEnrolling(true);
+                                            }
+                                        }}
+                                        style={{
+                                            display: "inline-flex",
+                                            alignItems: "center",
+                                            gap: "8px",
+                                            padding: "10px 18px",
+                                            borderRadius: "10px",
+                                            background: "var(--surface-soft, #f1f5f9)",
+                                            color: "var(--text-main, #0f172a)",
+                                            border: "1.5px solid var(--border, #cbd5e1)",
+                                            fontWeight: 700,
+                                            fontSize: "0.88rem",
+                                            cursor: "pointer"
+                                        }}
+                                    >
+                                        <FaRedo /> Re-Enroll Face Biometrics
+                                    </button>
                                 </div>
+
+                                {/* Live Face Test View */}
+                                {showFaceTest && (
+                                    <div style={{
+                                        margin: "16px 0",
+                                        padding: "18px 16px",
+                                        borderRadius: "16px",
+                                        background: "var(--surface-soft, #f8fafc)",
+                                        border: "1.5px solid var(--border, #e2e8f0)",
+                                        textAlign: "left"
+                                    }}>
+                                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
+                                            <h4 style={{ margin: 0, fontWeight: 800, fontSize: "1rem" }}>
+                                                🧪 Live Face Biometric Test
+                                            </h4>
+                                            <button
+                                                type="button"
+                                                onClick={() => setShowFaceTest(false)}
+                                                style={{ background: "transparent", border: "none", color: "#64748b", fontWeight: 700, cursor: "pointer" }}
+                                            >
+                                                ✕ Close
+                                            </button>
+                                        </div>
+                                        <p style={{ margin: "0 0 14px", fontSize: "0.84rem", color: "#64748b" }}>
+                                            Look directly into the camera. SmartAttend will match your live face against your registered profile.
+                                        </p>
+
+                                        <FaceScanner
+                                            verifiedStudent={{
+                                                name: studentName,
+                                                rollNo: activeRollNo,
+                                                faceDescriptor: registeredDescriptor || profile?.faceDescriptor
+                                            }}
+                                            rollNo={activeRollNo}
+                                            onVerificationChange={(res) => {
+                                                if (res && res.verified) {
+                                                    setFaceTestResult(`✅ Face Verified! Match Confidence: ${res.confidence}% • Liveness Confirmed 🛡️`);
+                                                }
+                                            }}
+                                        />
+
+                                        {faceTestResult && (
+                                            <div style={{
+                                                marginTop: "12px",
+                                                padding: "12px 16px",
+                                                borderRadius: "10px",
+                                                background: "#dcfce7",
+                                                color: "#15803d",
+                                                fontWeight: 800,
+                                                textAlign: "center"
+                                            }}>
+                                                {faceTestResult}
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
 
                                 {!hasHwRegistered && (
                                     <button
@@ -345,6 +491,24 @@ export default function FaceEnrollPage() {
                                     <p>
                                         Roll Number: <strong style={{ color: "var(--accent, #6366f1)" }}>{activeRollNo}</strong> • Student: <strong>{studentName}</strong>
                                     </p>
+                                    {isReEnrolling && (
+                                        <div style={{ marginTop: "8px" }}>
+                                            <button
+                                                type="button"
+                                                onClick={() => setIsReEnrolling(false)}
+                                                style={{
+                                                    background: "transparent",
+                                                    border: "none",
+                                                    color: "#ef4444",
+                                                    fontWeight: 700,
+                                                    fontSize: "0.85rem",
+                                                    cursor: "pointer"
+                                                }}
+                                            >
+                                                ← Cancel Re-Enrollment &amp; Keep Current Profile
+                                            </button>
+                                        </div>
+                                    )}
                                 </div>
 
                                 <div className="face-enroll-camera-wrap">
@@ -399,6 +563,33 @@ export default function FaceEnrollPage() {
                                     </div>
                                 </div>
 
+                                {isNative && !keyExistsOnDevice && (
+                                    <div className="fp-rebind-warning-box">
+                                        <div style={{ display: "flex", alignItems: "flex-start", gap: "12px" }}>
+                                            <FaExclamationTriangle style={{ color: "#d97706", fontSize: "1.4rem", flexShrink: 0, marginTop: "2px" }} />
+                                            <div>
+                                                <strong style={{ color: "#92400e", fontSize: "0.95rem" }}>Phone Keystore Not Yet Initialized</strong>
+                                                <p style={{ margin: "4px 0 10px", fontSize: "0.85rem", color: "#b45309", lineHeight: 1.45 }}>
+                                                    Your account has hardware biometrics enrolled in the database, but this phone does not have the hardware signature key in its keystore yet. Tap below to bind this phone now:
+                                                </p>
+                                                <button
+                                                    type="button"
+                                                    className="fp-primary-enroll-btn"
+                                                    onClick={() => handleEnrollFingerprint(true)}
+                                                    disabled={hwEnrolling}
+                                                    style={{ padding: "10px 18px", fontSize: "0.9rem" }}
+                                                >
+                                                    {hwEnrolling ? (
+                                                        <><FaSpinner className="fa-spin" /> <span>Waiting for Fingerprint...</span></>
+                                                    ) : (
+                                                        <><FaFingerprint /> <span>Touch Sensor to Bind This Phone</span></>
+                                                    )}
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
                                 <div className="fp-test-area-locked">
                                     <p style={{ margin: "0 0 10px", fontSize: "0.85rem", color: "var(--text-muted, #64748b)" }}>
                                         You can test your sensor anytime to confirm your fingerprint hardware is authenticated:
@@ -443,11 +634,35 @@ export default function FaceEnrollPage() {
                                         </p>
                                     </div>
 
+                                    {isNative && hwInfo && !hwInfo.enrolled && (
+                                        <div className="fp-settings-guidance-card">
+                                            <div style={{ display: "flex", alignItems: "flex-start", gap: "12px" }}>
+                                                <FaInfoCircle style={{ color: "#0284c7", fontSize: "1.3rem", flexShrink: 0, marginTop: "2px" }} />
+                                                <div style={{ flex: 1 }}>
+                                                    <strong style={{ color: "#0369a1", fontSize: "0.92rem" }}>Fingerprint Setup Required in Phone Settings</strong>
+                                                    <p style={{ margin: "4px 0 10px", fontSize: "0.84rem", color: "#0c4a6e", lineHeight: 1.45 }}>
+                                                        Your phone requires at least one fingerprint registered in device settings before SmartAttend can bind your phone.
+                                                    </p>
+                                                    <button
+                                                        type="button"
+                                                        className="fp-open-settings-cta-btn"
+                                                        onClick={async () => {
+                                                            await openBiometricSettings();
+                                                            setTimeout(refreshHwStatus, 3000);
+                                                        }}
+                                                    >
+                                                        <FaCog /> Open Phone Security Settings to Add Fingerprint
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+
                                     <div className="fp-interactive-action-area">
                                         <button
                                             type="button"
                                             className="fp-primary-enroll-btn"
-                                            onClick={handleEnrollFingerprint}
+                                            onClick={() => handleEnrollFingerprint(false)}
                                             disabled={hwEnrolling}
                                         >
                                             {hwEnrolling ? (
@@ -471,8 +686,23 @@ export default function FaceEnrollPage() {
                                     )}
 
                                     {hwEnrollError && (
-                                        <div className="face-enroll-status-error" style={{ marginTop: "16px" }}>
-                                            <FaExclamationTriangle /> {hwEnrollError}
+                                        <div className="face-enroll-status-error-container" style={{ marginTop: "16px" }}>
+                                            <div className="face-enroll-status-error">
+                                                <FaExclamationTriangle /> <span>{hwEnrollError}</span>
+                                            </div>
+                                            {isNative && (hwEnrollError.includes("Settings") || hwEnrollError.includes("enrolled") || hwEnrollError.includes("No fingerprints")) && (
+                                                <button
+                                                    type="button"
+                                                    className="fp-open-settings-cta-btn"
+                                                    style={{ marginTop: "10px", width: "100%", justifyContent: "center" }}
+                                                    onClick={async () => {
+                                                        await openBiometricSettings();
+                                                        setTimeout(refreshHwStatus, 3000);
+                                                    }}
+                                                >
+                                                    <FaCog /> Open Phone Settings to Enroll Fingerprint
+                                                </button>
+                                            )}
                                         </div>
                                     )}
 

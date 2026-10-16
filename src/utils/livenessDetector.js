@@ -9,9 +9,9 @@
  * 5. 👁️ BLINK / SMILE (EAR blink / live human reflex)
  */
 
-export const BLINK_CLOSED_THRESHOLD = 0.205;
-export const BLINK_OPEN_THRESHOLD = 0.250;
-export const STATIC_VARIANCE_THRESHOLD = 0.000085;
+export const BLINK_CLOSED_THRESHOLD = 0.190;
+export const BLINK_OPEN_THRESHOLD = 0.235;
+export const STATIC_VARIANCE_THRESHOLD = 0.000025;
 export const MAR_SMILE_THRESHOLD = 0.42;
 export const MAR_OPEN_THRESHOLD = 0.55;
 
@@ -109,6 +109,7 @@ export const computeFacialRatios = (positions) => {
 
 /**
  * 5. 3D Head Pose (Yaw, Pitch, Roll) Estimation
+ * Calibrated with realistic angles so gentle head rotations are recognized without dropping facial detection
  */
 export const computeHeadPose = (positions) => {
     if (!positions || positions.length < 68) return { yawRatio: 1.0, pitchRatio: 1.0, rollDeg: 0, pose: "CENTER" };
@@ -117,7 +118,6 @@ export const computeHeadPose = (positions) => {
     const leftEye = positions[36];
     const rightEye = positions[45];
     const chin = positions[8];
-    const eyeMidX = (leftEye.x + rightEye.x) / 2.0;
     const eyeMidY = (leftEye.y + rightEye.y) / 2.0;
 
     const dLeft = Math.max(0.1, getDist(leftEye, nose));
@@ -132,13 +132,13 @@ export const computeHeadPose = (positions) => {
     const rollDeg = (rollRad * 180) / Math.PI;
 
     let pose = "CENTER";
-    if (yawRatio < 0.72) {
+    if (yawRatio < 0.82) {
         pose = "LEFT";
-    } else if (yawRatio > 1.35) {
+    } else if (yawRatio > 1.22) {
         pose = "RIGHT";
-    } else if (pitchRatio > 1.35) {
+    } else if (pitchRatio > 1.20) {
         pose = "UP";
-    } else if (pitchRatio < 0.65) {
+    } else if (pitchRatio < 0.75) {
         pose = "DOWN";
     }
 
@@ -200,25 +200,23 @@ export const fuseFaceDescriptors = (descriptorArray) => {
 
 /**
  * 8. Randomized Challenge-Response Interactive Liveness Engine
- * Generates an unpredictable challenge sequence for every verification.
+ * Generates interactive challenge sequences calibrated for fast attendance or full enrollment.
  */
 export class RandomizedChallengeEngine {
     constructor(options = {}) {
         this.onStateChange = options.onStateChange || (() => { });
         this.timeoutSec = options.timeoutSec || 6;
+        this.mode = options.mode || "attendance"; // "attendance" | "enrollment"
         this.reset();
     }
 
-    /**
-     * Generate randomized challenge sequence:
-     * Step 1 is always CENTER alignment, followed by 2 random actions (e.g. BLINK, SMILE, TURN_LEFT, TURN_RIGHT)
-     */
     generateChallenges() {
-        const pool = ["BLINK", "SMILE", "TURN_LEFT", "TURN_RIGHT", "TILT_UP"];
-        // Shuffle pool
-        const shuffled = [...pool].sort(() => 0.5 - Math.random());
-        // Pick 2 distinct randomized challenges
-        return ["CENTER", shuffled[0], shuffled[1]];
+        if (this.mode === "enrollment") {
+            // Guided 4-step sequence matching LiveFaceEnrollment UI pills
+            return ["CENTER", "TURN_LEFT", "TURN_RIGHT", "TILT_UP"];
+        }
+        // Attendance mode: Center alignment with natural blink/smile reflex
+        return ["CENTER", "BLINK"];
     }
 
     reset() {
@@ -241,27 +239,27 @@ export class RandomizedChallengeEngine {
 
         this.holdFrames = 0;
         this.progress = 0;
-        this.message = this.getChallengePrompt(this.currentChallenge, 1);
+        this.totalSteps = this.challenges.length;
+        this.message = this.getChallengePrompt(this.currentChallenge, 1, this.totalSteps);
         this.statusType = "ready";
         this.notify();
     }
 
-    getChallengePrompt(challenge, stepNum) {
+    getChallengePrompt(challenge, stepNum, totalSteps = 4) {
+        const total = totalSteps || this.challenges?.length || 4;
         switch (challenge) {
             case "CENTER":
-                return `🎯 Step ${stepNum}/3: Look straight into the camera`;
+                return `🎯 Step ${stepNum}/${total}: Look straight into camera`;
             case "TURN_LEFT":
-                return `⬅️ Step ${stepNum}/3: Turn your face slowly to the LEFT`;
+                return `⬅️ Step ${stepNum}/${total}: Turn face slightly to the LEFT`;
             case "TURN_RIGHT":
-                return `➡️ Step ${stepNum}/3: Turn your face slowly to the RIGHT`;
+                return `➡️ Step ${stepNum}/${total}: Turn face slightly to the RIGHT`;
             case "TILT_UP":
-                return `⬆️ Step ${stepNum}/3: Tilt your head slightly UP`;
-            case "SMILE":
-                return `😊 Step ${stepNum}/3: Smile or open mouth slightly`;
+                return `⬆️ Step ${stepNum}/${total}: Tilt head slightly UP or blink naturally`;
             case "BLINK":
-                return `👁️ Step ${stepNum}/3: Blink your eyes naturally`;
+                return `👁️ Step ${stepNum}/${total}: Blink your eyes naturally`;
             default:
-                return `🎯 Step ${stepNum}/3: Follow on-screen instructions`;
+                return `🎯 Step ${stepNum}/${total}: Align face in frame`;
         }
     }
 
@@ -297,6 +295,7 @@ export class RandomizedChallengeEngine {
             spoofDetected: this.spoofDetected,
             message: this.message,
             statusType: this.statusType,
+            blinkCount: this.blinkCount,
             fusedDescriptor: this.isComplete ? fuseFaceDescriptors(this.collectedDescriptors) : null
         });
     }
@@ -317,7 +316,7 @@ export class RandomizedChallengeEngine {
         // Buffer valid descriptor frames
         if (liveDescriptor && liveDescriptor.length === 128) {
             this.collectedDescriptors.push(new Float32Array(liveDescriptor));
-            if (this.collectedDescriptors.length > 8) this.collectedDescriptors.shift();
+            if (this.collectedDescriptors.length > 12) this.collectedDescriptors.shift();
         }
 
         // 1. EAR Blink Tracking
@@ -327,20 +326,20 @@ export class RandomizedChallengeEngine {
         const rightEAR = computeEAR(rightEye);
         const avgEAR = (leftEAR + rightEAR) / 2.0;
 
-        if (avgEAR > 0.20) {
+        if (avgEAR > 0.19 && avgEAR < 0.45) {
             this.earHistory.push(avgEAR);
             if (this.earHistory.length > 25) this.earHistory.shift();
             const sum = this.earHistory.reduce((a, b) => a + b, 0);
             this.baselineEAR = sum / this.earHistory.length;
         }
 
-        const closedCutoff = Math.min(BLINK_CLOSED_THRESHOLD, this.baselineEAR * 0.82);
-        const openCutoff = Math.max(BLINK_OPEN_THRESHOLD, this.baselineEAR * 0.90);
+        const closedCutoff = Math.min(BLINK_CLOSED_THRESHOLD, this.baselineEAR * 0.78);
+        const openCutoff = Math.max(BLINK_OPEN_THRESHOLD, this.baselineEAR * 0.88);
 
         let justBlinked = false;
-        if (avgEAR < closedCutoff || avgEAR < 0.215) {
+        if (avgEAR < closedCutoff || avgEAR < 0.185) {
             this.eyeState = "closed";
-        } else if (avgEAR >= openCutoff || avgEAR >= 0.235) {
+        } else if (avgEAR >= openCutoff || avgEAR >= 0.225) {
             if (this.eyeState === "closed") {
                 this.blinkCount += 1;
                 justBlinked = true;
@@ -351,24 +350,35 @@ export class RandomizedChallengeEngine {
         // 2. MAR & Smile Tracking
         const mar = computeMAR(positions);
         const smileScore = computeSmileMetric(positions);
-        const isSmiling = mar > MAR_SMILE_THRESHOLD || smileScore > 0.62;
+        const isSmiling = mar > MAR_SMILE_THRESHOLD || smileScore > 0.60;
 
         // 3. Temporal Motion Variance (Anti-Static Photo & Replay Defense)
         const currentRatios = computeFacialRatios(positions);
         this.ratioHistory.push(currentRatios);
-        if (this.ratioHistory.length > 15) this.ratioHistory.shift();
+        if (this.ratioHistory.length > 20) this.ratioHistory.shift();
         const variance = computeMotionVariance(this.ratioHistory);
 
-        if (
-            this.blinkCount === 0 &&
-            !isSmiling &&
+        // Natural micro-movement, blink, smile, or head angle variance resets static counter
+        const hasNaturalMovement =
+            this.blinkCount > 0 ||
+            isSmiling ||
+            Math.abs(yawRatio - 1.0) > 0.12 ||
+            Math.abs(pitchRatio - 1.0) > 0.12;
+
+        if (hasNaturalMovement) {
+            this.staticFramesCount = 0;
+            this.spoofDetected = false;
+        } else if (
+            this.ratioHistory.length >= 15 &&
             variance < STATIC_VARIANCE_THRESHOLD &&
-            this.ratioHistory.length >= 12
+            this.blinkCount === 0 &&
+            !isSmiling
         ) {
             this.staticFramesCount += 1;
-            if (this.staticFramesCount >= 22) {
+            // Require 60 frames (~3.5 seconds) of absolute stillness before alerting spoof
+            if (this.staticFramesCount >= 60) {
                 this.spoofDetected = true;
-                this.message = "⚠️ Static photo/screen detected. Real human presence required.";
+                this.message = "⚠️ Static photo detected. Real human presence required (blink or move head).";
                 this.statusType = "warning";
                 this.notify();
                 return false;
@@ -383,19 +393,19 @@ export class RandomizedChallengeEngine {
         let challengeSatisfied = false;
 
         if (target === "CENTER") {
-            if (pose === "CENTER" && yawRatio >= 0.80 && yawRatio <= 1.25 && pitchRatio >= 0.80 && pitchRatio <= 1.25) {
+            if (pose === "CENTER" || (yawRatio >= 0.82 && yawRatio <= 1.22 && pitchRatio >= 0.75 && pitchRatio <= 1.25)) {
                 challengeSatisfied = true;
             }
         } else if (target === "TURN_LEFT") {
-            if (pose === "LEFT" || yawRatio < 0.72) {
+            if (pose === "LEFT" || yawRatio < 0.84) {
                 challengeSatisfied = true;
             }
         } else if (target === "TURN_RIGHT") {
-            if (pose === "RIGHT" || yawRatio > 1.30) {
+            if (pose === "RIGHT" || yawRatio > 1.20) {
                 challengeSatisfied = true;
             }
         } else if (target === "TILT_UP") {
-            if (pose === "UP" || pitchRatio > 1.25) {
+            if (pose === "UP" || pitchRatio > 1.18 || justBlinked || this.blinkCount > 0) {
                 challengeSatisfied = true;
             }
         } else if (target === "SMILE") {
@@ -411,9 +421,11 @@ export class RandomizedChallengeEngine {
         // Handle step transition
         if (challengeSatisfied) {
             this.holdFrames += 1;
-            if (this.holdFrames >= 3) {
+            if (this.holdFrames >= 2) {
                 this.holdFrames = 0;
-                this.completedChallenges.push(target);
+                if (!this.completedChallenges.includes(target)) {
+                    this.completedChallenges.push(target);
+                }
                 this.currentIndex += 1;
 
                 if (this.currentIndex >= this.challenges.length) {
@@ -425,7 +437,7 @@ export class RandomizedChallengeEngine {
                     return true;
                 } else {
                     this.currentChallenge = this.challenges[this.currentIndex];
-                    this.message = this.getChallengePrompt(this.currentChallenge, this.currentIndex + 1);
+                    this.message = this.getChallengePrompt(this.currentChallenge, this.currentIndex + 1, this.challenges.length);
                     this.statusType = "capturing";
                 }
             } else {
@@ -433,7 +445,7 @@ export class RandomizedChallengeEngine {
             }
         } else {
             this.holdFrames = Math.max(0, this.holdFrames - 1);
-            this.message = this.getChallengePrompt(this.currentChallenge, this.currentIndex + 1);
+            this.message = this.getChallengePrompt(this.currentChallenge, this.currentIndex + 1, this.challenges.length);
             this.statusType = "ready";
         }
 
@@ -444,7 +456,14 @@ export class RandomizedChallengeEngine {
 }
 
 /**
- * Aadhaar / KYC Multi-Angle Engine alias with full backward compatibility
+ * Multi-Angle Biometric Liveness Verification Engine for Enrollment
  */
-export class AadhaarLivenessEngine extends RandomizedChallengeEngine { }
-export const LivenessEngine = AadhaarLivenessEngine;
+export class BiometricLivenessEngine extends RandomizedChallengeEngine {
+    constructor(options = {}) {
+        super({ ...options, mode: "enrollment" });
+    }
+}
+
+export const LivenessEngine = BiometricLivenessEngine;
+export const FaceLivenessEngine = BiometricLivenessEngine;
+

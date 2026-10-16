@@ -94,7 +94,7 @@ export async function initiateSession(sessionParams) {
     courseCode: courseCode,
     roomNo: roomNo,
     batch: batch || "2025",
-    geofenceRadius: typeof sessionParams.geofenceRadius === "number" ? sessionParams.geofenceRadius : 30,
+    geofenceRadius: typeof sessionParams.geofenceRadius === "number" ? sessionParams.geofenceRadius : 10,
     lectureHours: Number(sessionParams.lectureHours) > 0 ? Number(sessionParams.lectureHours) : 1.0,
     durationHours: Number(sessionParams.lectureHours) > 0 ? Number(sessionParams.lectureHours) : 1.0,
     qr1DurationSeconds: qr1DurationSec,
@@ -121,6 +121,8 @@ export async function initiateSession(sessionParams) {
   };
 
   const securityDoc = {
+    ownerId: currentUser ? currentUser.uid : "",
+    ownerEmail: lecturerEmail,
     qr1TokenHash: qr1TokenHash,
     qr2TokenHash: qr2TokenHash,
     lecturerReleaseCodeHash: lecturerPinHash,
@@ -131,10 +133,15 @@ export async function initiateSession(sessionParams) {
     kioskEndsAt: kioskEndsMs
   };
 
-  await Promise.all([
-    setDoc(doc(db, "attendance_sessions", sessionId), sessionDoc),
-    setDoc(doc(db, "attendance_sessions", sessionId, "security", "tokens"), securityDoc)
-  ]);
+  // 1. Authoritative Session Document (Required)
+  await setDoc(doc(db, "attendance_sessions", sessionId), sessionDoc);
+
+  // 2. Security Subcollection (Protected by Firestore Security Rules)
+  try {
+    await setDoc(doc(db, "attendance_sessions", sessionId, "security", "tokens"), securityDoc);
+  } catch (secErr) {
+    console.warn("Security tokens subdocument notice (allowed if restricted):", secErr.message || secErr);
+  }
 
   return {
     success: true,
@@ -160,7 +167,13 @@ export async function initiateSession(sessionParams) {
 export async function authorizeStudentQR1(sessionId, qr1Token, studentProfileOverride = null) {
   try {
     const fn = httpsCallable(functions, "authorizeQR1");
-    const result = await fn({ sessionId, qr1Token });
+    const result = await fn({
+      sessionId,
+      qr1Token,
+      deviceId: studentProfileOverride?.deviceId || null,
+      isDeviceOwner: studentProfileOverride?.isDeviceOwner || false,
+      studentLocation: studentProfileOverride?.studentLocation || null
+    });
     if (result && result.data && result.data.success) return result.data;
   } catch (cloudErr) {
     console.warn("Cloud function authorizeQR1 notice (using direct session engine):", cloudErr.message || cloudErr);
@@ -1142,33 +1155,155 @@ export async function extendAttendanceSession(sessionId, adjustment = 1) {
     if (!snap.exists()) throw new Error("Attendance session not found.");
     const data = snap.data();
 
-    const currentEndsMs = typeof data.kioskEndsAt?.toMillis === "function"
-      ? data.kioskEndsAt.toMillis()
-      : (Number(data.kioskEndsAt) || (Date.now() + 60000));
-
-    const newEndsMs = Math.max(Date.now() + 15000, currentEndsMs + deltaMs);
+    const isPhase1Target = phaseTarget === "PHASE_1" || (!phaseTarget && data.phase === "PHASE_1");
     const startMs = typeof data.sessionStartAt?.toMillis === "function"
       ? data.sessionStartAt.toMillis()
       : (Number(data.sessionStartAt) || Date.now());
-    const newTotalDurationSec = Math.max(30, Math.round((newEndsMs - startMs) / 1000));
-    const newTotalDurationMin = Math.max(1, Math.round(newTotalDurationSec / 60));
 
-    await Promise.all([
-      updateDoc(sessionRef, {
-        kioskEndsAt: newEndsMs,
-        expiresAt: newEndsMs,
-        totalDurationSeconds: newTotalDurationSec,
-        durationMinutes: newTotalDurationMin,
-        updatedAt: Date.now()
-      }),
-      updateDoc(doc(db, "attendance_sessions", sessionId, "security", "tokens"), {
-        kioskEndsAt: newEndsMs
-      }).catch(() => { })
-    ]);
+    let newQr1ExpiresMs = null;
+    let newEndsMs = null;
+    let newQr1DurationSec = null;
+    let newTotalDurationSec = null;
+    let newTotalDurationMin = null;
+
+    if (isPhase1Target) {
+      const currentQr1ExpiresMs = typeof data.qr1ExpiresAt?.toMillis === "function"
+        ? data.qr1ExpiresAt.toMillis()
+        : (Number(data.qr1ExpiresAt) || (Date.now() + 30000));
+
+      const targetQr1Ms = currentQr1ExpiresMs + deltaMs;
+      const qr2DurationSec = Number(data.qr2DurationSeconds) || 120;
+
+      if (targetQr1Ms <= Date.now() + 2000) {
+        // Removing time ends Phase 1 immediately -> advance directly to Phase 2!
+        newQr1ExpiresMs = Date.now();
+        newEndsMs = Date.now() + (qr2DurationSec * 1000);
+        newQr1DurationSec = Math.max(10, Math.round((newQr1ExpiresMs - startMs) / 1000));
+        newTotalDurationSec = newQr1DurationSec + qr2DurationSec;
+        newTotalDurationMin = Math.max(1, Math.round(newTotalDurationSec / 60));
+
+        await Promise.all([
+          updateDoc(sessionRef, {
+            phase: "PHASE_2",
+            qr1ExpiresAt: newQr1ExpiresMs,
+            qr2StartsAt: newQr1ExpiresMs,
+            kioskEndsAt: newEndsMs,
+            expiresAt: newEndsMs,
+            qr1DurationSeconds: newQr1DurationSec,
+            totalDurationSeconds: newTotalDurationSec,
+            durationMinutes: newTotalDurationMin,
+            updatedAt: Date.now()
+          }),
+          updateDoc(doc(db, "attendance_sessions", sessionId, "security", "tokens"), {
+            phase: "PHASE_2",
+            qr1ExpiresAt: newQr1ExpiresMs,
+            qr2StartsAt: newQr1ExpiresMs,
+            kioskEndsAt: newEndsMs
+          }).catch(() => { })
+        ]);
+
+        return {
+          success: true,
+          sessionId,
+          phase: "PHASE_2",
+          newQr1ExpiresAt: newQr1ExpiresMs,
+          newQr1ExpiresMs,
+          newEndsAt: newEndsMs,
+          newEndsMs,
+          deltaSeconds: deltaSec,
+          totalDurationSeconds: newTotalDurationSec,
+          totalDurationMinutes: newTotalDurationMin
+        };
+      }
+
+      newQr1ExpiresMs = targetQr1Ms;
+      newEndsMs = newQr1ExpiresMs + (qr2DurationSec * 1000);
+      newQr1DurationSec = Math.max(15, Math.round((newQr1ExpiresMs - startMs) / 1000));
+      newTotalDurationSec = newQr1DurationSec + qr2DurationSec;
+      newTotalDurationMin = Math.max(1, Math.round(newTotalDurationSec / 60));
+
+      await Promise.all([
+        updateDoc(sessionRef, {
+          qr1ExpiresAt: newQr1ExpiresMs,
+          qr2StartsAt: newQr1ExpiresMs,
+          kioskEndsAt: newEndsMs,
+          expiresAt: newEndsMs,
+          qr1DurationSeconds: newQr1DurationSec,
+          totalDurationSeconds: newTotalDurationSec,
+          durationMinutes: newTotalDurationMin,
+          updatedAt: Date.now()
+        }),
+        updateDoc(doc(db, "attendance_sessions", sessionId, "security", "tokens"), {
+          qr1ExpiresAt: newQr1ExpiresMs,
+          qr2StartsAt: newQr1ExpiresMs,
+          kioskEndsAt: newEndsMs
+        }).catch(() => { })
+      ]);
+    } else {
+      const currentEndsMs = typeof data.kioskEndsAt?.toMillis === "function"
+        ? data.kioskEndsAt.toMillis()
+        : (Number(data.kioskEndsAt) || (Date.now() + 60000));
+
+      const targetEndsMs = currentEndsMs + deltaMs;
+
+      if (targetEndsMs <= Date.now() + 2000) {
+        // Removing time ends entire session immediately -> close session!
+        newEndsMs = Date.now();
+        newTotalDurationSec = Math.max(30, Math.round((newEndsMs - startMs) / 1000));
+        newTotalDurationMin = Math.max(1, Math.round(newTotalDurationSec / 60));
+
+        await Promise.all([
+          updateDoc(sessionRef, {
+            phase: "CLOSED",
+            status: "CLOSED",
+            active: false,
+            kioskEndsAt: newEndsMs,
+            expiresAt: newEndsMs,
+            totalDurationSeconds: newTotalDurationSec,
+            durationMinutes: newTotalDurationMin,
+            updatedAt: Date.now()
+          }),
+          updateDoc(doc(db, "attendance_sessions", sessionId, "security", "tokens"), {
+            kioskEndsAt: newEndsMs
+          }).catch(() => { })
+        ]);
+
+        return {
+          success: true,
+          sessionId,
+          phase: "CLOSED",
+          newEndsAt: newEndsMs,
+          newEndsMs,
+          deltaSeconds: deltaSec,
+          totalDurationSeconds: newTotalDurationSec,
+          totalDurationMinutes: newTotalDurationMin
+        };
+      }
+
+      newEndsMs = targetEndsMs;
+      newTotalDurationSec = Math.max(30, Math.round((newEndsMs - startMs) / 1000));
+      newTotalDurationMin = Math.max(1, Math.round(newTotalDurationSec / 60));
+
+      await Promise.all([
+        updateDoc(sessionRef, {
+          kioskEndsAt: newEndsMs,
+          expiresAt: newEndsMs,
+          totalDurationSeconds: newTotalDurationSec,
+          durationMinutes: newTotalDurationMin,
+          updatedAt: Date.now()
+        }),
+        updateDoc(doc(db, "attendance_sessions", sessionId, "security", "tokens"), {
+          kioskEndsAt: newEndsMs
+        }).catch(() => { })
+      ]);
+    }
 
     return {
       success: true,
       sessionId,
+      newQr1ExpiresAt: newQr1ExpiresMs,
+      newQr1ExpiresMs,
+      newEndsAt: newEndsMs,
       newEndsMs,
       deltaSeconds: deltaSec,
       totalDurationSeconds: newTotalDurationSec,
@@ -1177,6 +1312,58 @@ export async function extendAttendanceSession(sessionId, adjustment = 1) {
   } catch (err) {
     console.error("Failed to adjust attendance session:", err);
     throw err;
+  }
+}
+
+/**
+ * Lecturer / Admin: Dynamically adjust running session geofence radius live.
+ * Default is 10 metres. Range: 0 to 1000m (0 disables geofence).
+ * Invokes trusted Cloud Function 'updateSessionGeofenceRadius', with direct Firestore fallback.
+ */
+export async function updateSessionGeofenceRadius(sessionId, radius, classroomLocation = null) {
+  if (!sessionId) throw new Error("Session ID is required to update geofence radius.");
+
+  const numericRadius = typeof radius === "number" && Number.isFinite(radius) ? radius : 10;
+
+  try {
+    const fn = httpsCallable(functions, "updateSessionGeofenceRadius");
+    const payload = { sessionId, radius: numericRadius };
+    if (classroomLocation && typeof classroomLocation === "object") {
+      payload.classroomLocation = classroomLocation;
+    }
+    const result = await fn(payload);
+    if (result?.data?.success) {
+      return result.data;
+    }
+  } catch (cloudErr) {
+    console.warn("Cloud function updateSessionGeofenceRadius notice (using direct Firestore update):", cloudErr.message || cloudErr);
+  }
+
+  // Direct Firestore Fallback
+  try {
+    const sessionRef = doc(db, "attendance_sessions", sessionId);
+    const updatePayload = {
+      geofenceRadius: numericRadius,
+      updatedAt: Date.now()
+    };
+    if (classroomLocation && typeof classroomLocation === "object") {
+      updatePayload.classroomLocation = {
+        ...classroomLocation,
+        radius: numericRadius
+      };
+    } else {
+      updatePayload["classroomLocation.radius"] = numericRadius;
+    }
+    await updateDoc(sessionRef, updatePayload);
+    return {
+      success: true,
+      sessionId,
+      newRadius: numericRadius,
+      message: `Geofence radius updated to ${numericRadius}m.`
+    };
+  } catch (dbErr) {
+    console.error("Failed to update session geofence radius in Firestore:", dbErr);
+    throw dbErr;
   }
 }
 

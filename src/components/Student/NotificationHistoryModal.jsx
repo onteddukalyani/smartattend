@@ -21,8 +21,11 @@ import {
     FaChalkboardTeacher,
     FaUserShield,
     FaSpinner,
-    FaHistory
+    FaHistory,
+    FaRocket,
+    FaDownload
 } from 'react-icons/fa';
+import { getApkDownloadUrl } from '../../utils/apkUrl';
 import {
     markNotificationAsRead,
     markAllStudentNotificationsRead,
@@ -89,15 +92,7 @@ export function NotificationHistoryModal({
     });
     const [sendingBroadcast, setSendingBroadcast] = useState(false);
 
-    // Audio chime on new notification arrival
-    const prevCountRef = useRef((notifications || []).length);
-    useEffect(() => {
-        const count = (notifications || []).length;
-        if (count > prevCountRef.current && soundEnabled && isOpen) {
-            playNotificationChime();
-        }
-        prevCountRef.current = count;
-    }, [notifications, soundEnabled, isOpen]);
+    // Notifications are silent per user requirement
 
     const unreadCount = (localNotifications || []).filter(n => !n.read).length;
 
@@ -145,6 +140,8 @@ export function NotificationHistoryModal({
 
     const getTypeBadge = (type) => {
         switch (type) {
+            case 'APP_UPDATE':
+                return <span className="notif-type-tag type-update" style={{ background: '#fef3c7', color: '#b45309', border: '1px solid #fde68a' }}><FaRocket /> App Update</span>;
             case 'DEVICE_RESET_REQUEST':
                 return <span className="notif-type-tag type-violation" style={{ background: '#ffedd5', color: '#c2410c', border: '1px solid #fed7aa' }}><FaMobileAlt /> Reset Requested</span>;
             case 'DEVICE_LOCKED':
@@ -779,6 +776,20 @@ export function NotificationHistoryModal({
                                                     >
                                                         <FaCamera /> Enroll Face
                                                     </button>
+                                                )}
+
+                                                {/* Actionable Button: App Update Download (All Roles) */}
+                                                {(n.type === 'APP_UPDATE' || n.metadata?.actionType === 'APP_UPDATE' || (n.title && n.title.toLowerCase().includes('update (v'))) && (
+                                                    <a
+                                                        href={n.metadata?.apkUrl || n.apkUrl || getApkDownloadUrl()}
+                                                        download="SmartAttend-release.apk"
+                                                        className="notif-action-btn btn-action-approve"
+                                                        style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                                                        onClick={() => handleRead(n.id)}
+                                                        title="Download Verified Android APK"
+                                                    >
+                                                        <FaDownload /> Download Update (.apk)
+                                                    </a>
                                                 )}
 
                                                 {/* Mark Read */}

@@ -462,7 +462,14 @@ function Dashboard() {
                                         Reason: {viol.violationReason || viol.reason || "App Switched / Minimised"}
                                     </div>
                                 </div>
-                                <button type="button" className="flagged-review-btn">
+                                <button
+                                    type="button"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        setSelectedViolation(viol);
+                                    }}
+                                    className="flagged-review-btn"
+                                >
                                     Review Alert
                                 </button>
                             </div>

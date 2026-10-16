@@ -75,11 +75,18 @@ export async function generateRotatingQrPayload({
     sig
   };
 
-  if (classroomLocation && classroomLocation.latitude && classroomLocation.longitude) {
+  const cLat = classroomLocation ? Number(classroomLocation.latitude ?? classroomLocation.lat) : NaN;
+  const cLon = classroomLocation ? Number(classroomLocation.longitude ?? classroomLocation.lng ?? classroomLocation.lon) : NaN;
+  const cRad = classroomLocation ? Number(classroomLocation.radius ?? classroomLocation.r ?? 10) : 10;
+
+  if (Number.isFinite(cLat) && Number.isFinite(cLon)) {
     payloadObj.geo = {
-      lat: Number(classroomLocation.latitude.toFixed(6)),
-      lng: Number(classroomLocation.longitude.toFixed(6)),
-      r: classroomLocation.radius || 10
+      lat: Number(cLat.toFixed(6)),
+      lng: Number(cLon.toFixed(6)),
+      latitude: Number(cLat.toFixed(6)),
+      longitude: Number(cLon.toFixed(6)),
+      r: cRad,
+      radius: cRad
     };
   }
 
@@ -129,6 +136,10 @@ export async function validateRotatingQrPayload(rawScanned, options = {}) {
       // Check if it's a URL
       if (rawScanned.startsWith("http://") || rawScanned.startsWith("https://") || rawScanned.startsWith("smartattend://")) {
         const parsed = new URL(rawScanned.replace("smartattend://attend", "https://smartattend.app/student/mark-attendance"));
+        const geoLat = parsed.searchParams.get("geolat");
+        const geoLng = parsed.searchParams.get("geolng");
+        const geoR = Number(parsed.searchParams.get("geor") || 10);
+
         params = {
           sessionId: parsed.searchParams.get("session") || "",
           phase: parsed.searchParams.get("phase") || "1",
@@ -138,14 +149,33 @@ export async function validateRotatingQrPayload(rawScanned, options = {}) {
           sig: parsed.searchParams.get("sig") || "",
           qr1Token: parsed.searchParams.get("qr1Token") || "",
           qr2Token: parsed.searchParams.get("qr2Token") || "",
-          geo: parsed.searchParams.get("geolat") ? {
-            latitude: Number(parsed.searchParams.get("geolat")),
-            longitude: Number(parsed.searchParams.get("geolng")),
-            radius: Number(parsed.searchParams.get("geor") || 10)
+          geo: geoLat && geoLng ? {
+            latitude: Number(geoLat),
+            longitude: Number(geoLng),
+            lat: Number(geoLat),
+            lng: Number(geoLng),
+            radius: geoR,
+            r: geoR
           } : null
         };
       } else if (rawScanned.startsWith("{")) {
         const json = JSON.parse(rawScanned);
+        let geoObj = null;
+        if (json.geo && typeof json.geo === "object") {
+          const gLat = Number(json.geo.latitude ?? json.geo.lat);
+          const gLng = Number(json.geo.longitude ?? json.geo.lng ?? json.geo.lon);
+          const gR = Number(json.geo.radius ?? json.geo.r ?? 10);
+          if (Number.isFinite(gLat) && Number.isFinite(gLng)) {
+            geoObj = {
+              latitude: gLat,
+              longitude: gLng,
+              lat: gLat,
+              lng: gLng,
+              radius: gR,
+              r: gR
+            };
+          }
+        }
         params = {
           sessionId: json.s || json.sessionId,
           phase: String(json.p || json.phase || "1"),
@@ -155,7 +185,7 @@ export async function validateRotatingQrPayload(rawScanned, options = {}) {
           sig: json.sig || "",
           qr1Token: json.qr1Token || "",
           qr2Token: json.qr2Token || "",
-          geo: json.geo || null
+          geo: geoObj
         };
       }
     } else if (typeof rawScanned === "object") {

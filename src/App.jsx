@@ -11,9 +11,8 @@ import { FaGraduationCap, FaSpinner } from "react-icons/fa";
 import ProtectedRoute from "./components/ProtectedRoute";
 import { useAuth } from "./components/authcontext";
 import AppUpdateModal from "./components/Common/AppUpdateModal";
-import HeadsUpNotification from "./components/Common/HeadsUpNotification";
-import { checkForAppUpdate } from "./services/appUpdateService";
-import { requestAppNotificationPermissions } from "./services/nativeNotificationService";
+import { checkForAppUpdate, subscribeToAppUpdates } from "./services/appUpdateService";
+import { requestAppNotificationPermissions, triggerRealAppNotification } from "./services/nativeNotificationService";
 import "./App.css";
 
 // Lazy-loaded components for instant initial page loads and code splitting
@@ -70,50 +69,61 @@ function App() {
   const { user, profile, loading } = useAuth();
   const [updateInfo, setUpdateInfo] = useState(null);
 
-  // 0. Auto-check for APK / App Updates on startup & lifecycle resume
+  // 0. Real-time Live Subscription & Auto-check for APK / App Updates
   useEffect(() => {
-    let lastCheckTime = 0;
+    let lastNotifiedVersion = null;
 
-    const performUpdateCheck = async (force = false) => {
+    const handleUpdateDetected = async (info) => {
+      if (!info || !info.hasUpdate) return;
+
       const now = Date.now();
-      // Rate-limit checks to at most once every 60s unless forced
-      if (!force && (now - lastCheckTime) < 60000) return;
-      lastCheckTime = now;
+      const dismissedVer = localStorage.getItem("smartattend_dismissed_update_version");
+      const dismissedTime = parseInt(localStorage.getItem("smartattend_dismissed_update_time") || "0", 10);
+      const isRecentlyDismissed = dismissedVer === info.latestVersion && (now - dismissedTime) < 24 * 60 * 60 * 1000;
 
-      try {
-        const info = await checkForAppUpdate();
-        if (info && info.hasUpdate) {
-          const dismissedVer = localStorage.getItem("smartattend_dismissed_update_version");
-          const dismissedTime = parseInt(localStorage.getItem("smartattend_dismissed_update_time") || "0", 10);
-          const isRecentlyDismissed = dismissedVer === info.latestVersion && (now - dismissedTime) < 24 * 60 * 60 * 1000;
+      // Whoever is using the app receives the modal prompt
+      if (info.isMandatory || !isRecentlyDismissed) {
+        setUpdateInfo(info);
+      }
 
-          if (info.isMandatory || !isRecentlyDismissed) {
-            setUpdateInfo(info);
-          }
-        }
-      } catch (err) {
-        console.warn("[AppUpdate] Check notice:", err.message);
+      // Notify the active user via OS/native push notification immediately
+      if (lastNotifiedVersion !== info.latestVersion) {
+        lastNotifiedVersion = info.latestVersion;
+        try {
+          await triggerRealAppNotification({
+            id: `sys_update_${info.latestVersion}_${now}`,
+            title: `🚀 Update Available (v${info.latestVersion})`,
+            message: `A new version of SmartAttend is available. Tap to download and install now!`,
+            type: "APP_UPDATE",
+            url: "/help",
+            timestamp: now
+          });
+        } catch (_) {}
       }
     };
 
-    // Initial check on mount
-    const timer = setTimeout(() => performUpdateCheck(true), 2500);
+    // Live subscription to Firestore app_updates and 60s background heartbeat
+    const unsubscribe = subscribeToAppUpdates(handleUpdateDetected);
 
-    // Lifecycle resume & online reconnection listeners
+    // Lifecycle resume & online reconnection triggers
     const handleResume = () => {
       if (document.visibilityState === "visible") {
-        performUpdateCheck(false);
+        checkForAppUpdate().then(handleUpdateDetected).catch(() => {});
       }
     };
-    const handleFocus = () => performUpdateCheck(false);
-    const handleOnline = () => performUpdateCheck(true);
+    const handleFocus = () => {
+      checkForAppUpdate().then(handleUpdateDetected).catch(() => {});
+    };
+    const handleOnline = () => {
+      checkForAppUpdate().then(handleUpdateDetected).catch(() => {});
+    };
 
     document.addEventListener("visibilitychange", handleResume);
     window.addEventListener("focus", handleFocus);
     window.addEventListener("online", handleOnline);
 
     return () => {
-      clearTimeout(timer);
+      if (typeof unsubscribe === "function") unsubscribe();
       document.removeEventListener("visibilitychange", handleResume);
       window.removeEventListener("focus", handleFocus);
       window.removeEventListener("online", handleOnline);
@@ -353,7 +363,7 @@ function App() {
           <Route path="profile" element={<Settings />} />
           <Route path="attendance-data" element={<AttendanceData />} />
           <Route path="violations" element={<AttendanceData />} />
-          <Route path="facedetection" element={<FaceScanner />} />
+          <Route path="facedetection" element={<FaceScanner allowRearCamera={true} />} />
           <Route path="attendance-sessions" element={<ClassesData />} />
           <Route path="attendance-sessions/:sessionId" element={<SessionAttendanceData />} />
           <Route path="attendance-sessions/*" element={<SessionAttendanceData />} />
@@ -904,7 +914,6 @@ function App() {
         <Route path="*" element={<Navigate to={defaultDashboard} replace />} />
       </Routes>
     </Suspense>
-    <HeadsUpNotification />
     <AppUpdateModal updateInfo={updateInfo} onClose={() => setUpdateInfo(null)} />
     </>
   );

@@ -238,10 +238,20 @@ export async function enrollHardwareBiometric(studentUid) {
         message: "Hardware biometric key is already active on this device."
       };
     }
+    const isNoneEnrolled =
+      err.code === "BIOMETRIC_NONE_ENROLLED" ||
+      err.message?.includes("BIOMETRIC_ERROR_NONE_ENROLLED") ||
+      err.message?.includes("Code: 11") ||
+      err.message?.includes("No fingerprints enrolled") ||
+      err.message?.includes("unenrolled");
+
     return {
       success: false,
+      code: isNoneEnrolled ? "BIOMETRIC_NONE_ENROLLED" : (err.code || "ENROLL_FAILED"),
       platform: Capacitor.getPlatform(),
-      message: err.message || "Biometric enrollment failed."
+      message: isNoneEnrolled
+        ? "No fingerprints enrolled on this phone. Please add a fingerprint in your phone's Settings > Security > Fingerprint, then return to SmartAttend."
+        : (err.message || "Biometric enrollment failed.")
     };
   }
 }
@@ -402,8 +412,23 @@ export async function verifyHardwareBiometric(studentUid, promptSubtitle = "Conf
   }
 }
 
+/**
+ * Opens system biometric or security settings to allow the user to enroll a fingerprint.
+ * 
+ * @returns {Promise<{ success: boolean, message?: string }>}
+ */
+export async function openBiometricSettings() {
+  try {
+    return await Biometric.openBiometricSettings();
+  } catch (err) {
+    console.warn("[BiometricService] openBiometricSettings notice:", err);
+    return { success: false, message: err.message };
+  }
+}
+
 export default {
   isHardwareBiometricAvailable,
   enrollHardwareBiometric,
-  verifyHardwareBiometric
+  verifyHardwareBiometric,
+  openBiometricSettings
 };

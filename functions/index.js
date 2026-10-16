@@ -26,6 +26,83 @@ function hashToken(token) {
 }
 
 /**
+ * Utility: Calculate Haversine great-circle distance between two GPS coordinates in metres.
+ */
+function calculateHaversineDistance(lat1, lon1, lat2, lon2) {
+  const R = 6371000;
+  const toRad = (deg) => (deg * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
+/**
+ * Utility: Authoritatively evaluate student GPS location against session classroom geofence.
+ * Rejects mock/spoofed GPS and out-of-radius coordinates.
+ */
+function evaluateServerGeofence(studentCoords, classroomCoords, radiusMetres) {
+  const radius = typeof radiusMetres === "number" ? radiusMetres : 10;
+  if (!classroomCoords || radius === 0) {
+    return { status: "PASS", geofenceEnforced: false, distance: 0, radius: 0 };
+  }
+
+  const cLat = Number(classroomCoords.latitude ?? classroomCoords.lat);
+  const cLon = Number(classroomCoords.longitude ?? classroomCoords.lng ?? classroomCoords.lon);
+  if (!Number.isFinite(cLat) || !Number.isFinite(cLon)) {
+    return { status: "PASS", geofenceEnforced: false, distance: 0, radius: 0 };
+  }
+
+  if (!studentCoords) {
+    return { status: "LOCATION_UNAVAILABLE", geofenceEnforced: true, radius: radius, message: "GPS coordinates not provided." };
+  }
+
+  const sLat = Number(studentCoords.latitude ?? studentCoords.lat);
+  const sLon = Number(studentCoords.longitude ?? studentCoords.lng ?? studentCoords.lon);
+  if (!Number.isFinite(sLat) || !Number.isFinite(sLon)) {
+    return { status: "LOCATION_UNAVAILABLE", geofenceEnforced: true, radius: radius, message: "GPS coordinates not provided or invalid." };
+  }
+
+  if (studentCoords.isMock || studentCoords.mocked || studentCoords.isMockLocation) {
+    return { status: "MOCK_DETECTED", geofenceEnforced: true, radius: radius, message: "Mock GPS detected." };
+  }
+
+  const rawDist = calculateHaversineDistance(sLat, sLon, cLat, cLon);
+  if (!Number.isFinite(rawDist)) {
+    return { status: "PASS", geofenceEnforced: false, distance: 0, radius: 0 };
+  }
+
+  const accuracy = Math.round(Number(studentCoords.accuracy) || 0);
+  const hostAccuracy = Math.round(Number(classroomCoords.accuracy) || 0);
+  const uncertaintyMargin = Math.min(accuracy, 35) + (hostAccuracy > 15 ? Math.min(hostAccuracy, 35) : 0);
+  const effectiveDist = Math.max(0, Math.round((rawDist - uncertaintyMargin) * 10) / 10);
+  const measuredDist = Math.round(rawDist * 10) / 10;
+
+  if (rawDist <= radius || effectiveDist <= radius) {
+    return {
+      status: "PASS",
+      geofenceEnforced: true,
+      distance: measuredDist,
+      effectiveDistance: effectiveDist,
+      radius: radius
+    };
+  }
+
+  return {
+    status: "REJECT",
+    geofenceEnforced: true,
+    distance: measuredDist,
+    effectiveDistance: effectiveDist,
+    radius: radius,
+    message: `Geofence Violation: You are outside the classroom (${measuredDist}m > ${radius}m).`
+  };
+}
+
+/**
  * Helper: Converts 91-byte P-256 SPKI DER public key to a canonical CBOR-encoded COSE EC2 key.
  * SPKI structure: 27-byte header + 0x04 + 32-byte X + 32-byte Y = 91 bytes.
  * COSE structure: Map { 1: 2 (EC2), 3: -7 (ES256), -1: 1 (P-256), -2: X (32B), -3: Y (32B) }
@@ -906,7 +983,7 @@ exports.initiateAttendanceSession = onCall({ cors: true }, async (request) => {
     courseCode: courseCode,
     roomNo: roomNo,
     batch: batch || "2025",
-    geofenceRadius: typeof geofenceRadius === "number" ? geofenceRadius : 5,
+    geofenceRadius: typeof geofenceRadius === "number" ? geofenceRadius : 10,
     phase: "PHASE_1",
     status: "ACTIVE",
     active: true,
@@ -974,7 +1051,7 @@ exports.authorizeQR1 = onCall(async (request) => {
     throw new HttpsError("unauthenticated", "Authentication required. Please log in to SmartAttend.");
   }
 
-  const { sessionId, qr1Token, deviceId, isDeviceOwner } = request.data || {};
+  const { sessionId, qr1Token, deviceId, isDeviceOwner, studentLocation } = request.data || {};
   if (!sessionId || !qr1Token) {
     throw new HttpsError("invalid-argument", "Session ID and QR 1 token are required.");
   }
@@ -1020,6 +1097,19 @@ exports.authorizeQR1 = onCall(async (request) => {
     throw new HttpsError("permission-denied", "❌ Invalid QR 1 token.");
   }
 
+  // 3b. Server-Side Geofence Verification (if enabled by lecturer)
+  const classroomLoc = session.classroomLocation;
+  const radius = typeof session.geofenceRadius === "number" ? session.geofenceRadius : 10;
+  if (classroomLoc && classroomLoc.latitude != null && classroomLoc.longitude != null && radius > 0) {
+    const geoResult = evaluateServerGeofence(studentLocation, classroomLoc, radius);
+    if (geoResult.status === "MOCK_DETECTED") {
+      throw new HttpsError("permission-denied", "🚨 Anti-Proxy Violation: Mock / Spoofed GPS detected. Attendance check-in rejected.");
+    }
+    if (geoResult.status === "REJECT") {
+      throw new HttpsError("permission-denied", `❌ Geofence Violation: You are outside the classroom (${geoResult.distance}m > ${radius}m). Attendance check-in rejected.`);
+    }
+  }
+
   // 4. Resolve trusted student identity from database
   const studentProfile = await resolveTrustedStudent(studentUid, studentEmail);
 
@@ -1029,6 +1119,9 @@ exports.authorizeQR1 = onCall(async (request) => {
 
   if (existingAuth.exists) {
     const data = existingAuth.data();
+    if (data.disqualified === true || (data.hasViolation === true && !data.excused)) {
+      throw new HttpsError("permission-denied", "❌ Attendance check-in rejected: You have an unexcused violation or disqualification for this session.");
+    }
     return {
       success: true,
       status: "SESSION_AUTHORIZED",
@@ -1275,11 +1368,16 @@ exports.submitAttendance = onCall(async (request) => {
 
   const authData = authSnap.data();
 
-  // Strict backend kiosk enforcement for Android: reject if 2 or more confirmed violations or already disqualified
-  if (authData.disqualified === true || (Number(authData.confirmedKioskViolations || authData.violationCount || 0) >= 2 && authData.detectedPlatform === "android")) {
+  // Strict authoritative violation enforcement: reject if unexcused violation or disqualified
+  if (
+    authData.disqualified === true ||
+    (authData.hasViolation === true && !authData.excused) ||
+    (authData.violation === 1 && !authData.excused) ||
+    (Number(authData.confirmedKioskViolations || authData.violationCount || 0) >= 2 && authData.detectedPlatform === "android")
+  ) {
     throw new HttpsError(
       "permission-denied",
-      "❌ Attendance rejected: Your attendance for this session was forfeited due to confirmed kiosk escape violations (limit: 2)."
+      "❌ Attendance rejected: An unexcused security violation is recorded on your session. Attendance cannot be submitted unless excused by an authorized instructor."
     );
   }
 
@@ -2603,7 +2701,103 @@ exports.extendAttendanceSession = onCall(async (request) => {
 });
 
 /**
- * 17. GENERATE WEBAUTHN REGISTRATION OPTIONS
+ * 17. UPDATE SESSION GEOFENCE RADIUS (Dynamic Classroom Geofence Adjustment)
+ * Allows authorized lecturer (or admin) to adjust the geofence radius live during a session.
+ * Default is 10 metres. Valid range: 0 to 1000 metres (0 disables geofence enforcement).
+ * Atomic transaction updates session document and records an immutable audit entry in geofence_adjustments.
+ */
+exports.updateSessionGeofenceRadius = onCall(async (request) => {
+  if (!request.auth || !request.auth.uid) {
+    throw new HttpsError("unauthenticated", "Authentication required to update geofence radius.");
+  }
+
+  const { sessionId, radius, classroomLocation } = request.data || {};
+  if (!sessionId || typeof sessionId !== "string") {
+    throw new HttpsError("invalid-argument", "Missing required parameter: sessionId.");
+  }
+
+  if (typeof radius !== "number" || !Number.isFinite(radius) || radius < 0 || radius > 1000) {
+    throw new HttpsError(
+      "invalid-argument",
+      "Invalid radius. Geofence radius must be a finite number between 0 and 1000 metres (0 disables geofence, 10m is default)."
+    );
+  }
+
+  await assertLecturer(request);
+  const isAdmin = await isCallerAdmin(request);
+  const callerUid = request.auth.uid;
+  const callerEmail = (request.auth.token.email || "").toLowerCase().trim();
+
+  const sessionRef = db.collection("attendance_sessions").doc(sessionId);
+
+  return await db.runTransaction(async (transaction) => {
+    const sessionSnap = await transaction.get(sessionRef);
+    if (!sessionSnap.exists) {
+      throw new HttpsError("not-found", `Attendance session ${sessionId} not found.`);
+    }
+
+    const sessionData = sessionSnap.data();
+    if (!isAdmin && sessionData.ownerId !== callerUid && sessionData.ownerEmail !== callerEmail) {
+      throw new HttpsError("permission-denied", "Only the session lecturer or administrator can adjust this session's geofence.");
+    }
+
+    if (sessionData.active === false || sessionData.status === "CLOSED" || sessionData.phase === "CLOSED") {
+      throw new HttpsError("failed-precondition", "Cannot adjust geofence for a session that has already ended.");
+    }
+
+    const previousRadius = typeof sessionData.geofenceRadius === "number" ? sessionData.geofenceRadius : 10;
+    const serverNow = Date.now();
+
+    const updatePayload = {
+      geofenceRadius: radius,
+      updatedAt: FieldValue.serverTimestamp()
+    };
+
+    if (classroomLocation && typeof classroomLocation === "object") {
+      if (
+        typeof classroomLocation.latitude === "number" &&
+        Number.isFinite(classroomLocation.latitude) &&
+        typeof classroomLocation.longitude === "number" &&
+        Number.isFinite(classroomLocation.longitude)
+      ) {
+        updatePayload.classroomLocation = {
+          ...(sessionData.classroomLocation || {}),
+          ...classroomLocation,
+          radius: radius
+        };
+      }
+    } else if (sessionData.classroomLocation) {
+      updatePayload["classroomLocation.radius"] = radius;
+    }
+
+    transaction.update(sessionRef, updatePayload);
+
+    // Immutable Geofence Adjustment Audit Trail
+    const auditRef = sessionRef.collection("geofence_adjustments").doc();
+    transaction.set(auditRef, {
+      adjustmentId: auditRef.id,
+      sessionId: sessionId,
+      actorUid: callerUid,
+      actorEmail: callerEmail,
+      actorRole: isAdmin ? "ADMIN" : "LECTURER",
+      previousRadius: previousRadius,
+      newRadius: radius,
+      adjustedAt: FieldValue.serverTimestamp(),
+      serverTimestampMs: serverNow
+    });
+
+    return {
+      success: true,
+      sessionId: sessionId,
+      previousRadius: previousRadius,
+      newRadius: radius,
+      message: `Geofence radius successfully updated from ${previousRadius}m to ${radius}m.`
+    };
+  });
+});
+
+/**
+ * 18. GENERATE WEBAUTHN REGISTRATION OPTIONS
  * Issues WebAuthn registration options with RP ID, allowed origins, and single-use challenge token.
  * Strictly resolves and validates requested RP ID and origin against WEBAUTHN_CONFIG allowlist.
  */

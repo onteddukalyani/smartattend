@@ -13,7 +13,7 @@ export async function createAttendanceSession(
     batch = "",
     lecturerInfo = {},
     lectureHours = 1.0,
-    geofenceRadius = 30,
+    geofenceRadius = 10,
     durationMinutes = 3,
     timetableOptions = {}
 ) {
@@ -25,7 +25,7 @@ export async function createAttendanceSession(
     const finalBatch = (batch && String(batch).trim() !== "" && batch !== "—") ? String(batch).trim() : "2025";
     const parsedHours = Number(lectureHours) > 0 ? Number(lectureHours) : 1.0;
     const finalClassCode = normalizeBranchName(classCode || "CSE");
-    const parsedRadius = typeof geofenceRadius === "number" ? geofenceRadius : 30;
+    const parsedRadius = typeof geofenceRadius === "number" ? geofenceRadius : 10;
     const parsedDuration = Number(durationMinutes) > 0 ? Number(durationMinutes) : 3;
 
     const qr1Sec = Number(timetableOptions?.qr1DurationSeconds) > 0

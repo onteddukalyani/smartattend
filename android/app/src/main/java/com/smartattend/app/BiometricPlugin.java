@@ -1,6 +1,8 @@
 package com.smartattend.app;
 
+import android.content.Intent;
 import android.os.Build;
+import android.provider.Settings;
 import android.security.keystore.KeyGenParameterSpec;
 import android.security.keystore.KeyInfo;
 import android.security.keystore.KeyPermanentlyInvalidatedException;
@@ -130,7 +132,31 @@ public class BiometricPlugin extends Plugin {
                 BiometricManager biometricManager = BiometricManager.from(getContext());
                 int canAuth = biometricManager.canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_STRONG);
                 if (canAuth != BiometricManager.BIOMETRIC_SUCCESS) {
-                    call.reject("Cannot generate key: strong biometrics unavailable or unenrolled (Code: " + canAuth + ")", "BIOMETRIC_UNAVAILABLE");
+                    String msg;
+                    String code;
+                    switch (canAuth) {
+                        case BiometricManager.BIOMETRIC_ERROR_NONE_ENROLLED:
+                            code = "BIOMETRIC_NONE_ENROLLED";
+                            msg = "No fingerprints enrolled on this phone. Please add a fingerprint in your phone's Settings > Security > Fingerprint, then return to SmartAttend.";
+                            break;
+                        case BiometricManager.BIOMETRIC_ERROR_NO_HARDWARE:
+                            code = "BIOMETRIC_NO_HARDWARE";
+                            msg = "No biometric hardware sensor detected on this device.";
+                            break;
+                        case BiometricManager.BIOMETRIC_ERROR_HW_UNAVAILABLE:
+                            code = "BIOMETRIC_HW_UNAVAILABLE";
+                            msg = "Biometric sensor is temporarily busy or unavailable. Please try again in a moment.";
+                            break;
+                        case BiometricManager.BIOMETRIC_ERROR_SECURITY_UPDATE_REQUIRED:
+                            code = "BIOMETRIC_SECURITY_UPDATE_REQUIRED";
+                            msg = "A system security update is required to use the biometric sensor.";
+                            break;
+                        default:
+                            code = "BIOMETRIC_UNAVAILABLE";
+                            msg = "Biometric authentication is unavailable on this device (Code: " + canAuth + ").";
+                            break;
+                    }
+                    call.reject(msg, code);
                     return;
                 }
 
@@ -382,6 +408,45 @@ public class BiometricPlugin extends Plugin {
         } catch (Exception e) {
             call.reject("Failed to delete key: " + e.getMessage(), "DELETE_FAILED", e);
         }
+    }
+
+    /**
+     * Opens system biometric or security settings to allow the user to enroll a fingerprint.
+     */
+    @PluginMethod
+    public void openBiometricSettings(PluginCall call) {
+        getActivity().runOnUiThread(() -> {
+            try {
+                Intent intent;
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    intent = new Intent(Settings.ACTION_BIOMETRIC_ENROLL);
+                    intent.putExtra(
+                        Settings.EXTRA_BIOMETRIC_AUTHENTICATORS_ALLOWED,
+                        BiometricManager.Authenticators.BIOMETRIC_STRONG
+                    );
+                } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    intent = new Intent(Settings.ACTION_FINGERPRINT_ENROLL);
+                } else {
+                    intent = new Intent(Settings.ACTION_SECURITY_SETTINGS);
+                }
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                getContext().startActivity(intent);
+                JSObject ret = new JSObject();
+                ret.put("success", true);
+                call.resolve(ret);
+            } catch (Exception e) {
+                try {
+                    Intent fallback = new Intent(Settings.ACTION_SECURITY_SETTINGS);
+                    fallback.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    getContext().startActivity(fallback);
+                    JSObject ret = new JSObject();
+                    ret.put("success", true);
+                    call.resolve(ret);
+                } catch (Exception e2) {
+                    call.reject("Failed to open device security settings: " + e2.getMessage(), "INTENT_FAILED", e2);
+                }
+            }
+        });
     }
 
     // ── Helper: Internal BiometricPrompt Presentation ────────────────────────

@@ -47,6 +47,8 @@ import { isGenericName, normalizeBranchName } from "../../../utils/studentDataHe
 import DeviceOnboardingModal from "../DeviceOnboardingModal";
 import { subscribeToStudentNotifications, markNotificationAsRead, sendFacultyNotification, sendStudentNotification, reportUserVerificationComplaint, getTimestampMs } from "../../../services/notificationsService";
 import { detectDeviceType, getClientIpAddress, getDeviceDisplayName, isDeviceMatching } from "../../../utils/deviceDetection";
+import { Capacitor } from "@capacitor/core";
+import { KioskPlugin } from "../../../plugins/kiosk";
 import "./Dashboard.css";
 
 export default function StudentDashboard() {
@@ -61,6 +63,9 @@ export default function StudentDashboard() {
 
     // Device Onboarding & Setup Modal State
     const [currentDeviceType, setCurrentDeviceType] = useState(() => {
+        if (typeof window !== "undefined" && window.Capacitor?.isNativePlatform?.()) {
+            return "android";
+        }
         try {
             return localStorage.getItem('smartattend_student_device_type') || '';
         } catch (_) {
@@ -68,12 +73,21 @@ export default function StudentDashboard() {
         }
     });
     const [showDeviceModal, setShowDeviceModal] = useState(() => {
+        if (typeof window !== "undefined" && window.Capacitor?.isNativePlatform?.()) {
+            try {
+                localStorage.setItem('smartattend_student_device_type', 'android');
+                localStorage.setItem('smartattend_student_device_locked', 'true');
+            } catch (_) {}
+            return false;
+        }
         try {
             return !localStorage.getItem('smartattend_student_device_type');
         } catch (_) {
             return false;
         }
     });
+    const [overlayStatus, setOverlayStatus] = useState({ checked: false, granted: true });
+    const [showPermissionsGuide, setShowPermissionsGuide] = useState(false);
 
     // Device Mismatch & Reset Request State
     const [requestingReset, setRequestingReset] = useState(false);
@@ -248,9 +262,7 @@ export default function StudentDashboard() {
 
     const hasHwRegistered = Boolean(
         fetchedStudentData?.hardwareBiometricEnrolled ||
-        fetchedStudentData?.biometricEnrolled ||
-        profile?.hardwareBiometricEnrolled ||
-        profile?.biometricEnrolled
+        profile?.hardwareBiometricEnrolled
     );
     const isDualBioRegistered = hasFaceRegistered && hasHwRegistered;
 
@@ -265,6 +277,35 @@ export default function StudentDashboard() {
             if (ip) setClientIpAddress(ip);
         }).catch(() => {});
     }, []);
+
+    // Auto-detect native Android & sync Firestore device preference
+    useEffect(() => {
+        if (Capacitor.isNativePlatform()) {
+            try {
+                localStorage.setItem('smartattend_student_device_type', 'android');
+                localStorage.setItem('smartattend_student_device_locked', 'true');
+                setCurrentDeviceType('android');
+                setShowDeviceModal(false);
+            } catch (_) {}
+
+            KioskPlugin.canDrawOverlays().then((res) => {
+                setOverlayStatus({ checked: true, granted: res?.canDrawOverlays === true });
+            }).catch(() => {});
+            return;
+        }
+
+        const regType = fetchedStudentData?.deviceType || profile?.deviceType || fetchedStudentData?.registeredDeviceType;
+        if (regType) {
+            try {
+                localStorage.setItem('smartattend_student_device_type', regType);
+                if (fetchedStudentData?.deviceTypeLocked || profile?.deviceTypeLocked) {
+                    localStorage.setItem('smartattend_student_device_locked', 'true');
+                }
+                setCurrentDeviceType(regType);
+                setShowDeviceModal(false);
+            } catch (_) {}
+        }
+    }, [fetchedStudentData?.deviceType, profile?.deviceType, fetchedStudentData?.registeredDeviceType]);
 
     // Proactively alert Faculty & Student if device mismatch is detected
     useEffect(() => {
@@ -494,7 +535,7 @@ export default function StudentDashboard() {
             // Notify Faculty & Admins
             sendFacultyNotification(
                 "Face Biometrics Enrolled 👤",
-                `Student ${studentName} (${activeRollNo}) registered facial biometrics via live Aadhaar scan.`,
+                `Student ${studentName} (${activeRollNo}) registered facial biometrics via live 3D face verification.`,
                 "BIOMETRIC_UPDATE",
                 activeRollNo,
                 studentName
@@ -817,6 +858,99 @@ export default function StudentDashboard() {
                 </div>
             </div>
 
+            {/* Native Android Overlay & Restricted Settings Action Banner */}
+            {Capacitor.isNativePlatform() && !overlayStatus.granted && (
+                <div style={{
+                    margin: "16px 0",
+                    padding: "16px 20px",
+                    borderRadius: "16px",
+                    background: "linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%)",
+                    border: "1.5px solid #f59e0b",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: "16px",
+                    flexWrap: "wrap",
+                    boxShadow: "0 4px 12px rgba(245, 158, 11, 0.12)"
+                }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "14px", flex: "1 1 300px" }}>
+                        <div style={{
+                            width: "42px",
+                            height: "42px",
+                            borderRadius: "12px",
+                            background: "#f59e0b",
+                            color: "#ffffff",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            fontSize: "1.3rem",
+                            flexShrink: 0
+                        }}>
+                            <FaLock />
+                        </div>
+                        <div>
+                            <strong style={{ color: "#92400e", fontSize: "0.95rem", display: "block" }}>
+                                Action Required: Allow Display Over Other Apps
+                            </strong>
+                            <span style={{ color: "#78350f", fontSize: "0.85rem", lineHeight: 1.4 }}>
+                                On Android 13+, first tap <strong>Unblock Settings (3 dots ⋮)</strong> in App Info, then tap <strong>Enable Overlay</strong>.
+                            </span>
+                        </div>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                        <button
+                            type="button"
+                            onClick={() => KioskPlugin.openAppDetailsSettings()}
+                            style={{
+                                padding: "8px 14px",
+                                borderRadius: "10px",
+                                background: "#ffffff",
+                                border: "1.5px solid #d97706",
+                                color: "#b45309",
+                                fontWeight: 700,
+                                fontSize: "0.82rem",
+                                cursor: "pointer"
+                            }}
+                        >
+                            1. Unblock (3 Dots ⋮)
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => KioskPlugin.requestOverlayPermission()}
+                            style={{
+                                padding: "8px 14px",
+                                borderRadius: "10px",
+                                background: "#d97706",
+                                border: "none",
+                                color: "#ffffff",
+                                fontWeight: 700,
+                                fontSize: "0.82rem",
+                                cursor: "pointer",
+                                boxShadow: "0 2px 6px rgba(217, 119, 6, 0.3)"
+                            }}
+                        >
+                            2. Enable Overlay
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setShowPermissionsGuide(true)}
+                            style={{
+                                padding: "8px 12px",
+                                borderRadius: "10px",
+                                background: "transparent",
+                                border: "1px solid #d97706",
+                                color: "#92400e",
+                                fontWeight: 600,
+                                fontSize: "0.82rem",
+                                cursor: "pointer"
+                            }}
+                        >
+                            Instructions
+                        </button>
+                    </div>
+                </div>
+            )}
+
             {/* Proactive Device Mismatch Alert Banner */}
             {isDeviceMismatch && (
                 <div className="student-device-mismatch-banner">
@@ -857,124 +991,7 @@ export default function StudentDashboard() {
                 </div>
             )}
 
-            {/* Real-Time Faculty & Admin Announcements / Notifications Banner */}
-            {notifications.filter((n) => !n.read).length > 0 && (
-                <div className="student-notifications-container" style={{ marginBottom: "20px" }}>
-                    {notifications.filter((n) => !n.read).map((n) => {
-                        const isAnnouncement = n.type === 'BROADCAST_ANNOUNCEMENT' || n.type === 'ANNOUNCEMENT' || n.type === 'GENERAL_NOTICE' || n.type === 'CLASS_UPDATE' || n.isAnnouncement || Boolean(n.targetRoles?.length);
-                        const isAcademic = n.type === 'CLASS_UPDATE' || (n.title && n.title.includes('Live Attendance'));
-                        const isSecurity = n.type === 'SECURITY_ALERT' || n.type === 'DEVICE_RESET_REQUEST' || n.type === 'USER_VERIFICATION_FAILURE';
-                        const notifVariant = isAnnouncement ? 'announcement' : (isSecurity ? 'security' : 'default');
 
-                        return (
-                            <div key={n.id} className={`student-notification-card ${notifVariant}`}>
-                                <div style={{ display: "flex", alignItems: "flex-start", gap: "14px", flex: "1 1 300px" }}>
-                                    <div style={{
-                                        width: "42px",
-                                        height: "42px",
-                                        borderRadius: "12px",
-                                        background: isAnnouncement
-                                            ? "linear-gradient(135deg, #9333ea, #7e22ce)"
-                                            : (isSecurity ? "linear-gradient(135deg, #dc2626, #b91c1c)" : "linear-gradient(135deg, #2563eb, #1d4ed8)"),
-                                        color: "#ffffff",
-                                        display: "flex",
-                                        alignItems: "center",
-                                        justifyContent: "center",
-                                        fontSize: "1.2rem",
-                                        flexShrink: 0,
-                                        boxShadow: "0 4px 10px rgba(0, 0, 0, 0.15)"
-                                    }}>
-                                        {isAnnouncement ? "📢" : (isSecurity ? "🚨" : "🔔")}
-                                    </div>
-                                    <div>
-                                        <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", marginBottom: "4px" }}>
-                                            <span className={`student-notif-title ${notifVariant}`} style={{ fontWeight: 800, fontSize: "1rem" }}>
-                                                {n.title}
-                                            </span>
-                                            <span className={`student-notif-badge-from ${notifVariant}`}>
-                                                From: {n.senderName || (n.senderRole === "admin" ? "Campus Admin" : "Faculty Lecturer")}
-                                            </span>
-                                            {isAnnouncement && (
-                                                <span className="student-notif-type-pill">
-                                                    Announcement
-                                                </span>
-                                            )}
-                                        </div>
-                                        <div className={`student-notif-msg ${notifVariant}`} style={{ fontSize: "0.9rem", lineHeight: 1.5, whiteSpace: "pre-line" }}>
-                                            {n.message}
-                                        </div>
-                                        <div className={`student-notif-time ${notifVariant}`} style={{ fontSize: "0.75rem", marginTop: "6px", fontWeight: 600 }}>
-                                            {n.createdAt ? new Date(getTimestampMs(n)).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "Just now"}
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <div style={{ display: "flex", alignItems: "center", gap: "8px", flexShrink: 0, marginTop: "2px" }}>
-                                    {n.type === 'DEVICE_RESET' && (
-                                        <button
-                                            type="button"
-                                            onClick={() => {
-                                                markNotificationAsRead(activeRollNo, n.id);
-                                                setShowDeviceModal(true);
-                                            }}
-                                            style={{
-                                                background: "linear-gradient(135deg, #2563eb, #1d4ed8)",
-                                                color: "#ffffff",
-                                                border: "none",
-                                                borderRadius: "10px",
-                                                padding: "8px 14px",
-                                                fontSize: "0.82rem",
-                                                fontWeight: 700,
-                                                cursor: "pointer",
-                                                display: "flex",
-                                                alignItems: "center",
-                                                gap: "6px",
-                                                boxShadow: "0 4px 10px rgba(37, 99, 235, 0.3)"
-                                            }}
-                                        >
-                                            <FaMobileAlt /> Set Up Device Now
-                                        </button>
-                                    )}
-
-                                    {n.type === 'BIOMETRICS_CLEARED' && (
-                                        <button
-                                            type="button"
-                                            onClick={() => {
-                                                markNotificationAsRead(activeRollNo, n.id);
-                                                setShowFaceModal(true);
-                                            }}
-                                            style={{
-                                                background: "linear-gradient(135deg, #2563eb, #1d4ed8)",
-                                                color: "#ffffff",
-                                                border: "none",
-                                                borderRadius: "10px",
-                                                padding: "8px 14px",
-                                                fontSize: "0.82rem",
-                                                fontWeight: 700,
-                                                cursor: "pointer",
-                                                display: "flex",
-                                                alignItems: "center",
-                                                gap: "6px",
-                                                boxShadow: "0 4px 10px rgba(37, 99, 235, 0.3)"
-                                            }}
-                                        >
-                                            <FaCamera /> Enroll Face Now
-                                        </button>
-                                    )}
-
-                                    <button
-                                        type="button"
-                                        onClick={() => markNotificationAsRead(activeRollNo, n.id)}
-                                        className={`student-notif-read-btn ${notifVariant}`}
-                                    >
-                                        Mark as Read
-                                    </button>
-                                </div>
-                            </div>
-                        );
-                    })}
-                </div>
-            )}
 
             {/* Dual In-App Biometrics Pending Banner */}
             {!isDualBioRegistered && (
@@ -1761,6 +1778,152 @@ export default function StudentDashboard() {
                     } catch (_) {}
                 }}
             />
+
+            {/* Complete Android Permissions & Setup Instructions Modal */}
+            {showPermissionsGuide && (
+                <div className="profile-photo-modal-overlay" onClick={() => setShowPermissionsGuide(false)} style={{ zIndex: 10000 }}>
+                    <div
+                        className="profile-photo-modal-content"
+                        onClick={(e) => e.stopPropagation()}
+                        style={{ maxWidth: "560px", padding: "26px", maxHeight: "90vh", overflowY: "auto", borderRadius: "20px" }}
+                    >
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                                <div style={{ width: "36px", height: "36px", borderRadius: "10px", background: "#6366f1", color: "#ffffff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "1.2rem" }}>
+                                    <FaMobileAlt />
+                                </div>
+                                <h3 style={{ margin: 0, fontSize: "1.2rem", fontWeight: 800, color: "var(--text-primary, #0f172a)" }}>
+                                    Android Setup &amp; Permission Instructions
+                                </h3>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setShowPermissionsGuide(false)}
+                                style={{ background: "none", border: "none", fontSize: "1.3rem", color: "#64748b", cursor: "pointer" }}
+                            >
+                                <FaTimes />
+                            </button>
+                        </div>
+
+                        {/* Step 1: Before Installing / Play Protect */}
+                        <div style={{ marginBottom: "16px", padding: "14px", borderRadius: "12px", background: "rgba(99, 102, 241, 0.06)", border: "1px solid rgba(99, 102, 241, 0.2)" }}>
+                            <strong style={{ color: "#4338ca", fontSize: "0.92rem", display: "block", marginBottom: "4px" }}>
+                                🛡️ Step 1: Google Play Protect (Before / During Install)
+                            </strong>
+                            <p style={{ margin: 0, fontSize: "0.84rem", color: "#334155", lineHeight: 1.5 }}>
+                                Because SmartAttend is downloaded directly as an APK, Google Play Protect may show a warning: <em>"Unsafe app blocked"</em> or <em>"Play Protect doesn't recognise this app's developer"</em>.<br />
+                                👉 Tap <strong>More details</strong> (small dropdown arrow) <span className="device-path-arrow">→</span> Tap <strong>Install anyway</strong>.
+                            </p>
+                        </div>
+
+                        {/* Step 2: After Installing / Restricted Settings on Android 13+ */}
+                        <div style={{ marginBottom: "16px", padding: "14px", borderRadius: "12px", background: "rgba(245, 158, 11, 0.08)", border: "1px solid rgba(245, 158, 11, 0.3)" }}>
+                            <strong style={{ color: "#b45309", fontSize: "0.92rem", display: "block", marginBottom: "4px" }}>
+                                🔓 Step 2: Allow Restricted Settings (Android 13, 14, 15+)
+                            </strong>
+                            <p style={{ margin: 0, fontSize: "0.84rem", color: "#334155", lineHeight: 1.5 }}>
+                                On Android 13+, permissions for downloaded APKs are disabled by default (<em>"Restricted setting: currently unavailable"</em>):<br />
+                                1. Open <strong>App info</strong> (Long-press SmartAttend icon on home screen <span className="device-path-arrow">→</span> tap <strong>App info / ℹ️</strong>).<br />
+                                2. In the top-right corner, tap the <strong>3 DOTS (⋮)</strong>.<br />
+                                3. Tap <strong>"Allow restricted settings"</strong> and verify your device Fingerprint or PIN.
+                            </p>
+                            {Capacitor.isNativePlatform() && (
+                                <button
+                                    type="button"
+                                    onClick={() => KioskPlugin.openAppDetailsSettings()}
+                                    style={{
+                                        marginTop: "10px",
+                                        padding: "8px 14px",
+                                        borderRadius: "8px",
+                                        background: "#d97706",
+                                        border: "none",
+                                        color: "#ffffff",
+                                        fontWeight: 700,
+                                        fontSize: "0.82rem",
+                                        cursor: "pointer"
+                                    }}
+                                >
+                                    Open App Info to Tap 3 Dots ⋮
+                                </button>
+                            )}
+                        </div>
+
+                        {/* Step 3: Turn on Display Over Other Apps */}
+                        <div style={{ marginBottom: "16px", padding: "14px", borderRadius: "12px", background: "rgba(16, 185, 129, 0.08)", border: "1px solid rgba(16, 185, 129, 0.3)" }}>
+                            <strong style={{ color: "#065f46", fontSize: "0.92rem", display: "block", marginBottom: "4px" }}>
+                                📱 Step 3: Turn ON Display Over Other Apps
+                            </strong>
+                            <p style={{ margin: 0, fontSize: "0.84rem", color: "#334155", lineHeight: 1.5 }}>
+                                After allowing restricted settings, tap <strong>Display over other apps</strong> on that same App Info screen and toggle the switch <strong>ON</strong>. This allows SmartAttend to lock attendance and prevent proxy submissions.
+                            </p>
+                            {Capacitor.isNativePlatform() && (
+                                <button
+                                    type="button"
+                                    onClick={() => KioskPlugin.requestOverlayPermission()}
+                                    style={{
+                                        marginTop: "10px",
+                                        padding: "8px 14px",
+                                        borderRadius: "8px",
+                                        background: "#059669",
+                                        border: "none",
+                                        color: "#ffffff",
+                                        fontWeight: 700,
+                                        fontSize: "0.82rem",
+                                        cursor: "pointer"
+                                    }}
+                                >
+                                    Open Display Over Apps Settings
+                                </button>
+                            )}
+                        </div>
+
+                        {/* Step 4: Biometrics */}
+                        <div style={{ padding: "14px", borderRadius: "12px", background: "rgba(99, 102, 241, 0.06)", border: "1px solid rgba(99, 102, 241, 0.2)" }}>
+                            <strong style={{ color: "#4338ca", fontSize: "0.92rem", display: "block", marginBottom: "4px" }}>
+                                👤 Step 4: Complete In-App Biometric Registration
+                            </strong>
+                            <p style={{ margin: 0, fontSize: "0.84rem", color: "#334155", lineHeight: 1.5 }}>
+                                Register both your <strong>3D Face</strong> and <strong>Device Fingerprint</strong> right in SmartAttend.
+                            </p>
+                            <Link
+                                to="/student/face-enroll"
+                                onClick={() => setShowPermissionsGuide(false)}
+                                style={{
+                                    display: "inline-block",
+                                    marginTop: "10px",
+                                    padding: "8px 14px",
+                                    borderRadius: "8px",
+                                    background: "#6366f1",
+                                    color: "#ffffff",
+                                    fontWeight: 700,
+                                    fontSize: "0.82rem",
+                                    textDecoration: "none"
+                                }}
+                            >
+                                Go to Biometric Registration →
+                            </Link>
+                        </div>
+
+                        <button
+                            type="button"
+                            onClick={() => setShowPermissionsGuide(false)}
+                            style={{
+                                width: "100%",
+                                marginTop: "20px",
+                                padding: "12px",
+                                borderRadius: "12px",
+                                background: "#0f172a",
+                                color: "#ffffff",
+                                border: "none",
+                                fontWeight: 700,
+                                cursor: "pointer"
+                            }}
+                        >
+                            Got It, Back to Dashboard
+                        </button>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

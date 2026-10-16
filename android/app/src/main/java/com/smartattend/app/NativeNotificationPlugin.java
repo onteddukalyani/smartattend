@@ -7,10 +7,9 @@ import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.Color;
-import android.media.AudioAttributes;
-import android.media.RingtoneManager;
-import android.net.Uri;
 import android.os.Build;
 import androidx.core.app.ActivityCompat;
 import androidx.core.app.NotificationCompat;
@@ -25,13 +24,13 @@ import com.getcapacitor.annotation.CapacitorPlugin;
 /**
  * SmartAttend Native Android Notification Plugin
  * 
- * Provides real OS-level heads-up notifications, notification channels,
- * status bar icons, vibration patterns, and tap-to-open pending intents.
+ * Provides silent OS-level heads-up notifications, notification channels,
+ * status bar graduation cap icon, subtle vibration, and tap-to-open pending intents.
  */
 @CapacitorPlugin(name = "NativeNotificationPlugin")
 public class NativeNotificationPlugin extends Plugin {
 
-    public static final String PRIMARY_CHANNEL_ID = "smartattend_alerts_channel";
+    public static final String PRIMARY_CHANNEL_ID = "smartattend_alerts_silent_v2";
     public static final String PRIMARY_CHANNEL_NAME = "SmartAttend Alerts";
     public static final String PRIMARY_CHANNEL_DESC = "Real-time attendance sessions, announcements, and security alerts";
 
@@ -46,6 +45,11 @@ public class NativeNotificationPlugin extends Plugin {
             Context context = getContext();
             NotificationManager manager = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
             if (manager != null) {
+                // Remove legacy loud channel if present
+                try {
+                    manager.deleteNotificationChannel("smartattend_alerts_channel");
+                } catch (Exception ignored) {}
+
                 NotificationChannel channel = new NotificationChannel(
                     PRIMARY_CHANNEL_ID,
                     PRIMARY_CHANNEL_NAME,
@@ -55,15 +59,10 @@ public class NativeNotificationPlugin extends Plugin {
                 channel.enableLights(true);
                 channel.setLightColor(Color.parseColor("#4F46E5")); // Indigo accent
                 channel.enableVibration(true);
-                channel.setVibrationPattern(new long[]{0, 200, 100, 200});
+                channel.setVibrationPattern(new long[]{0, 150, 80, 150});
                 channel.setShowBadge(true);
-
-                Uri defaultSoundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION);
-                AudioAttributes audioAttributes = new AudioAttributes.Builder()
-                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                    .setUsage(AudioAttributes.USAGE_NOTIFICATION)
-                    .build();
-                channel.setSound(defaultSoundUri, audioAttributes);
+                // Completely silent channel - no audio sound
+                channel.setSound(null, null);
 
                 manager.createNotificationChannel(channel);
             }
@@ -141,12 +140,14 @@ public class NativeNotificationPlugin extends Plugin {
             }
             PendingIntent pendingIntent = PendingIntent.getActivity(context, notificationId, intent, pendingFlags);
 
-            int smallIconRes = context.getApplicationInfo().icon;
+            // 1. Resolve Status Bar Vector Silhouette (ic_notification)
+            int smallIconRes = context.getResources().getIdentifier("ic_notification", "drawable", context.getPackageName());
+            if (smallIconRes == 0) {
+                smallIconRes = context.getApplicationInfo().icon;
+            }
             if (smallIconRes == 0) {
                 smallIconRes = android.R.drawable.ic_dialog_info;
             }
-
-            Uri soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION);
 
             NotificationCompat.Builder builder = new NotificationCompat.Builder(context, PRIMARY_CHANNEL_ID)
                 .setSmallIcon(smallIconRes)
@@ -156,10 +157,21 @@ public class NativeNotificationPlugin extends Plugin {
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .setCategory(NotificationCompat.CATEGORY_MESSAGE)
                 .setAutoCancel(true)
-                .setSound(soundUri)
-                .setVibrate(new long[]{0, 200, 100, 200})
+                .setSilent(true) // Silent: no sound playback
+                .setVibrate(new long[]{0, 150, 80, 150})
                 .setColor(Color.parseColor("#4F46E5"))
                 .setContentIntent(pendingIntent);
+
+            // 2. Attach Full-Color App Icon as Large Icon for the expanded notification card
+            try {
+                int launcherRes = context.getApplicationInfo().icon;
+                if (launcherRes != 0) {
+                    Bitmap largeIconBitmap = BitmapFactory.decodeResource(context.getResources(), launcherRes);
+                    if (largeIconBitmap != null) {
+                        builder.setLargeIcon(largeIconBitmap);
+                    }
+                }
+            } catch (Exception ignored) {}
 
             NotificationManagerCompat manager = NotificationManagerCompat.from(context);
             manager.notify(notificationId, builder.build());

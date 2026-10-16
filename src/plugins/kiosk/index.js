@@ -245,6 +245,19 @@ export const Kiosk = {
   },
 
   /**
+   * Open App Info directly (Settings -> Apps -> SmartAttend) so user can tap 3 dots and Allow Restricted Settings
+   */
+  async openAppDetailsSettings() {
+    try {
+      const isNative = Capacitor.isNativePlatform();
+      if (!isNative) return { opened: false };
+      return await NativeKioskPlugin.openAppDetailsSettings();
+    } catch (err) {
+      return { opened: false, error: err.message };
+    }
+  },
+
+  /**
    * Check if Accessibility Guardian service is enabled
    */
   async isAccessibilityServiceEnabled() {
@@ -310,4 +323,5 @@ export const Kiosk = {
   }
 };
 
+export const KioskPlugin = Kiosk;
 export default Kiosk;

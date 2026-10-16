@@ -1,5 +1,5 @@
 /* =========================================================
-   AADHAAR / KYC-GRADE MULTI-ANGLE FACE BIOMETRIC UI
+   3D FACIAL BIOMETRIC MULTI-ANGLE UI
    ========================================================= */
 
 .live-enrollment-card {
@@ -132,10 +132,10 @@
 }
 
 /* =========================================================
-   AADHAAR MULTI-ANGLE COMPASS HUD
+   3D BIOMETRIC MULTI-ANGLE COMPASS HUD
    ========================================================= */
 
-.aadhaar-compass-hud {
+.biohud-compass-hud {
   position: absolute;
   top: 50%;
   left: 50%;
@@ -148,7 +148,7 @@
   justify-content: center;
 }
 
-.aadhaar-ring-svg {
+.biohud-ring-svg {
   position: absolute;
   top: 0;
   left: 0;
@@ -157,13 +157,13 @@
   transform: rotate(-90deg);
 }
 
-.aadhaar-ring-bg {
+.biohud-ring-bg {
   fill: none;
   stroke: rgba(255, 255, 255, 0.15);
   stroke-width: 4;
 }
 
-.aadhaar-ring-progress {
+.biohud-ring-progress {
   fill: none;
   stroke: #10b981;
   stroke-width: 6;
@@ -173,7 +173,7 @@
 }
 
 /* Directional Nodes */
-.aadhaar-node {
+.biohud-node {
   position: absolute;
   display: flex;
   flex-direction: column;
@@ -193,35 +193,35 @@
   z-index: 5;
 }
 
-.aadhaar-node svg {
+.biohud-node svg {
   font-size: 11px;
 }
 
-.aadhaar-node.node-up {
+.biohud-node.node-up {
   top: -4px;
   left: 50%;
   transform: translateX(-50%);
 }
 
-.aadhaar-node.node-left {
+.biohud-node.node-left {
   left: -6px;
   top: 50%;
   transform: translateY(-50%);
 }
 
-.aadhaar-node.node-right {
+.biohud-node.node-right {
   right: -6px;
   top: 50%;
   transform: translateY(-50%);
 }
 
-.aadhaar-node.node-center {
+.biohud-node.node-center {
   bottom: -4px;
   left: 50%;
   transform: translateX(-50%);
 }
 
-.aadhaar-node.active {
+.biohud-node.active {
   border-color: #6366f1;
   background: rgba(99, 102, 241, 0.3);
   color: #ffffff;
@@ -229,12 +229,12 @@
   transform: translateY(-50%) scale(1.1);
 }
 
-.aadhaar-node.node-up.active,
-.aadhaar-node.node-center.active {
+.biohud-node.node-up.active,
+.biohud-node.node-center.active {
   transform: translateX(-50%) scale(1.1);
 }
 
-.aadhaar-node.done {
+.biohud-node.done {
   border-color: #10b981;
   background: rgba(16, 185, 129, 0.3);
   color: #34d399;
@@ -242,7 +242,7 @@
 }
 
 /* Dynamic Directional Pointer Guide */
-.aadhaar-dynamic-pointer {
+.biohud-dynamic-pointer {
   position: absolute;
   top: 50%;
   left: 50%;
@@ -323,14 +323,14 @@
 }
 
 /* =========================================================
-   AADHAAR STEPS TRAY & PILLS
+   3D BIOMETRIC STEPS TRAY & PILLS
    ========================================================= */
 
-.aadhaar-steps-tray {
+.biohud-steps-tray {
   margin: 6px 0 12px;
 }
 
-.aadhaar-pills-row {
+.biohud-pills-row {
   display: flex;
   justify-content: center;
   align-items: center;
@@ -339,7 +339,7 @@
   margin-bottom: 8px;
 }
 
-.aadhaar-pill {
+.biohud-pill {
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -353,36 +353,36 @@
   transition: all 0.2s ease;
 }
 
-[data-theme="midnight"] .aadhaar-pill {
+[data-theme="midnight"] .biohud-pill {
   background: #1e293b;
   border-color: #334155;
   color: #94a3b8;
 }
 
-.aadhaar-pill.current {
+.biohud-pill.current {
   background: rgba(99, 102, 241, 0.12);
   color: #4f46e5;
   border-color: #6366f1;
   box-shadow: 0 0 10px rgba(99, 102, 241, 0.25);
 }
 
-[data-theme="midnight"] .aadhaar-pill.current {
+[data-theme="midnight"] .biohud-pill.current {
   background: rgba(99, 102, 241, 0.25);
   color: #a5b4fc;
 }
 
-.aadhaar-pill.done {
+.biohud-pill.done {
   background: rgba(16, 185, 129, 0.12);
   color: #059669;
   border-color: rgba(16, 185, 129, 0.35);
 }
 
-[data-theme="midnight"] .aadhaar-pill.done {
+[data-theme="midnight"] .biohud-pill.done {
   background: rgba(16, 185, 129, 0.2);
   color: #34d399;
 }
 
-.aadhaar-progress-track {
+.biohud-progress-track {
   width: 100%;
   max-width: 480px;
   height: 6px;
@@ -392,11 +392,11 @@
   margin: 0 auto;
 }
 
-[data-theme="midnight"] .aadhaar-progress-track {
+[data-theme="midnight"] .biohud-progress-track {
   background: #1e293b;
 }
 
-.aadhaar-progress-fill {
+.biohud-progress-fill {
   height: 100%;
   background: linear-gradient(90deg, #6366f1, #10b981);
   border-radius: 999px;
@@ -458,13 +458,13 @@
   border-color: rgba(245, 158, 11, 0.3);
 }
 
-.aadhaar-score-badge {
+.biohud-score-badge {
   font-size: 0.8rem;
   font-weight: 700;
   color: var(--text-muted, #64748b);
 }
 
-.aadhaar-score-badge strong {
+.biohud-score-badge strong {
   color: #10b981;
 }
 
@@ -805,12 +805,12 @@
     max-width: 100%;
   }
 
-  .aadhaar-compass-hud {
+  .biohud-compass-hud {
     width: 230px;
     height: 230px;
   }
 
-  .aadhaar-node {
+  .biohud-node {
     padding: 3px 8px;
     font-size: 0.62rem;
   }

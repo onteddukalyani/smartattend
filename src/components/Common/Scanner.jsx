@@ -891,7 +891,7 @@ function QrScannerApp() {
     }, [profile?.deviceType, profile?.registeredDeviceType, loggedInName, loggedInRollNo, user?.email, activeSessionId]);
 
     // 1. Process Phase 1 QR 1: Check-in & Start Lock Task Kiosk
-    const handleProcessQR1 = async (sessionId, qr1Token) => {
+    const handleProcessQR1 = async (sessionId, qr1Token, coords = null) => {
         if (!user) {
             setErrorMessage('Please log in with your student account to authorize attendance.');
             return;
@@ -927,7 +927,12 @@ function QrScannerApp() {
                 deviceId: deviceIdentity?.deviceId || null,
                 deviceIp: clientIp,
                 deviceType: profile?.deviceType || profile?.registeredDeviceType || (typeof window !== 'undefined' ? localStorage.getItem('smartattend_student_device_type') : null),
-                isDeviceOwner: deviceOwnerStatus.isDeviceOwner
+                isDeviceOwner: deviceOwnerStatus.isDeviceOwner,
+                studentLocation: coords ? {
+                    latitude: coords.latitude,
+                    longitude: coords.longitude,
+                    accuracy: coords.accuracy
+                } : null
             };
 
             const result = await authorizeStudentQR1(sessionId, qr1Token, studentProfileOverride);
@@ -1067,6 +1072,7 @@ function QrScannerApp() {
         }
 
         // 2. Geofence Check (Enforces classroom boundary with indoor tolerance)
+        let studentCoords = null;
         const classroomTarget = payload.geo || sessionData?.classroomLocation;
         if (classroomTarget && classroomTarget.radius !== 0 && classroomTarget.enabled !== false) {
             try {
@@ -1077,11 +1083,23 @@ function QrScannerApp() {
                     }
                     // Stage 1: Try high accuracy (assisted GPS) with 8s timeout and cached fix up to 30s
                     navigator.geolocation.getCurrentPosition(
-                        (pos) => resolve(pos.coords),
+                        (pos) => resolve({
+                            latitude: pos.coords.latitude,
+                            longitude: pos.coords.longitude,
+                            lat: pos.coords.latitude,
+                            lng: pos.coords.longitude,
+                            accuracy: pos.coords.accuracy
+                        }),
                         () => {
                             // Stage 2: Fallback to fast cellular/Wi-Fi coarse provider if satellite lock is blocked by roof/concrete
                             navigator.geolocation.getCurrentPosition(
-                                (pos2) => resolve(pos2.coords),
+                                (pos2) => resolve({
+                                    latitude: pos2.coords.latitude,
+                                    longitude: pos2.coords.longitude,
+                                    lat: pos2.coords.latitude,
+                                    lng: pos2.coords.longitude,
+                                    accuracy: pos2.coords.accuracy
+                                }),
                                 () => resolve(null),
                                 { enableHighAccuracy: false, timeout: 5000, maximumAge: 60000 }
                             );
@@ -1089,7 +1107,7 @@ function QrScannerApp() {
                         { enableHighAccuracy: true, timeout: 8000, maximumAge: 30000 }
                     );
                 });
-                const studentCoords = await getCoords();
+                studentCoords = await getCoords();
                 const geoEval = evaluateGeofence(studentCoords, classroomTarget, geofenceRetriesRef.current);
 
                 if (geoEval.status === "MOCK_DETECTED") {
@@ -1141,11 +1159,11 @@ function QrScannerApp() {
 
         // 4. Initial state (student has not scanned QR 1 yet):
         if (payload.qr1Token || payload.phase === '1' || payload.phase === 'PHASE_1') {
-            handleProcessQR1(payload.sessionId, payload.qr1Token);
+            handleProcessQR1(payload.sessionId, payload.qr1Token, studentCoords);
         } else if (payload.qr2Token || payload.phase === '2' || payload.phase === 'PHASE_2') {
             handleProcessQR2(payload.sessionId, payload.qr2Token);
         } else {
-            handleProcessQR1(payload.sessionId, payload.sessionId);
+            handleProcessQR1(payload.sessionId, payload.sessionId, studentCoords);
         }
     };
 
@@ -2863,6 +2881,7 @@ function QrScannerApp() {
                 <div style={{ marginBottom: '16px' }}>
                     <button
                         type="button"
+                        onClick={() => fileInputRef.current?.click()}
                         disabled={scanningFile || scanState !== 'IDLE'}
                         style={{
                             display: 'inline-flex',

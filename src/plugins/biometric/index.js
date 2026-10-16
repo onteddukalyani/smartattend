@@ -50,6 +50,12 @@ const NativeBiometricPlugin = registerPlugin('BiometricPlugin', {
         deleted: false,
         keyAlias: ''
       };
+    },
+    openBiometricSettings: async () => {
+      return {
+        success: false,
+        message: 'Opening biometric settings is only supported on native mobile devices.'
+      };
     }
   }
 });
@@ -145,6 +151,19 @@ export const Biometric = {
       throw new Error('Key alias is required.');
     }
     return await NativeBiometricPlugin.deleteBiometricKey(options);
+  },
+
+  /**
+   * Open native OS security/biometric settings to enroll a fingerprint or biometrics.
+   * 
+   * @returns {Promise<{ success: boolean, message?: string }>}
+   */
+  async openBiometricSettings() {
+    try {
+      return await NativeBiometricPlugin.openBiometricSettings();
+    } catch (err) {
+      return { success: false, message: err.message };
+    }
   }
 };
 

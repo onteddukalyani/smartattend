@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useSearchParams, Link, useNavigate } from "react-router-dom";
 import { QRCodeCanvas } from "qrcode.react";
-import { collection, getDocs, onSnapshot } from "firebase/firestore";
+import { collection, getDocs, onSnapshot, doc, updateDoc } from "firebase/firestore";
 import { db } from "../../../firebase";
 import { createAttendanceSession } from "./CreateSession";
 import {
@@ -10,10 +10,11 @@ import {
     subscribeToAuthorizations,
     closeAttendanceSession,
     extendAttendanceSession,
+    updateSessionGeofenceRadius,
     releaseIndividualStudentDevice,
     excuseAndReinstateAttendance
 } from "../../../services/sessionAuthService";
-import { sendFacultyNotification, sendBroadcastNotification } from "../../../services/notificationsService";
+import { sendFacultyNotification, sendBroadcastNotification, sendStudentNotification } from "../../../services/notificationsService";
 import { useAuth } from "../../authcontext";
 import { isCourseAssignedToLecturer } from "../../Common/CoursesManager";
 import { normalizeBranchName } from "../../../utils/studentDataHelper";
@@ -46,7 +47,16 @@ import {
     FaMapMarkerAlt,
     FaInfoCircle,
     FaChevronDown,
-    FaChevronUp
+    FaChevronUp,
+    FaTv,
+    FaColumns,
+    FaListUl,
+    FaExpand,
+    FaCompress,
+    FaRocket,
+    FaSlidersH,
+    FaFingerprint,
+    FaTimesCircle
 } from "react-icons/fa";
 import "./Generateqr.css";
 
@@ -84,7 +94,7 @@ function GenerateQR() {
     const [rotationIntervalSec, setRotationIntervalSec] = useState(DEFAULT_ROTATION_INTERVAL);
     const [rotationSecondsLeft, setRotationSecondsLeft] = useState(DEFAULT_ROTATION_INTERVAL);
     const [dynamicQrUrl, setDynamicQrUrl] = useState("");
-    const [geofenceRadius, setGeofenceRadius] = useState(30); // Default 30 metres (standard classroom/lab), adjustable by lecturer (0 = disabled)
+    const [geofenceRadius, setGeofenceRadius] = useState(10); // Mandatory default: 10 metres, adjustable live by lecturer (0 = disabled)
     const [classroomCoords, setClassroomCoords] = useState(null);
     const [classroomGpsStatus, setClassroomGpsStatus] = useState("IDLE"); // "IDLE" | "ACTIVE" | "UNAVAILABLE" | "DISABLED"
 
@@ -102,7 +112,9 @@ function GenerateQR() {
     const [rosterFilterTab, setRosterFilterTab] = useState("ALL"); // "ALL" | "PRESENT" | "PENDING" | "VIOLATIONS"
     const [searchTerm, setSearchTerm] = useState("");
 
-    // UI State
+    // UI & Live View Mode State
+    const [liveViewMode, setLiveViewMode] = useState("PROJECTOR"); // "PROJECTOR" | "SPLIT" | "ROSTER"
+    const [isFullscreen, setIsFullscreen] = useState(false);
     const [isGenerating, setIsGenerating] = useState(false);
     const [isTransitioning, setIsTransitioning] = useState(false);
     const [errorMessage, setErrorMessage] = useState("");
@@ -110,6 +122,27 @@ function GenerateQR() {
     const [showSessionDetails, setShowSessionDetails] = useState(false);
 
     const timerRef = useRef(null);
+
+    // Sync fullscreen browser state
+    useEffect(() => {
+        const handleFsChange = () => {
+            const isFs = Boolean(document.fullscreenElement);
+            setIsFullscreen(isFs);
+            if (isFs) {
+                setLiveViewMode("PROJECTOR");
+            }
+        };
+        document.addEventListener("fullscreenchange", handleFsChange);
+        return () => document.removeEventListener("fullscreenchange", handleFsChange);
+    }, []);
+
+    const toggleFullscreen = () => {
+        if (!document.fullscreenElement) {
+            document.documentElement.requestFullscreen().catch(() => {});
+        } else {
+            document.exitFullscreen().catch(() => {});
+        }
+    };
 
     // 1. Load available courses from Firestore
     useEffect(() => {
@@ -317,6 +350,7 @@ function GenerateQR() {
             setKioskEndsAt(result.kioskEndsAt);
             setPhase("PHASE_1");
             setElapsedSeconds(0);
+            setLiveViewMode("PROJECTOR");
 
             // Capture Classroom GPS coordinates for Geofencing (Configurable radius, 30m default)
             if (geofenceRadius > 0 && typeof navigator !== "undefined" && navigator.geolocation) {
@@ -368,15 +402,42 @@ function GenerateQR() {
                 lecturerInfo.name
             ).catch(() => {});
 
-            // Real-time Student Announcement
-            sendBroadcastNotification({
-                targetRoles: ["student"],
-                title: `🟢 Live Attendance: ${courseCode.trim()}`,
-                message: `Attendance session opened for ${courseCode.trim()} in Room ${roomNo.trim()}. Open SmartAttend app and scan the QR code before it expires.`,
-                type: "CLASS_UPDATE",
-                senderName: lecturerInfo.name,
-                senderRole: "lecturer"
-            }).catch(() => {});
+            // Targeted Student Session Notification (ONLY students registered for this course receive it)
+            const cleanTargetCode = courseCode.trim().toUpperCase();
+            const matchedCourse = (availableCourses || []).find((c) =>
+                (c.courseCode || c.code || c.id || "").toUpperCase() === cleanTargetCode
+            );
+            const rawRoster = matchedCourse
+                ? (Array.isArray(matchedCourse.enrolledStudents) ? matchedCourse.enrolledStudents : (Array.isArray(matchedCourse.students) ? matchedCourse.students : []))
+                : [];
+
+            const enrolledRolls = Array.from(new Set(
+                rawRoster.map((s) => typeof s === "object" ? (s.rollNo || s.rollNumber || s.id || s.studentId || s.email) : s)
+                    .filter(Boolean)
+                    .map((r) => String(r).trim().toUpperCase())
+            ));
+
+            if (enrolledRolls.length > 0) {
+                enrolledRolls.forEach((studentRoll) => {
+                    sendStudentNotification(
+                        studentRoll,
+                        `🟢 Live Attendance: ${cleanTargetCode}`,
+                        `Attendance session opened for ${cleanTargetCode} in Room ${roomNo.trim()}. Open SmartAttend app and scan the QR code before it expires.`,
+                        "SESSION_STARTED",
+                        lecturerInfo.name,
+                        { courseCode: cleanTargetCode, sessionId: result.sessionId, roomNo: roomNo.trim() }
+                    ).catch(() => {});
+                });
+            } else {
+                sendStudentNotification(
+                    cleanTargetCode,
+                    `🟢 Live Attendance: ${cleanTargetCode}`,
+                    `Attendance session opened for ${cleanTargetCode} in Room ${roomNo.trim()}. Open SmartAttend app and scan the QR code before it expires.`,
+                    "SESSION_STARTED",
+                    lecturerInfo.name,
+                    { courseCode: cleanTargetCode, sessionId: result.sessionId, roomNo: roomNo.trim() }
+                ).catch(() => {});
+            }
         } catch (error) {
             console.error("Error creating attendance session:", error);
             setErrorMessage(error.message || "Could not create attendance session.");
@@ -387,35 +448,54 @@ function GenerateQR() {
 
     // Live Geofence Update Handler: Allows lecturer to adjust or disable geofence in real time without restarting session
     const handleUpdateGeofenceRadius = (newRadius) => {
-        const r = Number(newRadius);
+        const r = Math.max(0, Number(newRadius) || 0);
         setGeofenceRadius(r);
         if (r === 0) {
             setClassroomCoords(null);
             setClassroomGpsStatus("DISABLED");
+            if (sessionId) {
+                updateSessionGeofenceRadius(sessionId, 0, null)
+                    .catch((err) => console.warn("Notice updating geofence radius:", err));
+            }
         } else if (classroomCoords) {
-            setClassroomCoords((prev) => prev ? { ...prev, radius: r } : { radius: r });
+            const updatedCoords = { ...classroomCoords, radius: r };
+            setClassroomCoords(updatedCoords);
             setClassroomGpsStatus("ACTIVE");
+            if (sessionId) {
+                updateSessionGeofenceRadius(sessionId, r, updatedCoords)
+                    .catch((err) => console.warn("Notice updating geofence radius:", err));
+            }
         } else if (typeof navigator !== "undefined" && navigator.geolocation) {
             navigator.geolocation.getCurrentPosition(
                 (pos) => {
-                    setClassroomCoords({
+                    const newCoords = {
                         latitude: pos.coords.latitude,
                         longitude: pos.coords.longitude,
                         accuracy: pos.coords.accuracy,
                         radius: r
-                    });
+                    };
+                    setClassroomCoords(newCoords);
                     setClassroomGpsStatus("ACTIVE");
+                    if (sessionId) {
+                        updateSessionGeofenceRadius(sessionId, r, newCoords)
+                            .catch((err) => console.warn("Notice updating geofence radius:", err));
+                    }
                 },
                 () => {
                     navigator.geolocation.getCurrentPosition(
                         (pos2) => {
-                            setClassroomCoords({
+                            const newCoords2 = {
                                 latitude: pos2.coords.latitude,
                                 longitude: pos2.coords.longitude,
                                 accuracy: pos2.coords.accuracy,
                                 radius: r
-                            });
+                            };
+                            setClassroomCoords(newCoords2);
                             setClassroomGpsStatus("ACTIVE");
+                            if (sessionId) {
+                                updateSessionGeofenceRadius(sessionId, r, newCoords2)
+                                    .catch((err) => console.warn("Notice updating geofence radius:", err));
+                            }
                         },
                         (err2) => {
                             console.warn("Classroom GPS unavailable on lecturer device:", err2?.message || err2);
@@ -429,19 +509,168 @@ function GenerateQR() {
         }
     };
 
+    // Prompt lecturer for custom manual metres entry
+    const handlePromptCustomGeofence = () => {
+        const input = window.prompt(
+            "Enter custom classroom geofence distance in metres (e.g. 15, 25, 40, 75, or 0 to disable):",
+            geofenceRadius
+        );
+        if (input !== null) {
+            const val = parseInt(input.trim(), 10);
+            if (!isNaN(val) && val >= 0) {
+                handleUpdateGeofenceRadius(val);
+            } else {
+                alert("Please enter a valid positive number in metres (or 0 to disable GPS).");
+            }
+        }
+    };
+
+    // Step adjustment helper (+5m / -5m)
+    const handleStepGeofenceRadius = (delta) => {
+        const current = Number(geofenceRadius) || 0;
+        const next = Math.max(0, current + delta);
+        handleUpdateGeofenceRadius(next);
+    };
+
+    // Re-calibrate / fetch fresh GPS fix from device
+    const handleRecalibrateGps = () => {
+        if (typeof navigator === "undefined" || !navigator.geolocation) {
+            alert("Geolocation is not supported by your browser or device.");
+            return;
+        }
+        navigator.geolocation.getCurrentPosition(
+            (pos) => {
+                const targetRadius = geofenceRadius > 0 ? geofenceRadius : 30;
+                const updatedCoords = {
+                    latitude: pos.coords.latitude,
+                    longitude: pos.coords.longitude,
+                    accuracy: pos.coords.accuracy,
+                    radius: targetRadius
+                };
+                setClassroomCoords(updatedCoords);
+                setClassroomGpsStatus("ACTIVE");
+                if (geofenceRadius === 0) setGeofenceRadius(30);
+                if (sessionId) {
+                    updateDoc(doc(db, "attendance_sessions", sessionId), {
+                        geofenceRadius: targetRadius,
+                        classroomLocation: updatedCoords
+                    }).catch(() => {});
+                }
+                alert(`✅ Classroom GPS re-calibrated successfully!\nCoordinates: ${pos.coords.latitude.toFixed(5)}, ${pos.coords.longitude.toFixed(5)}\nAccuracy: ±${Math.round(pos.coords.accuracy)}m\nRadius: ${targetRadius}m`);
+            },
+            (err) => {
+                alert("Could not retrieve GPS coordinates. Please ensure Location access is allowed in your browser settings.\nError: " + (err.message || err));
+            },
+            { enableHighAccuracy: true, timeout: 8000, maximumAge: 10000 }
+        );
+    };
+
     // Live Dynamic Session Time Adjustment (Lecturer / Admin can add or remove running session time live)
     const handleAdjustSessionTime = async (deltaSeconds) => {
         if (!sessionId) return;
         try {
-            const res = await extendAttendanceSession(sessionId, deltaSeconds);
-            const newEnds = res?.newEndsMs || ((kioskEndsAt || Date.now()) + deltaSeconds * 1000);
-            setKioskEndsAt(newEnds);
-            const sign = deltaSeconds >= 0 ? "+" : "";
-            const unit = Math.abs(deltaSeconds) >= 60 ? `${deltaSeconds / 60}m` : `${deltaSeconds}s`;
-            alert(`✅ Session duration adjusted by ${sign}${unit}.`);
+            const isPhase1 = phase === "PHASE_1";
+            const target = isPhase1 ? "PHASE_1" : "PHASE_2";
+            const now = Date.now();
+            const startMs = sessionStartAt || now;
+
+            // 1. Immediate optimistic UI updates to instantly update clock, pills, and countdowns
+            if (isPhase1) {
+                const currentQr1 = qr1ExpiresAt || (now + 30000);
+                const targetQr1 = currentQr1 + deltaSeconds * 1000;
+
+                if (targetQr1 <= now + 2000) {
+                    // Time removal ends Phase 1 immediately -> advance directly to Phase 2 right now!
+                    const qr2Sec = Number(qr2Seconds) || 120;
+                    const newEnds = now + (qr2Sec * 1000);
+                    setPhase("PHASE_2");
+                    setQr1ExpiresAt(now);
+                    setKioskEndsAt(newEnds);
+                    const newQr1Sec = Math.max(10, Math.round((now - startMs) / 1000));
+                    setElapsedSeconds(newQr1Sec);
+                } else {
+                    const qr2Sec = Number(qr2Seconds) || 120;
+                    const newEnds = targetQr1 + (qr2Sec * 1000);
+                    setQr1ExpiresAt(targetQr1);
+                    setKioskEndsAt(newEnds);
+                }
+            } else {
+                const currentEnds = kioskEndsAt || (now + 60000);
+                const targetEnds = currentEnds + deltaSeconds * 1000;
+
+                if (targetEnds <= now + 2000) {
+                    // Time removal ends session immediately -> close session!
+                    setPhase("CLOSED");
+                    setKioskEndsAt(now);
+                    const totalSec = Math.max(30, Math.round((now - startMs) / 1000));
+                    setElapsedSeconds(totalSec);
+                } else {
+                    setKioskEndsAt(targetEnds);
+                }
+            }
+
+            // 2. Direct Firestore update for immediate cloud sync
+            const firestoreUpdate = {};
+            if (isPhase1) {
+                const currentQr1 = qr1ExpiresAt || (now + 30000);
+                const targetQr1 = currentQr1 + deltaSeconds * 1000;
+                const qr2Sec = Number(qr2Seconds) || 120;
+
+                if (targetQr1 <= now + 2000) {
+                    const newEnds = now + (qr2Sec * 1000);
+                    const newQr1Sec = Math.max(10, Math.round((now - startMs) / 1000));
+                    const newTotalSec = newQr1Sec + qr2Sec;
+                    firestoreUpdate.phase = "PHASE_2";
+                    firestoreUpdate.qr1ExpiresAt = now;
+                    firestoreUpdate.qr2StartsAt = now;
+                    firestoreUpdate.kioskEndsAt = newEnds;
+                    firestoreUpdate.expiresAt = newEnds;
+                    firestoreUpdate.qr1DurationSeconds = newQr1Sec;
+                    firestoreUpdate.totalDurationSeconds = newTotalSec;
+                    firestoreUpdate.durationMinutes = Math.max(1, Math.round(newTotalSec / 60));
+                } else {
+                    const newEnds = targetQr1 + (qr2Sec * 1000);
+                    const newQr1Sec = Math.max(10, Math.round((targetQr1 - startMs) / 1000));
+                    const newTotalSec = newQr1Sec + qr2Sec;
+                    firestoreUpdate.qr1ExpiresAt = targetQr1;
+                    firestoreUpdate.qr2StartsAt = targetQr1;
+                    firestoreUpdate.kioskEndsAt = newEnds;
+                    firestoreUpdate.expiresAt = newEnds;
+                    firestoreUpdate.qr1DurationSeconds = newQr1Sec;
+                    firestoreUpdate.totalDurationSeconds = newTotalSec;
+                    firestoreUpdate.durationMinutes = Math.max(1, Math.round(newTotalSec / 60));
+                }
+            } else {
+                const currentEnds = kioskEndsAt || (now + 60000);
+                const targetEnds = currentEnds + deltaSeconds * 1000;
+
+                if (targetEnds <= now + 2000) {
+                    firestoreUpdate.phase = "CLOSED";
+                    firestoreUpdate.status = "CLOSED";
+                    firestoreUpdate.active = false;
+                    firestoreUpdate.kioskEndsAt = now;
+                    firestoreUpdate.expiresAt = now;
+                } else {
+                    const newTotalSec = Math.max(30, Math.round((targetEnds - startMs) / 1000));
+                    firestoreUpdate.kioskEndsAt = targetEnds;
+                    firestoreUpdate.expiresAt = targetEnds;
+                    firestoreUpdate.totalDurationSeconds = newTotalSec;
+                    firestoreUpdate.durationMinutes = Math.max(1, Math.round(newTotalSec / 60));
+                }
+            }
+            firestoreUpdate.updatedAt = Date.now();
+
+            await updateDoc(doc(db, "attendance_sessions", sessionId), firestoreUpdate).catch((err) => {
+                console.warn("Direct firestore time adjustment notice:", err);
+            });
+
+            // 3. Also invoke backend helper in background for audit trail
+            extendAttendanceSession(sessionId, {
+                deltaSeconds,
+                phaseTarget: target
+            }).catch(() => {});
         } catch (err) {
             console.error("Failed to adjust session time:", err);
-            alert("Could not adjust session: " + (err.message || err));
         }
     };
     const handleExtendSession = (mins) => handleAdjustSessionTime(mins * 60);
@@ -917,28 +1146,23 @@ function GenerateQR() {
     const sessionRemaining = Math.max(0, kioskEndsAt ? Math.floor((kioskEndsAt - Date.now()) / 1000) : (totalDurationSeconds - elapsedSeconds));
     const totalDurationMinutesDisplay = (totalDurationSeconds / 60).toFixed(1).replace(/\.0$/, "");
 
-    return (
-        <div className="qrpage">
-            {/* Header */}
-            <div className="qrpage-header">
-                <div className="qrpage-header-badge">
-                    <FaShieldAlt /> 2-Phase Protocol &bull; {formatMmSs(totalDurationSeconds)} Total Window
-                </div>
-                <h1>Generate Attendance QR</h1>
-                <p className="qrpage-subtitle">
-                    <strong>Phase 1 (0:00–{formatMmSs(qr1TotalSeconds)}):</strong> Instant Check-in &amp; Device Binding &bull; <strong>Phase 2 ({formatMmSs(qr1TotalSeconds)}–{formatMmSs(totalDurationSeconds)}):</strong> Biometric Verification <span className="qr-header-timing-pill">({totalDurationMinutesDisplay}m total)</span>
-                </p>
-            </div>
+    const isFormReady = Boolean(courseCode.trim() && classCode && roomNo.trim());
 
-            {phase === "NONE" ? (
-                <div className="qrpage-layout">
-                    {/* 1. Session Setup Builder */}
-                    <section className="qr-builder">
+    // -------------------------------------------------------------------------
+    // -------------------------------------------------------------------------
+    // Sub-render A: Dual-Card Setup Dashboard (Setup Controls + Live Summary)
+    // -------------------------------------------------------------------------
+    const renderSetupView = () => (
+        <div className="qr-setup-grid">
+            {/* Left Column: Form Controls */}
+            <div className="qr-setup-col-form">
+                <section className="qr-setup-card">
+                    {/* Step 1: Classroom & Target Course */}
                     <div className="qr-section-heading">
                         <span className="qr-step">01</span>
                         <div>
-                            <h2>Session Setup</h2>
-                            <p>Select or enter course, classroom, and optional duration</p>
+                            <h2>Classroom &amp; Target Course</h2>
+                            <p>Select or enter course code, department section and room number</p>
                         </div>
                     </div>
 
@@ -952,7 +1176,6 @@ function GenerateQR() {
                                 value={courseCode}
                                 onChange={(e) => handleSelectCourse(e.target.value)}
                                 className="qr-select-styled"
-                                disabled={phase !== "NONE"}
                             >
                                 <option value="">-- Choose Course or Type Below --</option>
                                 {myCourses.length > 0 && (
@@ -987,33 +1210,31 @@ function GenerateQR() {
                         </div>
                     )}
 
-                    <div className="qr-form-group">
-                        <label htmlFor="course-code">
-                            <FaBookOpen /> Course Code *
-                        </label>
-                        <input
-                            id="course-code"
-                            type="text"
-                            value={courseCode}
-                            onChange={handleCourseCodeChange}
-                            placeholder="e.g. CS171, CS301"
-                            required
-                            disabled={phase !== "NONE"}
-                        />
-                    </div>
-
                     <div className="qr-form-row">
                         <div className="qr-form-group">
+                            <label htmlFor="course-code">
+                                <FaBookOpen /> Course Code *
+                            </label>
+                            <input
+                                id="course-code"
+                                type="text"
+                                value={courseCode}
+                                onChange={handleCourseCodeChange}
+                                placeholder="e.g. CS171, CS301"
+                                required
+                            />
+                        </div>
+
+                        <div className="qr-form-group">
                             <label htmlFor="class-code">
-                                <FaLayerGroup /> Department *
+                                <FaLayerGroup /> Department Branch *
                             </label>
                             <select
                                 id="class-code"
                                 value={classCode}
                                 onChange={(e) => setClassCode(e.target.value)}
-                                disabled={phase !== "NONE"}
                             >
-                                <option value="">Select Class</option>
+                                <option value="">Select Department</option>
                                 <option value="CSE">CSE</option>
                                 <option value="CSE-A">CSE-A</option>
                                 <option value="CSE-B">CSE-B</option>
@@ -1022,26 +1243,9 @@ function GenerateQR() {
                                 <option value="AIC">AIC</option>
                             </select>
                         </div>
-
-                        <div className="qr-form-group">
-                            <label htmlFor="batch-year">
-                                <FaCalendarAlt /> Batch
-                            </label>
-                            <select
-                                id="batch-year"
-                                value={batch}
-                                onChange={(e) => setBatch(e.target.value)}
-                                disabled={phase !== "NONE"}
-                            >
-                                <option value="2023">2023</option>
-                                <option value="2024">2024</option>
-                                <option value="2025">2025</option>
-                                <option value="2026">2026</option>
-                            </select>
-                        </div>
                     </div>
 
-                    <div className="qr-form-row">
+                    <div className="qr-form-row-3">
                         <div className="qr-form-group">
                             <label htmlFor="room-number">
                                 <FaDoorOpen /> Room Number *
@@ -1053,20 +1257,33 @@ function GenerateQR() {
                                 onChange={(e) => setRoomNo(e.target.value)}
                                 placeholder="e.g. C002, C003"
                                 required
-                                disabled={phase !== "NONE"}
                             />
                         </div>
 
-                        {/* Optional Lecture Hours Selection */}
+                        <div className="qr-form-group">
+                            <label htmlFor="batch-year">
+                                <FaCalendarAlt /> Batch
+                            </label>
+                            <select
+                                id="batch-year"
+                                value={batch}
+                                onChange={(e) => setBatch(e.target.value)}
+                            >
+                                <option value="2023">2023</option>
+                                <option value="2024">2024</option>
+                                <option value="2025">2025</option>
+                                <option value="2026">2026</option>
+                            </select>
+                        </div>
+
                         <div className="qr-form-group">
                             <label htmlFor="lecture-hours">
-                                <FaClock /> Duration <span style={{ fontSize: "0.75rem", fontWeight: "normal", color: "#64748b" }}>(Optional)</span>
+                                <FaClock /> Lecture Duration
                             </label>
                             <select
                                 id="lecture-hours"
                                 value={lectureHours}
                                 onChange={(e) => setLectureHours(e.target.value)}
-                                disabled={phase !== "NONE"}
                             >
                                 <option value="1.0">1.0 Hr (Standard)</option>
                                 <option value="0.5">0.5 Hr (30 min)</option>
@@ -1079,990 +1296,1347 @@ function GenerateQR() {
                         </div>
                     </div>
 
-                    {/* Classroom Geofence Distance (Default: 30m) */}
-                    <div className="qr-form-row">
-                        <div className="qr-form-group" style={{ flex: 1 }}>
-                            <label htmlFor="geofence-radius" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                                <span><FaMapMarkerAlt /> Geofence Distance <span style={{ fontSize: "0.75rem", fontWeight: 700, color: "#10b981" }}>(Default 30m)</span></span>
-                                {phase !== "NONE" && <span style={{ fontSize: "0.72rem", background: "rgba(99, 102, 241, 0.15)", color: "#6366f1", padding: "2px 6px", borderRadius: "4px", fontWeight: 700 }}>⚡ Live Adjustable</span>}
-                            </label>
-                            <select
-                                id="geofence-radius"
-                                value={geofenceRadius}
-                                onChange={(e) => handleUpdateGeofenceRadius(Number(e.target.value))}
-                            >
-                                <option value={30}>30 Metres (Recommended - Standard Classroom &amp; Lab)</option>
-                                <option value={20}>20 Metres (Small Classroom)</option>
-                                <option value={50}>50 Metres (Large Hall / Auditorium)</option>
-                                <option value={100}>100 Metres (Open Campus / Amphitheatre)</option>
-                                <option value={0}>Disabled (Rotating QR Security Only - No GPS Restriction)</option>
-                            </select>
+                    {/* Step 2: Attendance Window & Security Protocols */}
+                    <div className="qr-section-heading" style={{ marginTop: "20px" }}>
+                        <span className="qr-step">02</span>
+                        <div>
+                            <h2>Security Protocols &amp; Timetable Window</h2>
+                            <p>Authoritative 2-phase check-in timing, classroom geofencing &amp; token rotation</p>
                         </div>
                     </div>
 
-                    {/* Attendance Session Timetable & Granular QR1 + QR2 Duration Breakdown */}
-                    <div className="qr-form-row">
-                        <div className="qr-form-group" style={{ flex: 1 }}>
-                            <label htmlFor="timetable-preset-select" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                                <span><FaClock /> Attendance Session Timetable <span style={{ fontSize: "0.75rem", fontWeight: 700, color: "#6366f1" }}>({Math.round((qr1Seconds + qr2Seconds) / 60 * 10) / 10} Min Total)</span></span>
-                                {phase !== "NONE" && <span style={{ fontSize: "0.72rem", background: "rgba(99, 102, 241, 0.15)", color: "#6366f1", padding: "2px 6px", borderRadius: "4px", fontWeight: 700 }}>⚡ Live Adjustable</span>}
-                            </label>
-                            <div className="qr-preset-grid">
-                                {[
-                                    { id: "fast", icon: "⚡", title: "1m Quick", badge: "30s + 30s", desc: "Rapid check-in & scan", qr1: 30, qr2: 30 },
-                                    { id: "express", icon: "⏱️", title: "2m Express", badge: "45s + 75s", desc: "Smooth class flow", qr1: 45, qr2: 75 },
-                                    { id: "standard", icon: "🛡️", title: "3m Standard", badge: "60s + 120s", desc: "Recommended default", qr1: 60, qr2: 120 },
-                                    { id: "extended", icon: "⏳", title: "5m Extended", badge: "90s + 210s", desc: "Large lecture hall", qr1: 90, qr2: 210 },
-                                    { id: "custom", icon: "🛠️", title: "Custom", badge: "Manual", desc: "Specify QR1 & QR2", qr1: qr1Seconds, qr2: qr2Seconds }
-                                ].map((preset) => (
-                                    <button
-                                        key={preset.id}
-                                        type="button"
-                                        className={`qr-preset-card ${timetablePreset === preset.id ? "active" : ""}`}
-                                        onClick={() => {
-                                            setTimetablePreset(preset.id);
-                                            if (preset.id !== "custom") {
-                                                setQr1Seconds(preset.qr1);
-                                                setQr2Seconds(preset.qr2);
-                                            }
-                                        }}
-                                        disabled={phase !== "NONE"}
-                                    >
-                                        <div className="qr-preset-header">
-                                            <span className="qr-preset-icon">{preset.icon}</span>
-                                            <span className="qr-preset-badge">{preset.badge}</span>
-                                        </div>
-                                        <div className="qr-preset-title">{preset.title}</div>
-                                        <div className="qr-preset-desc">{preset.desc}</div>
-                                    </button>
-                                ))}
+                    {/* Presets */}
+                    <div className="qr-form-group">
+                        <label style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                            <span><FaClock /> Timetable Duration Window</span>
+                            <span className="qr-total-window-tag">
+                                {formatMmSs(qr1Seconds + qr2Seconds)} Total ({Math.round((qr1Seconds + qr2Seconds) / 60 * 10) / 10}m)
+                            </span>
+                        </label>
+                        <div className="qr-preset-grid">
+                            {[
+                                { id: "fast", icon: "⚡", title: "1m Quick", badge: "30s + 30s", desc: "Rapid check-in & scan", qr1: 30, qr2: 30 },
+                                { id: "express", icon: "⏱️", title: "2m Express", badge: "45s + 75s", desc: "Smooth class flow", qr1: 45, qr2: 75 },
+                                { id: "standard", icon: "🛡️", title: "3m Standard", badge: "60s + 120s", desc: "Recommended default", qr1: 60, qr2: 120 },
+                                { id: "extended", icon: "⏳", title: "5m Extended", badge: "90s + 210s", desc: "Large lecture hall", qr1: 90, qr2: 210 },
+                                { id: "custom", icon: "🛠️", title: "Custom", badge: "Manual", desc: "Specify QR1 & QR2", qr1: qr1Seconds, qr2: qr2Seconds }
+                            ].map((preset) => (
+                                <button
+                                    key={preset.id}
+                                    type="button"
+                                    className={`qr-preset-card ${timetablePreset === preset.id ? "active" : ""}`}
+                                    onClick={() => {
+                                        setTimetablePreset(preset.id);
+                                        if (preset.id !== "custom") {
+                                            setQr1Seconds(preset.qr1);
+                                            setQr2Seconds(preset.qr2);
+                                        }
+                                    }}
+                                >
+                                    <div className="qr-preset-header">
+                                        <span className="qr-preset-icon">{preset.icon}</span>
+                                        <span className="qr-preset-badge">{preset.badge}</span>
+                                    </div>
+                                    <div className="qr-preset-title">{preset.title}</div>
+                                    <div className="qr-preset-desc">{preset.desc}</div>
+                                </button>
+                            ))}
+                        </div>
+
+                        {/* Granular Breakdown Controls */}
+                        <div className="qr-timing-breakdown-box">
+                            <div className="qr-breakdown-col">
+                                <span className="qr-breakdown-label p1-label">
+                                    Phase 1: QR1 Check-in Window
+                                </span>
+                                {timetablePreset === "custom" ? (
+                                    <div className="qr-breakdown-input-row">
+                                        <input
+                                            type="number"
+                                            min="15"
+                                            max="600"
+                                            step="5"
+                                            value={qr1Seconds}
+                                            onChange={(e) => setQr1Seconds(Math.max(15, parseInt(e.target.value) || 15))}
+                                        />
+                                        <span style={{ fontSize: "0.75rem", color: "#64748b" }}>seconds</span>
+                                    </div>
+                                ) : (
+                                    <span className="qr-breakdown-val">{qr1Seconds} seconds ({formatMmSs(qr1Seconds)})</span>
+                                )}
                             </div>
 
-                            {/* Granular Breakdown Controls */}
-                            <div style={{
-                                marginTop: "10px",
-                                padding: "10px 12px",
-                                background: "rgba(99, 102, 241, 0.05)",
-                                border: "1px solid rgba(99, 102, 241, 0.15)",
-                                borderRadius: "8px"
-                            }}>
-                                <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", alignItems: "center" }}>
-                                    <div style={{ flex: 1, minWidth: "140px" }}>
-                                        <span style={{ fontSize: "0.74rem", fontWeight: 700, color: "#4f46e5", display: "block", marginBottom: "4px" }}>
-                                            Phase 1: QR1 Check-in
-                                        </span>
-                                        {timetablePreset === "custom" ? (
-                                            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                                                <input
-                                                    type="number"
-                                                    min="15"
-                                                    max="600"
-                                                    step="5"
-                                                    value={qr1Seconds}
-                                                    onChange={(e) => setQr1Seconds(Math.max(15, parseInt(e.target.value) || 15))}
-                                                    disabled={phase !== "NONE"}
-                                                    style={{ width: "80px", padding: "5px 8px", borderRadius: "6px", border: "1px solid #cbd5e1", fontSize: "0.85rem" }}
-                                                />
-                                                <span style={{ fontSize: "0.75rem", color: "#64748b" }}>seconds</span>
-                                            </div>
-                                        ) : (
-                                            <span style={{ fontSize: "0.85rem", fontWeight: 700, color: "#1e293b" }}>{qr1Seconds} seconds</span>
-                                        )}
+                            <div className="qr-breakdown-col">
+                                <span className="qr-breakdown-label p2-label">
+                                    Phase 2: QR2 Biometric Window
+                                </span>
+                                {timetablePreset === "custom" ? (
+                                    <div className="qr-breakdown-input-row">
+                                        <input
+                                            type="number"
+                                            min="15"
+                                            max="1800"
+                                            step="5"
+                                            value={qr2Seconds}
+                                            onChange={(e) => setQr2Seconds(Math.max(15, parseInt(e.target.value) || 15))}
+                                        />
+                                        <span style={{ fontSize: "0.75rem", color: "#64748b" }}>seconds</span>
                                     </div>
+                                ) : (
+                                    <span className="qr-breakdown-val">{qr2Seconds} seconds ({formatMmSs(qr2Seconds)})</span>
+                                )}
+                            </div>
 
-                                    <div style={{ flex: 1, minWidth: "140px" }}>
-                                        <span style={{ fontSize: "0.74rem", fontWeight: 700, color: "#059669", display: "block", marginBottom: "4px" }}>
-                                            Phase 2: QR2 Biometric
-                                        </span>
-                                        {timetablePreset === "custom" ? (
-                                            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                                                <input
-                                                    type="number"
-                                                    min="15"
-                                                    max="1800"
-                                                    step="5"
-                                                    value={qr2Seconds}
-                                                    onChange={(e) => setQr2Seconds(Math.max(15, parseInt(e.target.value) || 15))}
-                                                    disabled={phase !== "NONE"}
-                                                    style={{ width: "80px", padding: "5px 8px", borderRadius: "6px", border: "1px solid #cbd5e1", fontSize: "0.85rem" }}
-                                                />
-                                                <span style={{ fontSize: "0.75rem", color: "#64748b" }}>seconds</span>
-                                            </div>
-                                        ) : (
-                                            <span style={{ fontSize: "0.85rem", fontWeight: 700, color: "#1e293b" }}>{qr2Seconds} seconds</span>
-                                        )}
-                                    </div>
-
-                                    <div style={{ flex: 1, minWidth: "120px", textAlign: "right" }}>
-                                        <span style={{ fontSize: "0.72rem", color: "#64748b", fontWeight: 600 }}>Total Duration:</span>
-                                        <div style={{ fontSize: "0.95rem", fontWeight: 800, color: "#0f172a" }}>
-                                            {formatMmSs(qr1Seconds + qr2Seconds)}
-                                        </div>
-                                    </div>
+                            <div className="qr-breakdown-col total-col">
+                                <span className="qr-breakdown-label">Total Execution Window</span>
+                                <div className="qr-breakdown-val total">
+                                    {formatMmSs(qr1Seconds + qr2Seconds)}
                                 </div>
                             </div>
                         </div>
                     </div>
 
-                    {phase === "NONE" ? (
-                        <button
-                            type="button"
-                            onClick={handleGenerateSession}
-                            className="genqr-btn"
-                            disabled={isGenerating}
-                        >
-                            <span>{isGenerating ? "Initializing Timeline..." : `Start Attendance Session (${totalDurationMinutesDisplay} Min)`}</span>
-                            {!isGenerating ? <FaArrowRight /> : <FaSyncAlt className="fa-spin" />}
-                        </button>
-                    ) : (
-                        <button
-                            type="button"
-                            onClick={handleResetSession}
-                            className="qr-reset-btn"
-                        >
-                            <FaSyncAlt /> Reset / Start New Session
-                        </button>
-                    )}
+                    {/* Geofence & Rotating interval row */}
+                    <div className="qr-form-row">
+                        <div className="qr-form-group">
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
+                                <label htmlFor="geofence-radius" style={{ margin: 0, display: "flex", alignItems: "center", gap: "6px" }}>
+                                    <FaMapMarkerAlt /> Geofence Distance
+                                </label>
+                                <span style={{
+                                    fontSize: "0.78rem",
+                                    fontWeight: 800,
+                                    padding: "2px 8px",
+                                    borderRadius: "6px",
+                                    background: geofenceRadius > 0 ? "rgba(16, 185, 129, 0.12)" : "rgba(100, 116, 139, 0.12)",
+                                    color: geofenceRadius > 0 ? "#059669" : "#64748b"
+                                }}>
+                                    {geofenceRadius > 0 ? `${geofenceRadius}m Active` : "Disabled"}
+                                </span>
+                            </div>
 
-                    {errorMessage && <p className="qr-error" role="alert">{errorMessage}</p>}
-                </section>
+                            {/* Manual Numeric Input + Test GPS Button */}
+                            <div style={{ display: "flex", gap: "8px", alignItems: "center", marginBottom: "8px" }}>
+                                <input
+                                    id="geofence-radius"
+                                    type="number"
+                                    min="0"
+                                    max="500"
+                                    step="5"
+                                    value={geofenceRadius}
+                                    onChange={(e) => handleUpdateGeofenceRadius(Math.max(0, parseInt(e.target.value) || 0))}
+                                    placeholder="Enter metres (e.g. 25)"
+                                    style={{ flex: 1, fontWeight: 750 }}
+                                />
+                                <span style={{ fontSize: "0.82rem", fontWeight: 700, color: "#64748b", whiteSpace: "nowrap" }}>
+                                    metres
+                                </span>
+                                <button
+                                    type="button"
+                                    onClick={handleRecalibrateGps}
+                                    title="Capture / Test Classroom GPS Now"
+                                    style={{
+                                        padding: "8px 12px",
+                                        borderRadius: "8px",
+                                        border: "1px solid var(--border, #cbd5e1)",
+                                        background: "var(--surface, #ffffff)",
+                                        color: "#4f46e5",
+                                        fontSize: "0.78rem",
+                                        fontWeight: 750,
+                                        cursor: "pointer",
+                                        display: "inline-flex",
+                                        alignItems: "center",
+                                        gap: "4px"
+                                    }}
+                                >
+                                    <FaMapMarkerAlt /> Test GPS
+                                </button>
+                            </div>
 
-                {/* 2. QR Code Display Preview (Setup Mode) */}
-                <section className="qr-result">
-                    <div className="qr-empty-state">
-                        <div className="qr-empty-mark">
-                            <FaQrcode />
+                            {/* Fine-Tuning Slider */}
+                            <input
+                                type="range"
+                                min="0"
+                                max="150"
+                                step="5"
+                                value={geofenceRadius}
+                                onChange={(e) => handleUpdateGeofenceRadius(Number(e.target.value))}
+                                style={{ width: "100%", accentColor: "#6366f1", marginBottom: "8px", cursor: "pointer" }}
+                            />
+
+                            {/* Quick Presets */}
+                            <div style={{ display: "flex", gap: "5px", flexWrap: "wrap" }}>
+                                {[
+                                    { label: "0m (Off)", val: 0 },
+                                    { label: "10m (Default)", val: 10 },
+                                    { label: "15m Lab", val: 15 },
+                                    { label: "20m Small", val: 20 },
+                                    { label: "30m Standard", val: 30 },
+                                    { label: "50m Hall", val: 50 },
+                                    { label: "100m Campus", val: 100 }
+                                ].map((p) => (
+                                    <button
+                                        key={p.val}
+                                        type="button"
+                                        onClick={() => handleUpdateGeofenceRadius(p.val)}
+                                        style={{
+                                            padding: "3px 8px",
+                                            borderRadius: "6px",
+                                            border: geofenceRadius === p.val ? "1.5px solid #6366f1" : "1px solid var(--border, #cbd5e1)",
+                                            background: geofenceRadius === p.val ? "rgba(99, 102, 241, 0.15)" : "transparent",
+                                            color: geofenceRadius === p.val ? "#4f46e5" : "var(--text-muted, #64748b)",
+                                            fontWeight: 700,
+                                            fontSize: "0.74rem",
+                                            cursor: "pointer"
+                                        }}
+                                    >
+                                        {p.label}
+                                    </button>
+                                ))}
+                            </div>
                         </div>
-                        <h2>Your 2-Phase QR Session Will Appear Here</h2>
-                        <p>Select a course code, department and room, then click generate.</p>
-                        <div className="qr-empty-hint">
-                            <span>⚡ 0:00–{formatMmSs(qr1Seconds)} Check-in ({Math.round(qr1Seconds / 60 * 10) / 10}m) &bull; {formatMmSs(qr1Seconds)}–{formatMmSs(qr1Seconds + qr2Seconds)} Biometrics ({Math.round(qr2Seconds / 60 * 10) / 10}m)</span>
+
+                        <div className="qr-form-group">
+                            <label htmlFor="rotation-interval">
+                                <FaSyncAlt /> Dynamic Token Rotation
+                            </label>
+                            <select
+                                id="rotation-interval"
+                                value={rotationIntervalSec}
+                                onChange={(e) => setRotationIntervalSec(Number(e.target.value))}
+                            >
+                                <option value={10}>10s (Recommended - High Security)</option>
+                                <option value={5}>5s (Ultra High Security)</option>
+                                <option value={15}>15s (Standard)</option>
+                                <option value={30}>30s (Relaxed)</option>
+                                <option value={60}>60s (Static Display)</option>
+                            </select>
                         </div>
                     </div>
                 </section>
             </div>
-        ) : (
-            <div className="qrpage-active-split">
-                {/* Left Column: Compact Projector HUD */}
-                <aside className="qr-active-left-col">
-                    <section className="qr-result qr-result-ready qr-compact-hud">
-                        {/* Authoritative Timeline Bar */}
-                        <div className="qr-timeline-bar">
-                                <div className="qr-timeline-clock-wrap">
-                                    <span className="qr-timeline-label">Session Clock</span>
-                                    <span className="qr-timeline-clock">{formatMmSs(elapsedSeconds)} / {formatMmSs(totalDurationSeconds)}</span>
-                                </div>
 
-                                {/* Live Session Time Adjustment Controls (Add & Remove Time) */}
-                                {phase !== "CLOSED" && (
-                                    <div className="qr-adjust-pills-bar">
-                                        <span className="qr-adjust-label">Adjust Time</span>
-                                        <button
-                                            type="button"
-                                            onClick={() => handleAdjustSessionTime(30)}
-                                            className="qr-adjust-pill plus"
-                                            title="Add 30 seconds"
-                                        >
-                                            +30s
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={() => handleAdjustSessionTime(60)}
-                                            className="qr-adjust-pill plus"
-                                            title="Add 1 minute"
-                                        >
-                                            +1m
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={() => handleAdjustSessionTime(120)}
-                                            className="qr-adjust-pill plus"
-                                            title="Add 2 minutes"
-                                        >
-                                            +2m
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={() => handleAdjustSessionTime(-30)}
-                                            className="qr-adjust-pill minus"
-                                            title="Remove 30 seconds"
-                                        >
-                                            -30s
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={() => handleAdjustSessionTime(-60)}
-                                            className="qr-adjust-pill minus"
-                                            title="Remove 1 minute"
-                                        >
-                                            -1m
-                                        </button>
-                                    </div>
-                                )}
+            {/* Right Column: Live Session Blueprint & Summary Card */}
+            <aside className="qr-blueprint-card">
+                <div className="qr-blueprint-header">
+                    <h3>
+                        <FaSlidersH /> Session Blueprint
+                    </h3>
+                    <span className="qr-blueprint-ribbon">
+                        {isFormReady ? "Ready to Launch" : "Draft Setup"}
+                    </span>
+                </div>
 
-                                <div className="qr-timeline-phase-wrap">
-                                    <span className={`qr-phase-tag ${phase === "PHASE_1" ? "p1" : phase === "PHASE_2" ? "p2" : "closed"}`}>
-                                        {phase === "PHASE_1" ? `⚡ Phase 1 (0:00–${formatMmSs(qr1TotalSeconds)})` : phase === "PHASE_2" ? `🎯 Phase 2 (${formatMmSs(qr1TotalSeconds)}–${formatMmSs(totalDurationSeconds)})` : "🔒 Session Closed"}
-                                    </span>
-                                </div>
-                            </div>
+                {/* Visual Timeline Partition Bar */}
+                <div className="qr-blueprint-timeline-wrap">
+                    <div className="qr-blueprint-timeline-label">
+                        <span>Timeline Partition</span>
+                        <span>{formatMmSs(qr1Seconds + qr2Seconds)} Total ({Math.round((qr1Seconds + qr2Seconds) / 60 * 10) / 10}m)</span>
+                    </div>
+                    <div className="qr-timeline-preview-bar">
+                        <div
+                            className="qr-timeline-seg-p1"
+                            style={{ width: `${Math.round((qr1Seconds / (qr1Seconds + qr2Seconds)) * 100)}%` }}
+                            title={`Phase 1: ${qr1Seconds}s`}
+                        />
+                        <div
+                            className="qr-timeline-seg-p2"
+                            style={{ width: `${Math.round((qr2Seconds / (qr1Seconds + qr2Seconds)) * 100)}%` }}
+                            title={`Phase 2: ${qr2Seconds}s`}
+                        />
+                    </div>
+                    <div className="qr-blueprint-timeline-legend">
+                        <span><span className="legend-dot-p1" /> P1 Check-in ({qr1Seconds}s)</span>
+                        <span><span className="legend-dot-p2" /> P2 Biometrics ({qr2Seconds}s)</span>
+                    </div>
+                </div>
 
-                            {/* Lecturer Security PIN & Kiosk Remote Controller Bar */}
-                            {phase !== "CLOSED" && (
-                                <div className="qr-pin-bar">
-                                    <div className="qr-pin-info">
-                                        <FaLock />
-                                        <span>PIN: <strong className="qr-pin-value">{showPin ? (sessionPin || "------") : (sessionPin ? "••••••" : "------")}</strong></span>
-                                        {sessionPin && (
-                                            <button
-                                                type="button"
-                                                onClick={() => setShowPin((prev) => !prev)}
-                                                className={`qr-pin-toggle-btn ${showPin ? "active" : ""}`}
-                                            >
-                                                {showPin ? <><FaEyeSlash /> Hide</> : <><FaEye /> View</>}
-                                            </button>
-                                        )}
-                                    </div>
-                                    <button
-                                        type="button"
-                                        onClick={handleEndSessionAndReleaseAll}
-                                        className="qr-pin-end-btn"
-                                        title="End session immediately, release all student kiosks, and mark session complete (3:00)"
-                                    >
-                                        🛑 End Session &amp; Release Devices
-                                    </button>
-                                </div>
-                            )}
+                {/* Blueprint Specs Grid (Live selections) */}
+                <div className="qr-blueprint-specs">
+                    <div className="qr-blueprint-spec-item">
+                        <span className="spec-label">Course Code</span>
+                        <span className="spec-val">{String(courseCode || "").trim() || "Not Selected"}</span>
+                    </div>
+                    <div className="qr-blueprint-spec-item">
+                        <span className="spec-label">Department</span>
+                        <span className="spec-val">{classCode || "Not Selected"}</span>
+                    </div>
+                    <div className="qr-blueprint-spec-item">
+                        <span className="spec-label">Room / Lab</span>
+                        <span className="spec-val">{String(roomNo || "").trim() || "Not Set"}</span>
+                    </div>
+                    <div className="qr-blueprint-spec-item">
+                        <span className="spec-label">Batch</span>
+                        <span className="spec-val">{batch}</span>
+                    </div>
+                    <div className="qr-blueprint-spec-item">
+                        <span className="spec-label">Lecture Length</span>
+                        <span className="spec-val">{lectureHours} Hr</span>
+                    </div>
+                    <div className="qr-blueprint-spec-item">
+                        <span className="spec-label">GPS Geofence</span>
+                        <span className="spec-val">{geofenceRadius > 0 ? `${geofenceRadius}m Active` : "Disabled"}</span>
+                    </div>
+                    <div className="qr-blueprint-spec-item">
+                        <span className="spec-label">Token Rotation</span>
+                        <span className="spec-val">{rotationIntervalSec}s Dynamic</span>
+                    </div>
+                    <div className="qr-blueprint-spec-item">
+                        <span className="spec-label">Host</span>
+                        <span className="spec-val">{profile?.name || user?.displayName || (user?.email ? user.email.split("@")[0] : "Lecturer")}</span>
+                    </div>
+                </div>
 
-                            {/* Session Header */}
-                            <div className="qr-result-heading">
-                                <span className="qr-status-dot" style={{ background: phase === "PHASE_1" ? "#6366f1" : phase === "PHASE_2" ? "#10b981" : "#94a3b8" }} />
-                                <div className="child-qr-result-heading">
-                                    <p className="qrpage-kicker" style={{ color: phase === "PHASE_1" ? "#6366f1" : phase === "PHASE_2" ? "#10b981" : "#64748b" }}>
-                                        {phase === "PHASE_1" ? "QR 1: CLASSROOM CHECK-IN & KIOSK START" : phase === "PHASE_2" ? "QR 2: BIOMETRIC ATTENDANCE" : "SESSION COMPLETE"}
-                                    </p>
-                                    <h2>{courseCode} · {classCode}{batch ? ` (${batch})` : ""} · {roomNo} <span style={{ fontSize: "0.85rem", opacity: 0.8, fontWeight: "normal" }}>({lectureHours || 1.0} hr)</span></h2>
-                                </div>
-                            </div>
+                {/* Security Chips */}
+                <div className="qr-security-chips">
+                    <span className="qr-sec-chip"><FaLock /> Kiosk Mode Locked</span>
+                    <span className="qr-sec-chip"><FaMapMarkerAlt /> {geofenceRadius > 0 ? `${geofenceRadius}m GPS Active` : "GPS Disabled"}</span>
+                    <span className="qr-sec-chip"><FaSyncAlt /> {rotationIntervalSec}s Token Rotation</span>
+                    <span className="qr-sec-chip"><FaFingerprint /> Biometric Verified</span>
+                </div>
 
-                            {/* Dynamic Rotating QR HUD */}
-                            {phase !== "CLOSED" && (
-                                <div style={{
-                                    display: "flex",
-                                    justifyContent: "space-between",
-                                    alignItems: "center",
-                                    padding: "8px 14px",
-                                    background: "rgba(99, 102, 241, 0.08)",
-                                    borderRadius: "10px",
-                                    border: "1px solid rgba(99, 102, 241, 0.2)",
-                                    marginBottom: "10px",
-                                    gap: "8px",
-                                    flexWrap: "wrap"
-                                }}>
-                                    <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                                        <FaSyncAlt className="fa-spin" style={{ color: "#6366f1", fontSize: "0.85rem" }} />
-                                        <span style={{ fontSize: "0.84rem", fontWeight: 700, color: "#4338ca" }}>
-                                            Rotating QR Token: <strong style={{ color: "#ef4444" }}>{rotationSecondsLeft}s</strong>
-                                        </span>
-                                    </div>
+                {/* Live Readiness Checklist */}
+                <div className="qr-readiness-list">
+                    <div className={`qr-readiness-item ${String(courseCode || "").trim() ? "ready" : "missing"}`}>
+                        {String(courseCode || "").trim() ? <FaCheckCircle /> : <FaTimesCircle />}
+                        <span>Course: {String(courseCode || "").trim() || "Enter or pick course code"}</span>
+                    </div>
+                    <div className={`qr-readiness-item ${classCode ? "ready" : "missing"}`}>
+                        {classCode ? <FaCheckCircle /> : <FaTimesCircle />}
+                        <span>Department: {classCode || "Select branch / section"}</span>
+                    </div>
+                    <div className={`qr-readiness-item ${String(roomNo || "").trim() ? "ready" : "missing"}`}>
+                        {String(roomNo || "").trim() ? <FaCheckCircle /> : <FaTimesCircle />}
+                        <span>Room: {String(roomNo || "").trim() || "Enter room number (e.g. C002)"}</span>
+                    </div>
+                </div>
 
-                                    <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                                        <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--text-muted, #64748b)" }}>Interval:</span>
-                                        <select
-                                            value={rotationIntervalSec}
-                                            onChange={(e) => setRotationIntervalSec(Number(e.target.value))}
-                                            style={{
-                                                padding: "3px 8px",
-                                                borderRadius: "6px",
-                                                fontSize: "0.78rem",
-                                                fontWeight: 700,
-                                                border: "1px solid #cbd5e1",
-                                                background: "#ffffff",
-                                                cursor: "pointer"
-                                            }}
-                                        >
-                                            <option value="5">5s (High Security)</option>
-                                            <option value="10">10s (Recommended)</option>
-                                            <option value="15">15s</option>
-                                            <option value="30">30s</option>
-                                            <option value="60">60s</option>
-                                        </select>
-                                    </div>
-                                </div>
-                            )}
+                {/* Launch Action Button */}
+                <button
+                    type="button"
+                    onClick={handleGenerateSession}
+                    className="qr-launch-session-btn"
+                    disabled={isGenerating || !isFormReady}
+                >
+                    <span>
+                        {isGenerating
+                            ? "Initializing Authoritative Session..."
+                            : `🚀 Start Attendance Session (${Math.round((qr1Seconds + qr2Seconds) / 60 * 10) / 10} Min Total)`}
+                    </span>
+                    {!isGenerating ? <FaArrowRight /> : <FaSyncAlt className="fa-spin" />}
+                </button>
 
-                            {/* Animated HUD Timeline Progress Bar */}
-                            {phase !== "CLOSED" && (
-                                <div className="qr-hud-progress-track">
-                                    <div
-                                        className={`qr-hud-progress-fill ${phase === "PHASE_1" ? "phase-1" : "phase-2"}`}
-                                        style={{
-                                            width: `${Math.min(100, Math.max(0, ((totalDurationSeconds - elapsedSeconds) / Math.max(1, totalDurationSeconds)) * 100))}%`
-                                        }}
-                                    />
-                                </div>
-                            )}
+                {errorMessage && <p className="qr-error" role="alert" style={{ marginTop: "8px" }}>{errorMessage}</p>}
+            </aside>
+        </div>
+    );
 
-                            {/* QR Canvas Frame */}
-                            {phase !== "CLOSED" ? (
+    // -------------------------------------------------------------------------
+    // Sub-render B: Roster Table & Moderation Section (Reused across views)
+    // -------------------------------------------------------------------------
+    const renderRosterTable = (isCompact = true) => (
+        <section className={`qr-live-tracking-section ${isCompact ? "qr-compact-roster" : ""}`}>
+            <div className="qr-tracking-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "12px" }}>
+                <div>
+                    <h3 className="qr-tracking-title">
+                        <FaUsers /> Live Attendance &amp; Student Roster
+                    </h3>
+                    <p className="qr-tracking-desc">
+                        Real-time breakdown of students in this session. Excuse and reinstate attendance if a student presents a valid reason in class.
+                    </p>
+                </div>
+                <button
+                    type="button"
+                    onClick={() => setShowManualExcuseModal(true)}
+                    className="qr-manual-excuse-btn"
+                    style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "8px",
+                        padding: "9px 16px",
+                        borderRadius: "10px",
+                        background: "#10b981",
+                        color: "#ffffff",
+                        border: "none",
+                        fontWeight: 750,
+                        fontSize: "0.88rem",
+                        cursor: "pointer",
+                        boxShadow: "0 4px 12px rgba(16, 185, 129, 0.25)"
+                    }}
+                >
+                    <FaUserPlus /> <span>➕ Excuse / Add Student by Roll No</span>
+                </button>
+            </div>
+
+            {/* 4-Metric Summary Cards */}
+            <div className="qr-metrics-grid" style={{ gridTemplateColumns: isCompact ? undefined : "repeat(auto-fit, minmax(220px, 1fr))" }}>
+                {/* Metric 1: Total Scanned QR 1 */}
+                <div className="qr-kpi-card qr-kpi-scanned">
+                    <div className="qr-kpi-icon indigo">
+                        <FaMobileAlt />
+                    </div>
+                    <div className="qr-kpi-data">
+                        <span className="qr-kpi-label">Scanned QR 1 (Checked In)</span>
+                        <span className="qr-kpi-val">{totalScannedQR1}</span>
+                        <span className="qr-kpi-sub">Devices locked in Kiosk</span>
+                    </div>
+                </div>
+
+                {/* Metric 2: Reached QR 2 (Attendance Completed) */}
+                <div className="qr-kpi-card qr-kpi-attended">
+                    <div className="qr-kpi-icon emerald">
+                        <FaCheckCircle />
+                    </div>
+                    <div className="qr-kpi-data">
+                        <span className="qr-kpi-label">Present (Verified / Excused)</span>
+                        <span className="qr-kpi-val">{reachedQR2Count}</span>
+                        <span className="qr-kpi-sub">Attendance approved</span>
+                    </div>
+                </div>
+
+                {/* Metric 3: Pending QR 2 */}
+                <div className="qr-kpi-card qr-kpi-pending">
+                    <div className="qr-kpi-icon amber">
+                        <FaClock />
+                    </div>
+                    <div className="qr-kpi-data">
+                        <span className="qr-kpi-label">Pending QR 2 (In-Class)</span>
+                        <span className="qr-kpi-val">{pendingQR2Count}</span>
+                        <span className="qr-kpi-sub">Checked-in, waiting QR 2</span>
+                    </div>
+                </div>
+
+                {/* Metric 4: Flagged Violations / Disqualified */}
+                <div className="qr-kpi-card" style={{ borderLeft: "4px solid #ef4444" }}>
+                    <div className="qr-kpi-icon" style={{ background: "rgba(239, 68, 68, 0.12)", color: "#dc2626" }}>
+                        <FaExclamationTriangle />
+                    </div>
+                    <div className="qr-kpi-data">
+                        <span className="qr-kpi-label">Flagged / Disqualified</span>
+                        <span className="qr-kpi-val" style={{ color: "#dc2626" }}>{violationsCount}</span>
+                        <span className="qr-kpi-sub">{violationsCount > 0 ? "App switch / screen exit" : "No violations"}</span>
+                    </div>
+                </div>
+            </div>
+
+            {/* Active Violation Alert & Excuse Guide */}
+            {violationsCount > 0 && (
+                <div className="qr-violations-alert-box">
+                    <div className="qr-violations-alert-info">
+                        <FaExclamationTriangle className="qr-violations-alert-icon" />
+                        <div>
+                            <strong className="qr-violations-alert-title">
+                                {violationsCount} student(s) disqualified due to app switching or screen lockout
+                            </strong>
+                            <span className="qr-violations-alert-desc">
+                                If a student gives a valid physical reason in class (e.g. accidental notification tap / phone glitch), click <strong>"Excuse &amp; Mark Present"</strong> to pardon and restore their attendance.
+                            </span>
+                        </div>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={() => setRosterFilterTab("VIOLATIONS")}
+                        className="qr-violations-filter-btn"
+                    >
+                        View Disqualified Students ({violationsCount})
+                    </button>
+                </div>
+            )}
+
+            {/* Roster Controls & Filter Tabs */}
+            <div style={{
+                marginTop: "18px",
+                marginBottom: "12px",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                flexWrap: "wrap",
+                gap: "12px"
+            }}>
+                <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                    <button
+                        type="button"
+                        onClick={() => setRosterFilterTab("ALL")}
+                        style={{
+                            padding: "6px 14px",
+                            borderRadius: "8px",
+                            border: "1.5px solid",
+                            borderColor: rosterFilterTab === "ALL" ? "#6366f1" : "var(--border, #cbd5e1)",
+                            background: rosterFilterTab === "ALL" ? "rgba(99, 102, 241, 0.1)" : "transparent",
+                            color: rosterFilterTab === "ALL" ? "#6366f1" : "var(--text-main, #475569)",
+                            fontWeight: 700,
+                            fontSize: "0.82rem",
+                            cursor: "pointer"
+                        }}
+                    >
+                        All ({enrichedStudentsList.length})
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => setRosterFilterTab("PRESENT")}
+                        style={{
+                            padding: "6px 14px",
+                            borderRadius: "8px",
+                            border: "1.5px solid",
+                            borderColor: rosterFilterTab === "PRESENT" ? "#10b981" : "var(--border, #cbd5e1)",
+                            background: rosterFilterTab === "PRESENT" ? "rgba(16, 185, 129, 0.1)" : "transparent",
+                            color: rosterFilterTab === "PRESENT" ? "#10b981" : "var(--text-main, #475569)",
+                            fontWeight: 700,
+                            fontSize: "0.82rem",
+                            cursor: "pointer"
+                        }}
+                    >
+                        Present ({reachedQR2Count})
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => setRosterFilterTab("PENDING")}
+                        style={{
+                            padding: "6px 14px",
+                            borderRadius: "8px",
+                            border: "1.5px solid",
+                            borderColor: rosterFilterTab === "PENDING" ? "#f59e0b" : "var(--border, #cbd5e1)",
+                            background: rosterFilterTab === "PENDING" ? "rgba(245, 158, 11, 0.1)" : "transparent",
+                            color: rosterFilterTab === "PENDING" ? "#d97706" : "var(--text-main, #475569)",
+                            fontWeight: 700,
+                            fontSize: "0.82rem",
+                            cursor: "pointer"
+                        }}
+                    >
+                        Pending QR 2 ({pendingQR2Count})
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => setRosterFilterTab("VIOLATIONS")}
+                        style={{
+                            padding: "6px 14px",
+                            borderRadius: "8px",
+                            border: "1.5px solid",
+                            borderColor: rosterFilterTab === "VIOLATIONS" ? "#ef4444" : "var(--border, #cbd5e1)",
+                            background: rosterFilterTab === "VIOLATIONS" ? "rgba(239, 68, 68, 0.1)" : "transparent",
+                            color: rosterFilterTab === "VIOLATIONS" ? "#dc2626" : "var(--text-main, #475569)",
+                            fontWeight: 700,
+                            fontSize: "0.82rem",
+                            cursor: "pointer"
+                        }}
+                    >
+                        Disqualified / Violations ({violationsCount})
+                    </button>
+                </div>
+
+                <input
+                    type="text"
+                    placeholder="Filter by roll number or name..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    style={{
+                        padding: "7px 12px",
+                        borderRadius: "8px",
+                        border: "1.5px solid var(--border, #cbd5e1)",
+                        fontSize: "0.84rem",
+                        minWidth: "220px",
+                        outline: "none"
+                    }}
+                />
+            </div>
+
+            {/* Deduplicated Student List Table */}
+            {filteredRoster.length === 0 ? (
+                <div className="qr-waiting-box">
+                    <FaClock />
+                    <p>
+                        {uniqueStudentsList.length === 0
+                            ? "Waiting for students to scan QR 1 and check into this session..."
+                            : "No students matching the current filter."}
+                    </p>
+                </div>
+            ) : (
+                <div className="qr-roster-table-wrap">
+                    <table className="qr-roster-table">
+                        <thead>
+                            <tr>
+                                <th>Roll Number</th>
+                                <th>Student Name</th>
+                                <th>Phase 1 (QR 1)</th>
+                                <th>Phase 2 (QR 2) &amp; Status</th>
+                                <th>Kiosk Mode</th>
+                                <th style={{ textAlign: "right" }}>Lecturer Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {filteredRoster.map((student) => {
+                                const studentId = student.studentUid || student.id || student.rollNo;
+                                const isReleased = student.released === true || student.status === "RELEASED" || phase === "CLOSED";
+                                const isBusyRelease = releasingStudentId === studentId;
+                                const isBusyExcuse = excusingStudentId === studentId;
+
+                                return (
+                                    <tr key={student.rollNo} className={student.hasViolation && !student.isAttended ? "row-violation" : isReleased ? "row-released" : ""}>
+                                        <td className="qr-cell-roll">
+                                            <strong>{student.rollNo}</strong>
+                                        </td>
+                                        <td className="qr-cell-name">
+                                            {student.studentName || student.fullName || student.rollNo}
+                                        </td>
+                                        <td>
+                                            <span className="qr-tag-scanned">
+                                                <FaCheckCircle /> Scanned
+                                            </span>
+                                        </td>
+                                        <td>
+                                            {student.isExcused ? (
+                                                <span className="qr-tag-attended" style={{ background: "rgba(16, 185, 129, 0.15)", color: "#059669" }}>
+                                                    <FaCheckCircle /> Excused (Present)
+                                                </span>
+                                            ) : student.isAttended ? (
+                                                <span className="qr-tag-attended">
+                                                    <FaCheckCircle /> Reached QR 2 (100%)
+                                                </span>
+                                            ) : student.hasViolation ? (
+                                                <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                                                    <span style={{
+                                                        background: "#fee2e2",
+                                                        color: "#b91c1c",
+                                                        border: "1px solid #fca5a5",
+                                                        padding: "3px 8px",
+                                                        borderRadius: "6px",
+                                                        fontWeight: 750,
+                                                        fontSize: "0.78rem",
+                                                        display: "inline-flex",
+                                                        alignItems: "center",
+                                                        gap: "4px"
+                                                    }}>
+                                                        <FaExclamationTriangle /> {student.isDisqualified ? "Disqualified (App Switch)" : "Flagged Warning"}
+                                                    </span>
+                                                    <span style={{ fontSize: "0.72rem", color: "#9f1239" }}>
+                                                        {student.violationReason}
+                                                    </span>
+                                                </div>
+                                            ) : (
+                                                <span className="qr-tag-pending">
+                                                    <FaClock /> Pending QR 2
+                                                </span>
+                                            )}
+                                        </td>
+                                        <td>
+                                            {isReleased ? (
+                                                <span className="qr-tag-released">
+                                                    <FaUnlock /> Released
+                                                </span>
+                                            ) : (
+                                                <span className="qr-tag-locked">
+                                                    <FaLock /> Locked
+                                                </span>
+                                            )}
+                                        </td>
+                                        <td style={{ textAlign: "right" }}>
+                                            <div style={{ display: "inline-flex", gap: "6px", justifyContent: "flex-end" }}>
+                                                {/* Excuse & Mark Present Action */}
+                                                {!student.isAttended ? (
+                                                    <button
+                                                        type="button"
+                                                        disabled={isBusyExcuse}
+                                                        onClick={() => handleExcuseStudent(student)}
+                                                        style={{
+                                                            padding: "6px 12px",
+                                                            borderRadius: "8px",
+                                                            border: "none",
+                                                            background: "#10b981",
+                                                            color: "#ffffff",
+                                                            fontWeight: 700,
+                                                            fontSize: "0.78rem",
+                                                            cursor: "pointer",
+                                                            display: "inline-flex",
+                                                            alignItems: "center",
+                                                            gap: "4px",
+                                                            boxShadow: "0 2px 6px rgba(16, 185, 129, 0.25)"
+                                                        }}
+                                                        title="Pardon violation and mark attendance as Present"
+                                                    >
+                                                        {isBusyExcuse ? (
+                                                            <FaSpinner className="fa-spin" />
+                                                        ) : (
+                                                            <><FaCheck /> Excuse &amp; Mark Present</>
+                                                        )}
+                                                    </button>
+                                                ) : (
+                                                    <span style={{ color: "#10b981", fontWeight: 700, fontSize: "0.82rem", display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                                                        <FaCheck /> Verified
+                                                    </span>
+                                                )}
+
+                                                {/* Kiosk Mode Device Unlock Button */}
+                                                <button
+                                                    type="button"
+                                                    disabled={isReleased || isBusyRelease}
+                                                    onClick={() => handleReleaseIndividualStudent(student)}
+                                                    className={`qr-release-btn ${isReleased ? "released" : ""}`}
+                                                    style={{ padding: "6px 10px", fontSize: "0.78rem" }}
+                                                >
+                                                    {isBusyRelease ? (
+                                                        <FaSpinner className="fa-spin" />
+                                                    ) : isReleased ? (
+                                                        <>Unlocked</>
+                                                    ) : (
+                                                        <><FaUnlock /> Release</>
+                                                    )}
+                                                </button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                );
+                            })}
+                        </tbody>
+                    </table>
+                </div>
+            )}
+        </section>
+    );
+
+    // -------------------------------------------------------------------------
+    // Sub-render C: Compact HUD Card (For Split Mode Left Column)
+    // -------------------------------------------------------------------------
+    const renderHudCard = () => (
+        <section className="qr-result qr-result-ready qr-compact-hud">
+            {/* Phase Banner */}
+            <div className={`qr-compact-hud-banner ${phase === "PHASE_1" ? "p1" : phase === "PHASE_2" ? "p2" : "closed"}`}>
+                {phase === "PHASE_1" ? (
+                    <>⚡ Phase 1: Classroom Check-in (0:00–{formatMmSs(qr1TotalSeconds)})</>
+                ) : phase === "PHASE_2" ? (
+                    <>🎯 Phase 2: Biometric Verification ({formatMmSs(qr1TotalSeconds)}–{formatMmSs(totalDurationSeconds)})</>
+                ) : (
+                    <>🔒 Attendance Session Completed</>
+                )}
+            </div>
+
+            {/* QR Canvas Frame - Placed at top so it is 100% visible without scrolling */}
+            {phase !== "CLOSED" ? (
+                <>
+                    <div className={`qr-code-frame cyber-frame ${phase === "PHASE_1" ? "phase-1" : "phase-2"}`}>
+                        <span className="qr-corner-bracket tl" />
+                        <span className="qr-corner-bracket tr" />
+                        <span className="qr-corner-bracket bl" />
+                        <span className="qr-corner-bracket br" />
+                        <QRCodeCanvas
+                            value={activeQrUrl || (sessionId ? `${window.location.origin}/student/mark-attendance?session=${encodeURIComponent(sessionId)}` : "https://smart-attendance-ok.web.app")}
+                            size={250}
+                        />
+                    </div>
+
+                    {/* Dynamic Rotating QR Ticker */}
+                    <div style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        gap: "10px",
+                        width: "100%",
+                        maxWidth: "320px",
+                        padding: "6px 12px",
+                        background: "rgba(99, 102, 241, 0.08)",
+                        borderRadius: "10px",
+                        border: "1px solid rgba(99, 102, 241, 0.2)",
+                        margin: "6px 0 8px",
+                        fontSize: "0.82rem",
+                        fontWeight: 700,
+                        color: "#4338ca",
+                        boxSizing: "border-box"
+                    }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                            <FaSyncAlt className="fa-spin" style={{ color: "#6366f1", fontSize: "0.8rem" }} />
+                            <span>Rotating in <strong style={{ color: "#ef4444" }}>{rotationSecondsLeft}s</strong></span>
+                        </div>
+                        <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                            <span style={{ fontSize: "0.72rem", color: "var(--text-muted, #64748b)" }}>Interval:</span>
+                            <select
+                                value={rotationIntervalSec}
+                                onChange={(e) => setRotationIntervalSec(Number(e.target.value))}
+                                style={{
+                                    padding: "2px 6px",
+                                    borderRadius: "6px",
+                                    fontSize: "0.74rem",
+                                    fontWeight: 700,
+                                    border: "1px solid #cbd5e1",
+                                    background: "#ffffff",
+                                    cursor: "pointer"
+                                }}
+                            >
+                                <option value="5">5s</option>
+                                <option value="10">10s</option>
+                                <option value="15">15s</option>
+                                <option value="30">30s</option>
+                                <option value="60">60s</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    {/* Interactive Geofence Live Adjustment Bar */}
+                    <div style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        gap: "6px",
+                        fontSize: "0.76rem",
+                        fontWeight: 700,
+                        color: geofenceRadius > 0 ? "#059669" : "#64748b",
+                        marginBottom: "10px",
+                        flexWrap: "wrap",
+                        padding: "6px 12px",
+                        borderRadius: "10px",
+                        background: geofenceRadius > 0 ? "rgba(16, 185, 129, 0.08)" : "rgba(100, 116, 139, 0.08)",
+                        border: geofenceRadius > 0 ? "1px solid rgba(16, 185, 129, 0.25)" : "1px solid rgba(100, 116, 139, 0.2)"
+                    }}>
+                        <span>
+                            {geofenceRadius > 0
+                                ? `📍 Geofence: ${classroomCoords?.radius || geofenceRadius}m Active`
+                                : "📍 Geofence: Disabled"}
+                        </span>
+                        <div style={{ display: "inline-flex", gap: "4px", alignItems: "center" }}>
+                            {geofenceRadius > 0 && (
                                 <>
-                                    <div className={`qr-code-frame cyber-frame ${phase === "PHASE_1" ? "phase-1" : "phase-2"}`}>
-                                        <span className="qr-corner-bracket tl" />
-                                        <span className="qr-corner-bracket tr" />
-                                        <span className="qr-corner-bracket bl" />
-                                        <span className="qr-corner-bracket br" />
-                                        <QRCodeCanvas value={activeQrUrl} size={215} />
-                                    </div>
-                                    <div style={{
-                                        display: "flex",
-                                        alignItems: "center",
-                                        justifyContent: "center",
-                                        gap: "8px",
-                                        fontSize: "0.78rem",
-                                        fontWeight: 700,
-                                        color: geofenceRadius > 0 && classroomCoords ? "#059669" : geofenceRadius > 0 && classroomGpsStatus === "UNAVAILABLE" ? "#d97706" : "#64748b",
-                                        marginTop: "6px",
-                                        marginBottom: "10px",
-                                        flexWrap: "wrap"
-                                    }}>
-                                        {classroomCoords ? (
-                                            <>
-                                                <span>📍 Classroom Geofence: {classroomCoords.radius}m Active (±{Math.round(classroomCoords.accuracy || 0)}m Host GPS)</span>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => handleUpdateGeofenceRadius(0)}
-                                                    style={{
-                                                        background: "none",
-                                                        border: "1px solid #f87171",
-                                                        padding: "2px 8px",
-                                                        borderRadius: "6px",
-                                                        fontSize: "0.72rem",
-                                                        color: "#dc2626",
-                                                        fontWeight: 700,
-                                                        cursor: "pointer"
-                                                    }}
-                                                    title="Click to disable GPS if students in this classroom have weak satellite reception"
-                                                >
-                                                    Disable GPS
-                                                </button>
-                                            </>
-                                        ) : classroomGpsStatus === "UNAVAILABLE" ? (
-                                            <>
-                                                <span style={{ color: "#d97706" }}>⚠️ Host PC GPS Timed Out (Geofence bypassed · Rotating QR Token Active)</span>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => handleUpdateGeofenceRadius(geofenceRadius || 30)}
-                                                    style={{
-                                                        background: "none",
-                                                        border: "1px solid #f59e0b",
-                                                        padding: "2px 8px",
-                                                        borderRadius: "6px",
-                                                        fontSize: "0.72rem",
-                                                        color: "#d97706",
-                                                        fontWeight: 700,
-                                                        cursor: "pointer"
-                                                    }}
-                                                    title="Retry capturing host location"
-                                                >
-                                                    🔄 Retry GPS
-                                                </button>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => handleUpdateGeofenceRadius(0)}
-                                                    style={{
-                                                        background: "none",
-                                                        border: "1px solid #cbd5e1",
-                                                        padding: "2px 8px",
-                                                        borderRadius: "6px",
-                                                        fontSize: "0.72rem",
-                                                        color: "#64748b",
-                                                        fontWeight: 700,
-                                                        cursor: "pointer"
-                                                    }}
-                                                    title="Dismiss and keep GPS disabled"
-                                                >
-                                                    Disable
-                                                </button>
-                                            </>
-                                        ) : geofenceRadius > 0 ? (
-                                            <>
-                                                <span>📍 Classroom Geofence: {geofenceRadius}m Active</span>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => handleUpdateGeofenceRadius(0)}
-                                                    style={{
-                                                        background: "none",
-                                                        border: "1px solid #f87171",
-                                                        padding: "2px 8px",
-                                                        borderRadius: "6px",
-                                                        fontSize: "0.72rem",
-                                                        color: "#dc2626",
-                                                        fontWeight: 700,
-                                                        cursor: "pointer"
-                                                    }}
-                                                >
-                                                    Disable GPS
-                                                </button>
-                                            </>
-                                        ) : (
-                                            <>
-                                                <span>📍 Classroom Geofence: Disabled</span>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => handleUpdateGeofenceRadius(30)}
-                                                    style={{
-                                                        background: "none",
-                                                        border: "1px solid #10b981",
-                                                        padding: "2px 8px",
-                                                        borderRadius: "6px",
-                                                        fontSize: "0.72rem",
-                                                        color: "#059669",
-                                                        fontWeight: 700,
-                                                        cursor: "pointer"
-                                                    }}
-                                                >
-                                                    Enable 30m GPS
-                                                </button>
-                                            </>
-                                        )}
-                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => handleStepGeofenceRadius(-5)}
+                                        title="Decrease geofence radius by 5m"
+                                        style={{ padding: "2px 6px", borderRadius: "5px", border: "1px solid #cbd5e1", background: "var(--surface, #ffffff)", fontSize: "0.7rem", fontWeight: 800, cursor: "pointer" }}
+                                    >
+                                        -5m
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => handleStepGeofenceRadius(5)}
+                                        title="Increase geofence radius by 5m"
+                                        style={{ padding: "2px 6px", borderRadius: "5px", border: "1px solid #cbd5e1", background: "var(--surface, #ffffff)", fontSize: "0.7rem", fontWeight: 800, cursor: "pointer" }}
+                                    >
+                                        +5m
+                                    </button>
                                 </>
-                            ) : (
-                                <div style={{
-                                    padding: "30px 20px",
-                                    borderRadius: "16px",
-                                    background: "var(--surface-soft, #f1f5f9)",
-                                    border: "2px dashed var(--border, #cbd5e1)",
-                                    margin: "12px 0 20px",
-                                    color: "var(--text-main, #334155)"
-                                }}>
-                                    <FaCheckDouble style={{ fontSize: "2.5rem", color: "#10b981", marginBottom: "10px" }} />
-                                    <h3 style={{ margin: "0 0 6px", fontSize: "1.15rem", fontWeight: 800 }}>Attendance Session Completed</h3>
-                                    <p style={{ margin: 0, fontSize: "0.86rem", color: "var(--text-muted, #64748b)" }}>
-                                        Session window ({formatMmSs(totalDurationSeconds)}) elapsed. All student devices have been unlocked from Kiosk mode.
-                                    </p>
-                                </div>
                             )}
-
-                            {/* Classroom Security Notice Projected for Students */}
-                            <div className="qr-classroom-security-notice">
-                                <div className="qr-sec-badge">
-                                    <FaShieldAlt /> Attendance Integrity &amp; Supervision Policy
-                                </div>
-                                <p className="qr-sec-text">
-                                    <strong>⚠️ Multi-Platform Policy:</strong> Android devices are pinned in Kiosk Lock Task mode (2 confirmed exits forfeit attendance). iPhone and Web browser users must remain in SmartAttend without switching tabs or locking the screen until verification finishes.
-                                </p>
-                            </div>
-
-                            {/* Phase 1 Status */}
-                            {phase === "PHASE_1" && (
-                                <div className="qr-phase-panel">
-                                    <div className={`qr-countdown-badge ${qr1Remaining > 15 ? "normal" : "urgent"}`}>
-                                        <FaClock />
-                                        <span>QR 1 Auto-Switches in:</span>
-                                        <strong>{qr1Remaining}s (at {formatMmSs(qr1TotalSeconds)})</strong>
-                                    </div>
-
-                                    <div className="qr-metric-row">
-                                        <div className="qr-metric-label">
-                                            <FaUserCheck style={{ color: "#6366f1", fontSize: "1.2rem" }} />
-                                            <span>Students Checked In &amp; Locked:</span>
-                                        </div>
-                                        <strong className="qr-metric-val" style={{ color: "#6366f1" }}>
-                                            {totalScannedQR1}
-                                        </strong>
-                                    </div>
-
-                                    <button
-                                        type="button"
-                                        onClick={handleForcePhase2}
-                                        disabled={isTransitioning}
-                                        className="qr-switch-btn"
-                                    >
-                                        <span>⚡ Switch to QR 2 Early</span>
-                                        <FaArrowRight />
-                                    </button>
-                                </div>
-                            )}
-
-                            {/* Phase 2 Status */}
-                            {phase === "PHASE_2" && (
-                                <div className="qr-phase-panel">
-                                    <div style={{
-                                        padding: "10px 14px",
-                                        borderRadius: "10px",
-                                        background: "rgba(16, 185, 129, 0.1)",
-                                        border: "1px solid rgba(16, 185, 129, 0.3)",
-                                        color: "#065f46",
-                                        fontSize: "0.85rem",
-                                        fontWeight: 700,
-                                        marginBottom: "4px"
-                                    }}>
-                                        🔒 Phase 2 Active: Only {totalScannedQR1} students who checked in during 0:00–{formatMmSs(qr1TotalSeconds)} can submit attendance.
-                                    </div>
-
-                                    <div className="qr-metric-row">
-                                        <div className="qr-metric-label">
-                                            <FaCheckCircle style={{ color: "#10b981", fontSize: "1.2rem" }} />
-                                            <span>Attendance Recorded:</span>
-                                        </div>
-                                        <strong className="qr-metric-val" style={{ color: "#10b981" }}>
-                                             {reachedQR2Count} / {totalScannedQR1}
-                                        </strong>
-                                    </div>
-
-                                    <div style={{
-                                        fontSize: "0.82rem",
-                                        color: "var(--text-muted, #64748b)",
-                                        marginBottom: "8px",
-                                        fontWeight: 600
-                                    }}>
-                                        ⏱️ All student devices unlock automatically at <strong>{formatMmSs(totalDurationSeconds)} ({sessionRemaining}s remaining)</strong>.
-                                    </div>
-                                </div>
-                            )}
-
-                            {/* Session Finished Status */}
-                            {phase === "CLOSED" && (
-                                <div className="qr-phase-panel">
-                                    <div className="qr-closed-box">
-                                        ✅ Total Present: {reachedQR2Count || sessionData?.attendanceCount || 0} / {uniqueStudentsList.length} Students
-                                    </div>
-                                    <button
-                                        type="button"
-                                        onClick={handleResetSession}
-                                        className="qr-reset-btn"
-                                        style={{ marginTop: "10px", width: "100%" }}
-                                    >
-                                        <FaSyncAlt /> Start New Attendance Session
-                                    </button>
-                                </div>
-                            )}
-
-                            {/* Unified Action Footer */}
-                            <div className="qr-action-footer">
-                                <Link
-                                    to={`/lecturer/attendance-sessions/${sessionId}`}
-                                    className="qr-view-live-btn"
-                                >
-                                    <FaUsers /> <span>{phase === "CLOSED" ? "Open Final Attendance Register" : "View Live Attendance Register"}</span>
-                                </Link>
-
-                                {phase !== "CLOSED" && (
-                                    <button
-                                        type="button"
-                                        onClick={handleCopyLink}
-                                        className="qr-copy-btn"
-                                        title="Copy active QR URL"
-                                    >
-                                        {copied ? <><FaCheck /> <span>Copied!</span></> : <><FaCopy /> <span>Copy Link</span></>}
-                                    </button>
-                                )}
-                            </div>
-
-                            {/* Collapsible Session Setup & Parameter Details */}
-                            <div className="qr-session-details-drawer">
+                            <button
+                                type="button"
+                                onClick={handlePromptCustomGeofence}
+                                title="Manually type custom metres radius"
+                                style={{ padding: "2px 7px", borderRadius: "5px", border: "1px solid #6366f1", background: "rgba(99, 102, 241, 0.12)", color: "#4f46e5", fontSize: "0.7rem", fontWeight: 750, cursor: "pointer" }}
+                            >
+                                ✏️ Custom
+                            </button>
+                            {geofenceRadius > 0 ? (
                                 <button
                                     type="button"
-                                    onClick={() => setShowSessionDetails((prev) => !prev)}
-                                    className="qr-details-toggle-btn"
+                                    onClick={() => handleUpdateGeofenceRadius(0)}
+                                    title="Disable GPS Geofence enforcement"
+                                    style={{ padding: "2px 7px", borderRadius: "5px", border: "1px solid #f87171", background: "rgba(239, 68, 68, 0.1)", color: "#dc2626", fontSize: "0.7rem", fontWeight: 750, cursor: "pointer" }}
                                 >
-                                    <span><FaInfoCircle /> Session Setup &amp; Parameters</span>
-                                    {showSessionDetails ? <FaChevronUp /> : <FaChevronDown />}
+                                    Disable
                                 </button>
-                                {showSessionDetails && (
-                                    <div className="qr-details-body">
-                                        <div className="qr-detail-item">
-                                            <span>Course</span>
-                                            <strong>{courseCode}</strong>
-                                        </div>
-                                        <div className="qr-detail-item">
-                                            <span>Class &amp; Batch</span>
-                                            <strong>{classCode} ({batch})</strong>
-                                        </div>
-                                        <div className="qr-detail-item">
-                                            <span>Room</span>
-                                            <strong>{roomNo}</strong>
-                                        </div>
-                                        <div className="qr-detail-item">
-                                            <span>Duration</span>
-                                            <strong>{lectureHours} hr</strong>
-                                        </div>
-                                        <div className="qr-detail-item">
-                                            <span>Geofence</span>
-                                            <strong>{geofenceRadius > 0 ? `${geofenceRadius}m Active` : "Disabled"}</strong>
-                                        </div>
-                                        <div className="qr-detail-item">
-                                            <span>Timetable</span>
-                                            <strong>{formatMmSs(qr1TotalSeconds)} (QR1) + {formatMmSs(totalDurationSeconds - qr1TotalSeconds)} (QR2)</strong>
-                                        </div>
-                                    </div>
-                                )}
-                            </div>
-                        </section>
-                    </aside>
-
-                    {/* Right Column: Live Attendance & Student Roster */}
-                    <main className="qr-active-right-col">
-                        <section className="qr-live-tracking-section qr-compact-roster">
-                    <div className="qr-tracking-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "12px" }}>
-                        <div>
-                            <h3 className="qr-tracking-title">
-                                <FaUsers /> Live Attendance &amp; Student Roster
-                            </h3>
-                            <p className="qr-tracking-desc">
-                                Real-time breakdown of students in this session. Excuse and reinstate attendance if a student presents a valid reason in class.
-                            </p>
-                        </div>
-                        <button
-                            type="button"
-                            onClick={() => setShowManualExcuseModal(true)}
-                            className="qr-manual-excuse-btn"
-                            style={{
-                                display: "inline-flex",
-                                alignItems: "center",
-                                gap: "8px",
-                                padding: "9px 16px",
-                                borderRadius: "10px",
-                                background: "#10b981",
-                                color: "#ffffff",
-                                border: "none",
-                                fontWeight: 700,
-                                fontSize: "0.88rem",
-                                cursor: "pointer",
-                                boxShadow: "0 4px 12px rgba(16, 185, 129, 0.25)"
-                            }}
-                        >
-                            <FaUserPlus /> <span>➕ Excuse / Add Student by Roll No</span>
-                        </button>
-                    </div>
-
-                    {/* 4-Metric Summary Cards */}
-                    <div className="qr-metrics-grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))" }}>
-                        {/* Metric 1: Total Scanned QR 1 */}
-                        <div className="qr-kpi-card qr-kpi-scanned">
-                            <div className="qr-kpi-icon indigo">
-                                <FaMobileAlt />
-                            </div>
-                            <div className="qr-kpi-data">
-                                <span className="qr-kpi-label">Scanned QR 1 (Checked In)</span>
-                                <span className="qr-kpi-val">{totalScannedQR1}</span>
-                                <span className="qr-kpi-sub">Devices locked in Kiosk</span>
-                            </div>
-                        </div>
-
-                        {/* Metric 2: Reached QR 2 (Attendance Completed) */}
-                        <div className="qr-kpi-card qr-kpi-attended">
-                            <div className="qr-kpi-icon emerald">
-                                <FaCheckCircle />
-                            </div>
-                            <div className="qr-kpi-data">
-                                <span className="qr-kpi-label">Present (Verified / Excused)</span>
-                                <span className="qr-kpi-val">{reachedQR2Count}</span>
-                                <span className="qr-kpi-sub">Attendance approved</span>
-                            </div>
-                        </div>
-
-                        {/* Metric 3: Pending QR 2 (Haven't Scanned QR 2 Yet) */}
-                        <div className="qr-kpi-card qr-kpi-pending">
-                            <div className="qr-kpi-icon amber">
-                                <FaClock />
-                            </div>
-                            <div className="qr-kpi-data">
-                                <span className="qr-kpi-label">Pending QR 2 (In-Class)</span>
-                                <span className="qr-kpi-val">{pendingQR2Count}</span>
-                                <span className="qr-kpi-sub">Checked-in, waiting QR 2</span>
-                            </div>
-                        </div>
-
-                        {/* Metric 4: Flagged Violations / Disqualified */}
-                        <div className="qr-kpi-card" style={{ borderLeft: "4px solid #ef4444" }}>
-                            <div className="qr-kpi-icon" style={{ background: "rgba(239, 68, 68, 0.12)", color: "#dc2626" }}>
-                                <FaExclamationTriangle />
-                            </div>
-                            <div className="qr-kpi-data">
-                                <span className="qr-kpi-label">Flagged / Disqualified</span>
-                                <span className="qr-kpi-val" style={{ color: "#dc2626" }}>{violationsCount}</span>
-                                <span className="qr-kpi-sub">{violationsCount > 0 ? "App switch / screen exit" : "No violations"}</span>
-                            </div>
+                            ) : (
+                                <button
+                                    type="button"
+                                    onClick={() => handleUpdateGeofenceRadius(30)}
+                                    title="Enable 30m default geofence"
+                                    style={{ padding: "2px 7px", borderRadius: "5px", border: "1px solid #10b981", background: "rgba(16, 185, 129, 0.15)", color: "#059669", fontSize: "0.7rem", fontWeight: 750, cursor: "pointer" }}
+                                >
+                                    Enable 30m
+                                </button>
+                            )}
+                            <button
+                                type="button"
+                                onClick={handleRecalibrateGps}
+                                title="Re-calibrate GPS from current device position"
+                                style={{ padding: "2px 7px", borderRadius: "5px", border: "1px solid #cbd5e1", background: "var(--surface, #ffffff)", color: "#64748b", fontSize: "0.7rem", fontWeight: 700, cursor: "pointer" }}
+                            >
+                                🎯 Re-fix
+                            </button>
                         </div>
                     </div>
 
-                    {/* Active Violation Alert & Excuse Guide */}
-                    {violationsCount > 0 && (
-                        <div className="qr-violations-alert-box">
-                            <div className="qr-violations-alert-info">
-                                <FaExclamationTriangle className="qr-violations-alert-icon" />
-                                <div>
-                                    <strong className="qr-violations-alert-title">
-                                        {violationsCount} student(s) disqualified due to app switching or screen lockout
-                                    </strong>
-                                    <span className="qr-violations-alert-desc">
-                                        If a student gives a valid physical reason in class (e.g. accidental notification tap / phone glitch), click <strong>"Excuse &amp; Mark Present"</strong> to pardon and restore their attendance.
-                                    </span>
-                                </div>
-                            </div>
-                            <button
-                                type="button"
-                                onClick={() => setRosterFilterTab("VIOLATIONS")}
-                                className="qr-violations-filter-btn"
-                            >
-                                View Disqualified Students ({violationsCount})
-                            </button>
-                        </div>
-                    )}
-
-                    {/* Roster Controls & Filter Tabs */}
-                    <div style={{
-                        marginTop: "18px",
-                        marginBottom: "12px",
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "center",
-                        flexWrap: "wrap",
-                        gap: "12px"
-                    }}>
-                        <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-                            <button
-                                type="button"
-                                onClick={() => setRosterFilterTab("ALL")}
-                                style={{
-                                    padding: "6px 14px",
-                                    borderRadius: "8px",
-                                    border: "1.5px solid",
-                                    borderColor: rosterFilterTab === "ALL" ? "#6366f1" : "var(--border, #cbd5e1)",
-                                    background: rosterFilterTab === "ALL" ? "rgba(99, 102, 241, 0.1)" : "transparent",
-                                    color: rosterFilterTab === "ALL" ? "#6366f1" : "var(--text-main, #475569)",
-                                    fontWeight: 700,
-                                    fontSize: "0.82rem",
-                                    cursor: "pointer"
-                                }}
-                            >
-                                All ({enrichedStudentsList.length})
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => setRosterFilterTab("PRESENT")}
-                                style={{
-                                    padding: "6px 14px",
-                                    borderRadius: "8px",
-                                    border: "1.5px solid",
-                                    borderColor: rosterFilterTab === "PRESENT" ? "#10b981" : "var(--border, #cbd5e1)",
-                                    background: rosterFilterTab === "PRESENT" ? "rgba(16, 185, 129, 0.1)" : "transparent",
-                                    color: rosterFilterTab === "PRESENT" ? "#10b981" : "var(--text-main, #475569)",
-                                    fontWeight: 700,
-                                    fontSize: "0.82rem",
-                                    cursor: "pointer"
-                                }}
-                            >
-                                Present ({reachedQR2Count})
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => setRosterFilterTab("PENDING")}
-                                style={{
-                                    padding: "6px 14px",
-                                    borderRadius: "8px",
-                                    border: "1.5px solid",
-                                    borderColor: rosterFilterTab === "PENDING" ? "#f59e0b" : "var(--border, #cbd5e1)",
-                                    background: rosterFilterTab === "PENDING" ? "rgba(245, 158, 11, 0.1)" : "transparent",
-                                    color: rosterFilterTab === "PENDING" ? "#d97706" : "var(--text-main, #475569)",
-                                    fontWeight: 700,
-                                    fontSize: "0.82rem",
-                                    cursor: "pointer"
-                                }}
-                            >
-                                Pending QR 2 ({pendingQR2Count})
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => setRosterFilterTab("VIOLATIONS")}
-                                style={{
-                                    padding: "6px 14px",
-                                    borderRadius: "8px",
-                                    border: "1.5px solid",
-                                    borderColor: rosterFilterTab === "VIOLATIONS" ? "#ef4444" : "var(--border, #cbd5e1)",
-                                    background: rosterFilterTab === "VIOLATIONS" ? "rgba(239, 68, 68, 0.1)" : "transparent",
-                                    color: rosterFilterTab === "VIOLATIONS" ? "#dc2626" : "var(--text-main, #475569)",
-                                    fontWeight: 700,
-                                    fontSize: "0.82rem",
-                                    cursor: "pointer"
-                                }}
-                            >
-                                Disqualified / Violations ({violationsCount})
-                            </button>
-                        </div>
-
-                        <input
-                            type="text"
-                            placeholder="Filter by roll number or name..."
-                            value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
+                    {/* Progress Track */}
+                    <div className="qr-hud-progress-track" style={{ width: "100%", maxWidth: "320px", marginBottom: "8px" }}>
+                        <div
+                            className={`qr-hud-progress-fill ${phase === "PHASE_1" ? "phase-1" : "phase-2"}`}
                             style={{
-                                padding: "7px 12px",
-                                borderRadius: "8px",
-                                border: "1.5px solid var(--border, #cbd5e1)",
-                                fontSize: "0.84rem",
-                                minWidth: "220px",
-                                outline: "none"
+                                width: `${Math.min(100, Math.max(0, ((totalDurationSeconds - elapsedSeconds) / Math.max(1, totalDurationSeconds)) * 100))}%`
                             }}
                         />
                     </div>
 
-                    {/* Deduplicated Student List Table */}
-                    {filteredRoster.length === 0 ? (
-                        <div className="qr-waiting-box">
-                            <FaClock />
-                            <p>
-                                {uniqueStudentsList.length === 0
-                                    ? "Waiting for students to scan QR 1 and check into this session..."
-                                    : "No students matching the current filter."}
-                            </p>
-                        </div>
-                    ) : (
-                        <div className="qr-roster-table-wrap">
-                            <table className="qr-roster-table">
-                                <thead>
-                                    <tr>
-                                        <th>Roll Number</th>
-                                        <th>Student Name</th>
-                                        <th>Phase 1 (QR 1)</th>
-                                        <th>Phase 2 (QR 2) &amp; Status</th>
-                                        <th>Kiosk Mode</th>
-                                        <th style={{ textAlign: "right" }}>Lecturer Actions</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {filteredRoster.map((student) => {
-                                        const studentId = student.studentUid || student.id || student.rollNo;
-                                        const isReleased = student.released === true || student.status === "RELEASED" || phase === "CLOSED";
-                                        const isBusyRelease = releasingStudentId === studentId;
-                                        const isBusyExcuse = excusingStudentId === studentId;
+                    {/* Clean Time Adjustment Controls */}
+                    <div className="qr-adjust-pills-bar">
+                        <span className="qr-adjust-label">Adjust:</span>
+                        <button type="button" onClick={() => handleAdjustSessionTime(30)} className="qr-adjust-pill plus" title="Add 30 seconds">+30s</button>
+                        <button type="button" onClick={() => handleAdjustSessionTime(60)} className="qr-adjust-pill plus" title="Add 1 minute">+1m</button>
+                        <button type="button" onClick={() => handleAdjustSessionTime(120)} className="qr-adjust-pill plus" title="Add 2 minutes">+2m</button>
+                        <button type="button" onClick={() => handleAdjustSessionTime(-30)} className="qr-adjust-pill minus" title="Remove 30 seconds">-30s</button>
+                        <button type="button" onClick={() => handleAdjustSessionTime(-60)} className="qr-adjust-pill minus" title="Remove 1 minute">-1m</button>
+                    </div>
 
-                                        return (
-                                            <tr key={student.rollNo} className={student.hasViolation && !student.isAttended ? "row-violation" : isReleased ? "row-released" : ""}>
-                                                <td className="qr-cell-roll">
-                                                    <strong>{student.rollNo}</strong>
-                                                </td>
-                                                <td className="qr-cell-name">
-                                                    {student.studentName || student.fullName || student.rollNo}
-                                                </td>
-                                                <td>
-                                                    <span className="qr-tag-scanned">
-                                                        <FaCheckCircle /> Scanned
-                                                    </span>
-                                                </td>
-                                                <td>
-                                                    {student.isExcused ? (
-                                                        <span className="qr-tag-attended" style={{ background: "rgba(16, 185, 129, 0.15)", color: "#059669" }}>
-                                                            <FaCheckCircle /> Excused (Present)
-                                                        </span>
-                                                    ) : student.isAttended ? (
-                                                        <span className="qr-tag-attended">
-                                                            <FaCheckCircle /> Reached QR 2 (100%)
-                                                        </span>
-                                                    ) : student.hasViolation ? (
-                                                        <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-                                                            <span style={{
-                                                                background: "#fee2e2",
-                                                                color: "#b91c1c",
-                                                                border: "1px solid #fca5a5",
-                                                                padding: "3px 8px",
-                                                                borderRadius: "6px",
-                                                                fontWeight: 750,
-                                                                fontSize: "0.78rem",
-                                                                display: "inline-flex",
-                                                                alignItems: "center",
-                                                                gap: "4px"
-                                                            }}>
-                                                                <FaExclamationTriangle /> {student.isDisqualified ? "Disqualified (App Switch)" : "Flagged Warning"}
-                                                            </span>
-                                                            <span style={{ fontSize: "0.72rem", color: "#9f1239" }}>
-                                                                {student.violationReason}
-                                                            </span>
-                                                        </div>
-                                                    ) : (
-                                                        <span className="qr-tag-pending">
-                                                            <FaClock /> Pending QR 2
-                                                        </span>
-                                                    )}
-                                                </td>
-                                                <td>
-                                                    {isReleased ? (
-                                                        <span className="qr-tag-released">
-                                                            <FaUnlock /> Released
-                                                        </span>
-                                                    ) : (
-                                                        <span className="qr-tag-locked">
-                                                            <FaLock /> Locked
-                                                        </span>
-                                                    )}
-                                                </td>
-                                                <td style={{ textAlign: "right" }}>
-                                                    <div style={{ display: "inline-flex", gap: "6px", justifyContent: "flex-end" }}>
-                                                        {/* Excuse & Mark Present Action */}
-                                                        {!student.isAttended ? (
-                                                            <button
-                                                                type="button"
-                                                                disabled={isBusyExcuse}
-                                                                onClick={() => handleExcuseStudent(student)}
-                                                                style={{
-                                                                    padding: "6px 12px",
-                                                                    borderRadius: "8px",
-                                                                    border: "none",
-                                                                    background: "#10b981",
-                                                                    color: "#ffffff",
-                                                                    fontWeight: 700,
-                                                                    fontSize: "0.78rem",
-                                                                    cursor: "pointer",
-                                                                    display: "inline-flex",
-                                                                    alignItems: "center",
-                                                                    gap: "4px",
-                                                                    boxShadow: "0 2px 6px rgba(16, 185, 129, 0.25)"
-                                                                }}
-                                                                title="Pardon violation and mark attendance as Present"
-                                                            >
-                                                                {isBusyExcuse ? (
-                                                                    <FaSpinner className="fa-spin" />
-                                                                ) : (
-                                                                    <><FaCheck /> Excuse &amp; Mark Present</>
-                                                                )}
-                                                            </button>
-                                                        ) : (
-                                                            <span style={{ color: "#10b981", fontWeight: 700, fontSize: "0.82rem", display: "inline-flex", alignItems: "center", gap: "4px" }}>
-                                                                <FaCheck /> Verified
-                                                            </span>
-                                                        )}
-
-                                                        {/* Kiosk Mode Device Unlock Button */}
-                                                        <button
-                                                            type="button"
-                                                            disabled={isReleased || isBusyRelease}
-                                                            onClick={() => handleReleaseIndividualStudent(student)}
-                                                            className={`qr-release-btn ${isReleased ? "released" : ""}`}
-                                                            style={{ padding: "6px 10px", fontSize: "0.78rem" }}
-                                                        >
-                                                            {isBusyRelease ? (
-                                                                <FaSpinner className="fa-spin" />
-                                                            ) : isReleased ? (
-                                                                <>Unlocked</>
-                                                            ) : (
-                                                                <><FaUnlock /> Release</>
-                                                            )}
-                                                        </button>
-                                                    </div>
-                                                </td>
-                                            </tr>
-                                        );
-                                    })}
-                                </tbody>
-                            </table>
+                    {/* Early Switch Button in Phase 1 */}
+                    {phase === "PHASE_1" && (
+                        <div style={{ margin: "10px 0 6px", width: "100%", maxWidth: "320px" }}>
+                            <button
+                                type="button"
+                                onClick={handleForcePhase2}
+                                disabled={isTransitioning}
+                                className="qr-switch-btn"
+                                style={{ width: "100%", padding: "10px 16px", fontSize: "0.88rem" }}
+                            >
+                                <span>⚡ Switch to Phase 2 Early</span>
+                                <FaArrowRight />
+                            </button>
                         </div>
                     )}
-                </section>
+                </>
+            ) : (
+                <div style={{
+                    padding: "26px 16px",
+                    borderRadius: "16px",
+                    background: "var(--surface-soft, #f1f5f9)",
+                    border: "2px dashed var(--border, #cbd5e1)",
+                    margin: "10px 0 16px",
+                    width: "100%",
+                    maxWidth: "340px",
+                    boxSizing: "border-box"
+                }}>
+                    <FaCheckDouble style={{ fontSize: "2.4rem", color: "#10b981", marginBottom: "8px" }} />
+                    <h3 style={{ margin: "0 0 4px", fontSize: "1.1rem", fontWeight: 800 }}>Attendance Session Completed</h3>
+                    <p style={{ margin: 0, fontSize: "0.82rem", color: "var(--text-muted, #64748b)" }}>
+                        Session window elapsed. All devices unlocked. Present: <strong>{reachedQR2Count || sessionData?.attendanceCount || 0} / {uniqueStudentsList.length}</strong>
+                    </p>
+                    <button
+                        type="button"
+                        onClick={handleResetSession}
+                        className="qr-reset-btn"
+                        style={{ marginTop: "12px", width: "100%" }}
+                    >
+                        <FaSyncAlt /> Start New Session
+                    </button>
+                </div>
+            )}
+
+            {/* Classroom Security Notice */}
+            <div className="qr-classroom-security-notice" style={{ width: "100%", maxWidth: "330px", margin: "10px auto 14px" }}>
+                <div className="qr-sec-badge" style={{ fontSize: "0.72rem" }}>
+                    <FaShieldAlt /> Device Policy Active
+                </div>
+                <p className="qr-sec-text" style={{ fontSize: "0.74rem" }}>
+                    Android locked in Kiosk mode. Students must remain in SmartAttend until Phase 2 biometric verification is complete.
+                </p>
+            </div>
+
+            {/* Quick Actions */}
+            <div className="qr-action-footer" style={{ width: "100%", maxWidth: "330px", gap: "8px" }}>
+                <Link
+                    to={`/lecturer/attendance-sessions/${sessionId}`}
+                    className="qr-view-live-btn"
+                    style={{ fontSize: "0.82rem", padding: "8px 12px" }}
+                >
+                    <FaUsers /> <span>{phase === "CLOSED" ? "Final Register" : "Live Register"}</span>
+                </Link>
+                {phase !== "CLOSED" && (
+                    <button
+                        type="button"
+                        onClick={handleCopyLink}
+                        className="qr-copy-btn"
+                        style={{ fontSize: "0.82rem", padding: "8px 12px" }}
+                        title="Copy active QR URL"
+                    >
+                        {copied ? <><FaCheck /> <span>Copied</span></> : <><FaCopy /> <span>Copy Link</span></>}
+                    </button>
+                )}
+            </div>
+        </section>
+    );
+
+    // -------------------------------------------------------------------------
+    // Sub-render D: Projector Hero View (Maximized for Classroom Projectors)
+    // -------------------------------------------------------------------------
+    const renderProjectorHeroView = () => (
+        <div className="qr-projector-view">
+            <section className="qr-projector-hero-card">
+                {/* Giant Digital Clock & Countdown */}
+                <div className="qr-projector-clock-wrap">
+                    <span className="qr-timeline-label">
+                        {phase === "PHASE_1"
+                            ? `Phase 1 Check-in Window (0:00–${formatMmSs(qr1TotalSeconds)})`
+                            : phase === "PHASE_2"
+                            ? `Phase 2 Biometric Window (${formatMmSs(qr1TotalSeconds)}–${formatMmSs(totalDurationSeconds)})`
+                            : "Session Window Finished"}
+                    </span>
+                    <div className="qr-projector-digital-clock">
+                        {formatMmSs(elapsedSeconds)} / {formatMmSs(totalDurationSeconds)}
+                    </div>
+                    {phase !== "CLOSED" && (
+                        <div className={`qr-countdown-badge ${phase === "PHASE_1" ? (qr1Remaining > 15 ? "normal" : "urgent") : (sessionRemaining > 20 ? "normal" : "urgent")}`}>
+                            <FaClock />
+                            <span>
+                                {phase === "PHASE_1"
+                                    ? `QR 1 Auto-Switches in ${qr1Remaining}s (at ${formatMmSs(qr1TotalSeconds)})`
+                                    : `Session unlocks in ${sessionRemaining}s (at ${formatMmSs(totalDurationSeconds)})`}
+                            </span>
+                        </div>
+                    )}
+                </div>
+
+                {/* Progress bar */}
+                {phase !== "CLOSED" && (
+                    <div className="qr-hud-progress-track" style={{ width: "100%", maxWidth: "560px", margin: "0 auto 14px" }}>
+                        <div
+                            className={`qr-hud-progress-fill ${phase === "PHASE_1" ? "phase-1" : "phase-2"}`}
+                            style={{
+                                width: `${Math.min(100, Math.max(0, ((totalDurationSeconds - elapsedSeconds) / Math.max(1, totalDurationSeconds)) * 100))}%`
+                            }}
+                        />
+                    </div>
+                )}
+
+                {/* In-line Quick Time Adjustments */}
+                {phase !== "CLOSED" && (
+                    <div className="qr-adjust-pills-bar" style={{ margin: "0 auto 8px" }}>
+                        <span className="qr-adjust-label">Time:</span>
+                        <button type="button" onClick={() => handleAdjustSessionTime(30)} className="qr-adjust-pill plus" title="Add 30 seconds">+30s</button>
+                        <button type="button" onClick={() => handleAdjustSessionTime(60)} className="qr-adjust-pill plus" title="Add 1 minute">+1m</button>
+                        <button type="button" onClick={() => handleAdjustSessionTime(120)} className="qr-adjust-pill plus" title="Add 2 minutes">+2m</button>
+                        <button type="button" onClick={() => handleAdjustSessionTime(-30)} className="qr-adjust-pill minus" title="Remove 30 seconds">-30s</button>
+                        <button type="button" onClick={() => handleAdjustSessionTime(-60)} className="qr-adjust-pill minus" title="Remove 1 minute">-1m</button>
+                    </div>
+                )}
+
+                {/* Hero QR Canvas */}
+                {phase !== "CLOSED" ? (
+                    <>
+                        <div className={`qr-code-frame cyber-frame qr-projector-hero-frame ${phase === "PHASE_1" ? "phase-1" : "phase-2"}`}>
+                            <span className="qr-corner-bracket tl" />
+                            <span className="qr-corner-bracket tr" />
+                            <span className="qr-corner-bracket bl" />
+                            <span className="qr-corner-bracket br" />
+                            <QRCodeCanvas
+                                value={activeQrUrl || (sessionId ? `${window.location.origin}/student/mark-attendance?session=${encodeURIComponent(sessionId)}` : "https://smart-attendance-ok.web.app")}
+                                size={isFullscreen ? 320 : 215}
+                            />
+                        </div>
+
+                        {/* Dynamic Rotating Token Ticker */}
+                        <div style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: "6px",
+                            padding: "4px 12px",
+                            borderRadius: "999px",
+                            background: "rgba(99, 102, 241, 0.08)",
+                            border: "1px solid rgba(99, 102, 241, 0.2)",
+                            marginBottom: "6px",
+                            fontSize: "0.76rem",
+                            fontWeight: 700,
+                            color: "#4338ca"
+                        }}>
+                            <FaSyncAlt className="fa-spin" style={{ color: "#6366f1", fontSize: "0.72rem" }} />
+                            <span>Dynamic QR Token updates in <strong style={{ color: "#ef4444" }}>{rotationSecondsLeft}s</strong> ({rotationIntervalSec}s)</span>
+                        </div>
+
+                        {/* Interactive Geofence Live Adjustment Bar */}
+                        <div style={{
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            gap: "6px",
+                            fontSize: "0.74rem",
+                            fontWeight: 700,
+                            color: geofenceRadius > 0 ? "#059669" : "#64748b",
+                            marginBottom: "8px",
+                            flexWrap: "wrap",
+                            padding: "4px 12px",
+                            borderRadius: "10px",
+                            background: geofenceRadius > 0 ? "rgba(16, 185, 129, 0.08)" : "rgba(100, 116, 139, 0.08)",
+                            border: geofenceRadius > 0 ? "1px solid rgba(16, 185, 129, 0.25)" : "1px solid rgba(100, 116, 139, 0.2)"
+                        }}>
+                            <span>
+                                {geofenceRadius > 0
+                                    ? `📍 Geofence: ${classroomCoords?.radius || geofenceRadius}m Active`
+                                    : "📍 Geofence: Disabled"}
+                            </span>
+                            <div style={{ display: "inline-flex", gap: "4px", alignItems: "center" }}>
+                                {geofenceRadius > 0 && (
+                                    <>
+                                        <button
+                                            type="button"
+                                            onClick={() => handleStepGeofenceRadius(-5)}
+                                            title="Decrease geofence radius by 5m"
+                                            style={{ padding: "2px 6px", borderRadius: "5px", border: "1px solid #cbd5e1", background: "var(--surface, #ffffff)", fontSize: "0.7rem", fontWeight: 800, cursor: "pointer" }}
+                                        >
+                                            -5m
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => handleStepGeofenceRadius(5)}
+                                            title="Increase geofence radius by 5m"
+                                            style={{ padding: "2px 6px", borderRadius: "5px", border: "1px solid #cbd5e1", background: "var(--surface, #ffffff)", fontSize: "0.7rem", fontWeight: 800, cursor: "pointer" }}
+                                        >
+                                            +5m
+                                        </button>
+                                    </>
+                                )}
+                                <button
+                                    type="button"
+                                    onClick={handlePromptCustomGeofence}
+                                    title="Manually type custom metres radius"
+                                    style={{ padding: "2px 8px", borderRadius: "5px", border: "1px solid #6366f1", background: "rgba(99, 102, 241, 0.12)", color: "#4f46e5", fontSize: "0.7rem", fontWeight: 750, cursor: "pointer" }}
+                                >
+                                    ✏️ Custom
+                                </button>
+                                {geofenceRadius > 0 ? (
+                                    <button
+                                        type="button"
+                                        onClick={() => handleUpdateGeofenceRadius(0)}
+                                        title="Disable GPS Geofence enforcement"
+                                        style={{ padding: "2px 8px", borderRadius: "5px", border: "1px solid #f87171", background: "rgba(239, 68, 68, 0.1)", color: "#dc2626", fontSize: "0.7rem", fontWeight: 750, cursor: "pointer" }}
+                                    >
+                                        Disable GPS
+                                    </button>
+                                ) : (
+                                    <button
+                                        type="button"
+                                        onClick={() => handleUpdateGeofenceRadius(30)}
+                                        title="Enable 30m default geofence"
+                                        style={{ padding: "2px 8px", borderRadius: "5px", border: "1px solid #10b981", background: "rgba(16, 185, 129, 0.15)", color: "#059669", fontSize: "0.7rem", fontWeight: 750, cursor: "pointer" }}
+                                    >
+                                        Enable 30m GPS
+                                    </button>
+                                )}
+                                <button
+                                    type="button"
+                                    onClick={handleRecalibrateGps}
+                                    title="Re-calibrate GPS from current device position"
+                                    style={{ padding: "2px 8px", borderRadius: "5px", border: "1px solid #cbd5e1", background: "var(--surface, #ffffff)", color: "#64748b", fontSize: "0.7rem", fontWeight: 700, cursor: "pointer" }}
+                                >
+                                    🎯 Re-fix GPS
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Early Switch Button in Phase 1 */}
+                        {phase === "PHASE_1" && (
+                            <div style={{ marginBottom: "8px" }}>
+                                <button
+                                    type="button"
+                                    onClick={handleForcePhase2}
+                                    disabled={isTransitioning}
+                                    className="qr-switch-btn"
+                                    style={{ maxWidth: "300px", margin: "0 auto", padding: "7px 18px", fontSize: "0.82rem" }}
+                                >
+                                    <span>⚡ Switch to Phase 2 (QR 2) Early</span>
+                                    <FaArrowRight />
+                                </button>
+                            </div>
+                        )}
+                    </>
+                ) : (
+                    <div style={{
+                        padding: "20px 16px",
+                        borderRadius: "14px",
+                        background: "var(--surface-soft, #f1f5f9)",
+                        border: "2px dashed var(--border, #cbd5e1)",
+                        margin: "10px 0 16px",
+                        width: "100%",
+                        maxWidth: "460px"
+                    }}>
+                        <FaCheckDouble style={{ fontSize: "2.4rem", color: "#10b981", marginBottom: "8px" }} />
+                        <h3 style={{ margin: "0 0 4px", fontSize: "1.15rem", fontWeight: 800 }}>Attendance Session Completed</h3>
+                        <p style={{ margin: 0, fontSize: "0.82rem", color: "var(--text-muted, #64748b)" }}>
+                            All student devices have been unlocked from Kiosk mode. Total Present: <strong>{reachedQR2Count || sessionData?.attendanceCount || 0} / {uniqueStudentsList.length}</strong>
+                        </p>
+                    </div>
+                )}
+
+                {/* Hero Stat Ticker */}
+                <div className="qr-projector-hero-stats">
+                    <div className="qr-hero-kpi">
+                        <span className="qr-hero-kpi-val" style={{ color: "#6366f1" }}>{totalScannedQR1}</span>
+                        <span className="qr-hero-kpi-label">Checked In (QR1)</span>
+                    </div>
+                    <div className="qr-hero-kpi">
+                        <span className="qr-hero-kpi-val" style={{ color: "#10b981" }}>{reachedQR2Count}</span>
+                        <span className="qr-hero-kpi-label">Verified Present</span>
+                    </div>
+                    <div className="qr-hero-kpi">
+                        <span className="qr-hero-kpi-val" style={{ color: "#f59e0b" }}>{pendingQR2Count}</span>
+                        <span className="qr-hero-kpi-label">Waiting QR 2</span>
+                    </div>
+                    <div className="qr-hero-kpi">
+                        <span className="qr-hero-kpi-val" style={{ color: violationsCount > 0 ? "#ef4444" : "#64748b" }}>{violationsCount}</span>
+                        <span className="qr-hero-kpi-label">Flagged Violations</span>
+                    </div>
+                </div>
+
+                {/* Projected Notice */}
+                <div className="qr-classroom-security-notice" style={{ width: "100%", maxWidth: "620px", margin: "6px auto", padding: "6px 12px" }}>
+                    <div className="qr-sec-badge" style={{ fontSize: "0.68rem", padding: "2px 8px" }}>
+                        <FaShieldAlt /> Classroom Supervision
+                    </div>
+                    <p className="qr-sec-text" style={{ fontSize: "0.74rem", lineHeight: 1.35 }}>
+                        <strong>⚠️ Notice:</strong> Keep screen awake &amp; remain in SmartAttend until Phase 2 biometric completes. 2 app exits forfeit attendance.
+                    </p>
+                </div>
+
+                {/* Footer Actions */}
+                <div className="qr-action-footer" style={{ marginTop: "8px", paddingTop: "8px", width: "100%", maxWidth: "460px", gap: "8px" }}>
+                    <Link to={`/lecturer/attendance-sessions/${sessionId}`} className="qr-view-live-btn" style={{ padding: "7px 14px", fontSize: "0.8rem" }}>
+                        <FaUsers /> <span>{phase === "CLOSED" ? "Open Final Register" : "View Live Register"}</span>
+                    </Link>
+                    {phase !== "CLOSED" && (
+                        <button type="button" onClick={handleCopyLink} className="qr-copy-btn" title="Copy active QR URL" style={{ padding: "7px 14px", fontSize: "0.8rem" }}>
+                            {copied ? <><FaCheck /> <span>Copied!</span></> : <><FaCopy /> <span>Copy Link</span></>}
+                        </button>
+                    )}
+                    {phase === "CLOSED" && (
+                        <button type="button" onClick={handleResetSession} className="qr-reset-btn" style={{ margin: 0, padding: "7px 14px", fontSize: "0.8rem" }}>
+                            <FaSyncAlt /> <span>New Session</span>
+                        </button>
+                    )}
+                </div>
+            </section>
+        </div>
+    );
+
+    // -------------------------------------------------------------------------
+    // Sub-render E: Split View (Side-by-side Projector HUD + Live Student Roster)
+    // -------------------------------------------------------------------------
+    const renderSplitView = () => (
+        <div className="qrpage-active-split">
+            <aside className="qr-active-left-col">
+                {renderHudCard()}
+            </aside>
+            <main className="qr-active-right-col">
+                {renderRosterTable(true)}
             </main>
         </div>
-    )}
+    );
+
+    // -------------------------------------------------------------------------
+    // Sub-render F: Master Live Session Container (Top Bar + Active View)
+    // -------------------------------------------------------------------------
+    const renderLiveSessionView = () => (
+        <div className="qr-live-session-wrapper">
+            {/* Live Command Topbar */}
+            <div className="qr-live-topbar">
+                <div className="qr-live-topbar-left">
+                    <span
+                        className="qr-status-dot pulse"
+                        style={{ background: phase === "PHASE_1" ? "#6366f1" : phase === "PHASE_2" ? "#10b981" : "#94a3b8" }}
+                    />
+                    <div className="qr-live-topbar-info">
+                        <h2>
+                            <span style={{ color: "#4f46e5" }}>{courseCode}</span> Live Attendance · {classCode}{batch ? ` (${batch})` : ""} · Room {roomNo}{" "}
+                            <span className="qr-sub-text">({lectureHours || 1.0} hr)</span>
+                        </h2>
+                        <div className="qr-live-topbar-tags">
+                            <span className={`qr-phase-tag ${phase === "PHASE_1" ? "p1" : phase === "PHASE_2" ? "p2" : "closed"}`}>
+                                {phase === "PHASE_1"
+                                    ? `⚡ Phase 1 (0:00–${formatMmSs(qr1TotalSeconds)}) Check-in`
+                                    : phase === "PHASE_2"
+                                    ? `🎯 Phase 2 (${formatMmSs(qr1TotalSeconds)}–${formatMmSs(totalDurationSeconds)}) Biometrics`
+                                    : "🔒 Session Closed"}
+                            </span>
+                            <span className="qr-topbar-clock">
+                                <FaClock /> {formatMmSs(elapsedSeconds)} / {formatMmSs(totalDurationSeconds)}
+                            </span>
+                        </div>
+                    </div>
+                </div>
+
+                {/* View Mode Switcher */}
+                <div className="qr-mode-switcher">
+                    <button
+                        type="button"
+                        className={`qr-mode-btn ${liveViewMode === "PROJECTOR" ? "active" : ""}`}
+                        onClick={() => setLiveViewMode("PROJECTOR")}
+                        title="Maximize QR code & countdown for projector screen"
+                    >
+                        <FaTv /> <span>Projector</span>
+                    </button>
+                    <button
+                        type="button"
+                        className={`qr-mode-btn ${liveViewMode === "SPLIT" ? "active" : ""}`}
+                        onClick={() => setLiveViewMode("SPLIT")}
+                        title="Side-by-side QR HUD & live student roster"
+                    >
+                        <FaColumns /> <span>Split View</span>
+                    </button>
+                    <button
+                        type="button"
+                        className={`qr-mode-btn ${liveViewMode === "ROSTER" ? "active" : ""}`}
+                        onClick={() => setLiveViewMode("ROSTER")}
+                        title="Full-width live student attendance roster"
+                    >
+                        <FaListUl /> <span>Roster ({enrichedStudentsList.length})</span>
+                    </button>
+                </div>
+
+                {/* Topbar Actions */}
+                <div className="qr-live-topbar-actions">
+                    {phase !== "CLOSED" && (
+                        <div className="qr-pin-pill">
+                            <FaLock />
+                            <span>PIN: <strong>{showPin ? (sessionPin || "------") : "••••••"}</strong></span>
+                            <button
+                                type="button"
+                                onClick={() => setShowPin((prev) => !prev)}
+                                className="qr-pin-mini-toggle"
+                                title={showPin ? "Hide PIN" : "View PIN"}
+                            >
+                                {showPin ? <FaEyeSlash /> : <FaEye />}
+                            </button>
+                        </div>
+                    )}
+
+                    <button
+                        type="button"
+                        onClick={toggleFullscreen}
+                        className={`qr-top-btn ${isFullscreen ? "active" : ""}`}
+                        title="Toggle Classroom Fullscreen Projector"
+                    >
+                        {isFullscreen ? <><FaCompress /> <span>Exit</span></> : <><FaExpand /> <span>Fullscreen</span></>}
+                    </button>
+
+                    {phase !== "CLOSED" && (
+                        <button
+                            type="button"
+                            onClick={handleEndSessionAndReleaseAll}
+                            className="qr-top-end-btn"
+                            title="End session immediately and unlock all student kiosks"
+                        >
+                            🛑 End Session
+                        </button>
+                    )}
+                </div>
+            </div>
+
+            {/* Active Mode Body */}
+            {liveViewMode === "PROJECTOR" && renderProjectorHeroView()}
+            {liveViewMode === "SPLIT" && renderSplitView()}
+            {liveViewMode === "ROSTER" && (
+                <div className="qr-roster-fullview">
+                    {renderRosterTable(false)}
+                </div>
+            )}
+        </div>
+    );
+
+    return (
+        <div className={`qrpage ${phase !== "NONE" ? "qrpage-live" : "qrpage-setup"} ${isFullscreen ? "fullscreen-active" : ""}`}>
+            {/* Header: Only displayed in Setup Mode. In active live mode, the live command bar serves as the compact, unified header */}
+            {phase === "NONE" && (
+                <div className="qrpage-header">
+                    <div className="qrpage-header-badge">
+                        <FaShieldAlt /> 2-Phase Protocol &bull; {formatMmSs(totalDurationSeconds)} Total Window
+                    </div>
+                    <h1>Create Attendance Session</h1>
+                    <p className="qrpage-subtitle">
+                        <strong>Phase 1 (0:00–{formatMmSs(qr1TotalSeconds)}):</strong> Check-in &amp; Device Binding &bull; <strong>Phase 2 ({formatMmSs(qr1TotalSeconds)}–{formatMmSs(totalDurationSeconds)}):</strong> Biometric Verification <span className="qr-header-timing-pill">({totalDurationMinutesDisplay}m total)</span>
+                    </p>
+                </div>
+            )}
+
+            {/* Main Stage: Setup Mode vs Live Session */}
+            {phase === "NONE" ? renderSetupView() : renderLiveSessionView()}
 
             {/* 4. Manual Excuse & Add Student Modal */}
             {showManualExcuseModal && (

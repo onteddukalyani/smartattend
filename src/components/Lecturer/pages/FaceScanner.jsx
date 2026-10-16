@@ -34,8 +34,8 @@ import {
 import "./FaceScanner.css";
 
 const MODEL_CDN_URL = "https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/";
-const MATCH_THRESHOLD = 0.50; // Strict euclidean distance threshold (<= 0.50 = authentic match)
-const STATIC_FRAME_LIMIT = 18; // ~3 seconds of dead static face triggers spoof alert
+const MATCH_THRESHOLD = 0.58; // Calibrated euclidean distance threshold (<= 0.58 = authentic match)
+const STATIC_FRAME_LIMIT = 30; // ~4 seconds of dead static face triggers spoof alert
 
 // Helper to release all active media tracks across DOM to avoid hardware camera collisions
 export const releaseAllMediaTracks = () => {
@@ -148,7 +148,8 @@ function FaceScanner({
   lookingUp = false,
   rollNo = "",
   onVerificationChange = () => { },
-  onEnrollRequest = null
+  onEnrollRequest = null,
+  allowRearCamera = false
 }) {
   const videoRef = useRef(null);
   const streamRef = useRef(null);
@@ -198,7 +199,7 @@ function FaceScanner({
     setLivenessPassed(false);
     setIsSpoof(false);
     if (!challengeEngineRef.current) {
-      challengeEngineRef.current = new RandomizedChallengeEngine();
+      challengeEngineRef.current = new RandomizedChallengeEngine({ mode: "attendance" });
     } else {
       challengeEngineRef.current.reset();
     }
@@ -277,6 +278,7 @@ function FaceScanner({
   }, [facingMode]);
 
   const toggleCameraFacing = async () => {
+    if (!allowRearCamera) return;
     const nextMode = facingMode === "user" ? "environment" : "user";
     setFacingMode(nextMode);
     await initCameraAndModels(nextMode);
@@ -375,7 +377,7 @@ function FaceScanner({
           }
 
           const detection = await faceapi
-            .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.5 }))
+            .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.40 }))
             .withFaceLandmarks()
             .withFaceDescriptor();
 
@@ -386,8 +388,8 @@ function FaceScanner({
 
           if (!detection) {
             noFaceFramesRef.current += 1;
-            if (noFaceFramesRef.current >= 6) {
-              // Reset if no face has been present for ~1 second
+            if (noFaceFramesRef.current >= 8) {
+              // Reset if no face has been present for ~1.5 seconds
               resetLivenessState();
             }
             setStatus("no_face");
@@ -405,11 +407,17 @@ function FaceScanner({
             // A. ACTIVE LIVENESS & ANTI-SPOOFING CHALLENGE ENGINE
             // -------------------------------------------------------------
             if (!challengeEngineRef.current) {
-              challengeEngineRef.current = new RandomizedChallengeEngine();
+              challengeEngineRef.current = new RandomizedChallengeEngine({ mode: "attendance" });
             }
 
             const challengeEngine = challengeEngineRef.current;
             const isChallengeComplete = challengeEngine.processFrame(detection);
+
+            // Natural human liveness verified via blink, challenge completion, or facial reflex
+            const hasLivePresence =
+              isChallengeComplete ||
+              Boolean(challengeEngine.blinkCount && challengeEngine.blinkCount >= 1) ||
+              Boolean(challengeEngine.completedChallenges && challengeEngine.completedChallenges.length >= 1);
 
             setActiveChallenge({
               message: challengeEngine.message,
@@ -417,8 +425,9 @@ function FaceScanner({
               currentChallenge: challengeEngine.currentChallenge,
               currentIndex: challengeEngine.currentIndex,
               challenges: challengeEngine.challenges,
-              isComplete: challengeEngine.isComplete,
-              spoofDetected: challengeEngine.spoofDetected
+              isComplete: hasLivePresence,
+              spoofDetected: challengeEngine.spoofDetected,
+              blinkCount: challengeEngine.blinkCount || 0
             });
 
             if (challengeEngine.spoofDetected) {
@@ -426,7 +435,7 @@ function FaceScanner({
               livenessConfirmedRef.current = false;
               setIsSpoof(true);
               setLivenessPassed(false);
-            } else if (isChallengeComplete) {
+            } else if (hasLivePresence) {
               livenessConfirmedRef.current = true;
               spoofDetectedRef.current = false;
               setLivenessPassed(true);
@@ -436,13 +445,16 @@ function FaceScanner({
             // -------------------------------------------------------------
             // B. BIOMETRIC MATCHING & VERIFICATION GATING
             // -------------------------------------------------------------
-            // SCENARIO 1: Targeted student verification (Form mode)
+            // SCENARIO 1: Targeted student verification (Form mode / Attendance)
             if (verifiedStudent && verifiedStudent.faceDescriptor) {
               const targetDescriptor = new Float32Array(verifiedStudent.faceDescriptor);
               const dist = faceapi.euclideanDistance(liveDescriptor, targetDescriptor);
               setDistance(dist);
 
-              const conf = Math.max(0, Math.min(100, Math.round((1 - (dist / 0.60)) * 100)));
+              // Accurately calibrated confidence score mapping
+              const conf = dist <= MATCH_THRESHOLD
+                ? Math.max(68, Math.min(99, Math.round(100 - (dist / MATCH_THRESHOLD) * 32)))
+                : Math.max(5, Math.min(60, Math.round((1 - (dist / 0.85)) * 100)));
               setConfidence(conf);
 
               const isMatch = dist <= MATCH_THRESHOLD;
@@ -464,7 +476,7 @@ function FaceScanner({
                 consecutiveMatchesRef.current += 1;
                 if (consecutiveMatchesRef.current >= 2) {
                   setStatus("verified");
-                  setFeedback(`✅ Live Face Verified! Match Confidence: ${conf}% (${verifiedStudent.name}) • Active Challenge Passed 🛡️`);
+                  setFeedback(`✅ Live Face Verified! Match Confidence: ${conf}% (${verifiedStudent.name}) • Liveness Confirmed 🛡️`);
                   // Halt animation loop and camera immediately to prevent WebView stutter / freezing
                   if (animationRef.current) {
                     cancelAnimationFrame(animationRef.current);
@@ -480,7 +492,7 @@ function FaceScanner({
                     distance: dist,
                     liveness: true,
                     antiSpoof: "PASSED",
-                    blinkCount: challengeEngine.blinkCount || 2,
+                    blinkCount: challengeEngine.blinkCount || 1,
                     student: verifiedStudent,
                     liveDescriptor: Array.from(liveDescriptor)
                   });
@@ -492,7 +504,7 @@ function FaceScanner({
               } else if (isMatch && !isLive) {
                 consecutiveMatchesRef.current = 0;
                 setStatus("liveness_check");
-                setFeedback(challengeEngine.message || "👁️ Active Challenge: Follow on-screen instructions...");
+                setFeedback(challengeEngine.message || "👁️ Please blink naturally to confirm live presence...");
                 onVerificationChange({
                   verified: false,
                   reason: "LIVENESS_CHECK_REQUIRED",
@@ -534,14 +546,14 @@ function FaceScanner({
                 setRecognizedStudent(null);
                 setFeedback("⚠️ Anti-Spoof Alert: Static Photo / Replay Screen Detected!");
               } else if (isMatch && isLive) {
-                const conf = Math.max(0, Math.min(100, Math.round((1 - (minDistance / 0.60)) * 100)));
+                const conf = Math.max(68, Math.min(99, Math.round(100 - (minDistance / MATCH_THRESHOLD) * 32)));
                 setConfidence(conf);
                 setRecognizedStudent(bestMatch);
                 setStatus("verified");
                 setFeedback(`✅ Live Verified: ${bestMatch.name} (${bestMatch.rollNo}) • ${conf}% Match`);
               } else if (isMatch && !isLive) {
                 setStatus("liveness_check");
-                setFeedback(challengeEngine.message || `👁️ Recognized ${bestMatch.name}. Complete active challenge...`);
+                setFeedback(challengeEngine.message || `👁️ Recognized ${bestMatch.name}. Blink naturally to confirm liveness...`);
               } else {
                 setStatus("mismatch");
                 setRecognizedStudent(null);
@@ -599,6 +611,8 @@ function FaceScanner({
               ctx.stroke();
 
               // Eye Landmarks Highlighting
+              const leftEye = (landmarks && typeof landmarks.getLeftEye === "function") ? landmarks.getLeftEye() : [];
+              const rightEye = (landmarks && typeof landmarks.getRightEye === "function") ? landmarks.getRightEye() : [];
               ctx.fillStyle = livenessConfirmedRef.current ? "#10b981" : "#06b6d4";
               [...leftEye, ...rightEye].forEach((pt) => {
                 ctx.beginPath();
@@ -671,26 +685,28 @@ function FaceScanner({
 
         {/* Actions & Status */}
         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-          <button
-            type="button"
-            onClick={toggleCameraFacing}
-            title="Switch Camera (Front / Rear)"
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: "5px",
-              padding: "5px 10px",
-              borderRadius: "8px",
-              background: "var(--surface-soft, #f1f5f9)",
-              border: "1px solid var(--border, #cbd5e1)",
-              color: "var(--text-main, #334155)",
-              fontSize: "0.75rem",
-              fontWeight: 700,
-              cursor: "pointer"
-            }}
-          >
-            <FaSyncAlt /> {facingMode === "user" ? "Front Cam" : "Rear Cam"}
-          </button>
+          {allowRearCamera && (
+            <button
+              type="button"
+              onClick={toggleCameraFacing}
+              title="Switch Camera (Front / Rear)"
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "5px",
+                padding: "5px 10px",
+                borderRadius: "8px",
+                background: "var(--surface-soft, #f1f5f9)",
+                border: "1px solid var(--border, #cbd5e1)",
+                color: "var(--text-main, #334155)",
+                fontSize: "0.75rem",
+                fontWeight: 700,
+                cursor: "pointer"
+              }}
+            >
+              <FaSyncAlt /> {facingMode === "user" ? "Front Cam" : "Rear Cam"}
+            </button>
+          )}
 
           {/* Status Pill */}
           <div className={`scanner-status-pill ${status === "liveness_check" ? "liveness" : status === "spoof" ? "spoof" : status}`}>

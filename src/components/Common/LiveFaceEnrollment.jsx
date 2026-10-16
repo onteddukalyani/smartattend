@@ -18,7 +18,7 @@ import {
     FaIdCard
 } from "react-icons/fa";
 import { checkDuplicateFaceBiometrics } from "../../utils/biometricManager";
-import { AadhaarLivenessEngine } from "../../utils/livenessDetector";
+import { BiometricLivenessEngine, fuseFaceDescriptors } from "../../utils/livenessDetector";
 import "./LiveFaceEnrollment.css";
 
 const MODEL_CDN_URL = "https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/";
@@ -35,10 +35,11 @@ export function LiveFaceEnrollment({
     const streamRef = useRef(null);
     const canvasRef = useRef(null);
     const animationRef = useRef(null);
-    const aadhaarEngineRef = useRef(null);
     const livenessEngineRef = useRef(null);
     const blinkCountRef = useRef(0);
     const hasTriggeredCompleteRef = useRef(false);
+    const bufferedDescriptorsRef = useRef([]);
+    const frameCountRef = useRef(0);
 
     const [cameraActive, setCameraActive] = useState(false);
     const [cameraLoading, setCameraLoading] = useState(false);
@@ -46,13 +47,13 @@ export function LiveFaceEnrollment({
     const [cameraError, setCameraError] = useState("");
     const [modelsLoaded, setModelsLoaded] = useState(false);
     const [capturing, setCapturing] = useState(false);
-    const [statusMessage, setStatusMessage] = useState("Align face inside the Aadhaar biometric circle");
+    const [statusMessage, setStatusMessage] = useState("Align face inside the biometric circle");
     const [statusType, setStatusType] = useState("ready");
     const [enrolledPhoto, setEnrolledPhoto] = useState(initialPhoto);
     const [capturedVector, setCapturedVector] = useState(null);
     const [flashEffect, setFlashEffect] = useState(false);
     const [duplicateError, setDuplicateError] = useState("");
-    // Aadhaar KYC Interactive State
+    // 3D Liveness Interactive State
     const DEFAULT_CHECKPOINTS = {
         CENTER: false,
         LEFT: false,
@@ -64,11 +65,11 @@ export function LiveFaceEnrollment({
     const [currentStep, setCurrentStep] = useState("CENTER");
     const [currentPose, setCurrentPose] = useState("CENTER");
     const [progress, setProgress] = useState(0);
-    const [isAadhaarVerified, setIsAadhaarVerified] = useState(false);
+    const [isBiometricVerified, setIsBiometricVerified] = useState(false);
 
-    // Initialize Aadhaar Multi-Angle Liveness Engine
+    // Initialize Multi-Angle Liveness Engine
     useEffect(() => {
-        aadhaarEngineRef.current = new AadhaarLivenessEngine({
+        livenessEngineRef.current = new BiometricLivenessEngine({
             onStateChange: (state) => {
                 if (!state) return;
                 const nextCheckpoints = state.checkpoints || (state.completedChallenges ? {
@@ -83,7 +84,7 @@ export function LiveFaceEnrollment({
                 setCurrentStep(state.currentStep || "CENTER");
                 setCurrentPose(state.currentPose || "CENTER");
                 setProgress(state.progress || 0);
-                setIsAadhaarVerified(Boolean(state.isComplete));
+                setIsBiometricVerified(Boolean(state.isComplete));
 
                 if (!capturing && !enrolledPhoto && state.message) {
                     setStatusMessage(state.message);
@@ -92,7 +93,7 @@ export function LiveFaceEnrollment({
                     setStatusType(state.statusType);
                 }
 
-                // Automatic Trigger on 100% Aadhaar Verification
+                // Automatic Trigger on 100% Verification
                 if (state.isComplete && !hasTriggeredCompleteRef.current && !capturing && !enrolledPhoto) {
                     hasTriggeredCompleteRef.current = true;
                     setTimeout(() => {
@@ -230,8 +231,8 @@ export function LiveFaceEnrollment({
             }
             setCameraActive(true);
             setPermissionStatus("granted");
-            if (aadhaarEngineRef.current) {
-                aadhaarEngineRef.current.reset();
+            if (livenessEngineRef.current) {
+                livenessEngineRef.current.reset();
             }
             setStatusMessage("🎯 Step 1/4: Look straight into the camera");
             setStatusType("ready");
@@ -276,7 +277,7 @@ export function LiveFaceEnrollment({
                     }
 
                     const detection = await faceapi
-                        .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.45 }))
+                        .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.40 }))
                         .withFaceLandmarks();
 
                     const ctx = canvas ? canvas.getContext("2d") : null;
@@ -285,8 +286,28 @@ export function LiveFaceEnrollment({
                     }
 
                     if (detection) {
-                        if (aadhaarEngineRef.current) {
-                            aadhaarEngineRef.current.processFrame(detection);
+                        frameCountRef.current = (frameCountRef.current || 0) + 1;
+                        let detectionForLiveness = detection;
+
+                        // Periodically (every 3 frames) or when verified, extract face descriptor to buffer
+                        if (frameCountRef.current % 3 === 0 || isBiometricVerified) {
+                            try {
+                                const fullDet = await faceapi
+                                    .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.40 }))
+                                    .withFaceLandmarks()
+                                    .withFaceDescriptor();
+                                if (fullDet && fullDet.descriptor) {
+                                    detectionForLiveness = fullDet;
+                                    bufferedDescriptorsRef.current.push(new Float32Array(fullDet.descriptor));
+                                    if (bufferedDescriptorsRef.current.length > 12) {
+                                        bufferedDescriptorsRef.current.shift();
+                                    }
+                                }
+                            } catch (_) { }
+                        }
+
+                        if (livenessEngineRef.current) {
+                            livenessEngineRef.current.processFrame(detectionForLiveness);
                         }
 
                         // Render Canvas HUD Reticle
@@ -295,7 +316,7 @@ export function LiveFaceEnrollment({
                             const cornerLen = Math.min(width, height) * 0.20;
 
                             ctx.lineWidth = 3;
-                            ctx.strokeStyle = isAadhaarVerified ? "#10b981" : "#6366f1";
+                            ctx.strokeStyle = isBiometricVerified ? "#10b981" : "#6366f1";
                             ctx.lineCap = "round";
 
                             // Corner brackets
@@ -326,7 +347,7 @@ export function LiveFaceEnrollment({
                             // Eye landmarks highlight
                             const leftEye = detection.landmarks.positions.slice(36, 42);
                             const rightEye = detection.landmarks.positions.slice(42, 48);
-                            ctx.fillStyle = isAadhaarVerified ? "rgba(16, 185, 129, 0.9)" : "rgba(99, 102, 241, 0.85)";
+                            ctx.fillStyle = isBiometricVerified ? "rgba(16, 185, 129, 0.9)" : "rgba(99, 102, 241, 0.85)";
                             [...leftEye, ...rightEye].forEach((pt) => {
                                 ctx.beginPath();
                                 ctx.arc(pt.x, pt.y, 2.2, 0, 2 * Math.PI);
@@ -334,8 +355,8 @@ export function LiveFaceEnrollment({
                             });
                         }
                     } else {
-                        if (aadhaarEngineRef.current) {
-                            aadhaarEngineRef.current.processFrame(null);
+                        if (livenessEngineRef.current) {
+                            livenessEngineRef.current.processFrame(null);
                         }
                     }
                 } catch (e) { }
@@ -350,7 +371,7 @@ export function LiveFaceEnrollment({
             isRunning = false;
             if (animationRef.current) cancelAnimationFrame(animationRef.current);
         };
-    }, [cameraActive, modelsLoaded, enrolledPhoto, isAadhaarVerified]);
+    }, [cameraActive, modelsLoaded, enrolledPhoto, isBiometricVerified]);
 
     // 5. Fast Biometric Vector Capture & Duplicate Verification
     const handleCaptureFace = async () => {
@@ -370,20 +391,38 @@ export function LiveFaceEnrollment({
             const ctx = canvas.getContext("2d");
             ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
 
-            const detection = await faceapi
-                .detectSingleFace(videoRef.current, new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.45 }))
-                .withFaceLandmarks()
-                .withFaceDescriptor();
+            // Progressive detector options with automatic fallback
+            let detection = null;
+            const candidateSizes = [256, 224, 320, 160];
+            for (const sz of candidateSizes) {
+                try {
+                    detection = await faceapi
+                        .detectSingleFace(videoRef.current, new faceapi.TinyFaceDetectorOptions({ inputSize: sz, scoreThreshold: 0.35 }))
+                        .withFaceLandmarks()
+                        .withFaceDescriptor();
+                    if (detection && detection.descriptor) break;
+                } catch (_) { }
+            }
 
-            if (!detection || !detection.descriptor) {
+            let descriptorArray = null;
+            if (detection && detection.descriptor) {
+                descriptorArray = Array.from(detection.descriptor);
+                bufferedDescriptorsRef.current.push(new Float32Array(detection.descriptor));
+            } else if (bufferedDescriptorsRef.current.length > 0) {
+                // Seamlessly use multi-angle consensus centroid vector from completed liveness session
+                const fused = fuseFaceDescriptors(bufferedDescriptorsRef.current);
+                if (fused) {
+                    descriptorArray = Array.from(fused);
+                }
+            }
+
+            if (!descriptorArray || descriptorArray.length !== 128) {
                 setStatusMessage("❌ Face not detected clearly. Look straight into camera and retry.");
                 setStatusType("warning");
                 setCapturing(false);
                 hasTriggeredCompleteRef.current = false;
                 return;
             }
-
-            const descriptorArray = Array.from(detection.descriptor);
 
             // DUPLICATE BIOMETRICS SECURITY CHECK
             setStatusMessage("🔍 Verifying biometric uniqueness across registry...");
@@ -403,7 +442,7 @@ export function LiveFaceEnrollment({
             const photoDataUrl = canvas.toDataURL("image/jpeg", 0.90);
             setEnrolledPhoto(photoDataUrl);
             setCapturedVector(descriptorArray);
-            setStatusMessage("✅ Aadhaar-Grade Biometrics Enrolled & Verified Unique!");
+            setStatusMessage("✅ 3D Facial Biometrics Enrolled & Verified Unique!");
             setStatusType("success");
 
             if (streamRef.current) {
@@ -418,7 +457,7 @@ export function LiveFaceEnrollment({
                     photoURL: photoDataUrl,
                     biometricEnrolled: true,
                     livenessConfirmed: true,
-                    aadhaarVerified: true,
+                    biometricVerified: true,
                     blinkCount: blinkCountRef.current || 1,
                     enrolledAt: Date.now()
                 });
@@ -437,13 +476,15 @@ export function LiveFaceEnrollment({
         setEnrolledPhoto(null);
         setCapturedVector(null);
         setDuplicateError("");
-        setIsAadhaarVerified(false);
+        setIsBiometricVerified(false);
         setProgress(0);
+        bufferedDescriptorsRef.current = [];
+        frameCountRef.current = 0;
         hasTriggeredCompleteRef.current = false;
-        if (aadhaarEngineRef.current) {
-            aadhaarEngineRef.current.reset();
+        if (livenessEngineRef.current) {
+            livenessEngineRef.current.reset();
         }
-        setStatusMessage("🎯 Step 1/4: Look straight into the camera");
+        setStatusMessage("🎯 Step 1/4: Look straight into camera");
         setStatusType("ready");
         if (onFaceEnrolled) {
             onFaceEnrolled(null);
@@ -454,24 +495,24 @@ export function LiveFaceEnrollment({
     const safeCheckpoints = checkpoints || DEFAULT_CHECKPOINTS;
 
     return (
-        <div className={`live-enrollment-card aadhaar-auth-card ${hideHeader ? "in-modal" : ""}`}>
-            {/* Viewport Container with Aadhaar Multi-Angle Radar HUD */}
+        <div className={`live-enrollment-card biohud-auth-card ${hideHeader ? "in-modal" : ""}`}>
+            {/* Viewport Container with 3D Biometric Multi-Angle Radar HUD */}
             <div
-                className={`lfe-viewport-container aadhaar-viewport ${enrolledPhoto ? "enrolled" : ""} ${isAadhaarVerified ? "verified" : ""} ${capturing ? "capturing" : ""} ${flashEffect ? "flash" : ""}`}
+                className={`lfe-viewport-container biohud-viewport ${enrolledPhoto ? "enrolled" : ""} ${isBiometricVerified ? "verified" : ""} ${capturing ? "capturing" : ""} ${flashEffect ? "flash" : ""}`}
             >
-                {/* Aadhaar Circular Multi-Angle Compass Ring */}
+                {/* 3D Circular Multi-Angle Compass Ring */}
                 {!enrolledPhoto && cameraActive && (
-                    <div className="aadhaar-compass-hud">
+                    <div className="biohud-compass-hud">
                         {/* 360 Progress SVG Ring */}
-                        <svg className="aadhaar-ring-svg" viewBox="0 0 260 260">
+                        <svg className="biohud-ring-svg" viewBox="0 0 260 260">
                             <circle
-                                className="aadhaar-ring-bg"
+                                className="biohud-ring-bg"
                                 cx="130"
                                 cy="130"
                                 r="118"
                             />
                             <circle
-                                className="aadhaar-ring-progress"
+                                className="biohud-ring-progress"
                                 cx="130"
                                 cy="130"
                                 r="118"
@@ -483,25 +524,25 @@ export function LiveFaceEnrollment({
                         </svg>
 
                         {/* Cardinal Direction Checkpoint Nodes */}
-                        <div className={`aadhaar-node node-up ${safeCheckpoints.UP ? "done" : currentStep === "UP" ? "active" : ""}`}>
+                        <div className={`biohud-node node-up ${safeCheckpoints.UP ? "done" : currentStep === "UP" ? "active" : ""}`}>
                             <FaArrowUp />
                             <span>UP</span>
                         </div>
-                        <div className={`aadhaar-node node-left ${safeCheckpoints.LEFT ? "done" : currentStep === "LEFT" ? "active" : ""}`}>
+                        <div className={`biohud-node node-left ${safeCheckpoints.LEFT ? "done" : currentStep === "LEFT" ? "active" : ""}`}>
                             <FaArrowLeft />
                             <span>LEFT</span>
                         </div>
-                        <div className={`aadhaar-node node-right ${safeCheckpoints.RIGHT ? "done" : currentStep === "RIGHT" ? "active" : ""}`}>
+                        <div className={`biohud-node node-right ${safeCheckpoints.RIGHT ? "done" : currentStep === "RIGHT" ? "active" : ""}`}>
                             <FaArrowRight />
                             <span>RIGHT</span>
                         </div>
-                        <div className={`aadhaar-node node-center ${safeCheckpoints.CENTER ? "done" : currentStep === "CENTER" ? "active" : ""}`}>
+                        <div className={`biohud-node node-center ${safeCheckpoints.CENTER ? "done" : currentStep === "CENTER" ? "active" : ""}`}>
                             <FaBullseye />
                             <span>FRONT</span>
                         </div>
 
                         {/* Central Dynamic Directional Arrow Guide */}
-                        <div className="aadhaar-dynamic-pointer">
+                        <div className="biohud-dynamic-pointer">
                             {currentStep === "CENTER" && <div className="pointer-icon pulse-center">🎯</div>}
                             {currentStep === "LEFT" && <div className="pointer-icon slide-left">⬅️ Turn Left</div>}
                             {currentStep === "RIGHT" && <div className="pointer-icon slide-right">➡️ Turn Right</div>}
@@ -520,7 +561,7 @@ export function LiveFaceEnrollment({
                         <img src={enrolledPhoto} alt="Enrolled Biometric Face" className="lfe-preview-img" />
                         <div className="lfe-enrolled-floating-badge">
                             <FaCheckCircle className="badge-icon" />
-                            <span>Aadhaar-Grade Biometrics Enrolled</span>
+                            <span>Live Facial Biometrics Enrolled</span>
                         </div>
                     </div>
                 ) : (
@@ -554,7 +595,7 @@ export function LiveFaceEnrollment({
                                 <div className="lfe-placeholder-icon-wrap">
                                     <FaIdCard className="lfe-camera-placeholder-icon" />
                                 </div>
-                                <h5>Aadhaar-Grade Face Authentication</h5>
+                                <h5>3D Facial Biometric Authentication</h5>
                                 <p>Perform interactive multi-angle head movement (Front, Left, Right, Up) to verify biological liveness.</p>
                                 <div className="lfe-placeholder-btn-group">
                                     <button
@@ -567,7 +608,7 @@ export function LiveFaceEnrollment({
                                         {cameraLoading ? (
                                             <><FaSpinner className="fa-spin" /> Starting Camera...</>
                                         ) : (
-                                            <><FaVideo /> Start Live Aadhaar Scan</>
+                                            <><FaVideo /> Start Live Biometric Scan</>
                                         )}
                                     </button>
                                 </div>
@@ -594,27 +635,27 @@ export function LiveFaceEnrollment({
                 )}
             </div>
 
-            {/* Aadhaar Interactive Step Pills & Progress */}
+            {/* Interactive Step Pills & Progress */}
             {cameraActive && !enrolledPhoto && (
-                <div className="aadhaar-steps-tray">
-                    <div className="aadhaar-pills-row">
-                        <span className={`aadhaar-pill ${safeCheckpoints.CENTER ? "done" : currentStep === "CENTER" ? "current" : ""}`}>
+                <div className="biohud-steps-tray">
+                    <div className="biohud-pills-row">
+                        <span className={`biohud-pill ${safeCheckpoints.CENTER ? "done" : currentStep === "CENTER" ? "current" : ""}`}>
                             {safeCheckpoints.CENTER ? "✅" : "1️⃣"} Front
                         </span>
-                        <span className={`aadhaar-pill ${safeCheckpoints.LEFT ? "done" : currentStep === "LEFT" ? "current" : ""}`}>
+                        <span className={`biohud-pill ${safeCheckpoints.LEFT ? "done" : currentStep === "LEFT" ? "current" : ""}`}>
                             {safeCheckpoints.LEFT ? "✅" : "2️⃣"} Left Turn
                         </span>
-                        <span className={`aadhaar-pill ${safeCheckpoints.RIGHT ? "done" : currentStep === "RIGHT" ? "current" : ""}`}>
+                        <span className={`biohud-pill ${safeCheckpoints.RIGHT ? "done" : currentStep === "RIGHT" ? "current" : ""}`}>
                             {safeCheckpoints.RIGHT ? "✅" : "3️⃣"} Right Turn
                         </span>
-                        <span className={`aadhaar-pill ${safeCheckpoints.UP || safeCheckpoints.BLINK ? "done" : currentStep === "UP" ? "current" : ""}`}>
+                        <span className={`biohud-pill ${safeCheckpoints.UP || safeCheckpoints.BLINK ? "done" : currentStep === "UP" ? "current" : ""}`}>
                             {safeCheckpoints.UP || safeCheckpoints.BLINK ? "✅" : "4️⃣"} Tilt Up / Blink
                         </span>
                     </div>
 
-                    <div className="aadhaar-progress-track">
+                    <div className="biohud-progress-track">
                         <div
-                            className="aadhaar-progress-fill"
+                            className="biohud-progress-fill"
                             style={{ width: `${progress}%` }}
                         />
                     </div>
@@ -633,8 +674,8 @@ export function LiveFaceEnrollment({
                 </div>
 
                 {cameraActive && !enrolledPhoto && (
-                    <span className="aadhaar-score-badge">
-                        KYC Progress: <strong>{progress}%</strong>
+                    <span className="biohud-score-badge">
+                        Biometric Progress: <strong>{progress}%</strong>
                     </span>
                 )}
             </div>
@@ -665,7 +706,7 @@ export function LiveFaceEnrollment({
                     <div className="lfe-active-action-row">
                         <button
                             type="button"
-                            className={`lfe-capture-btn ${isAadhaarVerified ? "ready-pulse" : ""}`}
+                            className={`lfe-capture-btn ${isBiometricVerified ? "ready-pulse" : ""}`}
                             onClick={handleCaptureFace}
                             disabled={capturing || !modelsLoaded}
                         >

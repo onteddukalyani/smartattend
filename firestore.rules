@@ -3,156 +3,237 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+        (request.auth.token.email != null && exists(/databases/$(database)/documents/admins/$(request.auth.token.email)))
+      );
+    }
+
+    function isLecturer() {
+      return isSignedIn() && (
+        exists(/databases/$(database)/documents/lecturers/$(request.auth.uid)) ||
+        (request.auth.token.email != null && exists(/databases/$(database)/documents/lecturers/$(request.auth.token.email)))
+      );
+    }
+
+    function isStaff() {
+      return isAdmin() || isLecturer();
+    }
+
+    // Admins collection: strictly protected against client tampering and privilege escalation
     match /admins/{adminId} {
-      allow read, write: if true;
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
       match /{document=**} {
-        allow read, write: if true;
+        allow read: if isSignedIn();
+        allow write: if isAdmin();
       }
     }
 
     match /institution_settings/{docId} {
-      allow read, write: if true;
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
       match /{document=**} {
-        allow read, write: if true;
+        allow read: if isSignedIn();
+        allow write: if isAdmin();
       }
     }
 
     match /institution/{docId} {
-      allow read, write: if true;
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
       match /{document=**} {
-        allow read, write: if true;
-      }
-    }
-
-    match /lecturers/{lecturerId} {
-      allow read, write: if true;
-      match /{document=**} {
-        allow read, write: if true;
-      }
-    }
-
-    match /courses/{courseId} {
-      allow read, write: if true;
-      match /{document=**} {
-        allow read, write: if true;
-      }
-    }
-
-    match /students/{studentId} {
-      allow read, write: if true;
-      match /{document=**} {
-        allow read, write: if true;
-      }
-    }
-
-    match /users/{userId} {
-      allow read, write: if true;
-      match /{document=**} {
-        allow read, write: if true;
-      }
-    }
-
-    match /authorizedUsers/{userId} {
-      allow read, write: if true;
-      match /{document=**} {
-        allow read, write: if true;
-      }
-    }
-
-    match /faculty_notifications/{notificationId} {
-      allow read, write: if true;
-      match /{document=**} {
-        allow read, write: if true;
-      }
-    }
-
-    match /admin_notifications/{notificationId} {
-      allow read, write: if true;
-      match /{document=**} {
-        allow read, write: if true;
-      }
-    }
-
-    match /lecturer_notifications/{notificationId} {
-      allow read, write: if true;
-      match /{document=**} {
-        allow read, write: if true;
-      }
-    }
-
-    match /broadcast_notifications/{notificationId} {
-      allow read, write: if true;
-      match /{document=**} {
-        allow read, write: if true;
-      }
-    }
-
-    match /announcements/{announcementId} {
-      allow read, write: if true;
-      match /{document=**} {
-        allow read, write: if true;
-      }
-    }
-
-    match /broadcasts/{broadcastId} {
-      allow read, write: if true;
-      match /{document=**} {
-        allow read, write: if true;
-      }
-    }
-
-    match /user_complaints/{complaintId} {
-      allow read, write: if true;
-      match /{document=**} {
-        allow read, write: if true;
-      }
-    }
-
-
-    match /support_tickets/{ticketId} {
-      allow read, write: if true;
-      match /{document=**} {
-        allow read, write: if true;
-      }
-    }
-
-    match /feedbacks/{feedbackId} {
-      allow read, write: if true;
-      match /{document=**} {
-        allow read, write: if true;
-      }
-    }
-
-    match /security_complaints/{complaintId} {
-      allow read, write: if true;
-      match /{document=**} {
-        allow read, write: if true;
-      }
-    }
-
-    match /student_notifications/{studentRollNo} {
-      allow read, write: if true;
-      match /{document=**} {
-        allow read, write: if true;
-      }
-    }
-
-    match /notifications/{notificationId} {
-      allow read, write: if true;
-      match /{document=**} {
-        allow read, write: if true;
+        allow read: if isSignedIn();
+        allow write: if isAdmin();
       }
     }
 
     match /app_updates/{docId} {
-      // Any client can read update manifests to check for updates
       allow read: if true;
-      // Prohibit all client-side writes. App updates can ONLY be published via Firebase Admin SDK / deployment scripts.
-      // Do not trust exists(/admins/{uid}) while /admins may be publicly writable.
-      allow write: if false;
+      allow write: if isAdmin();
       match /{document=**} {
         allow read: if true;
-        allow write: if false;
+        allow write: if isAdmin();
+      }
+    }
+
+    // Lecturers collection: only admins can create, update, or delete lecturer accounts
+    match /lecturers/{lecturerId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+      match /{document=**} {
+        allow read: if isSignedIn();
+        allow write: if isAdmin();
+      }
+    }
+
+    // Courses collection: managed by admins and authorized lecturers
+    match /courses/{courseId} {
+      allow read: if isSignedIn();
+      allow write: if isStaff();
+      match /{document=**} {
+        allow read: if isSignedIn();
+        allow write: if isStaff();
+      }
+    }
+
+    // Students collection: records managed by staff.
+    // Students can update their own personal non-academic details, but cannot alter rollNo, status, or biometrics.
+    match /students/{studentId} {
+      allow read: if isSignedIn();
+      allow create, delete: if isStaff();
+      allow update: if isStaff() || (
+        isSignedIn() &&
+        (request.auth.uid == studentId || (resource.data.studentUid != null && resource.data.studentUid == request.auth.uid)) &&
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          'rollNo', 'rollNumber', 'faceDescriptor', 'biometricEnrolled',
+          'hardwareBiometricPlatform', 'status', 'disqualified', 'academicYear', 'department', 'batch'
+        ])
+      );
+      match /{document=**} {
+        allow read: if isSignedIn();
+        allow write: if isStaff();
+      }
+    }
+
+    // Users collection: users can create/update own profile; non-admins cannot escalate role
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && (isAdmin() || request.auth.uid == userId);
+      allow update: if isSignedIn() && (
+        isAdmin() || (
+          request.auth.uid == userId &&
+          (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'isAdmin', 'isLecturer']) ||
+           request.resource.data.role == resource.data.role)
+        )
+      );
+      allow delete: if isAdmin();
+      match /{document=**} {
+        allow read: if isSignedIn();
+        allow write: if isAdmin();
+      }
+    }
+
+    match /authorizedUsers/{userId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+      match /{document=**} {
+        allow read: if isSignedIn();
+        allow write: if isAdmin();
+      }
+    }
+
+    // Notifications & Communications
+    match /faculty_notifications/{notificationId} {
+      allow read: if isStaff();
+      allow write: if isStaff();
+      match /{document=**} {
+        allow read, write: if isStaff();
+      }
+    }
+
+    match /admin_notifications/{notificationId} {
+      allow read, write: if isAdmin();
+      match /{document=**} {
+        allow read, write: if isAdmin();
+      }
+    }
+
+    match /lecturer_notifications/{notificationId} {
+      allow read, write: if isStaff();
+      match /{document=**} {
+        allow read, write: if isStaff();
+      }
+    }
+
+    match /broadcast_notifications/{notificationId} {
+      allow read: if isSignedIn();
+      allow write: if isStaff();
+      match /{document=**} {
+        allow read: if isSignedIn();
+        allow write: if isStaff();
+      }
+    }
+
+    match /announcements/{announcementId} {
+      allow read: if isSignedIn();
+      allow write: if isStaff();
+      match /{document=**} {
+        allow read: if isSignedIn();
+        allow write: if isStaff();
+      }
+    }
+
+    match /broadcasts/{broadcastId} {
+      allow read: if isSignedIn();
+      allow write: if isStaff();
+      match /{document=**} {
+        allow read: if isSignedIn();
+        allow write: if isStaff();
+      }
+    }
+
+    match /user_complaints/{complaintId} {
+      allow read: if isStaff() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow create: if isSignedIn();
+      allow update, delete: if isStaff();
+      match /{document=**} {
+        allow read: if isStaff();
+        allow write: if isStaff();
+      }
+    }
+
+    match /support_tickets/{ticketId} {
+      allow read: if isStaff() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow create: if isSignedIn();
+      allow update, delete: if isStaff();
+      match /{document=**} {
+        allow read: if isStaff();
+        allow write: if isStaff();
+      }
+    }
+
+    match /feedbacks/{feedbackId} {
+      allow read: if isStaff();
+      allow create: if isSignedIn();
+      allow update, delete: if isStaff();
+      match /{document=**} {
+        allow read: if isStaff();
+        allow write: if isStaff();
+      }
+    }
+
+    match /security_complaints/{complaintId} {
+      allow read: if isStaff();
+      allow create: if isSignedIn();
+      allow update, delete: if isStaff();
+      match /{document=**} {
+        allow read: if isStaff();
+        allow write: if isStaff();
+      }
+    }
+
+    match /student_notifications/{studentRollNo} {
+      allow read: if isSignedIn();
+      allow write: if isStaff();
+      match /{document=**} {
+        allow read: if isSignedIn();
+        allow write: if isStaff();
+      }
+    }
+
+    match /notifications/{notificationId} {
+      allow read: if isSignedIn();
+      allow write: if isStaff();
+      match /{document=**} {
+        allow read: if isSignedIn();
+        allow write: if isStaff();
       }
     }
 
@@ -161,28 +242,23 @@ service cloud.firestore {
     // =========================================================================
 
     match /attendance_sessions/{sessionId} {
-      // Authenticated users can read session documents
-      allow read: if request.auth != null;
+      allow read: if isSignedIn();
 
-      // Creation: Only lecturers, admins, or users establishing session ownership
-      allow create: if request.auth != null && (
-        exists(/databases/$(database)/documents/lecturers/$(request.auth.uid)) ||
-        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
-        request.resource.data.ownerId == request.auth.uid
+      allow create: if isSignedIn() && (
+        isStaff() ||
+        request.resource.data.ownerId == request.auth.uid ||
+        (request.auth.token.email != null && request.resource.data.ownerEmail == request.auth.token.email)
       );
 
-      // Deletion: Only the session owner lecturer or an administrator
-      allow delete: if request.auth != null && (
-        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+      allow delete: if isSignedIn() && (
+        isAdmin() ||
         resource.data.ownerId == request.auth.uid ||
         resource.data.ownerEmail == request.auth.token.email
       );
 
-      // Update: Lecturers and admins have full update authority.
-      // Students CANNOT modify ownership, deadlines, active status, phase, kiosk settings, tokens, pins, or course metadata.
-      allow update: if request.auth != null && (
-        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
-        exists(/databases/$(database)/documents/lecturers/$(request.auth.uid)) ||
+      allow update: if isSignedIn() && (
+        isAdmin() ||
+        isLecturer() ||
         resource.data.ownerId == request.auth.uid ||
         resource.data.ownerEmail == request.auth.token.email ||
         (
@@ -195,69 +271,88 @@ service cloud.firestore {
             'sessionPin', 'releaseCode', 'lecturerPin', 'lecturerReleaseCode',
             'sessionPinHash', 'lecturerPinHash', 'lecturerReleaseCodeHash', 'security',
             'courseId', 'courseCode', 'classCode', 'batch', 'department', 'semester',
-            'geofence', 'geofenceEnabled', 'location'
+            'geofence', 'geofenceRadius', 'classroomLocation', 'geofenceEnabled', 'location'
           ])
         )
       );
 
-      // Private Security Tokens: NEVER readable or writable by client SDKs
-      // Only Cloud Functions Admin SDK can read/write tokens and Session PIN hashes
       match /security/{docId} {
-        allow read, write: if false;
+        allow read: if isSignedIn() && (
+          isStaff() ||
+          (exists(/databases/$(database)/documents/attendance_sessions/$(sessionId)) && (
+            get(/databases/$(database)/documents/attendance_sessions/$(sessionId)).data.ownerId == request.auth.uid ||
+            (request.auth.token.email != null && get(/databases/$(database)/documents/attendance_sessions/$(sessionId)).data.ownerEmail == request.auth.token.email)
+          ))
+        );
+        allow write: if isSignedIn() && (
+          isStaff() ||
+          (request.resource != null && request.resource.data.ownerId == request.auth.uid) ||
+          (resource != null && resource.data.ownerId == request.auth.uid) ||
+          (exists(/databases/$(database)/documents/attendance_sessions/$(sessionId)) && (
+            get(/databases/$(database)/documents/attendance_sessions/$(sessionId)).data.ownerId == request.auth.uid ||
+            (request.auth.token.email != null && get(/databases/$(database)/documents/attendance_sessions/$(sessionId)).data.ownerEmail == request.auth.token.email)
+          ))
+        );
         match /{document=**} {
-          allow read, write: if false;
+          allow read, write: if isSignedIn() && isStaff();
         }
       }
 
       // Authorizations subcollection: student devices and lecturers
-      // Students can only write to documents matching their authenticated UID or their own roll number
+      // Students CANNOT set qr1Verified: true, status: "ATTENDED", or reset/delete hasViolation or disqualified
       match /authorizations/{authDocId} {
-        allow read: if request.auth != null;
-        allow write: if request.auth != null && (
-          exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
-          exists(/databases/$(database)/documents/lecturers/$(request.auth.uid)) ||
-          request.auth.uid == authDocId ||
-          (request.resource.data.studentUid == request.auth.uid && (resource == null || resource.data.studentUid == request.auth.uid))
+        allow read: if isSignedIn();
+        allow create, delete: if isStaff();
+        allow update: if isStaff() || (
+          isSignedIn() &&
+          (request.auth.uid == authDocId || (resource.data.studentUid != null && resource.data.studentUid == request.auth.uid)) &&
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+            'qr1Verified', 'status', 'excused', 'excusedBy', 'excuseReason', 'kioskEndsAt'
+          ]) &&
+          (resource.data.hasViolation != true || request.resource.data.hasViolation == true) &&
+          (resource.data.disqualified != true || request.resource.data.disqualified == true)
         );
         match /{document=**} {
-          allow read: if request.auth != null;
+          allow read: if isSignedIn();
           allow write: if false;
         }
       }
 
-      // Violations subcollection: permanent audit records and lecturer reviews
       match /violations/{violationId} {
-        allow read: if request.auth != null;
-        allow create: if request.auth != null;
-        allow update, delete: if request.auth != null && (
-          exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
-          exists(/databases/$(database)/documents/lecturers/$(request.auth.uid))
-        );
+        allow read: if isSignedIn();
+        allow create: if isSignedIn();
+        allow update, delete: if isStaff();
         match /{document=**} {
-          allow read: if request.auth != null;
+          allow read: if isSignedIn();
           allow write: if false;
         }
       }
 
-      // Audit logs for release and security events
       match /audit_logs/{logId} {
-        allow read: if request.auth != null;
-        allow write: if request.auth != null && (
-          exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
-          exists(/databases/$(database)/documents/lecturers/$(request.auth.uid))
-        );
+        allow read: if isSignedIn();
+        allow write: if isStaff();
         match /{document=**} {
-          allow read: if request.auth != null;
+          allow read: if isSignedIn();
           allow write: if false;
         }
       }
 
       // Time adjustments audit records: only Cloud Functions Admin SDK can write
       match /time_adjustments/{adjustmentId} {
-        allow read: if request.auth != null;
+        allow read: if isSignedIn();
         allow write: if false;
         match /{document=**} {
-          allow read: if request.auth != null;
+          allow read: if isSignedIn();
+          allow write: if false;
+        }
+      }
+
+      // Geofence adjustments audit records: only Cloud Functions Admin SDK can write
+      match /geofence_adjustments/{adjustmentId} {
+        allow read: if isSignedIn();
+        allow write: if false;
+        match /{document=**} {
+          allow read: if isSignedIn();
           allow write: if false;
         }
       }
@@ -268,7 +363,6 @@ service cloud.firestore {
     // =========================================================================
 
     match /biometric_credentials/{docId} {
-      // Hardware-backed biometric public keys managed strictly by Cloud Functions
       allow read, write: if false;
       match /{document=**} {
         allow read, write: if false;
@@ -276,7 +370,6 @@ service cloud.firestore {
     }
 
     match /biometric_challenges/{docId} {
-      // Ephemeral cryptographic nonces managed strictly by Cloud Functions
       allow read, write: if false;
       match /{document=**} {
         allow read, write: if false;
@@ -284,50 +377,29 @@ service cloud.firestore {
     }
 
     match /biometric_audit_logs/{docId} {
-      // Audit trail of credential enrollments & replacements
-      allow read: if request.auth != null && (
-        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
-        exists(/databases/$(database)/documents/lecturers/$(request.auth.uid))
-      );
+      allow read: if isStaff();
       allow write: if false;
     }
 
     match /biometric_change_requests/{requestId} {
-      // Students can view own requests; staff can view within authorized scope
-      allow read: if request.auth != null && (
-        resource.data.studentUid == request.auth.uid ||
-        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
-        exists(/databases/$(database)/documents/lecturers/$(request.auth.uid))
+      allow read: if isSignedIn() && (
+        resource.data.studentUid == request.auth.uid || isStaff()
       );
-      // Students can create pending change requests for themselves
-      allow create: if request.auth != null &&
+      allow create: if isSignedIn() &&
         request.resource.data.studentUid == request.auth.uid &&
         request.resource.data.status == "PENDING";
-      // Only authorized staff can update (approve/reject)
-      allow update: if request.auth != null && (
-        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
-        exists(/databases/$(database)/documents/lecturers/$(request.auth.uid))
-      );
+      allow update: if isStaff();
       allow delete: if false;
     }
 
     match /attendance_records/{recordId} {
-      // Read access for authenticated users (students review history, lecturers view class)
-      allow read: if request.auth != null;
-      // Prohibit client-side creation. Records MUST be created via submitAttendance Cloud Function!
+      allow read: if isSignedIn();
       allow create: if false;
-      // Authorized staff may update or clear flagged records
-      allow update, delete: if request.auth != null && (
-        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
-        exists(/databases/$(database)/documents/lecturers/$(request.auth.uid))
-      );
+      allow update, delete: if isStaff();
       match /{document=**} {
-        allow read: if request.auth != null;
+        allow read: if isSignedIn();
         allow create: if false;
-        allow update, delete: if request.auth != null && (
-          exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
-          exists(/databases/$(database)/documents/lecturers/$(request.auth.uid))
-        );
+        allow update, delete: if isStaff();
       }
     }
   }

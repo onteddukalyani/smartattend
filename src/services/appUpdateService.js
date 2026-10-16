@@ -1,7 +1,9 @@
-import { doc, getDoc } from "firebase/firestore";
+import { doc, getDoc, setDoc, onSnapshot, serverTimestamp } from "firebase/firestore";
 import { db } from "../firebase";
 import { Capacitor } from "@capacitor/core";
 import { getApkDownloadUrl, GITHUB_RELEASE_APK_URL, getApkMirrors } from "../utils/apkUrl";
+import { sendBroadcastNotification } from "./notificationsService";
+import { triggerRealAppNotification } from "./nativeNotificationService";
 
 export const CURRENT_APP_VERSION = "1.0.0";
 export const CURRENT_APP_VERSION_CODE = 1;
@@ -76,7 +78,7 @@ export async function computeSha256(data) {
  * Checks for the latest version of SmartAttend with timeout, offline detection, and multi-tier fallback.
  */
 export async function checkForAppUpdate() {
-  const isNative = Capacitor.isNativePlatform();
+  const _isNative = Capacitor.isNativePlatform();
 
   // 1. Immediate offline check
   if (typeof navigator !== "undefined" && !navigator.onLine) {
@@ -93,18 +95,18 @@ export async function checkForAppUpdate() {
 
   let remoteData = null;
 
-  // 2. Try fetching from Firestore first (Instant admin control) with 7s timeout
+  // 2. Try fetching from Firestore first (Instant admin control) with 2.5s timeout
   try {
     const firestorePromise = getDoc(doc(db, "app_updates", "latest"));
     const timeoutPromise = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error("Firestore check timed out")), 7000)
+      setTimeout(() => reject(new Error("Firestore check timed out")), 2500)
     );
     const snap = await Promise.race([firestorePromise, timeoutPromise]);
     if (snap && snap.exists && snap.exists()) {
       remoteData = snap.data();
     }
   } catch (err) {
-    console.warn("[AppUpdate] Firestore check notice, falling back to public version.json:", err.message);
+    console.info("[AppUpdate] Firestore check notice, falling back to public version.json:", err.message);
   }
 
   // 3. Fallback to GitHub raw version.json
@@ -147,6 +149,15 @@ export async function checkForAppUpdate() {
     };
   }
 
+  return parseRemoteUpdateData(remoteData);
+}
+
+/**
+ * Standardize and evaluate remote update data against current app build.
+ */
+export function parseRemoteUpdateData(remoteData) {
+  if (!remoteData) return null;
+  const isNative = Capacitor.isNativePlatform();
   const latestVersion = remoteData.version || CURRENT_APP_VERSION;
   const latestVersionCode = remoteData.versionCode || CURRENT_APP_VERSION_CODE;
   const minRequiredVersion = remoteData.minRequiredVersion || "1.0.0";
@@ -176,7 +187,7 @@ export async function checkForAppUpdate() {
     title: remoteData.title || `SmartAttend v${latestVersion} Available`,
     releaseNotes: Array.isArray(remoteData.releaseNotes)
       ? remoteData.releaseNotes
-      : ["Performance improvements and general bug fixes."],
+      : (typeof remoteData.releaseNotes === "string" ? [remoteData.releaseNotes] : ["Performance improvements and general bug fixes."]),
     history: Array.isArray(remoteData.history) ? remoteData.history : [],
     sha256Checksum: remoteData.sha256Checksum || "",
     fileSizeBytes: remoteData.fileSizeBytes || 0,
@@ -385,5 +396,162 @@ export async function downloadApkWithStream({ url, expectedChecksum, onProgress,
     return { success: true, fallback: true, warning: err.message };
   }
 }
+
+/**
+ * Real-time active subscription for app updates.
+ * Directly listens to Firestore app_updates/latest with onSnapshot,
+ * and maintains a periodic background poll for remote releases.
+ * Whoever has the app open will immediately receive the update notification.
+ *
+ * @param {function} onUpdateDetected - Callback invoked with updateInfo when a newer version is active.
+ * @returns {function} Unsubscribe cleanup function.
+ */
+export function subscribeToAppUpdates(onUpdateDetected) {
+  if (typeof onUpdateDetected !== "function") return () => {};
+
+  let isMounted = true;
+  let lastReportedVersion = null;
+
+  const notifyIfNew = (info) => {
+    if (!isMounted || !info || !info.hasUpdate) return;
+    if (lastReportedVersion !== info.latestVersion) {
+      lastReportedVersion = info.latestVersion;
+      onUpdateDetected(info);
+    }
+  };
+
+  // 1. Live Firestore onSnapshot (instant real-time push to all active users)
+  let unsubFirestore = () => {};
+  try {
+    const updateDocRef = doc(db, "app_updates", "latest");
+    unsubFirestore = onSnapshot(
+      updateDocRef,
+      (snapshot) => {
+        if (!isMounted) return;
+        if (snapshot && snapshot.exists && snapshot.exists()) {
+          const info = parseRemoteUpdateData(snapshot.data());
+          if (info && info.hasUpdate) {
+            notifyIfNew(info);
+          }
+        }
+      },
+      (err) => {
+        console.info("[AppUpdate] Realtime listener notice:", err.message);
+      }
+    );
+  } catch (err) {
+    console.warn("[AppUpdate] Firestore snapshot setup notice:", err.message);
+  }
+
+  // 2. Initial proactive check
+  checkForAppUpdate().then((info) => {
+    if (isMounted && info && info.hasUpdate) {
+      notifyIfNew(info);
+    }
+  }).catch(() => {});
+
+  // 3. Heartbeat polling (every 60 seconds) to catch CDN / version.json updates
+  const pollInterval = setInterval(() => {
+    if (!isMounted) return;
+    checkForAppUpdate().then((info) => {
+      if (isMounted && info && info.hasUpdate) {
+        notifyIfNew(info);
+      }
+    }).catch(() => {});
+  }, 60000);
+
+  return () => {
+    isMounted = false;
+    try { unsubFirestore(); } catch (_) {}
+    clearInterval(pollInterval);
+  };
+}
+
+/**
+ * Admin action: Publish an update release to Firestore and broadcast a real-time
+ * update notification to all connected users (Students, Lecturers, Admins).
+ */
+export async function publishAppUpdate({
+  version,
+  versionCode,
+  minRequiredVersion,
+  isMandatory = false,
+  mandatoryReason = "",
+  releaseNotes = [],
+  title = "",
+  apkUrl = "",
+  fileSizeBytes = 0,
+  sha256Checksum = "",
+  publisherEmail = "Admin"
+}) {
+  const cleanVersion = String(version || "").trim();
+  if (!cleanVersion) {
+    throw new Error("Version string is required to publish an update.");
+  }
+
+  const cleanVersionCode = Number(versionCode) || 1;
+  const notesArray = Array.isArray(releaseNotes)
+    ? releaseNotes.filter(Boolean)
+    : (typeof releaseNotes === "string"
+        ? releaseNotes.split("\n").map(s => s.trim()).filter(Boolean)
+        : ["Performance improvements and general bug fixes."]);
+
+  const targetApkUrl = apkUrl || getApkDownloadUrl() || GITHUB_RELEASE_APK_URL;
+
+  const payload = {
+    version: cleanVersion,
+    versionCode: cleanVersionCode,
+    minRequiredVersion: String(minRequiredVersion || "1.0.0").trim(),
+    isMandatory: Boolean(isMandatory),
+    mandatoryReason: mandatoryReason || (isMandatory ? `Version v${minRequiredVersion || cleanVersion} or higher is required.` : ""),
+    releaseNotes: notesArray.length > 0 ? notesArray : ["Performance improvements and general bug fixes."],
+    title: title || `SmartAttend v${cleanVersion} Available`,
+    apkUrl: targetApkUrl,
+    fileSizeBytes: Number(fileSizeBytes) || 0,
+    sha256Checksum: (sha256Checksum || "").trim(),
+    platform: "android",
+    releaseDate: new Date().toISOString().split("T")[0],
+    updatedAt: serverTimestamp(),
+    publishedBy: publisherEmail || "Admin"
+  };
+
+  // 1. Write to Firestore app_updates/latest
+  const docRef = doc(db, "app_updates", "latest");
+  await setDoc(docRef, payload, { merge: true });
+
+  // 2. Broadcast notification to all active users and all roles
+  try {
+    await sendBroadcastNotification(
+      `🚀 SmartAttend Update (v${cleanVersion}) Available`,
+      `A new update for SmartAttend (v${cleanVersion}) is available. Please update your app to continue.`,
+      "APP_UPDATE",
+      publisherEmail || "System Administrator",
+      ["student", "lecturer", "admin", "all"],
+      {
+        version: cleanVersion,
+        apkUrl: targetApkUrl,
+        isMandatory: Boolean(isMandatory),
+        actionable: true,
+        actionType: "APP_UPDATE"
+      }
+    );
+  } catch (err) {
+    console.warn("[AppUpdate] Broadcast notice:", err.message);
+  }
+
+  // 3. Local OS notification trigger
+  try {
+    await triggerRealAppNotification({
+      id: `pub_update_${cleanVersion}_${Date.now()}`,
+      title: `🚀 Update Available (v${cleanVersion})`,
+      message: `A new version of SmartAttend is ready to install. Tap to update.`,
+      type: "APP_UPDATE",
+      timestamp: Date.now()
+    });
+  } catch (_) {}
+
+  return { success: true, version: cleanVersion };
+}
+
 
 

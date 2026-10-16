@@ -134,53 +134,11 @@ function saveLocalFacultyNotifs(list) {
 }
 
 /**
- * Play a subtle melodic notification chime using Web Audio API
+ * Play notification chime (Disabled: completely silent per requirement)
  */
 export function playNotificationChime() {
-  try {
-    const AudioCtx = window.AudioContext || window.webkitAudioContext;
-    if (!AudioCtx) return;
-    const ctx = new AudioCtx();
-    if (ctx.state === "suspended") {
-      ctx.resume().catch(() => { });
-    }
-
-    const now = ctx.currentTime;
-    const osc1 = ctx.createOscillator();
-    const osc2 = ctx.createOscillator();
-    const gain = ctx.createGain();
-
-    osc1.type = "sine";
-    osc2.type = "sine";
-
-    // Pleasant two-tone chime (E5 -> B5)
-    osc1.frequency.setValueAtTime(659.25, now);
-    osc1.frequency.exponentialRampToValueAtTime(987.77, now + 0.12);
-
-    osc2.frequency.setValueAtTime(1318.5, now + 0.12);
-    osc2.frequency.exponentialRampToValueAtTime(1975.53, now + 0.28);
-
-    gain.gain.setValueAtTime(0, now);
-    gain.gain.linearRampToValueAtTime(0.18, now + 0.04);
-    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.45);
-
-    osc1.connect(gain);
-    osc2.connect(gain);
-    gain.connect(ctx.destination);
-
-    osc1.start(now);
-    osc1.stop(now + 0.14);
-    osc2.start(now + 0.12);
-    osc2.stop(now + 0.45);
-
-    setTimeout(() => {
-      try {
-        ctx.close();
-      } catch (_) { }
-    }, 600);
-  } catch (_) {
-    // Autoplay or background environment
-  }
+  // Silent - in-app notification sounds disabled
+  return;
 }
 
 /**
@@ -195,6 +153,15 @@ export async function sendStudentNotification(
   metadata = {}
 ) {
   if (!studentRollNo) return;
+
+  // STUDENT NOTIFICATION POLICY: Students receive live "SESSION_STARTED" notifications and "APP_UPDATE" notifications.
+  // Other non-essential notifications are suppressed for students.
+  const isSessionStart = type === "SESSION_STARTED" || type === "CLASS_UPDATE" || (title && (title.includes("Live Attendance") || title.includes("Session Started")));
+  const isAppUpdate = type === "APP_UPDATE" || (title && (title.toLowerCase().includes("update") || title.toLowerCase().includes("version")));
+  if (!isSessionStart && !isAppUpdate) {
+    return;
+  }
+
   const cleanRoll = String(studentRollNo).trim().toUpperCase();
   const rollPrefix = cleanRoll.includes("@") ? cleanRoll.split("@")[0].trim().toUpperCase() : cleanRoll;
   const nowMs = Date.now();
@@ -419,11 +386,18 @@ export async function sendBroadcastNotification({
     normalizedTargetRoles.push("student", "lecturer", "admin", "faculty", "all", "everyone");
   }
 
+  // STUDENT NOTIFICATION POLICY: Students receive live "SESSION_STARTED" notifications and "APP_UPDATE" notifications.
+  const isSessionBroadcast = type === "SESSION_STARTED" || type === "CLASS_UPDATE" || (title && (title.includes("Live Attendance") || title.includes("Session Started")));
+  const isAppUpdateBroadcast = type === "APP_UPDATE" || (title && (title.toLowerCase().includes("update") || title.toLowerCase().includes("version")));
+  let effectiveTargetRoles = (isSessionBroadcast || isAppUpdateBroadcast)
+    ? normalizedTargetRoles
+    : normalizedTargetRoles.filter(r => r !== "student" && r !== "students");
+
   const nowMs = Date.now();
 
-  const isOnlyStudent = normalizedTargetRoles.every(r => ["student", "students"].includes(r));
-  const isOnlyLecturer = normalizedTargetRoles.every(r => ["lecturer", "faculty", "professors"].includes(r));
-  const isOnlyAdmin = normalizedTargetRoles.every(r => ["admin", "admins"].includes(r));
+  const isOnlyStudent = effectiveTargetRoles.every(r => ["student", "students"].includes(r));
+  const isOnlyLecturer = effectiveTargetRoles.every(r => ["lecturer", "faculty", "professors"].includes(r));
+  const isOnlyAdmin = effectiveTargetRoles.every(r => ["admin", "admins"].includes(r));
 
   let resolvedTargetRole = "all";
   if (isOnlyStudent) resolvedTargetRole = "student";
@@ -560,9 +534,14 @@ export async function approveDeviceResetAction(studentRollNo, approvedByName = "
 
   try {
     const studentDocRef = doc(db, "students", cleanRoll);
-    await updateDoc(studentDocRef, {
+    const userDocRef = doc(db, "users", cleanRoll);
+    const resetFields = {
       isDeviceRegistered: false,
       deviceFingerprint: null,
+      hardwareBiometricEnrolled: false,
+      hardwareBiometricPlatform: null,
+      hardwareBiometricEnrolledAt: null,
+      biometricKeyAlias: null,
       registeredPlatform: null,
       registeredDevice: null,
       deviceType: null,
@@ -570,7 +549,10 @@ export async function approveDeviceResetAction(studentRollNo, approvedByName = "
       deviceUUID: null,
       lastDeviceResetAt: serverTimestamp(),
       lastDeviceResetBy: approvedByName
-    });
+    };
+
+    await updateDoc(studentDocRef, resetFields);
+    await updateDoc(userDocRef, resetFields).catch(() => {});
 
     // Notify Student
     await sendStudentNotification(
@@ -668,6 +650,21 @@ export function subscribeToStudentNotifications(studentRollNo, callback, student
 
     const combined = dedupedAll
       .filter(n => !currentDeletedSet.has(n.id))
+      .filter(n => {
+        if (!n) return false;
+        const t = String(n.type || "").toUpperCase();
+        const ttl = String(n.title || "").toUpperCase();
+        return (
+          t === "SESSION_STARTED" ||
+          t === "CLASS_UPDATE" ||
+          t === "APP_UPDATE" ||
+          ttl.includes("LIVE ATTENDANCE") ||
+          ttl.includes("SESSION STARTED") ||
+          ttl.includes("UPDATE AVAILABLE") ||
+          ttl.includes("APP UPDATE") ||
+          ttl.includes("NEW VERSION")
+        );
+      })
       .map(n => ({
         ...n,
         read: Boolean(n.read || currentReadSet.has(n.id))

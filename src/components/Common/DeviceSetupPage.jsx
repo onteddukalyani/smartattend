@@ -231,19 +231,40 @@ export default function DeviceSetupPage() {
 
           <ol className="device-instruction-list">
             <li>
-              <strong>Download &amp; Install APK:</strong> Open the APK link on your Android phone and download the installer. Allow <span className="device-step-tag">Install unknown apps</span> if prompted.
+              <strong>1. Download APK Installer:</strong> Tap the download button above to download <span className="device-step-tag">SmartAttend-release.apk</span> onto your Android phone.
             </li>
             <li>
-              <strong>Register Face Biometrics In-App:</strong> Launch SmartAttend, sign in, open <span className="device-step-tag">Sidebar</span> <span className="device-path-arrow">→</span> <span className="device-step-tag">Biometric Registration</span>, and complete your live 3D face scan with the front camera.
+              <strong>2. Google Play Protect Prompt (Before Installation):</strong> Because the app is downloaded directly outside the Play Store, Google Play Protect may display a warning dialog: <em>"Unsafe app blocked"</em> or <em>"Play Protect doesn't recognise this app's developer"</em>:
+              <div style={{ marginTop: "6px", padding: "8px 12px", background: "rgba(99, 102, 241, 0.08)", borderRadius: "8px", fontSize: "0.88rem", color: "#312e81", fontWeight: 600 }}>
+                👉 Tap <strong>More details</strong> (small dropdown arrow) <span className="device-path-arrow">→</span> Tap <strong>Install anyway</strong>.
+                <div style={{ fontWeight: 400, marginTop: "4px", fontSize: "0.82rem", color: "#475569" }}>
+                  (If installation remains blocked: Open Google Play Store <span className="device-path-arrow">→</span> tap profile icon <span className="device-path-arrow">→</span> Play Protect <span className="device-path-arrow">→</span> ⚙️ Settings <span className="device-path-arrow">→</span> temporarily disable <em>"Scan apps with Play Protect"</em> while installing).
+                </div>
+              </div>
             </li>
             <li>
-              <strong>Register Fingerprint Directly In-App:</strong> On the same page, tap the <span className="device-step-tag">Device Fingerprint</span> tab and tap <span className="device-step-tag">Touch Sensor to Register Fingerprint In-App</span>. Touch your phone's sensor to bind this phone to your account.
+              <strong>3. Allow Restricted Settings (Android 13, 14, 15+):</strong> Sideloaded APKs have settings locked by default (<em>"Restricted setting: currently unavailable"</em>). To unlock:
+              <div style={{ marginTop: "6px", padding: "8px 12px", background: "rgba(245, 158, 11, 0.1)", borderRadius: "8px", fontSize: "0.86rem", color: "#78350f" }}>
+                • Long-press the <strong>SmartAttend</strong> icon on your phone's home screen <span className="device-path-arrow">→</span> Tap <strong>App info (ℹ️)</strong>.<br />
+                • In the top-right corner, tap the <strong>3 DOTS (⋮)</strong> menu.<br />
+                • Tap <strong>"Allow restricted settings"</strong> and verify your lock screen PIN or Fingerprint.
+              </div>
             </li>
             <li>
-              <strong>Allow Camera &amp; Lock Permissions:</strong> If prompted for lock permissions, grant <span className="device-step-tag">Display over other apps</span> so SmartAttend can pin attendance mode.
+              <strong>4. Turn ON Display Over Other Apps:</strong> After allowing restricted settings:
+              <div style={{ marginTop: "6px", padding: "8px 12px", background: "rgba(16, 185, 129, 0.08)", borderRadius: "8px", fontSize: "0.86rem", color: "#065f46" }}>
+                • On that same App info page (or when SmartAttend prompts you), tap <strong>Display over other apps</strong>.<br />
+                • Turn the toggle switch <strong>ON</strong> so SmartAttend can secure your attendance session with Kiosk Lock mode.
+              </div>
             </li>
             <li>
-              <strong>Mark Attendance:</strong> Scan the lecturer's QR codes in order. Touch the in-app fingerprint sensor when prompted, then verify your face to complete attendance.
+              <strong>5. Register 3D Face Biometrics In-App:</strong> Launch SmartAttend, sign in, open <span className="device-step-tag">Sidebar</span> <span className="device-path-arrow">→</span> <span className="device-step-tag">Biometric Registration</span>, and complete your live 3D face scan with the front camera.
+            </li>
+            <li>
+              <strong>6. Register Device Fingerprint In-App:</strong> On the same page, tap the <span className="device-step-tag">Device Fingerprint</span> tab and tap <span className="device-step-tag">Touch Sensor to Register Fingerprint In-App</span>. Touch your phone's sensor to bind your phone cryptographically.
+            </li>
+            <li>
+              <strong>7. Mark Attendance:</strong> Scan the lecturer's QR code. Touch the in-app fingerprint sensor when prompted, verify your face, and your attendance is recorded!
             </li>
           </ol>
           <p className="device-setup-caveat">Kiosk lock availability depends on the Android app and device provisioning. If lock mode is unavailable, contact your administrator before class.</p>

@@ -74,7 +74,18 @@ export function DeviceOnboardingModal({ isOpen, onClose }) {
         return () => { isMounted = false; };
     }, []);
 
-    if (!isOpen) return null;
+    // Auto-close immediately on native platform (Android APK is already native)
+    useEffect(() => {
+        if (isNativeApp) {
+            try {
+                localStorage.setItem('smartattend_student_device_type', 'android');
+                localStorage.setItem('smartattend_student_device_locked', 'true');
+            } catch (_) {}
+            onClose();
+        }
+    }, [isNativeApp, onClose]);
+
+    if (!isOpen || isNativeApp) return null;
 
     const hasDeviceMismatch = Boolean(detectedDevice && selectedDevice && detectedDevice !== selectedDevice);
     const isLocked = Boolean(
@@ -94,7 +105,6 @@ export function DeviceOnboardingModal({ isOpen, onClose }) {
 
     const handleReportDeviceMismatch = async () => {
         if (!hasDeviceMismatch || !roll || mismatchReported) return;
-        setSaving(true);
         try {
             const studentName = profile?.name || user?.displayName || roll;
             const detectedName = getDeviceDisplayName(detectedDevice);
@@ -123,19 +133,20 @@ export function DeviceOnboardingModal({ isOpen, onClose }) {
                 // The report is still sent if local storage is unavailable.
             }
             setMismatchReported(true);
-        } finally {
-            setSaving(false);
-        }
+        } catch (_) {}
     };
 
     const handleSaveAndLockDevice = async () => {
-        if (!selectedDevice) return;
-        if (hasDeviceMismatch) {
-            await handleReportDeviceMismatch();
+        if (isLocked) {
+            onClose();
             return;
         }
+        if (!selectedDevice) return;
         setSaving(true);
         try {
+            if (hasDeviceMismatch && !mismatchReported) {
+                await handleReportDeviceMismatch();
+            }
             const ip = currentIp && currentIp !== "Detecting IP..." ? currentIp : await getClientIpAddress();
             localStorage.setItem('smartattend_student_device_type', selectedDevice);
             localStorage.setItem('smartattend_student_device_locked', 'true');
@@ -376,25 +387,42 @@ export function DeviceOnboardingModal({ isOpen, onClose }) {
                                     <div className="step-card">
                                         <div className="step-num">1</div>
                                         <div className="step-text">
-                                            Tap the APK download button above, or request the current signed APK from your administrator.
+                                            <strong>Download APK:</strong> Tap the download button above or get the signed APK from your administrator.
                                         </div>
                                     </div>
                                     <div className="step-card">
                                         <div className="step-num">2</div>
                                         <div className="step-text">
-                                            Open the downloaded file and allow <span className="step-highlight">Install from Unknown Sources</span> if prompted.
+                                            <strong>Google Play Protect Prompt:</strong> When installing outside the Play Store, if Google Play Protect shows <em>"Unsafe app blocked"</em> or <em>"Play Protect doesn't recognise this app's developer"</em>:
+                                            <div style={{ marginTop: '4px', color: '#4f46e5', fontWeight: 600 }}>
+                                                👉 Tap <strong>More details</strong> (small dropdown) <span className="step-arrow">→</span> Tap <strong>Install anyway</strong>.
+                                            </div>
                                         </div>
                                     </div>
                                     <div className="step-card">
                                         <div className="step-num">3</div>
                                         <div className="step-text">
-                                            If prompted on your device, grant <span className="step-highlight">Display over other apps</span> permission to support attendance lock mode.
+                                            <strong>Android 13+ Restricted Settings:</strong> Android 13/14/15/16 temporarily disables permissions for sideloaded APKs:
+                                            <div style={{ marginTop: '4px', fontSize: '0.8rem', color: '#334155' }}>
+                                                • Long-press the SmartAttend app icon on your home screen <span className="step-arrow">→</span> Tap <strong>App info (ℹ️)</strong>.<br />
+                                                • Tap the <strong>3 DOTS (⋮)</strong> in the top-right corner <span className="step-arrow">→</span> Tap <strong>Allow restricted settings</strong>.<br />
+                                                • Verify your device PIN or Fingerprint to unlock permissions.
+                                            </div>
                                         </div>
                                     </div>
                                     <div className="step-card">
                                         <div className="step-num">4</div>
                                         <div className="step-text">
-                                            Launch the SmartAttend app from your Android home screen to mark attendance securely.
+                                            <strong>Enable Display Over Other Apps:</strong> On that same App info page (or in SmartAttend):
+                                            <div style={{ marginTop: '4px', fontSize: '0.8rem', color: '#334155' }}>
+                                                • Tap <strong>Display over other apps</strong> <span className="step-arrow">→</span> Toggle the switch <strong>ON</strong>.
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div className="step-card">
+                                        <div className="step-num">5</div>
+                                        <div className="step-text">
+                                            <strong>Launch &amp; Register Biometrics:</strong> Open SmartAttend, sign in, and complete your <strong>3D Face Scan</strong> and <strong>In-App Fingerprint</strong>.
                                         </div>
                                     </div>
                                 </div>

@@ -32,7 +32,8 @@ import {
     FaAndroid,
     FaApple,
     FaLock,
-    FaUnlock
+    FaUnlock,
+    FaFingerprint
 } from "react-icons/fa";
 import StudentDetailModal from "./StudentDetailModal";
 import { useTableSort, SortIcon } from "./useTableSort";
@@ -219,48 +220,124 @@ function StudentsList() {
         const cleanRoll = String(student.rollNo || student.id || "").trim().toUpperCase();
 
         const confirmed = window.confirm(
-            `🔓 Reset Device Lock?\n\nAre you sure you want to reset the registered device selection for ${studentName} (${cleanRoll})?\n\nThis will allow the student to select a new device type (Android APK or iPhone Guided Access) on their next sign-in.`
+            `🔓 Reset Device & Fingerprint Lock?\n\nAre you sure you want to reset the registered device selection and device fingerprint binding for ${studentName} (${cleanRoll})?\n\nThis will allow the student to select a new device type and register their fingerprint biometrics on their next sign-in.`
         );
         if (!confirmed) return;
 
         try {
             setActionLoading(student.id || cleanRoll);
-            await setDoc(doc(db, "students", cleanRoll), {
+            const actorName = profile?.name || profile?.email || "Faculty/Admin";
+            const resetPayload = {
                 deviceType: deleteField(),
                 deviceTypeLocked: false,
-                deviceResetAt: Date.now()
-            }, { merge: true });
+                deviceResetAt: Date.now(),
+                hardwareBiometricEnrolled: false,
+                hardwareBiometricPlatform: deleteField(),
+                hardwareBiometricEnrolledAt: deleteField(),
+                deviceFingerprint: deleteField(),
+                biometricKeyAlias: deleteField(),
+                isDeviceRegistered: false,
+                registeredDevice: deleteField(),
+                registeredPlatform: deleteField(),
+                deviceUUID: deleteField(),
+                deviceModel: deleteField(),
+                deviceIp: deleteField(),
+                registrationIp: deleteField(),
+                deviceResetBy: actorName
+            };
+
+            await setDoc(doc(db, "students", cleanRoll), resetPayload, { merge: true });
+            await setDoc(doc(db, "users", cleanRoll), resetPayload, { merge: true }).catch(() => {});
 
             setStudents((prev) =>
                 prev.map((s) =>
                     s.id === student.id || (cleanRoll && s.rollNo === cleanRoll)
-                        ? { ...s, deviceType: null, deviceTypeLocked: false }
+                        ? { ...s, deviceType: null, deviceTypeLocked: false, hardwareBiometricEnrolled: false, deviceFingerprint: null }
                         : s
                 )
             );
 
             // Notify student & faculty stream in real-time
-            const actorName = profile?.name || profile?.email || "Faculty/Admin";
             await sendStudentNotification(
                 cleanRoll,
                 "Phone Reset Approved ✅",
-                `Your phone registration was reset by ${actorName}. You can now choose your new phone on your dashboard.`,
+                `Your phone registration and device binding were reset by ${actorName}. You can now choose your new phone on your dashboard.`,
                 "DEVICE_RESET",
                 actorName
             );
 
             await sendFacultyNotification(
                 "Device Lock Reset 🔓",
-                `Device lock for ${studentName} (${cleanRoll}) reset by ${actorName}.`,
+                `Device lock and hardware binding for ${studentName} (${cleanRoll}) reset by ${actorName}.`,
                 "DEVICE_RESET",
                 cleanRoll,
                 actorName
             );
 
-            alert(`✅ Device lock for ${studentName} (${cleanRoll}) has been reset.`);
+            alert(`✅ Device lock and fingerprint binding for ${studentName} (${cleanRoll}) have been reset.`);
         } catch (err) {
             console.error("Error resetting student device lock:", err);
             alert("Failed to reset device lock: " + err.message);
+        } finally {
+            setActionLoading(null);
+        }
+    };
+
+    const handleRemoveStudentFingerprint = async (student, e) => {
+        if (e) e.stopPropagation();
+        const studentName = student.name || student.rollNo || "this student";
+        const cleanRoll = String(student.rollNo || student.id || "").trim().toUpperCase();
+
+        const confirmed = window.confirm(
+            `🔓 Remove Device Fingerprint?\n\nAre you sure you want to remove the registered device fingerprint / hardware biometric binding for ${studentName} (${cleanRoll})?\n\nThis will allow the student to register their fingerprint anew on their phone.`
+        );
+        if (!confirmed) return;
+
+        try {
+            setActionLoading(student.id || cleanRoll);
+            const actorName = profile?.name || profile?.email || "Faculty/Admin";
+            const hwPayload = {
+                hardwareBiometricEnrolled: false,
+                hardwareBiometricPlatform: deleteField(),
+                hardwareBiometricEnrolledAt: deleteField(),
+                deviceFingerprint: deleteField(),
+                biometricKeyAlias: deleteField(),
+                deviceFingerprintResetAt: Date.now(),
+                deviceFingerprintResetBy: actorName
+            };
+
+            await setDoc(doc(db, "students", cleanRoll), hwPayload, { merge: true });
+            await setDoc(doc(db, "users", cleanRoll), hwPayload, { merge: true }).catch(() => {});
+
+            setStudents((prev) =>
+                prev.map((s) =>
+                    s.id === student.id || (cleanRoll && s.rollNo === cleanRoll)
+                        ? { ...s, hardwareBiometricEnrolled: false, deviceFingerprint: null }
+                        : s
+                )
+            );
+
+            // Notify student & faculty stream
+            await sendStudentNotification(
+                cleanRoll,
+                "Device Fingerprint Reset 🔓",
+                `Your device fingerprint binding was reset by ${actorName}. You can now register your fingerprint on your phone dashboard.`,
+                "BIOMETRICS_CLEARED",
+                actorName
+            );
+
+            await sendFacultyNotification(
+                "Device Fingerprint Reset 🔓",
+                `Device fingerprint for ${studentName} (${cleanRoll}) was reset by ${actorName}.`,
+                "BIOMETRICS_CLEARED",
+                cleanRoll,
+                actorName
+            );
+
+            alert(`✅ Device fingerprint for ${studentName} (${cleanRoll}) has been successfully removed.`);
+        } catch (err) {
+            console.error("Error removing student device fingerprint:", err);
+            alert("Failed to remove device fingerprint: " + err.message);
         } finally {
             setActionLoading(null);
         }
@@ -794,6 +871,11 @@ function StudentsList() {
                                                                     IP: {student.deviceIp || student.registrationIp || student.lastAttendanceIp || student.lastLoginIp}
                                                                 </span>
                                                             )}
+                                                            {student.hardwareBiometricEnrolled && (
+                                                                <span className="student-device-pill" style={{ background: 'rgba(16, 185, 129, 0.1)', color: '#10b981', border: '1px solid rgba(16, 185, 129, 0.25)', fontSize: '0.72rem' }} title="Hardware Fingerprint Biometrics Enrolled & Locked">
+                                                                    <FaFingerprint size={10} /> Fingerprint 🔒
+                                                                </span>
+                                                            )}
                                                         </div>
                                                     </div>
                                                 </div>
@@ -845,6 +927,19 @@ function StudentsList() {
                                                     >
                                                         <FaMobileAlt /> Device
                                                     </button>
+
+                                                    {(student.hardwareBiometricEnrolled || student.deviceFingerprint) && (
+                                                        <button
+                                                            type="button"
+                                                            className="row-action-btn"
+                                                            onClick={(e) => handleRemoveStudentFingerprint(student, e)}
+                                                            disabled={actionLoading === (student.id || student.rollNo)}
+                                                            title="Remove device fingerprint binding for this student"
+                                                            style={{ background: "rgba(239, 68, 68, 0.1)", color: "#ef4444", borderColor: "rgba(239, 68, 68, 0.25)" }}
+                                                        >
+                                                            {actionLoading === (student.id || student.rollNo) ? <FaSpinner className="fa-spin" /> : <FaFingerprint />} Fingerprint
+                                                        </button>
+                                                    )}
 
                                                     {hasFace && (
                                                         <button
@@ -973,6 +1068,18 @@ function StudentsList() {
                                             </span>
                                         )}
                                     </div>
+                                    <div className="card-detail-item">
+                                        <span className="detail-label">Fingerprint</span>
+                                        {student.hardwareBiometricEnrolled ? (
+                                            <span className="face-badge enrolled mini" title="Hardware Fingerprint Biometrics Enrolled">
+                                                <FaFingerprint size={10} /> Enrolled
+                                            </span>
+                                        ) : (
+                                            <span className="face-badge pending mini" title="Fingerprint not enrolled">
+                                                Unset
+                                            </span>
+                                        )}
+                                    </div>
                                 </div>
 
                                 <div className="card-footer-action" onClick={(e) => e.stopPropagation()}>
@@ -983,6 +1090,19 @@ function StudentsList() {
                                     >
                                         <FaEye /> View Profile
                                     </button>
+
+                                    {(student.hardwareBiometricEnrolled || student.deviceFingerprint) && (
+                                        <button
+                                            type="button"
+                                            className="card-icon-btn"
+                                            onClick={(e) => handleRemoveStudentFingerprint(student, e)}
+                                            disabled={actionLoading === (student.id || student.rollNo)}
+                                            title="Remove device fingerprint binding"
+                                            style={{ color: "#ef4444", background: "rgba(239, 68, 68, 0.1)", borderColor: "rgba(239, 68, 68, 0.25)" }}
+                                        >
+                                            {actionLoading === (student.id || student.rollNo) ? <FaSpinner className="fa-spin" /> : <FaFingerprint />}
+                                        </button>
+                                    )}
 
                                     {hasFace && (
                                         <button

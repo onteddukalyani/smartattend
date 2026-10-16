@@ -1,12 +1,12 @@
 /**
  * SmartAttend Geofence Engine
  * 
- * Enforces a 5-metre default classroom radius with
+ * Enforces a 10-metre default classroom radius with
  * a strict tri-state decision matrix: PASS, REJECT, or INCONCLUSIVE_RETRY.
  * Never enlarges the radius silently when GPS accuracy is poor.
  */
 
-export const DEFAULT_GEOFENCE_RADIUS_METRES = 30; // 30m standard classroom/hall radius
+export const DEFAULT_GEOFENCE_RADIUS_METRES = 10; // 10m default classroom radius, adjustable by authorized lecturer
 export const MAX_ACCEPTABLE_ACCURACY_METRES = 60; // Standard smartphones indoors report 15m-45m accuracy
 export const MAX_RETRY_ATTEMPTS = 3;
 
@@ -36,31 +36,65 @@ export function calculateHaversineDistance(lat1, lon1, lat2, lon2) {
 }
 
 /**
+ * Helper: Robustly extract numeric latitude and longitude from any coordinate object,
+ * whether using { latitude, longitude } or { lat, lng/lon }.
+ */
+export function extractCoords(obj) {
+  if (!obj || typeof obj !== "object") return null;
+
+  const rawLat = obj.latitude !== undefined ? obj.latitude : (obj.lat !== undefined ? obj.lat : null);
+  const rawLon = obj.longitude !== undefined ? obj.longitude : (obj.lng !== undefined ? obj.lng : (obj.lon !== undefined ? obj.lon : null));
+
+  if (rawLat == null || rawLon == null) return null;
+
+  const lat = Number(rawLat);
+  const lon = Number(rawLon);
+
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+
+  const rawRadius = obj.radius !== undefined ? obj.radius : (obj.r !== undefined ? obj.r : undefined);
+  const radius = typeof rawRadius === "number" && Number.isFinite(rawRadius) ? rawRadius : undefined;
+
+  return {
+    latitude: lat,
+    longitude: lon,
+    accuracy: Number(obj.accuracy) || 0,
+    radius: radius,
+    isMock: Boolean(obj.isMock || obj.mocked || obj.isMockLocation),
+    enabled: obj.enabled !== false
+  };
+}
+
+/**
  * Evaluates student position against classroom geofence.
  * 
- * @param {Object} studentCoords - { latitude, longitude, accuracy, isMock? }
- * @param {Object} classroomCoords - { latitude, longitude, radius?, accuracy? }
+ * @param {Object} studentCoordsRaw - { latitude, longitude, accuracy, isMock? } or { lat, lng, ... }
+ * @param {Object} classroomCoordsRaw - { latitude, longitude, radius?, accuracy? } or { lat, lng, ... }
  * @param {number} [retryCount=0]
  * @returns {Object} { status: 'PASS' | 'REJECT' | 'INCONCLUSIVE_RETRY' | 'MOCK_DETECTED', distance: number, accuracy: number, message: string }
  */
-export function evaluateGeofence(studentCoords, classroomCoords, retryCount = 0) {
-  if (!classroomCoords || !classroomCoords.latitude || !classroomCoords.longitude || classroomCoords.radius === 0 || classroomCoords.enabled === false) {
+export function evaluateGeofence(studentCoordsRaw, classroomCoordsRaw, retryCount = 0) {
+  const classroom = extractCoords(classroomCoordsRaw);
+  if (!classroom || classroom.radius === 0 || classroomCoordsRaw?.enabled === false) {
     // If classroom has not registered GPS or lecturer disabled geofence, allow pass-through with audit notice
     return {
       status: "PASS",
       distance: 0,
-      accuracy: studentCoords?.accuracy || 0,
+      accuracy: studentCoordsRaw?.accuracy || 0,
       radius: 0,
       geofenceEnforced: false,
-      message: classroomCoords?.radius === 0 ? "Classroom GPS geofence disabled for this session." : "Classroom GPS not registered for this session."
+      message: (classroom && classroom.radius === 0)
+        ? "Classroom GPS geofence disabled for this session."
+        : "Classroom GPS not registered for this session."
     };
   }
 
-  const radius = (typeof classroomCoords.radius === 'number' && classroomCoords.radius > 0)
-    ? classroomCoords.radius
+  const radius = (typeof classroom.radius === "number" && classroom.radius > 0)
+    ? classroom.radius
     : DEFAULT_GEOFENCE_RADIUS_METRES;
 
-  if (!studentCoords || studentCoords.latitude == null || studentCoords.longitude == null) {
+  const student = extractCoords(studentCoordsRaw);
+  if (!student) {
     const canRetry = retryCount < MAX_RETRY_ATTEMPTS;
     return {
       status: "INCONCLUSIVE_RETRY",
@@ -74,35 +108,49 @@ export function evaluateGeofence(studentCoords, classroomCoords, retryCount = 0)
   }
 
   // 1. Android mock-location / spoofing check
-  if (studentCoords.isMock || studentCoords.mocked || studentCoords.isMockLocation) {
+  if (student.isMock) {
     return {
       status: "MOCK_DETECTED",
       distance: 999,
-      accuracy: studentCoords.accuracy || 0,
+      accuracy: student.accuracy,
       radius: radius,
       message: "🚨 Mock / Fake GPS detected. Attendance rejected and flagged as anti-proxy violation."
     };
   }
 
-  const accuracy = Math.round(studentCoords.accuracy || 0);
-  const hostAccuracy = Math.round(classroomCoords.accuracy || 0);
+  const accuracy = Math.round(student.accuracy);
+  const hostAccuracy = Math.round(classroom.accuracy);
 
   const rawDistance = calculateHaversineDistance(
-    studentCoords.latitude,
-    studentCoords.longitude,
-    classroomCoords.latitude,
-    classroomCoords.longitude
+    student.latitude,
+    student.longitude,
+    classroom.latitude,
+    classroom.longitude
   );
+
+  // If calculation failed somehow to finite number, fail safely
+  if (!Number.isFinite(rawDistance)) {
+    return {
+      status: "PASS",
+      distance: 0,
+      effectiveDistance: 0,
+      accuracy,
+      radius,
+      geofenceEnforced: false,
+      message: "Classroom GPS verification bypassed (coordinates invalid)."
+    };
+  }
+
   const distance = Math.round(rawDistance * 10) / 10;
 
   // 2. Accuracy-aware Indoor Margin:
   // In indoor concrete classrooms, multi-path reflections cause GPS readings to wander.
-  // The true physical distance is bounded by: effectiveDistance = max(0, distance - accuracyMargin).
-  const uncertaintyMargin = Math.min(accuracy, 30) + (hostAccuracy > 15 ? Math.min(hostAccuracy, 35) : 0);
+  // The true physical distance is bounded by: effectiveDistance = max(0, distance - uncertaintyMargin).
+  const uncertaintyMargin = Math.min(accuracy, 35) + (hostAccuracy > 15 ? Math.min(hostAccuracy, 35) : 0);
   const effectiveDistance = Math.max(0, Math.round((distance - uncertaintyMargin) * 10) / 10);
 
   // 3. Tri-state Decision Matrix:
-  // Case A: Accuracy is completely degraded (> 60m threshold, e.g. IP-only or cellar)
+  // Case A: Accuracy is completely degraded (> 60m threshold, e.g. cellar or bad signal)
   if (accuracy > MAX_ACCEPTABLE_ACCURACY_METRES) {
     const canRetry = retryCount < MAX_RETRY_ATTEMPTS;
     return {

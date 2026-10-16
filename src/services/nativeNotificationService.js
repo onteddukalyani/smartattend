@@ -57,20 +57,8 @@ export async function triggerRealAppNotification({
     seenAlertIds.add(notifId);
   }
 
-  const payload = {
-    id: notifId,
-    title: title || "SmartAttend Notice",
-    message: finalMessage,
-    type: type || "GENERAL_NOTICE",
-    senderName: senderName || "SmartAttend",
-    timestamp: Date.now(),
-    metadata: metadata || {}
-  };
 
-  // 1. Play pleasant melodic notification chime
-  try {
-    playNotificationChime();
-  } catch (_) {}
+  // 1. Audio chime disabled per user requirement (silent notifications)
 
   // 2. Trigger subtle haptic pulse on mobile devices
   try {
@@ -79,16 +67,7 @@ export async function triggerRealAppNotification({
     }
   } catch (_) {}
 
-  // 3. Dispatch In-App Heads-Up floating banner event
-  if (typeof window !== "undefined") {
-    try {
-      window.dispatchEvent(
-        new CustomEvent("smartattend:headsup_notification", {
-          detail: payload
-        })
-      );
-    } catch (_) {}
-  }
+  // 3. In-app floating popup banner disabled per user requirement (notifications visible via navbar bell modal only)
 
   // 4. Android Native System Notification (shows in phone status bar & drawer)
   if (Capacitor.isNativePlatform()) {
