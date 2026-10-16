@@ -797,6 +797,7 @@ function QrScannerApp() {
         let qr2Token = null;
         let phase = null;
 
+        let geo = null;
         try {
             let urlObj = null;
             if (raw.startsWith('http://') || raw.startsWith('https://')) {
@@ -810,6 +811,22 @@ function QrScannerApp() {
                 qr1Token = urlObj.searchParams.get('qr1Token');
                 qr2Token = urlObj.searchParams.get('qr2Token');
                 phase = urlObj.searchParams.get('phase');
+                const gLat = urlObj.searchParams.get('geolat');
+                const gLng = urlObj.searchParams.get('geolng');
+                const gR = Number(urlObj.searchParams.get('geor') || 10);
+                const gAcc = Number(urlObj.searchParams.get('geoacc') || 0);
+                if (gLat && gLng) {
+                    geo = {
+                        latitude: Number(gLat),
+                        longitude: Number(gLng),
+                        lat: Number(gLat),
+                        lng: Number(gLng),
+                        radius: gR,
+                        r: gR,
+                        accuracy: gAcc > 0 ? gAcc : 50,
+                        acc: gAcc > 0 ? gAcc : 50
+                    };
+                }
             }
         } catch {
             const sessMatch = raw.match(/[?&]session=([^&#]+)/);
@@ -826,7 +843,7 @@ function QrScannerApp() {
             sessionId = raw.trim();
         }
 
-        return { sessionId, qr1Token, qr2Token, phase };
+        return { sessionId, qr1Token, qr2Token, phase, geo };
     };
 
     // Dual Verification: Auto-detect device and verify against registered device preference

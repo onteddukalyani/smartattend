@@ -58,7 +58,7 @@ export function extractCoords(obj) {
   return {
     latitude: lat,
     longitude: lon,
-    accuracy: Number(obj.accuracy) || 0,
+    accuracy: Number(obj.accuracy ?? obj.acc) || 0,
     radius: radius,
     isMock: Boolean(obj.isMock || obj.mocked || obj.isMockLocation),
     enabled: obj.enabled !== false
@@ -119,7 +119,9 @@ export function evaluateGeofence(studentCoordsRaw, classroomCoordsRaw, retryCoun
   }
 
   const accuracy = Math.max(0, Math.round(Number(student.accuracy) || 0));
-  const hostAccuracy = Math.max(0, Math.round(Number(classroom.accuracy) || 0));
+  const rawHostAccuracy = Math.round(Number(classroom.accuracy) || 0);
+  // Indoor Wi-Fi or laptop positioning has an intrinsic uncertainty of at least 50m when uncalibrated:
+  const hostAccuracy = rawHostAccuracy > 0 ? rawHostAccuracy : 50;
 
   const rawDistance = calculateHaversineDistance(
     student.latitude,
@@ -148,7 +150,7 @@ export function evaluateGeofence(studentCoordsRaw, classroomCoordsRaw, retryCoun
   // positioning causes coordinates to have confidence radii (typically 40m - 120m).
   // The geometric minimum possible physical distance between the two error circles is:
   // effectiveDistance = max(0, distance - (studentAccuracy + hostAccuracy)).
-  const combinedUncertainty = Math.min(150, accuracy + hostAccuracy);
+  const combinedUncertainty = Math.min(200, accuracy + hostAccuracy);
   const effectiveDistance = Math.max(0, Math.round((distance - combinedUncertainty) * 10) / 10);
 
   // 3. Tri-state Decision Matrix:
@@ -189,6 +191,6 @@ export function evaluateGeofence(studentCoordsRaw, classroomCoordsRaw, retryCoun
     accuracy,
     radius,
     geofenceEnforced: true,
-    message: `❌ Geofence Violation: You are outside the classroom (${distance}m > ${radius}m radius). Attendance rejected.`
+    message: `❌ Geofence Violation: You are outside the classroom (${distance}m measured, ${effectiveDistance}m effective > ${radius}m radius). Attendance rejected.`
   };
 }

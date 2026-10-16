@@ -78,6 +78,7 @@ export async function generateRotatingQrPayload({
   const cLat = classroomLocation ? Number(classroomLocation.latitude ?? classroomLocation.lat) : NaN;
   const cLon = classroomLocation ? Number(classroomLocation.longitude ?? classroomLocation.lng ?? classroomLocation.lon) : NaN;
   const cRad = classroomLocation ? Number(classroomLocation.radius ?? classroomLocation.r ?? 10) : 10;
+  const cAcc = classroomLocation ? Number(classroomLocation.accuracy ?? classroomLocation.acc ?? 0) : 0;
 
   if (Number.isFinite(cLat) && Number.isFinite(cLon)) {
     payloadObj.geo = {
@@ -86,7 +87,9 @@ export async function generateRotatingQrPayload({
       latitude: Number(cLat.toFixed(6)),
       longitude: Number(cLon.toFixed(6)),
       r: cRad,
-      radius: cRad
+      radius: cRad,
+      accuracy: Number.isFinite(cAcc) && cAcc > 0 ? Math.round(cAcc) : 50,
+      acc: Number.isFinite(cAcc) && cAcc > 0 ? Math.round(cAcc) : 50
     };
   }
 
@@ -112,6 +115,9 @@ export async function generateRotatingQrPayload({
     url.searchParams.set("geolat", String(payloadObj.geo.lat));
     url.searchParams.set("geolng", String(payloadObj.geo.lng));
     url.searchParams.set("geor", String(payloadObj.geo.r));
+    if (payloadObj.geo.accuracy) {
+      url.searchParams.set("geoacc", String(payloadObj.geo.accuracy));
+    }
   }
 
   return url.toString();
@@ -139,6 +145,7 @@ export async function validateRotatingQrPayload(rawScanned, options = {}) {
         const geoLat = parsed.searchParams.get("geolat");
         const geoLng = parsed.searchParams.get("geolng");
         const geoR = Number(parsed.searchParams.get("geor") || 10);
+        const geoAcc = Number(parsed.searchParams.get("geoacc") || 0);
 
         params = {
           sessionId: parsed.searchParams.get("session") || "",
@@ -155,7 +162,9 @@ export async function validateRotatingQrPayload(rawScanned, options = {}) {
             lat: Number(geoLat),
             lng: Number(geoLng),
             radius: geoR,
-            r: geoR
+            r: geoR,
+            accuracy: geoAcc > 0 ? geoAcc : 50,
+            acc: geoAcc > 0 ? geoAcc : 50
           } : null
         };
       } else if (rawScanned.startsWith("{")) {
@@ -165,6 +174,7 @@ export async function validateRotatingQrPayload(rawScanned, options = {}) {
           const gLat = Number(json.geo.latitude ?? json.geo.lat);
           const gLng = Number(json.geo.longitude ?? json.geo.lng ?? json.geo.lon);
           const gR = Number(json.geo.radius ?? json.geo.r ?? 10);
+          const gAcc = Number(json.geo.accuracy ?? json.geo.acc ?? 0);
           if (Number.isFinite(gLat) && Number.isFinite(gLng)) {
             geoObj = {
               latitude: gLat,
@@ -172,7 +182,9 @@ export async function validateRotatingQrPayload(rawScanned, options = {}) {
               lat: gLat,
               lng: gLng,
               radius: gR,
-              r: gR
+              r: gR,
+              accuracy: gAcc > 0 ? gAcc : 50,
+              acc: gAcc > 0 ? gAcc : 50
             };
           }
         }
