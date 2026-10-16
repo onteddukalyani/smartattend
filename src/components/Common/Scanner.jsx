@@ -1081,7 +1081,7 @@ function QrScannerApp() {
                         resolve(null);
                         return;
                     }
-                    // Stage 1: Try high accuracy (assisted GPS) with 8s timeout and cached fix up to 30s
+                    // Stage 1: Fast high-accuracy fix with 10s maximumAge
                     navigator.geolocation.getCurrentPosition(
                         (pos) => resolve({
                             latitude: pos.coords.latitude,
@@ -1091,7 +1091,7 @@ function QrScannerApp() {
                             accuracy: pos.coords.accuracy
                         }),
                         () => {
-                            // Stage 2: Fallback to fast cellular/Wi-Fi coarse provider if satellite lock is blocked by roof/concrete
+                            // Stage 2: Fallback to network/Wi-Fi positioning if GNSS satellite lock is weak indoors
                             navigator.geolocation.getCurrentPosition(
                                 (pos2) => resolve({
                                     latitude: pos2.coords.latitude,
@@ -1101,10 +1101,10 @@ function QrScannerApp() {
                                     accuracy: pos2.coords.accuracy
                                 }),
                                 () => resolve(null),
-                                { enableHighAccuracy: false, timeout: 5000, maximumAge: 60000 }
+                                { enableHighAccuracy: false, timeout: 4000, maximumAge: 15000 }
                             );
                         },
-                        { enableHighAccuracy: true, timeout: 8000, maximumAge: 30000 }
+                        { enableHighAccuracy: true, timeout: 6000, maximumAge: 10000 }
                     );
                 });
                 studentCoords = await getCoords();

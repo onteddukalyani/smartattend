@@ -7,7 +7,7 @@
  */
 
 export const DEFAULT_GEOFENCE_RADIUS_METRES = 10; // 10m default classroom radius, adjustable by authorized lecturer
-export const MAX_ACCEPTABLE_ACCURACY_METRES = 60; // Standard smartphones indoors report 15m-45m accuracy
+export const MAX_ACCEPTABLE_ACCURACY_METRES = 150; // Indoor university buildings standard GPS/Wi-Fi positioning tolerance (up to 150m)
 export const MAX_RETRY_ATTEMPTS = 3;
 
 /**
@@ -118,8 +118,8 @@ export function evaluateGeofence(studentCoordsRaw, classroomCoordsRaw, retryCoun
     };
   }
 
-  const accuracy = Math.round(student.accuracy);
-  const hostAccuracy = Math.round(classroom.accuracy);
+  const accuracy = Math.max(0, Math.round(Number(student.accuracy) || 0));
+  const hostAccuracy = Math.max(0, Math.round(Number(classroom.accuracy) || 0));
 
   const rawDistance = calculateHaversineDistance(
     student.latitude,
@@ -144,13 +144,15 @@ export function evaluateGeofence(studentCoordsRaw, classroomCoordsRaw, retryCoun
   const distance = Math.round(rawDistance * 10) / 10;
 
   // 2. Accuracy-aware Indoor Margin:
-  // In indoor concrete classrooms, multi-path reflections cause GPS readings to wander.
-  // The true physical distance is bounded by: effectiveDistance = max(0, distance - uncertaintyMargin).
-  const uncertaintyMargin = Math.min(accuracy, 35) + (hostAccuracy > 15 ? Math.min(hostAccuracy, 35) : 0);
-  const effectiveDistance = Math.max(0, Math.round((distance - uncertaintyMargin) * 10) / 10);
+  // In concrete university classrooms, satellite signal attenuation & indoor Wi-Fi/cellular
+  // positioning causes coordinates to have confidence radii (typically 40m - 120m).
+  // The geometric minimum possible physical distance between the two error circles is:
+  // effectiveDistance = max(0, distance - (studentAccuracy + hostAccuracy)).
+  const combinedUncertainty = Math.min(150, accuracy + hostAccuracy);
+  const effectiveDistance = Math.max(0, Math.round((distance - combinedUncertainty) * 10) / 10);
 
   // 3. Tri-state Decision Matrix:
-  // Case A: Accuracy is completely degraded (> 60m threshold, e.g. cellar or bad signal)
+  // Case A: Accuracy is completely degraded (> 150m threshold, e.g. cellar or bad tower fix)
   if (accuracy > MAX_ACCEPTABLE_ACCURACY_METRES) {
     const canRetry = retryCount < MAX_RETRY_ATTEMPTS;
     return {

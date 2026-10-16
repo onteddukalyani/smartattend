@@ -76,10 +76,10 @@ function evaluateServerGeofence(studentCoords, classroomCoords, radiusMetres) {
     return { status: "PASS", geofenceEnforced: false, distance: 0, radius: 0 };
   }
 
-  const accuracy = Math.round(Number(studentCoords.accuracy) || 0);
-  const hostAccuracy = Math.round(Number(classroomCoords.accuracy) || 0);
-  const uncertaintyMargin = Math.min(accuracy, 35) + (hostAccuracy > 15 ? Math.min(hostAccuracy, 35) : 0);
-  const effectiveDist = Math.max(0, Math.round((rawDist - uncertaintyMargin) * 10) / 10);
+  const accuracy = Math.max(0, Math.round(Number(studentCoords.accuracy) || 0));
+  const hostAccuracy = Math.max(0, Math.round(Number(classroomCoords.accuracy) || 0));
+  const combinedUncertainty = Math.min(150, accuracy + hostAccuracy);
+  const effectiveDist = Math.max(0, Math.round((rawDist - combinedUncertainty) * 10) / 10);
   const measuredDist = Math.round(rawDist * 10) / 10;
 
   if (rawDist <= radius || effectiveDist <= radius) {
