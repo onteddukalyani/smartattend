@@ -120,8 +120,9 @@ export function evaluateGeofence(studentCoordsRaw, classroomCoordsRaw, retryCoun
 
   const accuracy = Math.max(0, Math.round(Number(student.accuracy) || 0));
   const rawHostAccuracy = Math.round(Number(classroom.accuracy) || 0);
-  // Indoor Wi-Fi or laptop positioning has an intrinsic uncertainty of at least 50m when uncalibrated:
-  const hostAccuracy = rawHostAccuracy > 0 ? rawHostAccuracy : 50;
+  // Indoor Wi-Fi or laptop positioning has an intrinsic offset of 80m-100m from cellular/GNSS coordinates:
+  const hostAccuracy = rawHostAccuracy > 0 ? Math.max(80, rawHostAccuracy) : 80;
+  const studentAccuracy = accuracy > 0 ? Math.max(40, accuracy) : 40;
 
   const rawDistance = calculateHaversineDistance(
     student.latitude,
@@ -147,10 +148,10 @@ export function evaluateGeofence(studentCoordsRaw, classroomCoordsRaw, retryCoun
 
   // 2. Accuracy-aware Indoor Margin:
   // In concrete university classrooms, satellite signal attenuation & indoor Wi-Fi/cellular
-  // positioning causes coordinates to have confidence radii (typically 40m - 120m).
+  // positioning causes coordinates between a laptop on Wi-Fi and phone on 5G to diverge by 80m-120m.
   // The geometric minimum possible physical distance between the two error circles is:
   // effectiveDistance = max(0, distance - (studentAccuracy + hostAccuracy)).
-  const combinedUncertainty = Math.min(200, accuracy + hostAccuracy);
+  const combinedUncertainty = Math.min(200, studentAccuracy + hostAccuracy);
   const effectiveDistance = Math.max(0, Math.round((distance - combinedUncertainty) * 10) / 10);
 
   // 3. Tri-state Decision Matrix:
