@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Scanner } from '@yudiel/react-qr-scanner';
+import NativeQrScanner from './NativeQrScanner';
 import jsQR from 'jsqr';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Capacitor } from '@capacitor/core';
@@ -153,11 +153,15 @@ function QrScannerApp() {
                     (err) => console.warn('[Scanner] GPS prewarm notice:', err?.message || err),
                     { enableHighAccuracy: true, maximumAge: 5000, timeout: 8000 }
                 );
-            } catch (_) {}
+            } catch (_) { }
         }
 
+        // Ensure camera is fully enabled and free from any previous sessions
+        releaseAllMediaTracks();
+        try { Kiosk.enableCamera().catch(() => { }); } catch (_) { }
+
         // Pre-warm neural network models in background for instantaneous Phase 2 biometric startup
-        loadFaceApiModels().catch(() => {});
+        loadFaceApiModels().catch(() => { });
 
         return () => {
             if (watchId !== null && typeof navigator !== "undefined" && navigator.geolocation?.clearWatch) {
@@ -1007,11 +1011,6 @@ function QrScannerApp() {
                 console.warn('[Kiosk] Notice starting kiosk mode:', kioskErr);
             }
 
-            // Acquire silent rear camera lock — blocks all other apps from using camera
-            // Must happen AFTER kiosk starts and BEFORE setting KIOSK_WAITING_QR2 state
-            await acquireCameraLock();
-            // Device Owner: also apply OS-level camera policy (strongest possible lock)
-            try { await Kiosk.disableCamera(); } catch (_) { }
             // Device Owner: disable screen capture/recording at OS level
             try { await Kiosk.setScreenCaptureDisabled({ disabled: true }); } catch (_) { }
 
@@ -2659,13 +2658,13 @@ function QrScannerApp() {
                         Phase 1 Locked · Listening for QR 2
                     </div>
 
-                    <Scanner
+                    <NativeQrScanner
                         key={`waiting-${retryKey}-${facingMode}`}
                         onScan={handleCameraScan}
                         onError={handleCameraError}
-                        constraints={{ facingMode }}
-                        sound={false}
-                        components={{ audio: false }}
+                        facingMode={facingMode}
+                        onToggleFacingMode={() => setFacingMode((f) => (f === 'environment' ? 'user' : 'environment'))}
+                        active={scanState === 'KIOSK_WAITING_QR2'}
                     />
                 </div>
 
@@ -2948,139 +2947,56 @@ function QrScannerApp() {
                 </div>
             )}
 
-            {/* Snap Button (Fallback for Web Browsers with HTTP/insecure camera restrictions) */}
-            {!isNativeApp && (
-                <div style={{ marginBottom: '16px' }}>
-                    <button
-                        type="button"
-                        onClick={() => fileInputRef.current?.click()}
-                        disabled={scanningFile || scanState !== 'IDLE'}
-                        style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            gap: '8px',
-                            width: '100%',
-                            padding: '13px 20px',
-                            borderRadius: '14px',
-                            background: 'linear-gradient(180deg, var(--accent, #6366f1), var(--accent-strong, #4338ca))',
-                            color: '#ffffff',
-                            border: 'none',
-                            fontWeight: 800,
-                            fontSize: '0.98rem',
-                            cursor: 'pointer',
-                            boxShadow: '0 4px 16px rgba(99, 102, 241, 0.35)'
-                        }}
-                    >
-                        {scanningFile ? (
-                            <><FaSpinner className="fa-spin" /> Decoding QR Code...</>
-                        ) : (
-                            <><FaCamera /> Scan QR Photo</>
-                        )}
-                    </button>
-                </div>
-            )}
+            {/* Snap / Upload Button (Always-Available Fallback for All Devices) */}
+            <div style={{ marginBottom: '16px' }}>
+                <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={scanningFile || scanState !== 'IDLE'}
+                    style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '8px',
+                        width: '100%',
+                        padding: '13px 20px',
+                        borderRadius: '14px',
+                        background: 'linear-gradient(180deg, var(--accent, #6366f1), var(--accent-strong, #4338ca))',
+                        color: '#ffffff',
+                        border: 'none',
+                        fontWeight: 800,
+                        fontSize: '0.98rem',
+                        cursor: 'pointer',
+                        boxShadow: '0 4px 16px rgba(99, 102, 241, 0.35)'
+                    }}
+                >
+                    {scanningFile ? (
+                        <><FaSpinner className="fa-spin" /> Decoding QR Code...</>
+                    ) : (
+                        <><FaCamera /> Snap / Upload QR Photo</>
+                    )}
+                </button>
+            </div>
 
             {/* Camera Viewport */}
             <div style={{
                 borderRadius: '16px',
                 overflow: 'hidden',
-                border: '2px dashed rgba(99, 102, 241, 0.4)',
+                border: '2px solid rgba(99, 102, 241, 0.4)',
                 background: '#020617',
                 position: 'relative',
-                minHeight: '260px',
+                minHeight: '280px',
                 boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.15)'
             }}>
                 {scannerActive && (
-                    <Scanner
+                    <NativeQrScanner
                         key={`${retryKey}-${facingMode}`}
                         onScan={handleCameraScan}
                         onError={handleCameraError}
-                        constraints={{ facingMode }}
-                        sound={false}
-                        components={{ audio: false }}
+                        facingMode={facingMode}
+                        onToggleFacingMode={() => setFacingMode((f) => (f === 'environment' ? 'user' : 'environment'))}
+                        active={scannerActive}
                     />
-                )}
-
-                {/* Overlaid blocker on Camera if overlay permission missing on personal native Android */}
-                {isNativeApp && !deviceOwnerStatus.isDeviceOwner && overlayStatus.checked && !overlayStatus.canDraw && (
-                    <div style={{
-                        position: 'absolute',
-                        inset: 0,
-                        background: 'rgba(15, 23, 42, 0.92)',
-                        backdropFilter: 'blur(6px)',
-                        padding: '24px 20px',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        color: '#f8fafc',
-                        zIndex: 10,
-                        textAlign: 'center'
-                    }}>
-                        <FaShieldAlt style={{ fontSize: '2.5rem', color: '#f59e0b', marginBottom: '12px' }} />
-                        <h4 style={{ margin: '0 0 8px', fontSize: '1.05rem', fontWeight: 800 }}>Lock Permission Required</h4>
-                        <p style={{ margin: '0 0 16px', fontSize: '0.84rem', color: '#94a3b8', lineHeight: 1.45, maxWidth: '280px' }}>
-                            Grant "Display over other apps" permission to activate Kiosk Lock Mode before scanning QR 1.
-                        </p>
-                        <button
-                            type="button"
-                            onClick={() => setShowOverlayInstructionsModal(true)}
-                            style={{
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: '8px',
-                                padding: '10px 20px',
-                                borderRadius: '12px',
-                                background: 'linear-gradient(135deg, #f59e0b, #d97706)',
-                                color: '#ffffff',
-                                border: 'none',
-                                fontWeight: 800,
-                                fontSize: '0.9rem',
-                                cursor: 'pointer',
-                                boxShadow: '0 4px 14px rgba(245, 158, 11, 0.4)'
-                            }}
-                        >
-                            <FaShieldAlt /> Grant Permission Now
-                        </button>
-                    </div>
-                )}
-
-                {permissionDenied && (
-                    <div style={{
-                        position: 'absolute',
-                        inset: 0,
-                        background: 'rgba(15, 23, 42, 0.95)',
-                        padding: '24px 20px',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        color: '#f8fafc',
-                        zIndex: 10
-                    }}>
-                        <FaCamera style={{ fontSize: '2.4rem', color: '#6366f1', marginBottom: '10px' }} />
-                        <h4 style={{ margin: '0 0 6px', fontSize: '1rem', fontWeight: 800 }}>Tap Above to Scan</h4>
-                        <p style={{ margin: '0 0 14px', fontSize: '0.82rem', color: '#94a3b8', lineHeight: 1.4, maxWidth: '300px' }}>
-                            Click <strong>"Scan QR via Device Camera"</strong> above to scan instantly with your phone camera!
-                        </p>
-                        <button
-                            type="button"
-                            onClick={() => fileInputRef.current?.click()}
-                            style={{
-                                padding: '10px 20px',
-                                borderRadius: '10px',
-                                background: '#6366f1',
-                                color: '#ffffff',
-                                border: 'none',
-                                fontWeight: 700,
-                                fontSize: '0.88rem',
-                                cursor: 'pointer'
-                            }}
-                        >
-                            <FaCamera /> Open Camera Now
-                        </button>
-                    </div>
                 )}
             </div>
 
