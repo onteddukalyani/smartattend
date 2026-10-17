@@ -97,6 +97,7 @@ try {
   // 4. Copy to Root and dist/
   if (fs.existsSync(srcApk)) {
     fs.copyFileSync(srcApk, destApk);
+    fs.copyFileSync(srcApk, path.join(rootDir, 'SmartAttend-release.apk'));
 
     const distDir = path.join(rootDir, 'dist');
     if (fs.existsSync(distDir)) {
