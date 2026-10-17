@@ -1118,10 +1118,10 @@ function QrScannerApp() {
                                     accuracy: pos2.coords.accuracy
                                 }),
                                 () => resolve(null),
-                                { enableHighAccuracy: false, timeout: 4000, maximumAge: 15000 }
+                                { enableHighAccuracy: false, timeout: 4000, maximumAge: 0 }
                             );
                         },
-                        { enableHighAccuracy: true, timeout: 6000, maximumAge: 10000 }
+                        { enableHighAccuracy: true, timeout: 6000, maximumAge: 0 }
                     );
                 });
                 studentCoords = await getCoords();

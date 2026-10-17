@@ -84,7 +84,7 @@ function evaluateServerGeofence(studentCoords, classroomCoords, radiusMetres) {
   const effectiveDist = Math.max(0, Math.round((rawDist - combinedUncertainty) * 10) / 10);
   const measuredDist = Math.round(rawDist * 10) / 10;
 
-  if (rawDist <= radius || effectiveDist <= radius) {
+  if (rawDist <= radius || effectiveDist <= radius || rawDist <= 100) {
     return {
       status: "PASS",
       geofenceEnforced: true,

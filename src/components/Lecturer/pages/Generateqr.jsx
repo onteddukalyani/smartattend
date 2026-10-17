@@ -395,10 +395,10 @@ function GenerateQR() {
                                     console.warn("Classroom GPS unavailable on lecturer device:", err2?.message || err2);
                                     setClassroomGpsStatus("UNAVAILABLE");
                                 },
-                                { enableHighAccuracy: false, timeout: 5000, maximumAge: 300000 }
+                                { enableHighAccuracy: false, timeout: 5000, maximumAge: 0 }
                             );
                         },
-                        { enableHighAccuracy: true, timeout: 5000, maximumAge: 60000 }
+                        { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
                     );
                 };
                 captureHostGps();
@@ -515,10 +515,10 @@ function GenerateQR() {
                             console.warn("Classroom GPS unavailable on lecturer device:", err2?.message || err2);
                             setClassroomGpsStatus("UNAVAILABLE");
                         },
-                        { enableHighAccuracy: false, timeout: 5000, maximumAge: 300000 }
+                        { enableHighAccuracy: false, timeout: 5000, maximumAge: 0 }
                     );
                 },
-                { enableHighAccuracy: true, timeout: 5000, maximumAge: 60000 }
+                { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
             );
         }
     };
@@ -575,7 +575,7 @@ function GenerateQR() {
             (err) => {
                 alert("Could not retrieve GPS coordinates. Please ensure Location access is allowed in your browser settings.\nError: " + (err.message || err));
             },
-            { enableHighAccuracy: true, timeout: 8000, maximumAge: 10000 }
+            { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
         );
     };
 
