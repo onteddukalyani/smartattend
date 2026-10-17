@@ -67,7 +67,32 @@ export async function triggerRealAppNotification({
     }
   } catch (_) {}
 
-  // 3. In-app floating popup banner disabled per user requirement (notifications visible via navbar bell modal only)
+  // 3. In-App Heads-Up banner: strictly suppressed on mobile devices/apps (APK, iPhones, small screens <= 800px)
+  // Permitted on desktop browser only ("for browser it is okay")
+  const isMobileOrSmall =
+    Capacitor.isNativePlatform() ||
+    (typeof window !== "undefined" && (
+      window.innerWidth <= 800 ||
+      /android|iphone|ipad|ipod|mobile/i.test(navigator.userAgent || "")
+    ));
+
+  if (!isMobileOrSmall && typeof window !== "undefined") {
+    try {
+      window.dispatchEvent(
+        new CustomEvent("smartattend:headsup_notification", {
+          detail: {
+            id: notifId,
+            title: title || "SmartAttend Notice",
+            message: finalMessage,
+            type: type || "GENERAL_NOTICE",
+            senderName: senderName || "SmartAttend",
+            timestamp: Date.now(),
+            metadata: metadata || {}
+          }
+        })
+      );
+    } catch (_) {}
+  }
 
   // 4. Android Native System Notification (shows in phone status bar & drawer)
   if (Capacitor.isNativePlatform()) {

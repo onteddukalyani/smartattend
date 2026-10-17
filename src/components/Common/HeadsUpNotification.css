@@ -279,28 +279,14 @@
     }
 }
 
-@media (max-width: 480px) {
-    .headsup-container {
-        top: 8px;
-        width: 95%;
-    }
-
+/* Strictly suppress in-app heads-up floating notification banner on mobile devices / small screens (<= 820px) per requirement */
+@media (max-width: 820px) {
+    .headsup-container,
     .headsup-card {
-        padding: 10px 12px;
-        border-radius: 16px;
-    }
-
-    .headsup-icon-wrapper {
-        width: 36px;
-        height: 36px;
-        font-size: 1.1rem;
-    }
-
-    .headsup-title {
-        font-size: 0.84rem;
-    }
-
-    .headsup-message {
-        font-size: 0.74rem;
+        display: none !important;
+        visibility: hidden !important;
+        pointer-events: none !important;
+        opacity: 0 !important;
     }
 }
+

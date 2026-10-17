@@ -63,6 +63,15 @@ const getCameraStream = async (requestedFacingMode = "user", maxRetries = 2) => 
 
   if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
     const attempts = [
+      {
+        video: {
+          facingMode: requestedFacingMode,
+          width: { ideal: 640, max: 1280 },
+          height: { ideal: 480, max: 720 },
+          frameRate: { ideal: 30, max: 30 }
+        },
+        audio: false
+      },
       { video: { facingMode: requestedFacingMode, width: { ideal: 640 }, height: { ideal: 480 } }, audio: false },
       { video: { facingMode: requestedFacingMode }, audio: false },
       { video: { facingMode: { ideal: requestedFacingMode } }, audio: false },
@@ -178,12 +187,42 @@ function FaceScanner({
   const [standaloneStudents, setStandaloneStudents] = useState([]);
   const [recognizedStudent, setRecognizedStudent] = useState(null);
 
+  // Performance & Concurrency Refs
+  const statusRef = useRef(status);
+  const feedbackRef = useRef(feedback);
+  const isDetectingRef = useRef(false);
+  const matchScoreRef = useRef(0);
+  const lastStateUpdateRef = useRef(0);
+
+  useEffect(() => {
+    statusRef.current = status;
+  }, [status]);
+
+  useEffect(() => {
+    feedbackRef.current = feedback;
+  }, [feedback]);
+
   // UI Liveness Indicators
   const [blinkCount, setBlinkCount] = useState(0);
   const [livenessPassed, setLivenessPassed] = useState(false);
   const [isSpoof, setIsSpoof] = useState(false);
   const challengeEngineRef = useRef(null);
   const [activeChallenge, setActiveChallenge] = useState(null);
+
+  // Helpers to prevent React re-render thrashing inside high-frequency animation loop
+  const updateStatus = useCallback((nextStatus) => {
+    if (statusRef.current !== nextStatus) {
+      statusRef.current = nextStatus;
+      setStatus(nextStatus);
+    }
+  }, []);
+
+  const updateFeedback = useCallback((nextFeedback) => {
+    if (feedbackRef.current !== nextFeedback) {
+      feedbackRef.current = nextFeedback;
+      setFeedback(nextFeedback);
+    }
+  }, []);
 
   // Reset liveness trackers cleanly
   const resetLivenessState = useCallback(() => {
@@ -195,6 +234,7 @@ function FaceScanner({
     spoofDetectedRef.current = false;
     noFaceFramesRef.current = 0;
     consecutiveMatchesRef.current = 0;
+    matchScoreRef.current = 0;
     setBlinkCount(0);
     setLivenessPassed(false);
     setIsSpoof(false);
@@ -338,16 +378,16 @@ function FaceScanner({
   useEffect(() => {
     if (lookingUp) {
       resetLivenessState();
-      setStatus("scanning");
-      setFeedback("🔍 Fetching student biometric profile from database...");
+      updateStatus("scanning");
+      updateFeedback("🔍 Fetching student biometric profile from database...");
       onVerificationChange({ verified: false, reason: "LOOKING_UP" });
       return;
     }
 
     if (verifiedStudent && (!verifiedStudent.faceDescriptor || !Array.isArray(verifiedStudent.faceDescriptor) || verifiedStudent.faceDescriptor.length !== 128)) {
       resetLivenessState();
-      setStatus("unregistered");
-      setFeedback(`⚠️ No registered face biometrics found for ${verifiedStudent.name || "Student"} (Roll No: ${verifiedStudent.rollNo || rollNo}). Please complete in-app Face Registration in the Biometric Registration hub before marking attendance.`);
+      updateStatus("unregistered");
+      updateFeedback(`⚠️ No registered face biometrics found for ${verifiedStudent.name || "Student"} (Roll No: ${verifiedStudent.rollNo || rollNo}). Please complete in-app Face Registration in the Biometric Registration hub before marking attendance.`);
       onVerificationChange({ verified: false, reason: "NO_REGISTERED_FACE", student: verifiedStudent });
       return;
     }
@@ -356,13 +396,18 @@ function FaceScanner({
 
     let isScanning = true;
     let lastScanTime = 0;
+    const isMobileDevice = typeof window !== "undefined" && (window.innerWidth <= 768 || /android|iphone|ipad|ipod|mobile/i.test(navigator.userAgent || ""));
+    const detectorInputSize = isMobileDevice ? 160 : 224;
+    const detectorOptions = new faceapi.TinyFaceDetectorOptions({ inputSize: detectorInputSize, scoreThreshold: 0.35 });
+    const scanInterval = isMobileDevice ? 140 : 110;
 
     const runRecognition = async (time) => {
       if (!isScanning) return;
 
-      // Run recognition loop every 160ms for smooth performance and high responsiveness
-      if (time - lastScanTime > 160 && videoRef.current && videoRef.current.readyState >= 2) {
+      // Run recognition loop with non-blocking concurrency guard to maintain 60 FPS camera smoothness
+      if (time - lastScanTime > scanInterval && !isDetectingRef.current && videoRef.current && videoRef.current.readyState >= 2) {
         lastScanTime = time;
+        isDetectingRef.current = true;
 
         try {
           const video = videoRef.current;
@@ -377,7 +422,7 @@ function FaceScanner({
           }
 
           const detection = await faceapi
-            .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.40 }))
+            .detectSingleFace(video, detectorOptions)
             .withFaceLandmarks()
             .withFaceDescriptor();
 
@@ -388,18 +433,16 @@ function FaceScanner({
 
           if (!detection) {
             noFaceFramesRef.current += 1;
-            if (noFaceFramesRef.current >= 8) {
-              // Reset if no face has been present for ~1.5 seconds
+            if (noFaceFramesRef.current >= 6) {
               resetLivenessState();
+              updateStatus("no_face");
+              updateFeedback("👀 Looking for face... Please look directly into the camera.");
+              setConfidence(0);
+              onVerificationChange({ verified: false, reason: "NO_FACE" });
             }
-            setStatus("no_face");
-            setFeedback("👀 Looking for face... Please look directly into the camera.");
-            setConfidence(0);
-            onVerificationChange({ verified: false, reason: "NO_FACE" });
           } else {
             noFaceFramesRef.current = 0;
             const landmarks = detection.landmarks;
-            const positions = landmarks.positions;
             const box = detection.detection.box;
             const liveDescriptor = detection.descriptor;
 
@@ -419,16 +462,21 @@ function FaceScanner({
               Boolean(challengeEngine.blinkCount && challengeEngine.blinkCount >= 1) ||
               Boolean(challengeEngine.completedChallenges && challengeEngine.completedChallenges.length >= 1);
 
-            setActiveChallenge({
-              message: challengeEngine.message,
-              progress: challengeEngine.progress,
-              currentChallenge: challengeEngine.currentChallenge,
-              currentIndex: challengeEngine.currentIndex,
-              challenges: challengeEngine.challenges,
-              isComplete: hasLivePresence,
-              spoofDetected: challengeEngine.spoofDetected,
-              blinkCount: challengeEngine.blinkCount || 0
-            });
+            // Throttle activeChallenge state updates to ~250ms to keep React lightweight
+            const now = performance.now();
+            if (now - lastStateUpdateRef.current > 250 || hasLivePresence || challengeEngine.spoofDetected) {
+              lastStateUpdateRef.current = now;
+              setActiveChallenge({
+                message: challengeEngine.message,
+                progress: challengeEngine.progress,
+                currentChallenge: challengeEngine.currentChallenge,
+                currentIndex: challengeEngine.currentIndex,
+                challenges: challengeEngine.challenges,
+                isComplete: hasLivePresence,
+                spoofDetected: challengeEngine.spoofDetected,
+                blinkCount: challengeEngine.blinkCount || 0
+              });
+            }
 
             if (challengeEngine.spoofDetected) {
               spoofDetectedRef.current = true;
@@ -449,22 +497,27 @@ function FaceScanner({
             if (verifiedStudent && verifiedStudent.faceDescriptor) {
               const targetDescriptor = new Float32Array(verifiedStudent.faceDescriptor);
               const dist = faceapi.euclideanDistance(liveDescriptor, targetDescriptor);
-              setDistance(dist);
 
               // Accurately calibrated confidence score mapping
               const conf = dist <= MATCH_THRESHOLD
                 ? Math.max(68, Math.min(99, Math.round(100 - (dist / MATCH_THRESHOLD) * 32)))
                 : Math.max(5, Math.min(60, Math.round((1 - (dist / 0.85)) * 100)));
-              setConfidence(conf);
+
+              // Throttled UI distance & confidence updates
+              if (now - lastStateUpdateRef.current > 250) {
+                setDistance(dist);
+                setConfidence(conf);
+              }
 
               const isMatch = dist <= MATCH_THRESHOLD;
               const isLive = livenessConfirmedRef.current;
               const isSpoofed = spoofDetectedRef.current;
 
               if (isSpoofed) {
+                matchScoreRef.current = 0;
                 consecutiveMatchesRef.current = 0;
-                setStatus("spoof");
-                setFeedback("⚠️ Anti-Spoof Alert: Static Photo or Screen Detected! Live Human Presence Required.");
+                updateStatus("spoof");
+                updateFeedback("⚠️ Anti-Spoof Alert: Static Photo or Screen Detected! Live Human Presence Required.");
                 onVerificationChange({
                   verified: false,
                   reason: "SPOOF_DETECTED",
@@ -473,11 +526,15 @@ function FaceScanner({
                   antiSpoof: "FAILED"
                 });
               } else if (isMatch && isLive) {
+                matchScoreRef.current = Math.min(3, matchScoreRef.current + 1);
                 consecutiveMatchesRef.current += 1;
-                if (consecutiveMatchesRef.current >= 2) {
-                  setStatus("verified");
-                  setFeedback(`✅ Live Face Verified! Match Confidence: ${conf}% (${verifiedStudent.name}) • Liveness Confirmed 🛡️`);
+                if (matchScoreRef.current >= 2) {
+                  setDistance(dist);
+                  setConfidence(conf);
+                  updateStatus("verified");
+                  updateFeedback(`✅ Live Face Verified! Match Confidence: ${conf}% (${verifiedStudent.name}) • Liveness Confirmed 🛡️`);
                   // Halt animation loop and camera immediately to prevent WebView stutter / freezing
+                  isScanning = false;
                   if (animationRef.current) {
                     cancelAnimationFrame(animationRef.current);
                     animationRef.current = null;
@@ -497,14 +554,16 @@ function FaceScanner({
                     liveDescriptor: Array.from(liveDescriptor)
                   });
                 } else {
-                  setStatus("scanning");
-                  setFeedback("Authenticating live presence... Hold still.");
+                  updateStatus("scanning");
+                  updateFeedback("Authenticating live presence... Hold still.");
                   onVerificationChange({ verified: false, reason: "ALIGNING" });
                 }
               } else if (isMatch && !isLive) {
-                consecutiveMatchesRef.current = 0;
-                setStatus("liveness_check");
-                setFeedback(challengeEngine.message || "👁️ Please blink naturally to confirm live presence...");
+                if (dist > MATCH_THRESHOLD + 0.04) {
+                  matchScoreRef.current = Math.max(0, matchScoreRef.current - 0.5);
+                }
+                updateStatus("liveness_check");
+                updateFeedback(challengeEngine.message || "👁️ Please blink naturally to confirm live presence...");
                 onVerificationChange({
                   verified: false,
                   reason: "LIVENESS_CHECK_REQUIRED",
@@ -513,9 +572,10 @@ function FaceScanner({
                   antiSpoof: "CHECKING"
                 });
               } else {
+                matchScoreRef.current = Math.max(0, matchScoreRef.current - 1);
                 consecutiveMatchesRef.current = 0;
-                setStatus("mismatch");
-                setFeedback(`❌ Face does NOT match registered biometric profile for ${verifiedStudent.name} (${verifiedStudent.rollNo}).`);
+                updateStatus("mismatch");
+                updateFeedback(`❌ Face does NOT match registered biometric profile for ${verifiedStudent.name} (${verifiedStudent.rollNo}).`);
                 onVerificationChange({
                   verified: false,
                   confidence: 0,
@@ -542,26 +602,26 @@ function FaceScanner({
               const isSpoofed = spoofDetectedRef.current;
 
               if (isSpoofed) {
-                setStatus("spoof");
+                updateStatus("spoof");
                 setRecognizedStudent(null);
-                setFeedback("⚠️ Anti-Spoof Alert: Static Photo / Replay Screen Detected!");
+                updateFeedback("⚠️ Anti-Spoof Alert: Static Photo / Replay Screen Detected!");
               } else if (isMatch && isLive) {
                 const conf = Math.max(68, Math.min(99, Math.round(100 - (minDistance / MATCH_THRESHOLD) * 32)));
                 setConfidence(conf);
                 setRecognizedStudent(bestMatch);
-                setStatus("verified");
-                setFeedback(`✅ Live Verified: ${bestMatch.name} (${bestMatch.rollNo}) • ${conf}% Match`);
+                updateStatus("verified");
+                updateFeedback(`✅ Live Verified: ${bestMatch.name} (${bestMatch.rollNo}) • ${conf}% Match`);
               } else if (isMatch && !isLive) {
-                setStatus("liveness_check");
-                setFeedback(challengeEngine.message || `👁️ Recognized ${bestMatch.name}. Blink naturally to confirm liveness...`);
+                updateStatus("liveness_check");
+                updateFeedback(challengeEngine.message || `👁️ Recognized ${bestMatch.name}. Blink naturally to confirm liveness...`);
               } else {
-                setStatus("mismatch");
+                updateStatus("mismatch");
                 setRecognizedStudent(null);
-                setFeedback("❌ Unknown Face / Unregistered Student");
+                updateFeedback("❌ Unknown Face / Unregistered Student");
               }
             } else {
-              setStatus("scanning");
-              setFeedback("Face detected in camera. Enter your Roll Number above to verify.");
+              updateStatus("scanning");
+              updateFeedback("Face detected in camera. Enter your Roll Number above to verify.");
               onVerificationChange({ verified: false, reason: "WAITING_ROLL_NUMBER" });
             }
 
@@ -573,10 +633,11 @@ function FaceScanner({
               const cornerLen = Math.min(width, height) * 0.22;
 
               let strokeColor = "#6366f1"; // default indigo
+              const curStatus = statusRef.current;
               if (spoofDetectedRef.current) strokeColor = "#ef4444"; // red spoof
-              else if (status === "verified") strokeColor = "#10b981"; // green verified
-              else if (status === "liveness_check") strokeColor = "#f59e0b"; // amber liveness check
-              else if (status === "mismatch") strokeColor = "#ef4444"; // red mismatch
+              else if (curStatus === "verified") strokeColor = "#10b981"; // green verified
+              else if (curStatus === "liveness_check") strokeColor = "#f59e0b"; // amber liveness check
+              else if (curStatus === "mismatch") strokeColor = "#ef4444"; // red mismatch
 
               ctx.lineWidth = 3.5;
               ctx.strokeStyle = strokeColor;
@@ -623,16 +684,21 @@ function FaceScanner({
           }
         } catch (err) {
           console.warn("Face detection frame error:", err);
+        } finally {
+          isDetectingRef.current = false;
         }
       }
 
-      animationRef.current = requestAnimationFrame(runRecognition);
+      if (isScanning) {
+        animationRef.current = requestAnimationFrame(runRecognition);
+      }
     };
 
     animationRef.current = requestAnimationFrame(runRecognition);
 
     return () => {
       isScanning = false;
+      isDetectingRef.current = false;
       if (animationRef.current) {
         cancelAnimationFrame(animationRef.current);
       }
@@ -646,7 +712,8 @@ function FaceScanner({
     standaloneStudents,
     onVerificationChange,
     resetLivenessState,
-    status
+    updateStatus,
+    updateFeedback
   ]);
 
   return (

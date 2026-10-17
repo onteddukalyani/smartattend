@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { Capacitor } from "@capacitor/core";
 import {
     FaBullhorn,
     FaCalendarCheck,
@@ -11,17 +12,32 @@ import {
 import "./HeadsUpNotification.css";
 
 /**
+ * Check if the client is a mobile device, phone (e.g. iPhone, Android), APK, or small screen
+ */
+export function isSmallOrMobileDevice() {
+    if (typeof window === "undefined") return false;
+    if (Capacitor.isNativePlatform()) return true;
+    if (window.innerWidth <= 800) return true;
+    const ua = (navigator.userAgent || navigator.vendor || window.opera || "").toLowerCase();
+    return /android|iphone|ipad|ipod|mobile/i.test(ua);
+}
+
+/**
  * Global Real-App Heads-Up Notification Banner
  * 
  * Pops down from the top of the screen when any notification or announcement arrives,
- * mimicking native iOS Dynamic Island / Android heads-up notification behavior.
+ * strictly enabled for desktop browser view and suppressed on mobile devices/apps.
  */
 export function HeadsUpNotification() {
+    const isMobileDevice = isSmallOrMobileDevice();
     const [currentAlert, setCurrentAlert] = useState(null);
     const [isDismissing, setIsDismissing] = useState(false);
     const dismissTimerRef = useRef(null);
 
     useEffect(() => {
+        // Suppress completely on mobile devices / APK / iPhones per user requirement
+        if (isMobileDevice) return;
+
         const handleNewNotification = (e) => {
             const data = e.detail;
             if (!data || !data.title) return;
@@ -55,7 +71,7 @@ export function HeadsUpNotification() {
         }, 300);
     };
 
-    if (!currentAlert) return null;
+    if (isMobileDevice || !currentAlert) return null;
 
     const type = String(currentAlert.type || "").toUpperCase();
     const title = currentAlert.title || "SmartAttend Notice";

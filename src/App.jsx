@@ -11,6 +11,7 @@ import { FaGraduationCap, FaSpinner } from "react-icons/fa";
 import ProtectedRoute from "./components/ProtectedRoute";
 import { useAuth } from "./components/authcontext";
 import AppUpdateModal from "./components/Common/AppUpdateModal";
+import HeadsUpNotification from "./components/Common/HeadsUpNotification";
 import { checkForAppUpdate, subscribeToAppUpdates } from "./services/appUpdateService";
 import { requestAppNotificationPermissions, triggerRealAppNotification } from "./services/nativeNotificationService";
 import "./App.css";
@@ -914,6 +915,7 @@ function App() {
         <Route path="*" element={<Navigate to={defaultDashboard} replace />} />
       </Routes>
     </Suspense>
+    <HeadsUpNotification />
     <AppUpdateModal updateInfo={updateInfo} onClose={() => setUpdateInfo(null)} />
     </>
   );

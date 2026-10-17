@@ -40,6 +40,7 @@ export function LiveFaceEnrollment({
     const hasTriggeredCompleteRef = useRef(false);
     const bufferedDescriptorsRef = useRef([]);
     const frameCountRef = useRef(0);
+    const isDetectingRef = useRef(false);
 
     const [cameraActive, setCameraActive] = useState(false);
     const [cameraLoading, setCameraLoading] = useState(false);
@@ -252,18 +253,23 @@ export function LiveFaceEnrollment({
         }
     };
 
-    // 4. Real-time Multi-Angle Tracking Loop (60ms interval for fluid 20+ FPS tracking)
+    // 4. Real-time Multi-Angle Tracking Loop (smooth non-blocking 60fps camera feed)
     useEffect(() => {
         if (!cameraActive || !modelsLoaded || enrolledPhoto) return;
 
         let isRunning = true;
         let lastScanTime = 0;
+        const isMobileDevice = typeof window !== "undefined" && (window.innerWidth <= 768 || /android|iphone|ipad|ipod|mobile/i.test(navigator.userAgent || ""));
+        const detectorInputSize = isMobileDevice ? 160 : 224;
+        const detectorOptions = new faceapi.TinyFaceDetectorOptions({ inputSize: detectorInputSize, scoreThreshold: 0.35 });
+        const scanInterval = isMobileDevice ? 140 : 110;
 
         const runLiveTracking = async (time) => {
             if (!isRunning) return;
 
-            if (time - lastScanTime > 60 && videoRef.current && videoRef.current.readyState >= 2) {
+            if (time - lastScanTime > scanInterval && !isDetectingRef.current && videoRef.current && videoRef.current.readyState >= 2) {
                 lastScanTime = time;
+                isDetectingRef.current = true;
 
                 try {
                     const video = videoRef.current;
@@ -276,9 +282,11 @@ export function LiveFaceEnrollment({
                         }
                     }
 
+                    // Single-pass landmark & descriptor extraction (cuts neural net operations in half)
                     const detection = await faceapi
-                        .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.40 }))
-                        .withFaceLandmarks();
+                        .detectSingleFace(video, detectorOptions)
+                        .withFaceLandmarks()
+                        .withFaceDescriptor();
 
                     const ctx = canvas ? canvas.getContext("2d") : null;
                     if (ctx && canvas) {
@@ -287,27 +295,16 @@ export function LiveFaceEnrollment({
 
                     if (detection) {
                         frameCountRef.current = (frameCountRef.current || 0) + 1;
-                        let detectionForLiveness = detection;
 
-                        // Periodically (every 3 frames) or when verified, extract face descriptor to buffer
-                        if (frameCountRef.current % 3 === 0 || isBiometricVerified) {
-                            try {
-                                const fullDet = await faceapi
-                                    .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.40 }))
-                                    .withFaceLandmarks()
-                                    .withFaceDescriptor();
-                                if (fullDet && fullDet.descriptor) {
-                                    detectionForLiveness = fullDet;
-                                    bufferedDescriptorsRef.current.push(new Float32Array(fullDet.descriptor));
-                                    if (bufferedDescriptorsRef.current.length > 12) {
-                                        bufferedDescriptorsRef.current.shift();
-                                    }
-                                }
-                            } catch (_) { }
+                        if (detection.descriptor) {
+                            bufferedDescriptorsRef.current.push(new Float32Array(detection.descriptor));
+                            if (bufferedDescriptorsRef.current.length > 12) {
+                                bufferedDescriptorsRef.current.shift();
+                            }
                         }
 
                         if (livenessEngineRef.current) {
-                            livenessEngineRef.current.processFrame(detectionForLiveness);
+                            livenessEngineRef.current.processFrame(detection);
                         }
 
                         // Render Canvas HUD Reticle
@@ -359,10 +356,15 @@ export function LiveFaceEnrollment({
                             livenessEngineRef.current.processFrame(null);
                         }
                     }
-                } catch (e) { }
+                } catch (e) {
+                } finally {
+                    isDetectingRef.current = false;
+                }
             }
 
-            animationRef.current = requestAnimationFrame(runLiveTracking);
+            if (isRunning) {
+                animationRef.current = requestAnimationFrame(runLiveTracking);
+            }
         };
 
         animationRef.current = requestAnimationFrame(runLiveTracking);

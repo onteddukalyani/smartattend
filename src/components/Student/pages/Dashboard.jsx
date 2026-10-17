@@ -77,7 +77,7 @@ export default function StudentDashboard() {
             try {
                 localStorage.setItem('smartattend_student_device_type', 'android');
                 localStorage.setItem('smartattend_student_device_locked', 'true');
-            } catch (_) {}
+            } catch (_) { }
             return false;
         }
         try {
@@ -178,7 +178,7 @@ export default function StudentDashboard() {
                                 `Your account information was updated: ${changes.join(" • ")}.`,
                                 "PROFILE_UPDATE",
                                 "System"
-                            ).catch(() => {});
+                            ).catch(() => { });
                         }
                     }
                     prevCanonicalStudentDocRef.current = { ...d };
@@ -275,7 +275,7 @@ export default function StudentDashboard() {
     useEffect(() => {
         getClientIpAddress().then((ip) => {
             if (ip) setClientIpAddress(ip);
-        }).catch(() => {});
+        }).catch(() => { });
     }, []);
 
     // Auto-detect native Android & sync Firestore device preference
@@ -286,11 +286,11 @@ export default function StudentDashboard() {
                 localStorage.setItem('smartattend_student_device_locked', 'true');
                 setCurrentDeviceType('android');
                 setShowDeviceModal(false);
-            } catch (_) {}
+            } catch (_) { }
 
             KioskPlugin.canDrawOverlays().then((res) => {
                 setOverlayStatus({ checked: true, granted: res?.canDrawOverlays === true });
-            }).catch(() => {});
+            }).catch(() => { });
             return;
         }
 
@@ -303,7 +303,7 @@ export default function StudentDashboard() {
                 }
                 setCurrentDeviceType(regType);
                 setShowDeviceModal(false);
-            } catch (_) {}
+            } catch (_) { }
         }
     }, [fetchedStudentData?.deviceType, profile?.deviceType, fetchedStudentData?.registeredDeviceType]);
 
@@ -321,7 +321,7 @@ export default function StudentDashboard() {
                 "DEVICE_MISMATCH_SECURITY_ALERT",
                 activeRollNo,
                 "Anti-Proxy Sentinel"
-            ).catch(() => {});
+            ).catch(() => { });
 
             // 2. Alert Student in real-time
             sendStudentNotification(
@@ -330,7 +330,7 @@ export default function StudentDashboard() {
                 `Your account is linked to a ${regLabel}, but you are using a ${curLabel}. If this is your new phone, tap 'Request Admin to Reset Device' below to request an update.`,
                 "SECURITY_ALERT",
                 "Attendance Security"
-            ).catch(() => {});
+            ).catch(() => { });
         }
     }, [isDeviceMismatch, activeRollNo, registeredDevice, detectedPlatform, studentName, clientIpAddress]);
 
@@ -340,7 +340,7 @@ export default function StudentDashboard() {
         try {
             let clientIp = clientIpAddress;
             if (!clientIp) {
-                try { clientIp = await getClientIpAddress(); } catch (_) {}
+                try { clientIp = await getClientIpAddress(); } catch (_) { }
             }
             const regLabel = getDeviceDisplayName(registeredDevice);
             const curLabel = getDeviceDisplayName(detectedPlatform || "web");
@@ -539,7 +539,7 @@ export default function StudentDashboard() {
                 "BIOMETRIC_UPDATE",
                 activeRollNo,
                 studentName
-            ).catch(() => {});
+            ).catch(() => { });
 
             setFaceSuccessMsg("✅ Face biometrics registered successfully! You can now mark attendance.");
             setTimeout(() => {
@@ -951,46 +951,6 @@ export default function StudentDashboard() {
                 </div>
             )}
 
-            {/* Proactive Device Mismatch Alert Banner */}
-            {isDeviceMismatch && (
-                <div className="student-device-mismatch-banner">
-                    <div style={{ display: "flex", alignItems: "flex-start", gap: "12px", flex: "1 1 320px" }}>
-                        <div className="student-device-mismatch-icon">
-                            <FaExclamationTriangle />
-                        </div>
-                        <div>
-                            <div className="student-device-mismatch-title">
-                                🚨 Device Registration Mismatch Detected
-                            </div>
-                            <div className="student-device-mismatch-desc">
-                                Your account is locked to a <strong>{getDeviceDisplayName(registeredDevice)}</strong>, but you are currently accessing from a <strong>{getDeviceDisplayName(detectedPlatform || 'web')}</strong> (IP: {clientIpAddress || 'Detected'}). Attendance scanning will be blocked on this device.
-                            </div>
-                            {resetRequestedMsg && (
-                                <div style={{ marginTop: "6px", fontSize: "0.84rem", fontWeight: 700, color: "#10b981" }}>
-                                    {resetRequestedMsg}
-                                </div>
-                            )}
-                        </div>
-                    </div>
-
-                    <div style={{ display: "flex", alignItems: "center", gap: "10px", flexShrink: 0 }}>
-                        <button
-                            type="button"
-                            onClick={handleRequestDeviceReset}
-                            disabled={requestingReset}
-                            className="student-device-mismatch-btn"
-                            style={{ cursor: requestingReset ? "not-allowed" : "pointer", opacity: requestingReset ? 0.75 : 1 }}
-                        >
-                            {requestingReset ? (
-                                <><FaSpinner className="fa-spin" /> Submitting Request...</>
-                            ) : (
-                                <><FaSyncAlt /> Request Admin to Reset Device</>
-                            )}
-                        </button>
-                    </div>
-                </div>
-            )}
-
 
 
             {/* Dual In-App Biometrics Pending Banner */}
@@ -1003,15 +963,15 @@ export default function StudentDashboard() {
                                 {!hasFaceRegistered && !hasHwRegistered
                                     ? "100% In-App Dual Biometrics Required"
                                     : !hasFaceRegistered
-                                    ? "In-App Face Biometrics Required"
-                                    : "In-App Device Fingerprint Required"}
+                                        ? "In-App Face Biometrics Required"
+                                        : "In-App Device Fingerprint Required"}
                             </h4>
                             <p>
                                 {!hasFaceRegistered && !hasHwRegistered
                                     ? "Register both your 3D Face and Device Fingerprint directly inside the SmartAttend app before attending class sessions."
                                     : !hasFaceRegistered
-                                    ? "Complete your live 3D Face scan in-app to verify your identity for attendance."
-                                    : "Touch your fingerprint sensor in-app to bind this phone to your account."}
+                                        ? "Complete your live 3D Face scan in-app to verify your identity for attendance."
+                                        : "Touch your fingerprint sensor in-app to bind this phone to your account."}
                             </p>
                         </div>
                     </div>
@@ -1775,7 +1735,7 @@ export default function StudentDashboard() {
                     setShowDeviceModal(false);
                     try {
                         setCurrentDeviceType(localStorage.getItem('smartattend_student_device_type') || '');
-                    } catch (_) {}
+                    } catch (_) { }
                 }}
             />
 
