@@ -75,21 +75,25 @@ function QrScannerApp() {
     const [deviceOwnerStatus, setDeviceOwnerStatus] = useState({ checked: false, isDeviceOwner: true, isWeb: false });
     const [deviceIdentity, setDeviceIdentity] = useState(null);
 
-    // App Update Gate (Blocks attendance scanning when mandatory update is required)
+    // App Update Gate & Reminder
     const [versionBlock, setVersionBlock] = useState(null);
+    const [availableUpdate, setAvailableUpdate] = useState(null);
     const [showUpdateModalFromScanner, setShowUpdateModalFromScanner] = useState(false);
 
     useEffect(() => {
         let isMounted = true;
         checkForAppUpdate().then((info) => {
             if (!isMounted) return;
-            if (info && info.hasUpdate && (info.isMandatory || compareVersions(info.minRequiredVersion, CURRENT_APP_VERSION) > 0)) {
-                setVersionBlock({
-                    minVersion: info.minRequiredVersion || info.latestVersion,
-                    currentVersion: CURRENT_APP_VERSION,
-                    mandatoryReason: info.mandatoryReason || "A required app update is pending for your device to mark attendance.",
-                    info
-                });
+            if (info && info.hasUpdate) {
+                setAvailableUpdate(info);
+                if (info.isMandatory || compareVersions(info.minRequiredVersion, CURRENT_APP_VERSION) > 0) {
+                    setVersionBlock({
+                        minVersion: info.minRequiredVersion || info.latestVersion,
+                        currentVersion: CURRENT_APP_VERSION,
+                        mandatoryReason: info.mandatoryReason || "A required app update is pending for your device to mark attendance.",
+                        info
+                    });
+                }
             }
         }).catch(() => { });
         return () => { isMounted = false; };
@@ -1056,6 +1060,10 @@ function QrScannerApp() {
             return;
         }
 
+        // Immediately release QR camera tracks before async network calls to avoid camera ISP conflict
+        setScannerActive(false);
+        releaseCameraLock();
+        releaseAllMediaTracks();
         setScanState('VALIDATING_QR2');
         setErrorMessage('');
 
@@ -1094,6 +1102,9 @@ function QrScannerApp() {
             } catch (bioErr) {
                 console.warn("[Scanner] Hardware biometric notice:", bioErr);
             }
+
+            // Safe cooldown to allow Android Camera Service to complete HAL disconnection from rear camera
+            await new Promise((resolve) => setTimeout(resolve, 350));
 
             // Move to Live Biometric Face Verification
             setScanState('BIOMETRIC_SCAN');
@@ -2248,6 +2259,33 @@ function QrScannerApp() {
     }
 
     // =========================================================================
+    // UI VIEW 1.5: VALIDATING QR2 (Transitioning to Face Biometrics)
+    // =========================================================================
+    if (scanState === 'VALIDATING_QR2') {
+        return (
+            <div style={{
+                maxWidth: '520px',
+                margin: '40px auto',
+                padding: '36px 24px',
+                background: 'var(--surface, #ffffff)',
+                borderRadius: '24px',
+                textAlign: 'center',
+                border: '1.5px solid var(--border, #e2e8f0)',
+                boxShadow: '0 20px 45px -20px rgba(0, 0, 0, 0.15)',
+                color: 'var(--text-main, #0f172a)'
+            }}>
+                <FaSpinner className="fa-spin" style={{ fontSize: '3rem', color: '#6366f1', marginBottom: '16px' }} />
+                <h3 style={{ margin: '0 0 8px', fontSize: '1.25rem', fontWeight: 800 }}>
+                    Validating Attendance Token...
+                </h3>
+                <p style={{ margin: 0, color: 'var(--text-muted, #64748b)', fontSize: '0.9rem' }}>
+                    Preparing front camera for facial biometric verification. Please look at your device.
+                </p>
+            </div>
+        );
+    }
+
+    // =========================================================================
     // UI VIEW 2: LIVE BIOMETRIC FACE SCANNER (Triggered by Phase 2 QR 2)
     // =========================================================================
     if (scanState === 'BIOMETRIC_SCAN') {
@@ -2799,6 +2837,42 @@ function QrScannerApp() {
                 style={{ display: 'none' }}
                 onChange={handleFileScan}
             />
+
+            {/* Non-blocking Available App Update Banner */}
+            {availableUpdate && !versionBlock && (
+                <div style={{
+                    marginBottom: '16px',
+                    padding: '12px 16px',
+                    borderRadius: '14px',
+                    background: 'linear-gradient(135deg, #4338ca 0%, #6366f1 100%)',
+                    color: '#ffffff',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: '10px',
+                    boxShadow: '0 4px 14px rgba(99, 102, 241, 0.3)'
+                }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem' }}>
+                        <span>🚀 <strong>Update v{availableUpdate.latestVersion} Available</strong></span>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={() => setShowUpdateModalFromScanner(true)}
+                        style={{
+                            padding: '6px 14px',
+                            borderRadius: '8px',
+                            background: '#ffffff',
+                            color: '#4338ca',
+                            fontWeight: 800,
+                            fontSize: '0.8rem',
+                            border: 'none',
+                            cursor: 'pointer'
+                        }}
+                    >
+                        Update
+                    </button>
+                </div>
+            )}
 
             {/* Header Navigation */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '18px' }}>

@@ -56,32 +56,34 @@ export const releaseAllMediaTracks = () => {
 };
 
 // Helper for camera stream capture with progressive fallback and automatic retry
-const getCameraStream = async (requestedFacingMode = "user", maxRetries = 2) => {
+const getCameraStream = async (requestedFacingMode = "user", maxRetries = 3) => {
   releaseAllMediaTracks();
-  // Brief cooldown for hardware camera HAL release
-  await new Promise((resolve) => setTimeout(resolve, 150));
+  // Safe cooldown for hardware camera HAL release between rear and front sensors
+  await new Promise((resolve) => setTimeout(resolve, 300));
+
+  const safeFacingMode = (typeof requestedFacingMode === 'string' && requestedFacingMode) ? requestedFacingMode : "user";
 
   if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
     const attempts = [
       {
         video: {
-          facingMode: requestedFacingMode,
+          facingMode: { ideal: safeFacingMode },
           width: { ideal: 640, max: 1280 },
           height: { ideal: 480, max: 720 },
           frameRate: { ideal: 30, max: 30 }
         },
         audio: false
       },
-      { video: { facingMode: requestedFacingMode, width: { ideal: 640 }, height: { ideal: 480 } }, audio: false },
-      { video: { facingMode: requestedFacingMode }, audio: false },
-      { video: { facingMode: { ideal: requestedFacingMode } }, audio: false },
+      { video: { facingMode: { ideal: safeFacingMode }, width: { ideal: 640 }, height: { ideal: 480 } }, audio: false },
+      { video: { facingMode: { ideal: safeFacingMode } }, audio: false },
+      { video: { facingMode: safeFacingMode }, audio: false },
       { video: true, audio: false }
     ];
 
     let lastError = null;
     for (let retry = 0; retry <= maxRetries; retry++) {
       if (retry > 0) {
-        await new Promise((r) => setTimeout(r, retry * 300));
+        await new Promise((r) => setTimeout(r, retry * 400));
         releaseAllMediaTracks();
       }
 
@@ -248,7 +250,7 @@ function FaceScanner({
 
   // 1. Initialize Camera and AI Models
   const initCameraAndModels = useCallback(async (targetFacingMode) => {
-    const activeFacing = targetFacingMode || facingMode || "user";
+    const activeFacing = (typeof targetFacingMode === "string" && targetFacingMode) ? targetFacingMode : (facingMode || "user");
     setCameraError("");
     setStatus("loading_camera");
     setFeedback("Initializing camera and biometric models...");
@@ -887,7 +889,7 @@ function FaceScanner({
           </p>
           <button
             type="button"
-            onClick={initCameraAndModels}
+            onClick={() => initCameraAndModels(facingMode || "user")}
             style={{
               display: "inline-flex",
               alignItems: "center",
