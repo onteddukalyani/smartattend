@@ -355,12 +355,15 @@ function GenerateQR() {
             // Capture Classroom GPS coordinates for Geofencing (Configurable radius, 10m default)
             if (geofenceRadius > 0 && typeof navigator !== "undefined" && navigator.geolocation) {
                 const captureHostGps = () => {
-                    navigator.geolocation.getCurrentPosition(
-                        (pos) => {
+                    let bestAccuracy = 999;
+                    const applyCoords = (pos) => {
+                        const acc = Number(pos.coords.accuracy) || 80;
+                        if (acc <= bestAccuracy) {
+                            bestAccuracy = acc;
                             const coords = {
                                 latitude: pos.coords.latitude,
                                 longitude: pos.coords.longitude,
-                                accuracy: pos.coords.accuracy || 80,
+                                accuracy: acc,
                                 radius: geofenceRadius
                             };
                             setClassroomCoords(coords);
@@ -371,26 +374,15 @@ function GenerateQR() {
                                     geofenceRadius: geofenceRadius
                                 }).catch(() => {});
                             }
-                        },
+                        }
+                    };
+
+                    navigator.geolocation.getCurrentPosition(
+                        applyCoords,
                         () => {
                             // Fallback to coarse / Wi-Fi location provider if high-accuracy GPS times out on laptop/desktop
                             navigator.geolocation.getCurrentPosition(
-                                (pos2) => {
-                                    const coords2 = {
-                                        latitude: pos2.coords.latitude,
-                                        longitude: pos2.coords.longitude,
-                                        accuracy: pos2.coords.accuracy || 100,
-                                        radius: geofenceRadius
-                                    };
-                                    setClassroomCoords(coords2);
-                                    setClassroomGpsStatus("ACTIVE");
-                                    if (result?.sessionId) {
-                                        updateDoc(doc(db, "attendance_sessions", result.sessionId), {
-                                            classroomLocation: coords2,
-                                            geofenceRadius: geofenceRadius
-                                        }).catch(() => {});
-                                    }
-                                },
+                                applyCoords,
                                 (err2) => {
                                     console.warn("Classroom GPS unavailable on lecturer device:", err2?.message || err2);
                                     setClassroomGpsStatus("UNAVAILABLE");
@@ -400,6 +392,18 @@ function GenerateQR() {
                         },
                         { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
                     );
+
+                    // High-precision watcher refinement for 5 seconds during session start
+                    try {
+                        const refineWatchId = navigator.geolocation.watchPosition(
+                            applyCoords,
+                            () => {},
+                            { enableHighAccuracy: true, maximumAge: 0 }
+                        );
+                        setTimeout(() => {
+                            try { navigator.geolocation.clearWatch(refineWatchId); } catch (_) {}
+                        }, 5000);
+                    } catch (_) {}
                 };
                 captureHostGps();
             } else if (geofenceRadius === 0) {

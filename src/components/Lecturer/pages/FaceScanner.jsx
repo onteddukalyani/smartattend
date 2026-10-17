@@ -34,7 +34,7 @@ import {
 import "./FaceScanner.css";
 
 const MODEL_CDN_URL = "https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/";
-const MATCH_THRESHOLD = 0.58; // Calibrated euclidean distance threshold (<= 0.58 = authentic match)
+export const MATCH_THRESHOLD = 0.48; // Strictly synchronized with Cloud Functions ResNet-34 Euclidean benchmark (<= 0.48)
 const STATIC_FRAME_LIMIT = 30; // ~4 seconds of dead static face triggers spoof alert
 
 // Helper to release all active media tracks across DOM to avoid hardware camera collisions
@@ -125,7 +125,7 @@ const getCameraStream = async (requestedFacingMode = "user", maxRetries = 2) => 
 };
 
 // Dual-source model loader: local /models with CDN fallback
-const loadFaceApiModels = async () => {
+export const loadFaceApiModels = async () => {
   if (
     faceapi.nets.tinyFaceDetector.isLoaded &&
     faceapi.nets.faceLandmark68Net.isLoaded &&
@@ -399,7 +399,7 @@ function FaceScanner({
     const isMobileDevice = typeof window !== "undefined" && (window.innerWidth <= 768 || /android|iphone|ipad|ipod|mobile/i.test(navigator.userAgent || ""));
     const detectorInputSize = isMobileDevice ? 160 : 224;
     const detectorOptions = new faceapi.TinyFaceDetectorOptions({ inputSize: detectorInputSize, scoreThreshold: 0.35 });
-    const scanInterval = isMobileDevice ? 140 : 110;
+    const scanInterval = isMobileDevice ? 90 : 70;
 
     const runRecognition = async (time) => {
       if (!isScanning) return;
@@ -528,7 +528,9 @@ function FaceScanner({
               } else if (isMatch && isLive) {
                 matchScoreRef.current = Math.min(3, matchScoreRef.current + 1);
                 consecutiveMatchesRef.current += 1;
-                if (matchScoreRef.current >= 2) {
+                // Instant verify on crystal-clear match (dist < 0.38) or 2-frame consensus (dist <= 0.48)
+                const isVerifiedStrict = (dist < 0.38) || (matchScoreRef.current >= 2);
+                if (isVerifiedStrict) {
                   setDistance(dist);
                   setConfidence(conf);
                   updateStatus("verified");
@@ -563,7 +565,7 @@ function FaceScanner({
                   matchScoreRef.current = Math.max(0, matchScoreRef.current - 0.5);
                 }
                 updateStatus("liveness_check");
-                updateFeedback(challengeEngine.message || "👁️ Please blink naturally to confirm live presence...");
+                updateFeedback(challengeEngine.message || "👁️ Face aligned! Please blink naturally to confirm live presence...");
                 onVerificationChange({
                   verified: false,
                   reason: "LIVENESS_CHECK_REQUIRED",

@@ -37,7 +37,7 @@ import {
 } from '../../services/sessionAuthService';
 import { db } from '../../firebase';
 import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
-import FaceScanner, { releaseAllMediaTracks } from '../Lecturer/pages/FaceScanner';
+import FaceScanner, { releaseAllMediaTracks, loadFaceApiModels } from '../Lecturer/pages/FaceScanner';
 import { isIOSDevice, isGuidedAccessEnabled, addAppSwitchListener, addScreenCaptureListener } from '../../services/guidedAccessService';
 import { getApkDownloadUrl } from '../../utils/apkUrl';
 import GuidedAccessRequired, { GuidedAccessExitNotice } from '../GuidedAccessRequired';
@@ -125,6 +125,46 @@ function QrScannerApp() {
     const [sessionRemaining, setSessionRemaining] = useState(180);
     const [errorMessage, setErrorMessage] = useState('');
     const geofenceRetriesRef = useRef(0);
+    const prewarmedLocationRef = useRef(null);
+
+    // Continuous High-Accuracy GPS Pre-Warming & Model Pre-Loading
+    useEffect(() => {
+        let watchId = null;
+        if (typeof navigator !== "undefined" && navigator.geolocation) {
+            try {
+                watchId = navigator.geolocation.watchPosition(
+                    (pos) => {
+                        if (pos && pos.coords) {
+                            const acc = Number(pos.coords.accuracy) || 100;
+                            const prev = prewarmedLocationRef.current;
+                            // Keep fix if fresher or more precise (lower accuracy radius)
+                            if (!prev || (Date.now() - prev.timestamp > 12000) || acc <= prev.accuracy) {
+                                prewarmedLocationRef.current = {
+                                    latitude: pos.coords.latitude,
+                                    longitude: pos.coords.longitude,
+                                    lat: pos.coords.latitude,
+                                    lng: pos.coords.longitude,
+                                    accuracy: acc,
+                                    timestamp: Date.now()
+                                };
+                            }
+                        }
+                    },
+                    (err) => console.warn('[Scanner] GPS prewarm notice:', err?.message || err),
+                    { enableHighAccuracy: true, maximumAge: 5000, timeout: 8000 }
+                );
+            } catch (_) {}
+        }
+
+        // Pre-warm neural network models in background for instantaneous Phase 2 biometric startup
+        loadFaceApiModels().catch(() => {});
+
+        return () => {
+            if (watchId !== null && typeof navigator !== "undefined" && navigator.geolocation?.clearWatch) {
+                navigator.geolocation.clearWatch(watchId);
+            }
+        };
+    }, []);
 
     // 5-Minute Fail-Safe Auto Release State
     const [attendanceSubmittedAt, setAttendanceSubmittedAt] = useState(0);
@@ -1093,37 +1133,52 @@ function QrScannerApp() {
         const classroomTarget = payload.geo || sessionData?.classroomLocation;
         if (classroomTarget && classroomTarget.radius !== 0 && classroomTarget.enabled !== false) {
             try {
-                const getCoords = () => new Promise((resolve) => {
-                    if (typeof navigator === "undefined" || !navigator.geolocation) {
-                        resolve(null);
-                        return;
+                const getCoords = async () => {
+                    const cached = prewarmedLocationRef.current;
+                    if (cached && (Date.now() - cached.timestamp < 15000)) {
+                        // Instant return (0ms latency) from high-precision background GPS watcher
+                        return cached;
                     }
-                    // Stage 1: Fast high-accuracy fix with 10s maximumAge
-                    navigator.geolocation.getCurrentPosition(
-                        (pos) => resolve({
-                            latitude: pos.coords.latitude,
-                            longitude: pos.coords.longitude,
-                            lat: pos.coords.latitude,
-                            lng: pos.coords.longitude,
-                            accuracy: pos.coords.accuracy
-                        }),
-                        () => {
-                            // Stage 2: Fallback to network/Wi-Fi positioning if GNSS satellite lock is weak indoors
-                            navigator.geolocation.getCurrentPosition(
-                                (pos2) => resolve({
-                                    latitude: pos2.coords.latitude,
-                                    longitude: pos2.coords.longitude,
-                                    lat: pos2.coords.latitude,
-                                    lng: pos2.coords.longitude,
-                                    accuracy: pos2.coords.accuracy
-                                }),
-                                () => resolve(null),
-                                { enableHighAccuracy: false, timeout: 4000, maximumAge: 0 }
-                            );
-                        },
-                        { enableHighAccuracy: true, timeout: 6000, maximumAge: 0 }
-                    );
-                });
+                    return new Promise((resolve) => {
+                        if (typeof navigator === "undefined" || !navigator.geolocation) {
+                            resolve(null);
+                            return;
+                        }
+                        navigator.geolocation.getCurrentPosition(
+                            (pos) => {
+                                const fresh = {
+                                    latitude: pos.coords.latitude,
+                                    longitude: pos.coords.longitude,
+                                    lat: pos.coords.latitude,
+                                    lng: pos.coords.longitude,
+                                    accuracy: Number(pos.coords.accuracy) || 40,
+                                    timestamp: Date.now()
+                                };
+                                prewarmedLocationRef.current = fresh;
+                                resolve(fresh);
+                            },
+                            () => {
+                                navigator.geolocation.getCurrentPosition(
+                                    (pos2) => {
+                                        const fallback = {
+                                            latitude: pos2.coords.latitude,
+                                            longitude: pos2.coords.longitude,
+                                            lat: pos2.coords.latitude,
+                                            lng: pos2.coords.longitude,
+                                            accuracy: Number(pos2.coords.accuracy) || 80,
+                                            timestamp: Date.now()
+                                        };
+                                        prewarmedLocationRef.current = fallback;
+                                        resolve(fallback);
+                                    },
+                                    () => resolve(prewarmedLocationRef.current || null),
+                                    { enableHighAccuracy: false, timeout: 3000, maximumAge: 0 }
+                                );
+                            },
+                            { enableHighAccuracy: true, timeout: 3500, maximumAge: 0 }
+                        );
+                    });
+                };
                 studentCoords = await getCoords();
                 const geoEval = evaluateGeofence(studentCoords, classroomTarget, geofenceRetriesRef.current);
 
