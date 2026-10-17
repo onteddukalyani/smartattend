@@ -128,8 +128,46 @@ function QrScannerApp() {
     const [elapsedSeconds, setElapsedSeconds] = useState(0);
     const [sessionRemaining, setSessionRemaining] = useState(180);
     const [errorMessage, setErrorMessage] = useState('');
+    const [nowTick, setNowTick] = useState(Date.now());
     const geofenceRetriesRef = useRef(0);
     const prewarmedLocationRef = useRef(null);
+
+    // Heartbeat clock to evaluate phase transitions and countdowns in real-time
+    useEffect(() => {
+        const interval = setInterval(() => {
+            setNowTick(Date.now());
+        }, 1000);
+        return () => clearInterval(interval);
+    }, []);
+
+    // Helper to evaluate if Lecturer has officially released Phase 2 (QR 2)
+    const isQr2Released = Boolean(
+        sessionData && (
+            sessionData.phase === 'PHASE_2' ||
+            sessionData.phase === '2' ||
+            sessionData.qr2Released === true ||
+            (sessionData.qr2StartsAt && (
+                typeof sessionData.qr2StartsAt.toMillis === 'function'
+                    ? sessionData.qr2StartsAt.toMillis()
+                    : Number(sessionData.qr2StartsAt)
+            ) <= nowTick) ||
+            (sessionData.qr1ExpiresAt && (
+                typeof sessionData.qr1ExpiresAt.toMillis === 'function'
+                    ? sessionData.qr1ExpiresAt.toMillis()
+                    : Number(sessionData.qr1ExpiresAt)
+            ) <= nowTick)
+        )
+    );
+
+    const qr2TargetMs = sessionData?.qr2StartsAt
+        ? (typeof sessionData.qr2StartsAt.toMillis === 'function' ? sessionData.qr2StartsAt.toMillis() : Number(sessionData.qr2StartsAt))
+        : (sessionData?.qr1ExpiresAt
+            ? (typeof sessionData.qr1ExpiresAt.toMillis === 'function' ? sessionData.qr1ExpiresAt.toMillis() : Number(sessionData.qr1ExpiresAt))
+            : 0);
+
+    const secondsUntilQr2 = (qr2TargetMs > 0 && !isQr2Released)
+        ? Math.max(0, Math.ceil((qr2TargetMs - nowTick) / 1000))
+        : null;
 
     // Continuous High-Accuracy GPS Pre-Warming & Model Pre-Loading
     useEffect(() => {
@@ -1243,12 +1281,19 @@ function QrScannerApp() {
             const isQR2 = Boolean(payload.qr2Token || payload.phase === '2' || payload.phase === 'PHASE_2' || (sessionData?.phase === 'PHASE_2' && payload.sessionId === activeSessionId));
             const isQR1 = Boolean(payload.qr1Token || payload.phase === '1' || payload.phase === 'PHASE_1');
 
+            if (!isQr2Released) {
+                console.log('[Scanner] QR scan blocked: Phase 2 has not been released yet.');
+                setErrorMessage('QR 2 is not yet released. Scanning is paused until your lecturer begins Phase 2.');
+                return;
+            }
+
             if (isQR2) {
                 console.log('[Scanner] Phase 2 (QR 2) scanned successfully. Proceeding to biometrics...');
                 handleProcessQR2(payload.sessionId || activeSessionId, payload.qr2Token || payload.sessionId);
             } else if (isQR1) {
                 // QR 1 is explicitly blocked from re-scanning!
                 console.log('[Scanner] QR 1 ignored. Student already completed Phase 1 check-in. Waiting for Lecturer to display QR 2.');
+                setErrorMessage('You have already scanned QR 1. Please scan QR 2 displayed on the screen.');
             } else if (sessionData?.phase === 'PHASE_2') {
                 handleProcessQR2(payload.sessionId || activeSessionId, payload.qr2Token || payload.sessionId);
             }
@@ -2655,63 +2700,153 @@ function QrScannerApp() {
 
                 {/* Instruction Callout */}
                 <div style={{
-                    background: 'rgba(99, 102, 241, 0.08)',
-                    border: '1.5px dashed #6366f1',
+                    background: isQr2Released ? 'rgba(16, 185, 129, 0.08)' : 'rgba(99, 102, 241, 0.08)',
+                    border: isQr2Released ? '1.5px dashed #10b981' : '1.5px dashed #6366f1',
                     borderRadius: '16px',
                     padding: '14px 16px',
                     marginBottom: '18px',
                     textAlign: 'left'
                 }}>
-                    <div style={{ fontWeight: 800, color: '#4338ca', fontSize: '0.9rem', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <FaClock /> Next: Scan QR 2 for Biometric Attendance
+                    <div style={{ fontWeight: 800, color: isQr2Released ? '#047857' : '#4338ca', fontSize: '0.9rem', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        {isQr2Released ? <FaCheckCircle style={{ color: '#10b981' }} /> : <FaClock />}
+                        {isQr2Released ? 'Phase 2 Live · Scan QR 2 Now' : 'Phase 1 Complete · QR Scanning Paused'}
                     </div>
                     <p style={{ margin: 0, fontSize: '0.82rem', color: '#475569', lineHeight: 1.4 }}>
-                        When your lecturer displays <strong>QR 2 (1:00 - 3:00)</strong> on the screen, point the live camera below at the screen to verify your face and mark attendance.
+                        {isQr2Released
+                            ? 'Your lecturer has released QR 2 on the screen. Point the live camera below at the screen to verify your face and mark attendance.'
+                            : 'Scanning is securely paused until your lecturer displays QR 2 on the projector screen. As soon as Phase 2 starts, camera scanning will automatically activate.'}
                     </p>
                 </div>
 
-                {/* Live Scanner Frame */}
-                <div style={{
-                    borderRadius: '16px',
-                    overflow: 'hidden',
-                    border: '2px solid rgba(99, 102, 241, 0.4)',
-                    background: '#020617',
-                    position: 'relative',
-                    minHeight: '220px'
-                }}>
+                {!isQr2Released ? (
+                    /* QR Scanning Blocked / Paused View */
                     <div style={{
-                        position: 'absolute',
-                        top: '10px',
-                        left: '50%',
-                        transform: 'translateX(-50%)',
-                        zIndex: 10,
-                        padding: '6px 14px',
-                        borderRadius: '999px',
-                        background: 'rgba(15, 23, 42, 0.85)',
-                        border: '1px solid rgba(99, 102, 241, 0.5)',
-                        backdropFilter: 'blur(8px)',
-                        color: '#a5b4fc',
-                        fontSize: '0.75rem',
-                        fontWeight: 700,
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '6px',
-                        whiteSpace: 'nowrap',
-                        boxShadow: '0 4px 12px rgba(0, 0, 0, 0.4)'
+                        borderRadius: '16px',
+                        padding: '28px 20px',
+                        border: '2px dashed #94a3b8',
+                        background: 'linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%)',
+                        textAlign: 'center',
+                        position: 'relative',
+                        overflow: 'hidden'
                     }}>
-                        <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', background: '#22c55e', boxShadow: '0 0 8px #22c55e' }}></span>
-                        Phase 1 Locked · Listening for QR 2
-                    </div>
+                        <div style={{
+                            width: '60px',
+                            height: '60px',
+                            borderRadius: '50%',
+                            background: '#e0e7ff',
+                            color: '#4f46e5',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontSize: '26px',
+                            margin: '0 auto 12px',
+                            boxShadow: '0 4px 14px rgba(79, 70, 229, 0.2)'
+                        }}>
+                            <FaClock />
+                        </div>
 
-                    <NativeQrScanner
-                        key={`waiting-${retryKey}-${facingMode}`}
-                        onScan={handleCameraScan}
-                        onError={handleCameraError}
-                        facingMode={facingMode}
-                        onToggleFacingMode={() => setFacingMode((f) => (f === 'environment' ? 'user' : 'environment'))}
-                        active={scanState === 'KIOSK_WAITING_QR2'}
-                    />
-                </div>
+                        <div style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            padding: '4px 12px',
+                            borderRadius: '999px',
+                            background: '#fef3c7',
+                            border: '1px solid #fde68a',
+                            color: '#92400e',
+                            fontSize: '0.78rem',
+                            fontWeight: 800,
+                            marginBottom: '10px'
+                        }}>
+                            <FaLock style={{ fontSize: '0.7rem' }} /> QR SCANNING PAUSED
+                        </div>
+
+                        <h3 style={{ margin: '0 0 6px 0', fontSize: '1.15rem', fontWeight: 800, color: '#1e293b' }}>
+                            Waiting for Lecturer to Release QR 2
+                        </h3>
+
+                        <p style={{ margin: '0 0 16px 0', fontSize: '0.84rem', color: '#64748b', lineHeight: 1.45, maxWidth: '380px', marginInline: 'auto' }}>
+                            Phase 1 check-in is complete! Camera scanning is paused to save battery and block duplicate scans. Once your lecturer releases QR 2 on the projector, scanning will automatically unlock.
+                        </p>
+
+                        {secondsUntilQr2 !== null && secondsUntilQr2 > 0 ? (
+                            <div style={{
+                                display: 'inline-block',
+                                padding: '10px 20px',
+                                borderRadius: '12px',
+                                background: '#ffffff',
+                                border: '1.5px solid #c7d2fe',
+                                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.05)'
+                            }}>
+                                <div style={{ fontSize: '0.72rem', fontWeight: 700, color: '#6366f1', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                    Estimated QR 2 Release In
+                                </div>
+                                <div style={{ fontSize: '1.6rem', fontWeight: 800, color: '#312e81', fontFamily: 'monospace' }}>
+                                    {Math.floor(secondsUntilQr2 / 60)}:{String(secondsUntilQr2 % 60).padStart(2, '0')}
+                                </div>
+                            </div>
+                        ) : (
+                            <div style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '8px',
+                                padding: '8px 16px',
+                                borderRadius: '10px',
+                                background: '#ffffff',
+                                border: '1px solid #e2e8f0',
+                                fontSize: '0.82rem',
+                                color: '#475569',
+                                fontWeight: 600
+                            }}>
+                                <FaSpinner className="fa-spin" style={{ color: '#6366f1' }} /> Listening for lecturer to advance session...
+                            </div>
+                        )}
+                    </div>
+                ) : (
+                    /* Live Scanner Frame (Only active when QR 2 is released) */
+                    <div style={{
+                        borderRadius: '16px',
+                        overflow: 'hidden',
+                        border: '2.5px solid #10b981',
+                        background: '#020617',
+                        position: 'relative',
+                        minHeight: '260px',
+                        boxShadow: '0 0 25px rgba(16, 185, 129, 0.25)'
+                    }}>
+                        <div style={{
+                            position: 'absolute',
+                            top: '10px',
+                            left: '50%',
+                            transform: 'translateX(-50%)',
+                            zIndex: 10,
+                            padding: '6px 16px',
+                            borderRadius: '999px',
+                            background: 'rgba(6, 78, 59, 0.92)',
+                            border: '1.5px solid #34d399',
+                            backdropFilter: 'blur(8px)',
+                            color: '#ecfdf5',
+                            fontSize: '0.78rem',
+                            fontWeight: 800,
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            whiteSpace: 'nowrap',
+                            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.4)'
+                        }}>
+                            <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', background: '#34d399', boxShadow: '0 0 10px #34d399' }}></span>
+                            ⚡ Phase 2 Live · Point Camera at QR 2 on Screen
+                        </div>
+
+                        <NativeQrScanner
+                            key={`waiting-${retryKey}-${facingMode}`}
+                            onScan={handleCameraScan}
+                            onError={handleCameraError}
+                            facingMode={facingMode}
+                            onToggleFacingMode={() => setFacingMode((f) => (f === 'environment' ? 'user' : 'environment'))}
+                            active={scanState === 'KIOSK_WAITING_QR2' && isQr2Released}
+                        />
+                    </div>
+                )}
 
                 <div style={{ marginTop: '14px', textAlign: 'center' }}>
                     <button

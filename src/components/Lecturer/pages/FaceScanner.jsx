@@ -460,13 +460,14 @@ function FaceScanner({
             const challengeEngine = challengeEngineRef.current;
             const isChallengeComplete = challengeEngine.processFrame(detection);
 
-            // Natural human liveness verified via blink, challenge completion, facial reflex, or micro-variance
-            const hasLivePresence =
-              isChallengeComplete ||
-              Boolean(challengeEngine.blinkCount && challengeEngine.blinkCount >= 1) ||
-              Boolean(challengeEngine.completedChallenges && challengeEngine.completedChallenges.length >= 1) ||
-              Boolean(challengeEngine.holdFrames >= 1) ||
-              Boolean(!challengeEngine.spoofDetected && challengeEngine.ratioHistory?.length >= 5);
+            // STRICT Dynamic Anti-Replay Liveness Verification:
+            // The active randomized challenge MUST be fully completed in real-time.
+            // A pre-recorded video or photo cannot anticipate randomized challenges!
+            const hasLivePresence = Boolean(
+              isChallengeComplete &&
+              challengeEngine.isComplete === true &&
+              !challengeEngine.spoofDetected
+            );
 
             // Throttle activeChallenge state updates to ~250ms to keep React lightweight
             const now = performance.now();
@@ -590,7 +591,7 @@ function FaceScanner({
                 // Require at least 5 consecutive non-matching frames before declaring mismatch to avoid transient angle jitter
                 if (mismatchFramesRef.current >= 5) {
                   updateStatus("mismatch");
-                  updateFeedback(`❌ Face does NOT match registered biometric profile for ${verifiedStudent.name} (${verifiedStudent.rollNo}).`);
+                  updateFeedback(`❌ Face does NOT match registered student ${verifiedStudent.name} (${verifiedStudent.rollNo})! Proxy attendance is strictly prohibited.`);
                   onVerificationChange({
                     verified: false,
                     confidence: 0,
@@ -756,6 +757,9 @@ function FaceScanner({
             <div className="registered-meta">
               <h4>{verifiedStudent.name}</h4>
               <p>Registered: {verifiedStudent.rollNo} • {(verifiedStudent.branch && String(verifiedStudent.branch).toLowerCase() !== "general") ? verifiedStudent.branch : "CSE"}</p>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: "4px", fontSize: "0.72rem", padding: "2px 8px", borderRadius: "999px", background: "rgba(99, 102, 241, 0.12)", color: "#4f46e5", fontWeight: 700, marginTop: "4px" }}>
+                <FaUserCheck /> 1:1 Identity Lock Active
+              </span>
             </div>
           </div>
         ) : (
@@ -843,6 +847,11 @@ function FaceScanner({
         <span className={`liveness-shield-tag ${isSpoof ? "spoof-warn" : livenessPassed ? "live-pass" : ""}`}>
           <FaShieldAlt /> Anti-Spoof: {isSpoof ? "⚠️ ALERT (Static Photo/Screen)" : livenessPassed ? "PASSED (Live Human)" : "Active 🛡️"}
         </span>
+        {verifiedStudent && (
+          <span className={`liveness-shield-tag ${status === "mismatch" ? "spoof-warn" : status === "verified" ? "live-pass" : ""}`}>
+            <FaUserCheck /> 1:1 Identity: {status === "mismatch" ? "❌ Mismatch (Proxy Blocked)" : status === "verified" ? `✅ Matched (${verifiedStudent?.rollNo || "Verified"})` : `Verifying ${verifiedStudent?.rollNo || ""}`}
+          </span>
+        )}
         <span className={`liveness-shield-tag ${livenessPassed ? "live-pass" : ""}`}>
           {livenessPassed ? <FaEye /> : <FaEyeSlash />} Active Challenge: {livenessPassed ? "✅ Verified" : (activeChallenge ? `${activeChallenge.currentIndex + 1}/3` : "Pending")}
         </span>
@@ -894,6 +903,27 @@ function FaceScanner({
               <FaCamera /> Register / Enroll Facial Biometrics Now
             </button>
           )}
+        </div>
+      )}
+
+      {/* Identity Mismatch Alert Banner */}
+      {status === "mismatch" && verifiedStudent && (
+        <div className="unregistered-face-alert" style={{
+          marginTop: "12px",
+          marginBottom: "12px",
+          borderColor: "#ef4444",
+          background: "#fef2f2"
+        }}>
+          <h4 style={{ color: "#b91c1c" }}>
+            <FaUserTimes style={{ color: "#ef4444", fontSize: "1.1rem" }} />
+            Biometric Identity Mismatch Detected
+          </h4>
+          <p style={{ color: "#7f1d1d" }}>
+            The face in front of the camera does <strong>NOT match</strong> the registered biometric profile for <strong>{verifiedStudent?.name || "Student"}</strong> (Roll No: <strong>{verifiedStudent?.rollNo || rollNo}</strong>).
+          </p>
+          <p style={{ marginTop: "6px", fontWeight: 700, color: "#b91c1c" }}>
+            ⛔ Anti-Proxy Security: Only the registered student can mark their attendance. Proxy attendance is strictly prohibited and logged.
+          </p>
         </div>
       )}
 

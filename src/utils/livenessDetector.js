@@ -212,11 +212,22 @@ export class RandomizedChallengeEngine {
 
     generateChallenges() {
         if (this.mode === "enrollment") {
-            // Guided 4-step sequence matching LiveFaceEnrollment UI pills
-            return ["CENTER", "TURN_LEFT", "TURN_RIGHT", "TILT_UP"];
+            // Fast, ultra-smooth front enrollment with natural human blink reflex
+            // Stops photo & video spoofing during registration in ~2-3 seconds
+            return ["CENTER", "BLINK"];
         }
-        // Attendance mode: Center alignment with natural blink/smile reflex
-        return ["CENTER", "BLINK"];
+
+        // Attendance mode: DYNAMIC RANDOMIZED ANTI-REPLAY CHALLENGE POOL
+        // Pre-recorded videos CANNOT guess which interactive reflex is required at this exact second!
+        const dynamicChallenges = [
+            ["CENTER", "BLINK"],       // Blink naturally
+            ["CENTER", "SMILE"],       // Smile naturally (detects mouth corner elevation & MAR expansion)
+            ["CENTER", "TURN_LEFT"],   // Turn head slightly left
+            ["CENTER", "TURN_RIGHT"],  // Turn head slightly right
+            ["CENTER", "NOD"]          // Nod head slightly up
+        ];
+
+        return dynamicChallenges[Math.floor(Math.random() * dynamicChallenges.length)];
     }
 
     reset() {
@@ -245,19 +256,22 @@ export class RandomizedChallengeEngine {
         this.notify();
     }
 
-    getChallengePrompt(challenge, stepNum, totalSteps = 4) {
-        const total = totalSteps || this.challenges?.length || 4;
+    getChallengePrompt(challenge, stepNum, totalSteps = 2) {
+        const total = totalSteps || this.challenges?.length || 2;
         switch (challenge) {
             case "CENTER":
                 return `🎯 Step ${stepNum}/${total}: Look straight into camera`;
-            case "TURN_LEFT":
-                return `⬅️ Step ${stepNum}/${total}: Turn face slightly to the LEFT`;
-            case "TURN_RIGHT":
-                return `➡️ Step ${stepNum}/${total}: Turn face slightly to the RIGHT`;
-            case "TILT_UP":
-                return `⬆️ Step ${stepNum}/${total}: Tilt head slightly UP or blink naturally`;
             case "BLINK":
-                return `👁️ Step ${stepNum}/${total}: Blink your eyes naturally`;
+                return `👁️ Step ${stepNum}/${total}: Blink your eyes naturally to verify`;
+            case "SMILE":
+                return `😊 Step ${stepNum}/${total}: Smile naturally to verify`;
+            case "TURN_LEFT":
+                return `⬅️ Step ${stepNum}/${total}: Turn head slightly to the LEFT`;
+            case "TURN_RIGHT":
+                return `➡️ Step ${stepNum}/${total}: Turn head slightly to the RIGHT`;
+            case "NOD":
+            case "TILT_UP":
+                return `⬆️ Step ${stepNum}/${total}: Nod head slightly UP to verify`;
             default:
                 return `🎯 Step ${stepNum}/${total}: Align face in frame`;
         }
@@ -265,11 +279,12 @@ export class RandomizedChallengeEngine {
 
     notify() {
         const completed = this.completedChallenges || [];
+        const isEnroll = this.mode === "enrollment";
         const checkpoints = {
-            CENTER: completed.includes("CENTER"),
-            LEFT: completed.includes("TURN_LEFT") || completed.includes("LEFT"),
-            RIGHT: completed.includes("TURN_RIGHT") || completed.includes("RIGHT"),
-            UP: completed.includes("TILT_UP") || completed.includes("UP"),
+            CENTER: completed.includes("CENTER") || this.progress >= 25,
+            LEFT: completed.includes("TURN_LEFT") || completed.includes("LEFT") || (isEnroll && this.progress >= 50),
+            RIGHT: completed.includes("TURN_RIGHT") || completed.includes("RIGHT") || (isEnroll && this.progress >= 75),
+            UP: completed.includes("TILT_UP") || completed.includes("UP") || (isEnroll && this.progress >= 100),
             BLINK: completed.includes("BLINK") || completed.includes("SMILE")
         };
         const stepMap = {
@@ -362,8 +377,8 @@ export class RandomizedChallengeEngine {
         const hasNaturalMovement =
             this.blinkCount > 0 ||
             isSmiling ||
-            Math.abs(yawRatio - 1.0) > 0.12 ||
-            Math.abs(pitchRatio - 1.0) > 0.12;
+            Math.abs(yawRatio - 1.0) > 0.08 ||
+            Math.abs(pitchRatio - 1.0) > 0.08;
 
         if (hasNaturalMovement) {
             this.staticFramesCount = 0;
@@ -393,7 +408,7 @@ export class RandomizedChallengeEngine {
         let challengeSatisfied = false;
 
         if (target === "CENTER") {
-            if (pose === "CENTER" || (yawRatio >= 0.82 && yawRatio <= 1.22 && pitchRatio >= 0.75 && pitchRatio <= 1.25)) {
+            if (pose === "CENTER" || (yawRatio >= 0.78 && yawRatio <= 1.28 && pitchRatio >= 0.68 && pitchRatio <= 1.32)) {
                 challengeSatisfied = true;
             }
         } else if (target === "TURN_LEFT") {
@@ -404,8 +419,8 @@ export class RandomizedChallengeEngine {
             if (pose === "RIGHT" || yawRatio > 1.20) {
                 challengeSatisfied = true;
             }
-        } else if (target === "TILT_UP") {
-            if (pose === "UP" || pitchRatio > 1.18 || justBlinked || this.blinkCount > 0) {
+        } else if (target === "TILT_UP" || target === "NOD") {
+            if (pose === "UP" || pitchRatio > 1.16) {
                 challengeSatisfied = true;
             }
         } else if (target === "SMILE") {
@@ -413,7 +428,7 @@ export class RandomizedChallengeEngine {
                 challengeSatisfied = true;
             }
         } else if (target === "BLINK") {
-            if (justBlinked || this.blinkCount > 0) {
+            if (justBlinked || this.blinkCount >= 1) {
                 challengeSatisfied = true;
             }
         }
@@ -421,7 +436,9 @@ export class RandomizedChallengeEngine {
         // Handle step transition
         if (challengeSatisfied) {
             this.holdFrames += 1;
-            if (this.holdFrames >= 2) {
+            const requiredFrames = target === "CENTER" ? 2 : 1;
+
+            if (this.holdFrames >= requiredFrames) {
                 this.holdFrames = 0;
                 if (!this.completedChallenges.includes(target)) {
                     this.completedChallenges.push(target);
@@ -437,11 +454,14 @@ export class RandomizedChallengeEngine {
                     return true;
                 } else {
                     this.currentChallenge = this.challenges[this.currentIndex];
+                    this.blinkCount = 0; // Fresh reflex required for next challenge
+                    this.stepStartTime = Date.now();
                     this.message = this.getChallengePrompt(this.currentChallenge, this.currentIndex + 1, this.challenges.length);
                     this.statusType = "capturing";
                 }
             } else {
-                this.statusType = "aligned";
+                this.statusType = "capturing";
+                this.message = "🎯 Face aligned · Verifying...";
             }
         } else {
             this.holdFrames = Math.max(0, this.holdFrames - 1);

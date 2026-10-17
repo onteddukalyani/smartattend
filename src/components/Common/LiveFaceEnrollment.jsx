@@ -235,7 +235,7 @@ export function LiveFaceEnrollment({
             if (livenessEngineRef.current) {
                 livenessEngineRef.current.reset();
             }
-            setStatusMessage("🎯 Step 1/4: Look straight into the camera");
+            setStatusMessage("🎯 Look straight into camera · Capturing 3D biometrics in 2s...");
             setStatusType("ready");
         } catch (camErr) {
             console.error("Camera access error:", camErr);
@@ -408,10 +408,18 @@ export function LiveFaceEnrollment({
 
             let descriptorArray = null;
             if (detection && detection.descriptor) {
-                descriptorArray = Array.from(detection.descriptor);
                 bufferedDescriptorsRef.current.push(new Float32Array(detection.descriptor));
+            }
+
+            if (bufferedDescriptorsRef.current.length >= 2) {
+                // Multi-frame consensus centroid vector for highest recognition stability
+                const fused = fuseFaceDescriptors(bufferedDescriptorsRef.current);
+                if (fused) {
+                    descriptorArray = Array.from(fused);
+                }
+            } else if (detection && detection.descriptor) {
+                descriptorArray = Array.from(detection.descriptor);
             } else if (bufferedDescriptorsRef.current.length > 0) {
-                // Seamlessly use multi-angle consensus centroid vector from completed liveness session
                 const fused = fuseFaceDescriptors(bufferedDescriptorsRef.current);
                 if (fused) {
                     descriptorArray = Array.from(fused);
@@ -502,7 +510,7 @@ export function LiveFaceEnrollment({
             <div
                 className={`lfe-viewport-container biohud-viewport ${enrolledPhoto ? "enrolled" : ""} ${isBiometricVerified ? "verified" : ""} ${capturing ? "capturing" : ""} ${flashEffect ? "flash" : ""}`}
             >
-                {/* 3D Circular Multi-Angle Compass Ring */}
+                {/* 3D Circular Biometric Reticle HUD */}
                 {!enrolledPhoto && cameraActive && (
                     <div className="biohud-compass-hud">
                         {/* 360 Progress SVG Ring */}
@@ -525,31 +533,17 @@ export function LiveFaceEnrollment({
                             />
                         </svg>
 
-                        {/* Cardinal Direction Checkpoint Nodes */}
-                        <div className={`biohud-node node-up ${safeCheckpoints.UP ? "done" : currentStep === "UP" ? "active" : ""}`}>
-                            <FaArrowUp />
-                            <span>UP</span>
-                        </div>
-                        <div className={`biohud-node node-left ${safeCheckpoints.LEFT ? "done" : currentStep === "LEFT" ? "active" : ""}`}>
-                            <FaArrowLeft />
-                            <span>LEFT</span>
-                        </div>
-                        <div className={`biohud-node node-right ${safeCheckpoints.RIGHT ? "done" : currentStep === "RIGHT" ? "active" : ""}`}>
-                            <FaArrowRight />
-                            <span>RIGHT</span>
-                        </div>
-                        <div className={`biohud-node node-center ${safeCheckpoints.CENTER ? "done" : currentStep === "CENTER" ? "active" : ""}`}>
-                            <FaBullseye />
-                            <span>FRONT</span>
-                        </div>
-
-                        {/* Central Dynamic Directional Arrow Guide */}
+                        {/* Central Dynamic Status Guide */}
                         <div className="biohud-dynamic-pointer">
-                            {currentStep === "CENTER" && <div className="pointer-icon pulse-center">🎯</div>}
-                            {currentStep === "LEFT" && <div className="pointer-icon slide-left">⬅️ Turn Left</div>}
-                            {currentStep === "RIGHT" && <div className="pointer-icon slide-right">➡️ Turn Right</div>}
-                            {currentStep === "UP" && <div className="pointer-icon slide-up">⬆️ Tilt Up</div>}
-                            {currentStep === "COMPLETE" && <div className="pointer-icon success-check">✅</div>}
+                            {progress >= 100 || isBiometricVerified ? (
+                                <div className="pointer-icon success-check">✅</div>
+                            ) : progress > 0 ? (
+                                <div className="pointer-icon pulse-center" style={{ fontSize: "0.88rem", fontWeight: 800, color: "#ffffff", textShadow: "0 2px 8px rgba(0,0,0,0.85)" }}>
+                                    ⚡ {progress}%
+                                </div>
+                            ) : (
+                                <div className="pointer-icon pulse-center">🎯</div>
+                            )}
                         </div>
                     </div>
                 )}
@@ -597,8 +591,8 @@ export function LiveFaceEnrollment({
                                 <div className="lfe-placeholder-icon-wrap">
                                     <FaIdCard className="lfe-camera-placeholder-icon" />
                                 </div>
-                                <h5>3D Facial Biometric Authentication</h5>
-                                <p>Perform interactive multi-angle head movement (Front, Left, Right, Up) to verify biological liveness.</p>
+                                <h5>Fast Facial Biometric Registration</h5>
+                                <p>Position your face inside the frame. The scanner will capture and verify your facial profile in ~2 seconds.</p>
                                 <div className="lfe-placeholder-btn-group">
                                     <button
                                         type="button"
@@ -641,17 +635,14 @@ export function LiveFaceEnrollment({
             {cameraActive && !enrolledPhoto && (
                 <div className="biohud-steps-tray">
                     <div className="biohud-pills-row">
-                        <span className={`biohud-pill ${safeCheckpoints.CENTER ? "done" : currentStep === "CENTER" ? "current" : ""}`}>
-                            {safeCheckpoints.CENTER ? "✅" : "1️⃣"} Front
+                        <span className={`biohud-pill ${progress >= 40 ? "done" : "current"}`}>
+                            {progress >= 40 ? "✅" : "1️⃣"} Face Aligned
                         </span>
-                        <span className={`biohud-pill ${safeCheckpoints.LEFT ? "done" : currentStep === "LEFT" ? "current" : ""}`}>
-                            {safeCheckpoints.LEFT ? "✅" : "2️⃣"} Left Turn
+                        <span className={`biohud-pill ${progress >= 100 || isBiometricVerified ? "done" : progress >= 40 ? "current" : ""}`}>
+                            {progress >= 100 || isBiometricVerified ? "✅" : "2️⃣"} Blink Reflex
                         </span>
-                        <span className={`biohud-pill ${safeCheckpoints.RIGHT ? "done" : currentStep === "RIGHT" ? "current" : ""}`}>
-                            {safeCheckpoints.RIGHT ? "✅" : "3️⃣"} Right Turn
-                        </span>
-                        <span className={`biohud-pill ${safeCheckpoints.UP || safeCheckpoints.BLINK ? "done" : currentStep === "UP" ? "current" : ""}`}>
-                            {safeCheckpoints.UP || safeCheckpoints.BLINK ? "✅" : "4️⃣"} Tilt Up / Blink
+                        <span className={`biohud-pill ${isBiometricVerified ? "done" : ""}`}>
+                            {isBiometricVerified ? "✅" : "3️⃣"} Biometrics Ready
                         </span>
                     </div>
 
