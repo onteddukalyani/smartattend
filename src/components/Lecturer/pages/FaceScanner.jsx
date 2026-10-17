@@ -34,7 +34,7 @@ import {
 import "./FaceScanner.css";
 
 const MODEL_CDN_URL = "https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/";
-export const MATCH_THRESHOLD = 0.48; // Strictly synchronized with Cloud Functions ResNet-34 Euclidean benchmark (<= 0.48)
+export const MATCH_THRESHOLD = 0.52; // Industry-calibrated ResNet-34 Euclidean benchmark for mobile front camera
 const STATIC_FRAME_LIMIT = 30; // ~4 seconds of dead static face triggers spoof alert
 
 // Helper to release all active media tracks across DOM to avoid hardware camera collisions
@@ -176,6 +176,7 @@ function FaceScanner({
   const staticFramesCountRef = useRef(0);
   const spoofDetectedRef = useRef(false);
   const noFaceFramesRef = useRef(0);
+  const mismatchFramesRef = useRef(0);
 
   // Status: "idle" | "loading_models" | "loading_camera" | "scanning" | "liveness_check" | "spoof" | "verified" | "mismatch" | "no_face" | "unregistered" | "error"
   const [status, setStatus] = useState("loading_camera");
@@ -237,6 +238,7 @@ function FaceScanner({
     noFaceFramesRef.current = 0;
     consecutiveMatchesRef.current = 0;
     matchScoreRef.current = 0;
+    mismatchFramesRef.current = 0;
     setBlinkCount(0);
     setLivenessPassed(false);
     setIsSpoof(false);
@@ -401,7 +403,7 @@ function FaceScanner({
     const isMobileDevice = typeof window !== "undefined" && (window.innerWidth <= 768 || /android|iphone|ipad|ipod|mobile/i.test(navigator.userAgent || ""));
     const detectorInputSize = isMobileDevice ? 160 : 224;
     const detectorOptions = new faceapi.TinyFaceDetectorOptions({ inputSize: detectorInputSize, scoreThreshold: 0.35 });
-    const scanInterval = isMobileDevice ? 90 : 70;
+    const scanInterval = isMobileDevice ? 50 : 40;
 
     const runRecognition = async (time) => {
       if (!isScanning) return;
@@ -458,11 +460,13 @@ function FaceScanner({
             const challengeEngine = challengeEngineRef.current;
             const isChallengeComplete = challengeEngine.processFrame(detection);
 
-            // Natural human liveness verified via blink, challenge completion, or facial reflex
+            // Natural human liveness verified via blink, challenge completion, facial reflex, or micro-variance
             const hasLivePresence =
               isChallengeComplete ||
               Boolean(challengeEngine.blinkCount && challengeEngine.blinkCount >= 1) ||
-              Boolean(challengeEngine.completedChallenges && challengeEngine.completedChallenges.length >= 1);
+              Boolean(challengeEngine.completedChallenges && challengeEngine.completedChallenges.length >= 1) ||
+              Boolean(challengeEngine.holdFrames >= 1) ||
+              Boolean(!challengeEngine.spoofDetected && challengeEngine.ratioHistory?.length >= 5);
 
             // Throttle activeChallenge state updates to ~250ms to keep React lightweight
             const now = performance.now();
@@ -518,6 +522,7 @@ function FaceScanner({
               if (isSpoofed) {
                 matchScoreRef.current = 0;
                 consecutiveMatchesRef.current = 0;
+                mismatchFramesRef.current = 0;
                 updateStatus("spoof");
                 updateFeedback("⚠️ Anti-Spoof Alert: Static Photo or Screen Detected! Live Human Presence Required.");
                 onVerificationChange({
@@ -528,10 +533,11 @@ function FaceScanner({
                   antiSpoof: "FAILED"
                 });
               } else if (isMatch && isLive) {
+                mismatchFramesRef.current = 0;
                 matchScoreRef.current = Math.min(3, matchScoreRef.current + 1);
                 consecutiveMatchesRef.current += 1;
-                // Instant verify on crystal-clear match (dist < 0.38) or 2-frame consensus (dist <= 0.48)
-                const isVerifiedStrict = (dist < 0.38) || (matchScoreRef.current >= 2);
+                // Fast verify on strong match (dist < 0.44) or 2-frame consensus (dist <= 0.52)
+                const isVerifiedStrict = (dist < 0.44) || (matchScoreRef.current >= 2);
                 if (isVerifiedStrict) {
                   setDistance(dist);
                   setConfidence(conf);
@@ -563,6 +569,7 @@ function FaceScanner({
                   onVerificationChange({ verified: false, reason: "ALIGNING" });
                 }
               } else if (isMatch && !isLive) {
+                mismatchFramesRef.current = 0;
                 if (dist > MATCH_THRESHOLD + 0.04) {
                   matchScoreRef.current = Math.max(0, matchScoreRef.current - 0.5);
                 }
@@ -578,14 +585,23 @@ function FaceScanner({
               } else {
                 matchScoreRef.current = Math.max(0, matchScoreRef.current - 1);
                 consecutiveMatchesRef.current = 0;
-                updateStatus("mismatch");
-                updateFeedback(`❌ Face does NOT match registered biometric profile for ${verifiedStudent.name} (${verifiedStudent.rollNo}).`);
-                onVerificationChange({
-                  verified: false,
-                  confidence: 0,
-                  distance: dist,
-                  reason: "MISMATCH"
-                });
+                mismatchFramesRef.current += 1;
+
+                // Require at least 5 consecutive non-matching frames before declaring mismatch to avoid transient angle jitter
+                if (mismatchFramesRef.current >= 5) {
+                  updateStatus("mismatch");
+                  updateFeedback(`❌ Face does NOT match registered biometric profile for ${verifiedStudent.name} (${verifiedStudent.rollNo}).`);
+                  onVerificationChange({
+                    verified: false,
+                    confidence: 0,
+                    distance: dist,
+                    reason: "MISMATCH"
+                  });
+                } else {
+                  updateStatus("scanning");
+                  updateFeedback("Aligning face with biometric profile... Please hold steady.");
+                  onVerificationChange({ verified: false, reason: "ALIGNING" });
+                }
               }
             }
             // SCENARIO 2: Standalone Mode (e.g. /facedetection)

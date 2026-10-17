@@ -1495,7 +1495,7 @@ exports.submitAttendance = onCall(async (request) => {
     sumSquares += diff * diff;
   }
   const serverCalculatedDistance = Math.sqrt(sumSquares);
-  const MAX_FACE_MATCH_THRESHOLD = 0.48; // ResNet-34 face match threshold
+  const MAX_FACE_MATCH_THRESHOLD = 0.52; // ResNet-34 face match threshold
 
   // 4b. Anti-Fabrication & Exact-Match Vector Replay Gating
   // Physical Principle: Due to thermal sensor noise, light scattering, and float quantization,

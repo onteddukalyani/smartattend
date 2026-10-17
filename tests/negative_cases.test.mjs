@@ -220,7 +220,7 @@ function serverSubmitAttendance(request, serverTimeMs = Date.now()) {
   if (biometricData?.liveDescriptor && biometricData?.enrolledDescriptor) {
     const dist = calculateFaceEuclideanDistance(biometricData.liveDescriptor, biometricData.enrolledDescriptor);
     if (dist < 0.001) throw new Error("permission-denied: Adversarial face replay detected (exact duplicate).");
-    if (dist > 0.48) throw new Error(`permission-denied: Face biometric verification failed (distance: ${dist.toFixed(4)} > 0.48).`);
+    if (dist > 0.52) throw new Error(`permission-denied: Face biometric verification failed (distance: ${dist.toFixed(4)} > 0.52).`);
   }
 
   const recordId = `${sessionId}_${auth.rollNo}`;
@@ -732,9 +732,9 @@ test("14. Biometric verification fails or is cancelled", () => {
     /permission-denied: Hardware signature verification failed/
   );
 
-  // B. Face Euclidean distance mismatch (distance > 0.48 threshold)
+  // B. Face Euclidean distance mismatch (distance > 0.52 threshold)
   const template = new Array(128).fill(0.1);
-  const mismatchedLiveFace = new Array(128).fill(0.9); // distance = sqrt(128 * 0.64) = 9.05 >> 0.48
+  const mismatchedLiveFace = new Array(128).fill(0.9); // distance = sqrt(128 * 0.64) = 9.05 >> 0.52
   const badFaceRequest = {
     auth: { uid: "student_14", rollNo: "CS114" },
     data: {

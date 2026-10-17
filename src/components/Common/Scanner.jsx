@@ -342,7 +342,9 @@ function QrScannerApp() {
                 sDoc, uDoc, aDoc,
                 sRollSnap, uRollSnap,
                 sPrefixDoc,
-                sEmailDoc
+                sEmailDoc,
+                uUidDoc, sUidDoc,
+                sEmailSnap, uEmailSnap
             ] = await Promise.all([
                 getDoc(doc(db, 'students', targetRoll)).catch(() => ({ exists: () => false })),
                 getDoc(doc(db, 'users', targetRoll)).catch(() => ({ exists: () => false })),
@@ -350,7 +352,11 @@ function QrScannerApp() {
                 getDocs(query(collection(db, 'students'), where('rollNo', '==', targetRoll))).catch(() => ({ docs: [] })),
                 getDocs(query(collection(db, 'users'), where('rollNo', '==', targetRoll))).catch(() => ({ docs: [] })),
                 prefix !== targetRoll ? getDoc(doc(db, 'students', prefix)).catch(() => ({ exists: () => false })) : Promise.resolve({ exists: () => false }),
-                getDoc(doc(db, 'students', possibleEmail)).catch(() => ({ exists: () => false }))
+                getDoc(doc(db, 'students', possibleEmail)).catch(() => ({ exists: () => false })),
+                user?.uid ? getDoc(doc(db, 'users', user.uid)).catch(() => ({ exists: () => false })) : Promise.resolve({ exists: () => false }),
+                user?.uid ? getDoc(doc(db, 'students', user.uid)).catch(() => ({ exists: () => false })) : Promise.resolve({ exists: () => false }),
+                user?.email ? getDocs(query(collection(db, 'students'), where('email', '==', user.email.toLowerCase().trim()))).catch(() => ({ docs: [] })) : Promise.resolve({ docs: [] }),
+                user?.email ? getDocs(query(collection(db, 'users'), where('email', '==', user.email.toLowerCase().trim()))).catch(() => ({ docs: [] })) : Promise.resolve({ docs: [] })
             ]);
 
             const candidateDocs = [];
@@ -361,6 +367,10 @@ function QrScannerApp() {
             uRollSnap.docs?.forEach((d) => candidateDocs.push(d.data()));
             if (sPrefixDoc.exists()) candidateDocs.push(sPrefixDoc.data());
             if (sEmailDoc.exists()) candidateDocs.push(sEmailDoc.data());
+            if (uUidDoc?.exists && uUidDoc.exists()) candidateDocs.push(uUidDoc.data());
+            if (sUidDoc?.exists && sUidDoc.exists()) candidateDocs.push(sUidDoc.data());
+            sEmailSnap.docs?.forEach((d) => candidateDocs.push(d.data()));
+            uEmailSnap.docs?.forEach((d) => candidateDocs.push(d.data()));
 
             let merged = { rollNo: targetRoll, name: loggedInName };
             const authDesc = normalizeDescriptor(profile?.faceDescriptor);
@@ -380,6 +390,12 @@ function QrScannerApp() {
                 }
                 if (docData.photoURL) merged.photoURL = docData.photoURL;
             }
+
+            console.log(`[Scanner] Biometrics loaded for ${targetRoll}:`, {
+                hasDescriptor: Boolean(merged.faceDescriptor),
+                faceRegistered: Boolean(merged.faceRegistered),
+                name: merged.name
+            });
 
             setVerifiedStudent(merged);
         } catch (err) {
@@ -2513,15 +2529,6 @@ function QrScannerApp() {
                     </div>
                 )}
 
-                <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/*"
-                    capture="environment"
-                    style={{ display: 'none' }}
-                    onChange={handleFileScan}
-                />
-
                 {/* Supervised Banner */}
                 <div style={{
                     padding: '10px 14px',
@@ -2829,15 +2836,6 @@ function QrScannerApp() {
                 </div>
             )}
 
-            <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                capture="environment"
-                style={{ display: 'none' }}
-                onChange={handleFileScan}
-            />
-
             {/* Non-blocking Available App Update Banner */}
             {availableUpdate && !versionBlock && (
                 <div style={{
@@ -3021,36 +3019,6 @@ function QrScannerApp() {
                 </div>
             )}
 
-            {/* Snap / Upload Button (Always-Available Fallback for All Devices) */}
-            <div style={{ marginBottom: '16px' }}>
-                <button
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={scanningFile || scanState !== 'IDLE'}
-                    style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: '8px',
-                        width: '100%',
-                        padding: '13px 20px',
-                        borderRadius: '14px',
-                        background: 'linear-gradient(180deg, var(--accent, #6366f1), var(--accent-strong, #4338ca))',
-                        color: '#ffffff',
-                        border: 'none',
-                        fontWeight: 800,
-                        fontSize: '0.98rem',
-                        cursor: 'pointer',
-                        boxShadow: '0 4px 16px rgba(99, 102, 241, 0.35)'
-                    }}
-                >
-                    {scanningFile ? (
-                        <><FaSpinner className="fa-spin" /> Decoding QR Code...</>
-                    ) : (
-                        <><FaCamera /> Snap / Upload QR Photo</>
-                    )}
-                </button>
-            </div>
 
             {/* Camera Viewport */}
             <div style={{
