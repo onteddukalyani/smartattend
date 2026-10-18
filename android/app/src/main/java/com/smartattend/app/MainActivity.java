@@ -34,6 +34,7 @@ public class MainActivity extends BridgeActivity {
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
+        setTheme(R.style.AppTheme_NoActionBar);
         sInstance = this;
         registerPlugin(KioskPlugin.class);
         registerPlugin(BiometricPlugin.class);
@@ -57,9 +58,12 @@ public class MainActivity extends BridgeActivity {
             if (!alreadyPrompted) {
                 prefs.edit().putBoolean("prompted_overlay_on_launch", true).apply();
                 mainHandler.postDelayed(() -> {
-                    if (isFinishing() || isDestroyed()) return;
-                    boolean isAndroid13Plus = Build.VERSION.SDK_INT >= 33;
-                    androidx.appcompat.app.AlertDialog.Builder builder = new androidx.appcompat.app.AlertDialog.Builder(this);
+                    try {
+                        if (isFinishing() || isDestroyed()) return;
+                        boolean isAndroid13Plus = Build.VERSION.SDK_INT >= 33;
+                        androidx.appcompat.app.AlertDialog.Builder builder = new androidx.appcompat.app.AlertDialog.Builder(
+                            new androidx.appcompat.view.ContextThemeWrapper(this, R.style.AppTheme_NoActionBar)
+                        );
                     if (isAndroid13Plus) {
                         builder.setTitle("⚠️ Action Required: Allow Restricted Settings & Overlay")
                             .setMessage("SmartAttend requires 'Display over other apps' to lock attendance sessions and prevent proxy attendance.\n\n" +
@@ -121,6 +125,9 @@ public class MainActivity extends BridgeActivity {
                             .setNegativeButton("Later", (dialog, which) -> dialog.dismiss());
                     }
                     builder.setCancelable(true).show();
+                    } catch (Throwable t) {
+                        android.util.Log.e("MainActivity", "Error displaying overlay dialog", t);
+                    }
                 }, 1500);
             }
         }
