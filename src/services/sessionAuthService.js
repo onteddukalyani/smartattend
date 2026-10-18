@@ -1449,37 +1449,50 @@ export async function releaseIndividualStudentDevice(sessionId, studentUid, roll
     throw new Error("Session ID and student identifier are required to release device.");
   }
 
+  const cleanRoll = rollNo ? String(rollNo).trim().toUpperCase() : "";
+  const targetDocId = studentUid || cleanRoll;
+
+  // 1. Try Cloud Function
   try {
     const fn = httpsCallable(functions, "releaseIndividualDevice");
-    const result = await fn({ sessionId, studentUid, rollNo, sessionPin });
-    return result?.data || { success: true };
+    const result = await fn({ sessionId, studentUid: targetDocId, rollNo: cleanRoll, sessionPin });
+    if (result?.data?.success) return result.data;
   } catch (err) {
     console.warn("Cloud Function releaseIndividualDevice notice (using direct Firestore update):", err.message);
-    try {
-      const targetDocId = studentUid || rollNo;
-      const authRef = doc(db, "attendance_sessions", sessionId, "authorizations", targetDocId);
-      await updateDoc(authRef, {
-        released: true,
-        releasedAt: Date.now(),
-        releaseStatus: "RELEASED",
-        status: "RELEASED"
-      });
+  }
 
-      if (rollNo && studentUid && rollNo !== studentUid) {
-        const rollRef = doc(db, "attendance_sessions", sessionId, "authorizations", rollNo);
-        await updateDoc(rollRef, {
-          released: true,
-          releasedAt: Date.now(),
-          releaseStatus: "RELEASED",
-          status: "RELEASED"
-        }).catch(() => { });
-      }
+  // 2. Direct Firestore fallback with merge: true across all IDs
+  try {
+    const authPayload = {
+      released: true,
+      releasedAt: Date.now(),
+      releaseStatus: "RELEASED",
+      status: "RELEASED"
+    };
 
-      return { success: true, status: "RELEASED" };
-    } catch (dbErr) {
-      console.error("Failed to release individual device in Firestore:", dbErr);
-      throw new Error(dbErr.message || "Failed to release device.");
+    const writes = [
+      setDoc(doc(db, "attendance_sessions", sessionId, "authorizations", targetDocId), authPayload, { merge: true })
+    ];
+
+    if (cleanRoll && cleanRoll !== targetDocId) {
+      writes.push(setDoc(doc(db, "attendance_sessions", sessionId, "authorizations", cleanRoll), authPayload, { merge: true }));
     }
+    if (studentUid && studentUid !== targetDocId) {
+      writes.push(setDoc(doc(db, "attendance_sessions", sessionId, "authorizations", studentUid), authPayload, { merge: true }));
+    }
+
+    // Also update parent session document releasedStudents map
+    const sessionUpdates = {};
+    if (cleanRoll) sessionUpdates[`releasedStudents.${cleanRoll}`] = true;
+    if (studentUid) sessionUpdates[`releasedStudents.${studentUid}`] = true;
+    if (targetDocId) sessionUpdates[`releasedStudents.${targetDocId}`] = true;
+    writes.push(setDoc(doc(db, "attendance_sessions", sessionId), sessionUpdates, { merge: true }).catch(() => { }));
+
+    await Promise.all(writes);
+    return { success: true, status: "RELEASED" };
+  } catch (dbErr) {
+    console.error("Failed to release individual device in Firestore:", dbErr);
+    throw new Error(dbErr.message || "Failed to release device.");
   }
 }
 

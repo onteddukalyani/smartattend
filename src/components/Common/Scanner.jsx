@@ -19,7 +19,8 @@ import {
     FaExternalLinkAlt,
     FaLock,
     FaKey,
-    FaDownload
+    FaDownload,
+    FaFingerprint
 } from 'react-icons/fa';
 import { MdQrCodeScanner } from 'react-icons/md';
 import { useAuth } from '../authcontext';
@@ -223,6 +224,11 @@ function QrScannerApp() {
     const [submittingAttendance, setSubmittingAttendance] = useState(false);
     const [submissionDetails, setSubmissionDetails] = useState(null);
     const [hardwareProof, setHardwareProof] = useState(null);
+    // Dual Biometric Combo State (Step 1: Fingerprint -> Step 2: 3D Face)
+    const [biometricComboStep, setBiometricComboStep] = useState('FINGERPRINT'); // 'FINGERPRINT' | 'FACE'
+    const [fingerprintVerifying, setFingerprintVerifying] = useState(false);
+    const [fingerprintError, setFingerprintError] = useState('');
+    const fingerprintAutoTriggeredRef = useRef(false);
 
     // Resolve Student Identity
     const loggedInRollNo = (profile?.rollNo || (user?.email || '').split('@')[0] || '').trim().toUpperCase();
@@ -487,6 +493,45 @@ function QrScannerApp() {
 
         return () => clearInterval(interval);
     }, [scanState, autoReleaseAt, activeSessionId, user?.uid, deviceIdentity?.deviceId, navigate]);
+
+    // Automatic Release When Session Ends (Guarantees student device is never stuck, even on errors or disqualifications)
+    const [sessionEndedAutoReleased, setSessionEndedAutoReleased] = useState(false);
+    const hasAutoReleasedRef = useRef(false);
+
+    useEffect(() => {
+        if (!activeSessionId) return;
+
+        const checkSessionEndingRelease = () => {
+            const now = Date.now();
+            const endMs = kioskEndsAt || (sessionData?.kioskEndsAt ? (typeof sessionData.kioskEndsAt.toMillis === 'function' ? sessionData.kioskEndsAt.toMillis() : Number(sessionData.kioskEndsAt)) : 0);
+            const isClosed = sessionData?.status === 'CLOSED' || sessionData?.phase === 'CLOSED' || sessionData?.isClosed === true;
+            const isExpired = endMs > 0 && now >= endMs;
+
+            if ((isClosed || isExpired) && !hasAutoReleasedRef.current) {
+                hasAutoReleasedRef.current = true;
+                console.log('[Kiosk] Session ended/expired. Automatically releasing all device restrictions...');
+                try { localStorage.removeItem('smartattend_kiosk_session_state'); } catch (_) { }
+                try { sessionStorage.removeItem(`smartattend_qr1_auth_${activeSessionId}`); } catch (_) { }
+                try { localStorage.removeItem(`smartattend_qr1_auth_${activeSessionId}`); } catch (_) { }
+                releaseCameraLock();
+                releaseAllMediaTracks();
+                Kiosk.stopKioskMode().catch(() => { });
+                Kiosk.clearAttendanceRestrictions().catch(() => { });
+                setSessionEndedAutoReleased(true);
+
+                // Call backend fail-safe release in background
+                requestAutoFailSafeUnlock(activeSessionId, user?.uid, deviceIdentity?.deviceId).catch(() => { });
+
+                if (scanState === 'ATTENDANCE_SUCCESS') {
+                    navigate('/student', { replace: true });
+                }
+            }
+        };
+
+        checkSessionEndingRelease();
+        const interval = setInterval(checkSessionEndingRelease, 1000);
+        return () => clearInterval(interval);
+    }, [activeSessionId, kioskEndsAt, sessionData, scanState, user?.uid, deviceIdentity?.deviceId, navigate, releaseCameraLock]);
 
     // Session state persistence across app crash / restarts
     useEffect(() => {
@@ -849,10 +894,19 @@ function QrScannerApp() {
                     setKioskEndsAt(endMs);
                 }
             }
-            // If lecturer ends the session in real-time
-            if (data.status === 'CLOSED' || data.phase === 'CLOSED' || data.isClosed === true) {
-                console.log('[Kiosk] Session marked as CLOSED by Lecturer. Automatically unlocking Kiosk mode...');
+            // If lecturer ends the session in real-time or releases student
+            const cleanRoll = (loggedInRollNo || '').trim().toUpperCase();
+            const studentUid = user?.uid;
+            if (
+                data.status === 'CLOSED' || data.phase === 'CLOSED' || data.isClosed === true ||
+                data.released === true ||
+                (cleanRoll && data.releasedStudents?.[cleanRoll] === true) ||
+                (studentUid && data.releasedStudents?.[studentUid] === true)
+            ) {
+                console.log('[Kiosk] Session closed or student released by Lecturer. Automatically unlocking Kiosk mode...');
                 try { localStorage.removeItem('smartattend_kiosk_session_state'); } catch (_) { }
+                try { sessionStorage.removeItem(`smartattend_qr1_auth_${activeSessionId}`); } catch (_) { }
+                try { localStorage.removeItem(`smartattend_qr1_auth_${activeSessionId}`); } catch (_) { }
                 releaseCameraLock();
                 releaseAllMediaTracks();
                 Kiosk.stopKioskMode().catch(() => { });
@@ -861,27 +915,46 @@ function QrScannerApp() {
             }
         });
         return () => unsub();
-    }, [activeSessionId, sessionStartAt, kioskEndsAt, navigate]);
+    }, [activeSessionId, sessionStartAt, kioskEndsAt, loggedInRollNo, user?.uid, navigate]);
 
     // Subscribe to Individual Student Authorization for Remote Release by Lecturer
     useEffect(() => {
         if (!activeSessionId) return;
-        const studentIdentifier = user?.uid || loggedInRollNo;
-        if (!studentIdentifier) return;
+        const studentUid = user?.uid;
+        const cleanRoll = (loggedInRollNo || '').trim().toUpperCase();
+        if (!studentUid && !cleanRoll) return;
 
-        const unsubAuth = subscribeToStudentAuthorization(activeSessionId, studentIdentifier, (authData) => {
-            if (authData && (authData.released === true || authData.status === 'RELEASED')) {
-                console.log('[Kiosk] Individual device release authorized by Lecturer. Unlocking Kiosk mode...');
-                try { localStorage.removeItem('smartattend_kiosk_session_state'); } catch (_) { }
-                releaseCameraLock();
-                releaseAllMediaTracks();
-                Kiosk.stopKioskMode().catch(() => { });
-                Kiosk.clearAttendanceRestrictions().catch(() => { });
-                navigate('/student', { replace: true });
-            }
-        });
+        const handleReleaseTriggered = () => {
+            console.log('[Kiosk] Individual device release authorized by Lecturer. Unlocking Kiosk mode...');
+            try { localStorage.removeItem('smartattend_kiosk_session_state'); } catch (_) { }
+            try { sessionStorage.removeItem(`smartattend_qr1_auth_${activeSessionId}`); } catch (_) { }
+            try { localStorage.removeItem(`smartattend_qr1_auth_${activeSessionId}`); } catch (_) { }
+            releaseCameraLock();
+            releaseAllMediaTracks();
+            Kiosk.stopKioskMode().catch(() => { });
+            Kiosk.clearAttendanceRestrictions().catch(() => { });
+            navigate('/student', { replace: true });
+        };
 
-        return () => unsubAuth();
+        const unsubs = [];
+        if (studentUid) {
+            unsubs.push(subscribeToStudentAuthorization(activeSessionId, studentUid, (authData) => {
+                if (authData && (authData.released === true || authData.status === 'RELEASED')) {
+                    handleReleaseTriggered();
+                }
+            }));
+        }
+        if (cleanRoll && cleanRoll !== studentUid) {
+            unsubs.push(subscribeToStudentAuthorization(activeSessionId, cleanRoll, (authData) => {
+                if (authData && (authData.released === true || authData.status === 'RELEASED')) {
+                    handleReleaseTriggered();
+                }
+            }));
+        }
+
+        return () => {
+            unsubs.forEach((u) => { try { u(); } catch (_) { } });
+        };
     }, [activeSessionId, user?.uid, loggedInRollNo, navigate]);
 
     // Parse Scanned String / URL
@@ -1091,6 +1164,42 @@ function QrScannerApp() {
         }
     };
 
+    // Dual Biometric Combo: Step 1 Hardware Fingerprint Verification Handler
+    const handleTriggerFingerprint = useCallback(async () => {
+        setFingerprintVerifying(true);
+        setFingerprintError('');
+        try {
+            const hardwareBio = await verifyHardwareBiometric(user?.uid, "SmartAttend Classroom Verification");
+            if (!hardwareBio.success) {
+                setFingerprintError(hardwareBio.message || "❌ Hardware fingerprint authentication failed. Please touch the sensor again.");
+                setFingerprintVerifying(false);
+                return;
+            }
+            setHardwareProof(hardwareBio);
+            setFingerprintVerifying(false);
+            // Celebratory visual transition to Step 2 (Face Scan)
+            setTimeout(() => {
+                setBiometricComboStep('FACE');
+            }, 850);
+        } catch (bioErr) {
+            console.warn("[Scanner] Hardware biometric notice:", bioErr);
+            setFingerprintError(bioErr.message || "Fingerprint authentication error.");
+            setFingerprintVerifying(false);
+        }
+    }, [user?.uid]);
+
+    // Auto-trigger fingerprint prompt when entering Step 1
+    useEffect(() => {
+        if (scanState === 'BIOMETRIC_SCAN' && biometricComboStep === 'FINGERPRINT') {
+            if (!hardwareProof && !fingerprintAutoTriggeredRef.current) {
+                fingerprintAutoTriggeredRef.current = true;
+                handleTriggerFingerprint();
+            }
+        } else if (scanState !== 'BIOMETRIC_SCAN') {
+            fingerprintAutoTriggeredRef.current = false;
+        }
+    }, [scanState, biometricComboStep, hardwareProof, handleTriggerFingerprint]);
+
     // 2. Process Phase 2 QR 2: Gate verification & open Face Biometric Scanner
     const handleProcessQR2 = async (sessionId, qr2Token) => {
         if (!user) {
@@ -1137,23 +1246,13 @@ function QrScannerApp() {
             releaseAllMediaTracks();
             setScannerActive(false);
 
-            // Hardware Biometric Check (Android Keystore / iOS Secure Enclave / Web Fallback)
-            try {
-                const hardwareBio = await verifyHardwareBiometric(user?.uid, "SmartAttend Classroom Verification");
-                if (!hardwareBio.success) {
-                    setErrorMessage(hardwareBio.message || "❌ Hardware biometric authentication failed.");
-                    setScanState('KIOSK_WAITING_QR2');
-                    return;
-                }
-                setHardwareProof(hardwareBio);
-            } catch (bioErr) {
-                console.warn("[Scanner] Hardware biometric notice:", bioErr);
-            }
-
             // Safe cooldown to allow Android Camera Service to complete HAL disconnection from rear camera
             await new Promise((resolve) => setTimeout(resolve, 350));
 
-            // Move to Live Biometric Face Verification
+            // Enter Dual Biometric Combo: Step 1 (Fingerprint)
+            fingerprintAutoTriggeredRef.current = false;
+            setBiometricComboStep('FINGERPRINT');
+            setFingerprintError('');
             setScanState('BIOMETRIC_SCAN');
         } catch (err) {
             console.error('Error validating QR 2:', err);
@@ -1320,15 +1419,22 @@ function QrScannerApp() {
         }
     }, [searchParams, loading, user]);
 
-    const handleCameraScan = (result) => {
+    const processSessionStringRef = useRef(processSessionString);
+    useEffect(() => {
+        processSessionStringRef.current = processSessionString;
+    }, [processSessionString]);
+
+    const handleCameraScan = useCallback((result) => {
         if (!result) return;
         const raw = result[0]?.rawValue || (typeof result === 'string' ? result : '');
         if (raw) {
-            processSessionString(raw);
+            if (processSessionStringRef.current) {
+                processSessionStringRef.current(raw);
+            }
         }
-    };
+    }, []);
 
-    const handleCameraError = (error) => {
+    const handleCameraError = useCallback((error) => {
         console.warn('Scanner Error:', error);
         const errName = error?.name || '';
         const errMsg = error?.message || String(error);
@@ -1341,7 +1447,7 @@ function QrScannerApp() {
         } else {
             setCameraError('WebRTC camera stream unavailable. Please use the camera snap button below.');
         }
-    };
+    }, []);
 
     const handleFileScan = (e) => {
         const file = e.target.files?.[0];
@@ -2231,7 +2337,77 @@ function QrScannerApp() {
     }
 
     // =========================================================================
-    // UI VIEW 1.5: DISQUALIFIED LOCKED SCREEN (App switching detected, locked until Lecturer PIN)
+    // UI VIEW 1.4: SESSION ENDED AUTOMATIC RELEASE (Guarantees device is freed upon session finish)
+    // =========================================================================
+    if (sessionEndedAutoReleased) {
+        return (
+            <div style={{
+                maxWidth: '540px',
+                margin: '36px auto',
+                padding: '36px 24px',
+                background: 'var(--surface, #ffffff)',
+                borderRadius: '24px',
+                border: '2px solid #10b981',
+                boxShadow: '0 20px 40px -10px rgba(16, 185, 129, 0.25)',
+                color: 'var(--text-main, #0f172a)',
+                textAlign: 'center',
+                position: 'relative'
+            }}>
+                <div style={{
+                    width: '74px',
+                    height: '74px',
+                    borderRadius: '50%',
+                    background: '#dcfce7',
+                    color: '#16a34a',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    margin: '0 auto 16px',
+                    fontSize: '36px',
+                    boxShadow: '0 8px 20px rgba(22, 163, 74, 0.2)'
+                }}>
+                    <FaUnlock />
+                </div>
+
+                <h2 style={{ fontSize: '1.45rem', fontWeight: 800, margin: '0 0 8px 0', color: '#15803d' }}>
+                    Session Ended · Device Released
+                </h2>
+                <p style={{ color: 'var(--text-muted, #64748b)', fontSize: '0.92rem', margin: '0 0 20px 0', lineHeight: 1.55 }}>
+                    The attendance session has officially concluded. All kiosk mode restrictions and camera locks have been automatically cleared.
+                </p>
+
+                <button
+                    type="button"
+                    onClick={() => {
+                        releaseCameraLock();
+                        releaseAllMediaTracks();
+                        Kiosk.stopKioskMode().catch(() => { });
+                        Kiosk.clearAttendanceRestrictions().catch(() => { });
+                        navigate('/student', { replace: true });
+                    }}
+                    style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        padding: '12px 24px',
+                        borderRadius: '12px',
+                        background: '#10b981',
+                        color: '#ffffff',
+                        border: 'none',
+                        fontSize: '0.92rem',
+                        fontWeight: 800,
+                        cursor: 'pointer',
+                        boxShadow: '0 4px 14px rgba(16, 185, 129, 0.35)'
+                    }}
+                >
+                    <FaCheckCircle /> Return to Student Dashboard
+                </button>
+            </div>
+        );
+    }
+
+    // =========================================================================
+    // UI VIEW 1.5: DISQUALIFIED LOCKED SCREEN (App switching detected, locked until Lecturer PIN or Session End)
     // =========================================================================
     if (scanState === 'DISQUALIFIED') {
         return (
@@ -2278,10 +2454,28 @@ function QrScannerApp() {
                     borderRadius: '16px',
                     padding: '16px 18px',
                     textAlign: 'left',
-                    marginBottom: '20px'
+                    marginBottom: '16px'
                 }}>
                     <div style={{ color: '#991b1b', fontSize: '0.85rem', lineHeight: 1.5 }}>
-                        <strong>🔒 Attendance Lock Active:</strong> This device remains in Attendance Lock Mode. Hand your phone to your course lecturer to authorize release using the Lecturer Release Code.
+                        <strong>🔒 Attendance Lock Active:</strong> Hand your device to your course lecturer to authorize release using the Session PIN, or wait for the session to conclude.
+                    </div>
+                </div>
+
+                {/* Auto-Release when Session Ends Notice */}
+                <div style={{
+                    background: 'rgba(99, 102, 241, 0.08)',
+                    border: '1px solid rgba(99, 102, 241, 0.25)',
+                    borderRadius: '14px',
+                    padding: '12px 16px',
+                    textAlign: 'left',
+                    marginBottom: '20px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '10px'
+                }}>
+                    <FaClock style={{ color: '#6366f1', fontSize: '1.2rem', flexShrink: 0 }} />
+                    <div style={{ color: '#4338ca', fontSize: '0.83rem', lineHeight: 1.45 }}>
+                        <strong>Automatic Protection:</strong> If you experienced a problem, this device will automatically unlock once the session ending time is reached ({formatMmSs(sessionRemaining || 0)}).
                     </div>
                 </div>
 
@@ -2389,68 +2583,253 @@ function QrScannerApp() {
                     </button>
                 </div>
 
-                <h2 style={{ margin: '0 0 6px 0', fontSize: '1.4rem', fontWeight: 800 }}>
-                    Face Biometric Verification
-                </h2>
-                <p style={{ margin: '0 0 12px 0', color: 'var(--text-muted, #64748b)', fontSize: '0.86rem' }}>
-                    Position your face within the frame. Blink naturally to confirm liveness.
-                </p>
-
-                {/* Persistent Non-Blocking Reminder Banner */}
+                {/* Dual Biometric Combo Stepper */}
                 <div style={{
-                    padding: '8px 12px',
-                    borderRadius: '10px',
-                    background: 'linear-gradient(135deg, #1e293b 0%, #334155 100%)',
-                    color: '#f8fafc',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    gap: '6px',
-                    fontSize: '0.78rem',
-                    fontWeight: 700,
-                    marginBottom: '12px'
+                    gap: '12px',
+                    margin: '0 0 18px 0',
+                    padding: '8px 14px',
+                    background: 'var(--surface-muted, #f8fafc)',
+                    borderRadius: '16px',
+                    border: '1px solid var(--border, #e2e8f0)'
                 }}>
-                    <FaShieldAlt style={{ color: '#10b981' }} />
-                    <span>Attendance In Progress: Keep SmartAttend active in the foreground.</span>
-                </div>
-
-                {/* On-Return Interruption Warning Banner */}
-                {interruptionWarning && (
+                    {/* Step 1: Fingerprint */}
                     <div style={{
-                        margin: '0 0 12px 0',
-                        padding: '10px 14px',
-                        borderRadius: '10px',
-                        background: '#fffbeb',
-                        border: '1.5px solid #f59e0b',
-                        color: '#92400e',
-                        textAlign: 'left',
-                        fontSize: '0.78rem',
                         display: 'flex',
                         alignItems: 'center',
-                        justifyContent: 'space-between',
-                        gap: '8px'
+                        gap: '6px',
+                        padding: '6px 12px',
+                        borderRadius: '999px',
+                        background: hardwareProof
+                            ? 'rgba(16, 185, 129, 0.12)'
+                            : (biometricComboStep === 'FINGERPRINT' ? 'rgba(99, 102, 241, 0.12)' : 'transparent'),
+                        color: hardwareProof
+                            ? '#059669'
+                            : (biometricComboStep === 'FINGERPRINT' ? '#4f46e5' : '#94a3b8'),
+                        fontWeight: 800,
+                        fontSize: '0.8rem',
+                        border: hardwareProof
+                            ? '1.5px solid #10b981'
+                            : (biometricComboStep === 'FINGERPRINT' ? '1.5px solid #6366f1' : '1px solid transparent'),
+                        transition: 'all 0.3s ease'
                     }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                            <FaExclamationTriangle style={{ color: '#d97706', fontSize: '1rem', flexShrink: 0 }} />
-                            <span><strong>Interruption Recorded:</strong> Screen blur detected and logged for instructor review. Remain on this screen.</span>
-                        </div>
-                        <button
-                            type="button"
-                            onClick={() => setInterruptionWarning(false)}
-                            style={{ background: 'transparent', border: 'none', color: '#b45309', fontWeight: 800, fontSize: '0.75rem', cursor: 'pointer' }}
+                        <FaFingerprint />
+                        <span>1. Fingerprint {hardwareProof ? '✓' : ''}</span>
+                    </div>
+
+                    <FaArrowRight style={{ color: '#cbd5e1', fontSize: '0.72rem' }} />
+
+                    {/* Step 2: 3D Face Scan */}
+                    <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        padding: '6px 12px',
+                        borderRadius: '999px',
+                        background: biometricComboStep === 'FACE'
+                            ? 'rgba(99, 102, 241, 0.12)'
+                            : 'transparent',
+                        color: biometricComboStep === 'FACE' ? '#4f46e5' : '#94a3b8',
+                        fontWeight: 800,
+                        fontSize: '0.8rem',
+                        border: biometricComboStep === 'FACE' ? '1.5px solid #6366f1' : '1px solid transparent',
+                        transition: 'all 0.3s ease'
+                    }}>
+                        <FaCamera />
+                        <span>2. 3D Face Scan</span>
+                    </div>
+                </div>
+
+                {biometricComboStep === 'FINGERPRINT' ? (
+                    /* Step 1: Device Fingerprint Verification Card */
+                    <div style={{
+                        padding: '28px 18px',
+                        background: 'linear-gradient(180deg, rgba(248, 250, 252, 0.7) 0%, rgba(241, 245, 249, 0.95) 100%)',
+                        borderRadius: '20px',
+                        border: '1.5px dashed var(--border, #cbd5e1)',
+                        margin: '10px 0 16px 0'
+                    }}>
+                        <h2 style={{ margin: '0 0 6px 0', fontSize: '1.35rem', fontWeight: 800 }}>
+                            Step 1: Device Fingerprint Verification
+                        </h2>
+                        <p style={{ margin: '0 0 20px 0', color: 'var(--text-muted, #64748b)', fontSize: '0.86rem' }}>
+                            Touch your device fingerprint sensor to authenticate device ownership before the face scan.
+                        </p>
+
+                        {/* Interactive Fingerprint Graphic */}
+                        <div
+                            onClick={handleTriggerFingerprint}
+                            style={{
+                                width: '110px',
+                                height: '110px',
+                                margin: '0 auto 18px auto',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                borderRadius: '50%',
+                                background: hardwareProof
+                                    ? 'linear-gradient(135deg, #10b981 0%, #059669 100%)'
+                                    : (fingerprintError
+                                        ? 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)'
+                                        : 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)'),
+                                color: '#ffffff',
+                                fontSize: '2.8rem',
+                                boxShadow: hardwareProof
+                                    ? '0 12px 28px -6px rgba(16, 185, 129, 0.55)'
+                                    : '0 12px 28px -6px rgba(99, 102, 241, 0.45)',
+                                cursor: 'pointer',
+                                transition: 'all 0.3s ease'
+                            }}
+                            title="Touch sensor to verify fingerprint"
                         >
-                            Dismiss
-                        </button>
+                            {hardwareProof ? (
+                                <FaCheckCircle style={{ fontSize: '2.8rem' }} />
+                            ) : fingerprintVerifying ? (
+                                <FaSpinner className="fa-spin" style={{ fontSize: '2.5rem' }} />
+                            ) : (
+                                <FaFingerprint />
+                            )}
+                        </div>
+
+                        {/* Fingerprint Status Feedback */}
+                        {hardwareProof ? (
+                            <div style={{
+                                color: '#059669',
+                                fontWeight: 800,
+                                fontSize: '0.96rem',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: '8px'
+                            }}>
+                                <FaCheckCircle />
+                                <span>Fingerprint Confirmed! Starting Face Scan...</span>
+                            </div>
+                        ) : fingerprintError ? (
+                            <div>
+                                <p style={{ color: '#dc2626', fontWeight: 700, fontSize: '0.86rem', margin: '0 0 14px 0' }}>
+                                    {fingerprintError}
+                                </p>
+                                <button
+                                    type="button"
+                                    onClick={handleTriggerFingerprint}
+                                    style={{
+                                        padding: '10px 20px',
+                                        borderRadius: '12px',
+                                        background: '#6366f1',
+                                        color: '#ffffff',
+                                        border: 'none',
+                                        fontWeight: 800,
+                                        fontSize: '0.86rem',
+                                        cursor: 'pointer',
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '6px',
+                                        boxShadow: '0 4px 12px rgba(99, 102, 241, 0.35)'
+                                    }}
+                                >
+                                    <FaSyncAlt /> Retry Fingerprint
+                                </button>
+                            </div>
+                        ) : (
+                            <div>
+                                <p style={{ color: '#4f46e5', fontWeight: 700, fontSize: '0.88rem', margin: '0 0 14px 0' }}>
+                                    {fingerprintVerifying ? "Listening for sensor touch..." : "Touch fingerprint sensor or click below"}
+                                </p>
+                                <button
+                                    type="button"
+                                    onClick={handleTriggerFingerprint}
+                                    disabled={fingerprintVerifying}
+                                    style={{
+                                        padding: '10px 22px',
+                                        borderRadius: '12px',
+                                        background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
+                                        color: '#ffffff',
+                                        border: 'none',
+                                        fontWeight: 800,
+                                        fontSize: '0.88rem',
+                                        cursor: fingerprintVerifying ? 'wait' : 'pointer',
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '8px',
+                                        boxShadow: '0 6px 16px rgba(99, 102, 241, 0.3)'
+                                    }}
+                                >
+                                    <FaFingerprint />
+                                    <span>{fingerprintVerifying ? "Verifying..." : "Verify Fingerprint"}</span>
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                ) : (
+                    /* Step 2: 3D Face Biometric & Liveness */
+                    <div>
+                        <h2 style={{ margin: '0 0 6px 0', fontSize: '1.4rem', fontWeight: 800 }}>
+                            Step 2: Face Biometric & Liveness
+                        </h2>
+                        <p style={{ margin: '0 0 12px 0', color: 'var(--text-muted, #64748b)', fontSize: '0.86rem' }}>
+                            Position your face within the frame. Blink naturally to confirm liveness.
+                        </p>
+
+                        {/* Persistent Non-Blocking Reminder Banner */}
+                        <div style={{
+                            padding: '8px 12px',
+                            borderRadius: '10px',
+                            background: 'linear-gradient(135deg, #1e293b 0%, #334155 100%)',
+                            color: '#f8fafc',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '6px',
+                            fontSize: '0.78rem',
+                            fontWeight: 700,
+                            marginBottom: '12px'
+                        }}>
+                            <FaShieldAlt style={{ color: '#10b981' }} />
+                            <span>Attendance In Progress: Keep SmartAttend active in the foreground.</span>
+                        </div>
+
+                        {/* On-Return Interruption Warning Banner */}
+                        {interruptionWarning && (
+                            <div style={{
+                                margin: '0 0 12px 0',
+                                padding: '10px 14px',
+                                borderRadius: '10px',
+                                background: '#fffbeb',
+                                border: '1.5px solid #f59e0b',
+                                color: '#92400e',
+                                textAlign: 'left',
+                                fontSize: '0.78rem',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                gap: '8px'
+                            }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    <FaExclamationTriangle style={{ color: '#d97706', fontSize: '1rem', flexShrink: 0 }} />
+                                    <span><strong>Interruption Recorded:</strong> Screen blur detected and logged for instructor review. Remain on this screen.</span>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => setInterruptionWarning(false)}
+                                    style={{ background: 'transparent', border: 'none', color: '#b45309', fontWeight: 800, fontSize: '0.75rem', cursor: 'pointer' }}
+                                >
+                                    Dismiss
+                                </button>
+                            </div>
+                        )}
+
+                        {/* Face Scanner Component */}
+                        <FaceScanner
+                            verifiedStudent={verifiedStudent}
+                            lookingUp={lookingUpStudent}
+                            rollNo={loggedInRollNo}
+                            onVerificationChange={handleFaceVerificationChange}
+                        />
                     </div>
                 )}
-
-                {/* Face Scanner Component */}
-                <FaceScanner
-                    verifiedStudent={verifiedStudent}
-                    lookingUp={lookingUpStudent}
-                    rollNo={loggedInRollNo}
-                    onVerificationChange={handleFaceVerificationChange}
-                />
 
                 {submittingAttendance && (
                     <div style={{

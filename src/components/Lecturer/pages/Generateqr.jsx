@@ -749,16 +749,30 @@ function GenerateQR() {
     // 6. Release Individual Student Device Remotely from Kiosk Lock Task Mode
     const handleReleaseIndividualStudent = async (student) => {
         const studentId = student.studentUid || student.id || student.rollNo;
-        const rollNo = student.rollNo || studentId;
-        const studentName = student.studentName || rollNo;
+        const rollNo = (student.rollNo || studentId || "").toString().trim().toUpperCase();
+        const studentName = student.studentName || student.fullName || rollNo;
 
-        if (!window.confirm(`Release ${studentName} (${rollNo}) from Kiosk Lock Task mode immediately using Session PIN?`)) {
+        if (!window.confirm(`Release ${studentName} (${rollNo}) from Kiosk Lock Task mode immediately?`)) {
             return;
         }
 
         setReleasingStudentId(studentId);
         try {
-            await releaseIndividualStudentDevice(sessionId, student.studentUid || student.id, rollNo, sessionPin);
+            await releaseIndividualStudentDevice(sessionId, student.studentUid || student.id, rollNo, sessionPin || null);
+            // Optimistically update student state so button changes to 'Unlocked' immediately
+            student.released = true;
+            student.releaseStatus = "RELEASED";
+            student.status = "RELEASED";
+            setAuthorizedStudents((prev) =>
+                (prev || []).map((s) => {
+                    const sRoll = (s.rollNo || s.studentUid || s.id || "").toString().trim().toUpperCase();
+                    if (sRoll === rollNo || s.studentUid === studentId || s.id === studentId) {
+                        return { ...s, released: true, releaseStatus: "RELEASED", status: "RELEASED" };
+                    }
+                    return s;
+                })
+            );
+            alert(`✅ ${studentName} (${rollNo}) has been released! Device is unlocking from Kiosk mode.`);
         } catch (err) {
             console.error("Error releasing student device:", err);
             alert("❌ Failed to release device: " + (err.message || err));

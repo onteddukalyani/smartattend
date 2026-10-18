@@ -48,6 +48,18 @@ function NativeQrScanner({
     const animRef = useRef(null);
     const lastScanTimeRef = useRef(0);
 
+    const onScanRef = useRef(onScan);
+    const onErrorRef = useRef(onError);
+    const isStartingRef = useRef(false);
+
+    useEffect(() => {
+        onScanRef.current = onScan;
+    }, [onScan]);
+
+    useEffect(() => {
+        onErrorRef.current = onError;
+    }, [onError]);
+
     const stopStream = useCallback(() => {
         if (animRef.current) {
             cancelAnimationFrame(animRef.current);
@@ -62,12 +74,27 @@ function NativeQrScanner({
         if (videoRef.current) {
             videoRef.current.srcObject = null;
         }
+        isStartingRef.current = false;
         setTorchOn(false);
         setTorchAvailable(false);
     }, []);
 
     const startCamera = useCallback(async () => {
         if (!active) return;
+
+        // If camera stream is already running and live, preserve it smoothly
+        if (streamRef.current && streamRef.current.getVideoTracks().some((t) => t.readyState === 'live')) {
+            if (videoRef.current && videoRef.current.srcObject !== streamRef.current) {
+                videoRef.current.srcObject = streamRef.current;
+                videoRef.current.play().catch(() => { });
+            }
+            setLoading(false);
+            return;
+        }
+
+        if (isStartingRef.current) return;
+        isStartingRef.current = true;
+
         setLoading(true);
         setErrorMsg('');
         stopStream();
@@ -79,8 +106,9 @@ function NativeQrScanner({
         if (!navigator?.mediaDevices?.getUserMedia) {
             const err = new Error('Camera access (getUserMedia) is not supported on this device/browser.');
             setErrorMsg(err.message);
-            if (onError) onError(err);
+            if (onErrorRef.current) onErrorRef.current(err);
             setLoading(false);
+            isStartingRef.current = false;
             return;
         }
 
@@ -170,8 +198,9 @@ function NativeQrScanner({
                     ? 'Camera permission denied. Please allow camera access in your device settings.'
                     : 'Unable to start camera stream. Please tap Retry or use Snap / Upload QR Photo.'
             );
-            if (onError) onError(finalErr);
+            if (onErrorRef.current) onErrorRef.current(finalErr);
             setLoading(false);
+            isStartingRef.current = false;
             return;
         }
 
@@ -196,6 +225,7 @@ function NativeQrScanner({
         }
 
         setLoading(false);
+        isStartingRef.current = false;
         isScanningRef.current = true;
 
         // Initialize Native BarcodeDetector if available in browser
@@ -226,7 +256,7 @@ function NativeQrScanner({
                         if (barcodes && barcodes.length > 0 && barcodes[0].rawValue) {
                             detected = true;
                             isScanningRef.current = false;
-                            onScan(barcodes[0].rawValue);
+                            if (onScanRef.current) onScanRef.current(barcodes[0].rawValue);
                             return;
                         }
                     } catch (_) { }
@@ -252,7 +282,7 @@ function NativeQrScanner({
                             });
                             if (code && code.data) {
                                 isScanningRef.current = false;
-                                onScan(code.data);
+                                if (onScanRef.current) onScanRef.current(code.data);
                                 return;
                             }
                         }
@@ -268,7 +298,7 @@ function NativeQrScanner({
         };
 
         animRef.current = requestAnimationFrame(scanFrame);
-    }, [active, facingMode, onError, onScan, stopStream]);
+    }, [active, stopStream]);
 
     useEffect(() => {
         if (active) {

@@ -1906,7 +1906,15 @@ exports.releaseIndividualDevice = onCall(async (request) => {
   }
 
   const session = sessionSnap.data();
-  if (session.ownerId !== request.auth.uid) {
+  const callerUid = request.auth.uid;
+  const callerEmail = (request.auth.token?.email || "").toLowerCase().trim();
+  const ownerEmail = (session.ownerEmail || session.lecturerEmail || "").toLowerCase().trim();
+  const isOwner = session.ownerId === callerUid ||
+                  session.createdById === callerUid ||
+                  (callerEmail && ownerEmail && callerEmail === ownerEmail) ||
+                  request.auth.token?.admin === true;
+
+  if (!isOwner) {
     throw new HttpsError("permission-denied", "Only the owning lecturer can release student devices.");
   }
 
@@ -1919,37 +1927,41 @@ exports.releaseIndividualDevice = onCall(async (request) => {
     }
   }
 
-  const targetDocId = studentUid || rollNo;
-  const authRef = sessionRef.collection("authorizations").doc(targetDocId);
-  const authSnap = await authRef.get();
+  const cleanRoll = rollNo ? String(rollNo).trim().toUpperCase() : "";
+  const targetDocId = studentUid || cleanRoll;
+  const authPayload = {
+    released: true,
+    releasedAt: FieldValue.serverTimestamp(),
+    releasedBy: callerUid,
+    releaseStatus: "RELEASED",
+    status: "RELEASED"
+  };
 
-  if (authSnap.exists) {
-    await authRef.update({
-      released: true,
-      releasedAt: FieldValue.serverTimestamp(),
-      releasedBy: request.auth.uid,
-      releaseStatus: "RELEASED",
-      status: "RELEASED"
-    });
+  const writePromises = [
+    sessionRef.collection("authorizations").doc(targetDocId).set(authPayload, { merge: true })
+  ];
+
+  if (cleanRoll && cleanRoll !== targetDocId) {
+    writePromises.push(sessionRef.collection("authorizations").doc(cleanRoll).set(authPayload, { merge: true }));
+  }
+  if (studentUid && studentUid !== targetDocId) {
+    writePromises.push(sessionRef.collection("authorizations").doc(studentUid).set(authPayload, { merge: true }));
   }
 
-  if (rollNo && studentUid && rollNo !== studentUid) {
-    try {
-      const rollAuthRef = sessionRef.collection("authorizations").doc(rollNo);
-      await rollAuthRef.update({
-        released: true,
-        releasedAt: FieldValue.serverTimestamp(),
-        releasedBy: request.auth.uid,
-        releaseStatus: "RELEASED",
-        status: "RELEASED"
-      });
-    } catch (e) {}
-  }
+  // Record on parent session document for cross-document listener redundancy
+  const sessionUpdates = {};
+  if (cleanRoll) sessionUpdates[`releasedStudents.${cleanRoll}`] = true;
+  if (studentUid) sessionUpdates[`releasedStudents.${studentUid}`] = true;
+  if (targetDocId) sessionUpdates[`releasedStudents.${targetDocId}`] = true;
+  writePromises.push(sessionRef.set(sessionUpdates, { merge: true }));
+
+  await Promise.all(writePromises);
 
   return {
     success: true,
     sessionId: sessionId,
     studentUid: targetDocId,
+    rollNo: cleanRoll,
     status: "RELEASED",
     message: "Individual device release authorized by lecturer."
   };
@@ -1972,34 +1984,72 @@ exports.requestAutoFailSafeRelease = onCall(async (request) => {
 
   const targetUid = studentUid || request.auth.uid;
   const sessionRef = db.collection("attendance_sessions").doc(sessionId);
-  const authRef = sessionRef.collection("authorizations").doc(targetUid);
-  const authSnap = await authRef.get();
+  const [sessionSnap, authSnap] = await Promise.all([
+    sessionRef.get(),
+    sessionRef.collection("authorizations").doc(targetUid).get()
+  ]);
 
-  if (!authSnap.exists) {
-    throw new HttpsError("not-found", "Student session authorization not found.");
-  }
-
-  const authData = authSnap.data();
-  if (!authData.attendanceSubmittedAt) {
-    throw new HttpsError("failed-precondition", "Attendance must be submitted before fail-safe release can trigger.");
-  }
-
-  const submittedAtMs = authData.attendanceSubmittedAt.toMillis ? authData.attendanceSubmittedAt.toMillis() : (authData.attendanceSubmittedAt || 0);
-  const autoReleaseAtMs = authData.autoReleaseAt ? (authData.autoReleaseAt.toMillis ? authData.autoReleaseAt.toMillis() : authData.autoReleaseAt) : (submittedAtMs + 5 * 60 * 1000);
   const serverNow = Date.now();
+  let sessionEnded = false;
 
-  // Allow 5-second grace for network latency
-  if (serverNow < (autoReleaseAtMs - 5000)) {
-    const remainingSec = Math.ceil((autoReleaseAtMs - serverNow) / 1000);
-    throw new HttpsError("failed-precondition", `Fail-safe countdown active. Automatic release authorized in ${remainingSec} seconds.`);
+  if (sessionSnap.exists) {
+    const sessionData = sessionSnap.data();
+    const endMs = sessionData.kioskEndsAt?.toMillis
+      ? sessionData.kioskEndsAt.toMillis()
+      : (sessionData.kioskEndsAt || sessionData.expiresAt || 0);
+
+    if (
+      sessionData.status === "CLOSED" ||
+      sessionData.phase === "CLOSED" ||
+      sessionData.isClosed === true ||
+      (endMs > 0 && serverNow >= (endMs - 5000))
+    ) {
+      sessionEnded = true;
+    }
   }
 
-  await authRef.update({
+  // If session is still actively running and attendance was not submitted, check countdown
+  if (!sessionEnded && authSnap.exists) {
+    const authData = authSnap.data();
+    if (!authData.attendanceSubmittedAt) {
+      throw new HttpsError("failed-precondition", "Session is ongoing. Device will automatically release when the session concludes.");
+    }
+
+    const submittedAtMs = authData.attendanceSubmittedAt.toMillis
+      ? authData.attendanceSubmittedAt.toMillis()
+      : (authData.attendanceSubmittedAt || 0);
+    const autoReleaseAtMs = authData.autoReleaseAt
+      ? (authData.autoReleaseAt.toMillis ? authData.autoReleaseAt.toMillis() : authData.autoReleaseAt)
+      : (submittedAtMs + 5 * 60 * 1000);
+
+    // Allow 5-second grace for network latency
+    if (serverNow < (autoReleaseAtMs - 5000)) {
+      const remainingSec = Math.ceil((autoReleaseAtMs - serverNow) / 1000);
+      throw new HttpsError("failed-precondition", `Automatic release authorized in ${remainingSec} seconds or upon session conclusion.`);
+    }
+  }
+
+  const releasePayload = {
     released: true,
     releaseStatus: "AUTO_RELEASED",
     status: "RELEASED",
     releasedAt: FieldValue.serverTimestamp()
-  });
+  };
+
+  const writes = [
+    sessionRef.collection("authorizations").doc(targetUid).set(releasePayload, { merge: true })
+  ];
+
+  const rollNo = authSnap.exists ? authSnap.data().rollNo : null;
+  if (rollNo) {
+    writes.push(sessionRef.collection("authorizations").doc(rollNo).set(releasePayload, { merge: true }));
+  }
+
+  const sessionUpdateMap = { [targetUid]: true };
+  if (rollNo) sessionUpdateMap[rollNo] = true;
+  writes.push(sessionRef.set({ releasedStudents: sessionUpdateMap }, { merge: true }));
+
+  await Promise.all(writes);
 
   return {
     success: true,
@@ -2007,7 +2057,9 @@ exports.requestAutoFailSafeRelease = onCall(async (request) => {
     sessionId: sessionId,
     studentUid: targetUid,
     releaseStatus: "AUTO_RELEASED",
-    message: "5-Minute fail-safe countdown reached. Device release authorized."
+    message: sessionEnded
+      ? "Session concluded. Automatic device release authorized."
+      : "5-Minute fail-safe countdown reached. Device release authorized."
   };
 });
 
