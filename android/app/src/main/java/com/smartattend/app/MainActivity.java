@@ -44,11 +44,31 @@ public class MainActivity extends BridgeActivity {
         // Enable Chrome remote debugging for WebView
         WebView.setWebContentsDebuggingEnabled(true);
 
-        // Explicitly request camera runtime permission on launch if not already granted
+        // Explicitly request runtime permissions on launch: Camera, Fine & Coarse Location, and Notifications
+        java.util.List<String> neededPermissions = new java.util.ArrayList<>();
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
-            ActivityCompat.requestPermissions(this, new String[]{
-                Manifest.permission.CAMERA
-            }, 100);
+            neededPermissions.add(Manifest.permission.CAMERA);
+        }
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            neededPermissions.add(Manifest.permission.ACCESS_FINE_LOCATION);
+            neededPermissions.add(Manifest.permission.ACCESS_COARSE_LOCATION);
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            neededPermissions.add(Manifest.permission.POST_NOTIFICATIONS);
+        }
+        if (!neededPermissions.isEmpty()) {
+            ActivityCompat.requestPermissions(this, neededPermissions.toArray(new String[0]), 100);
+        }
+
+        try {
+            if (getBridge() != null && getBridge().getWebView() != null) {
+                WebView webView = getBridge().getWebView();
+                webView.getSettings().setGeolocationEnabled(true);
+                webView.getSettings().setGeolocationDatabasePath(getFilesDir().getPath());
+            }
+        } catch (Throwable t) {
+            android.util.Log.w("MainActivity", "WebView geolocation config notice: " + t.getMessage());
         }
 
         // On app launch after install, present complete instructions for Restricted Settings & Overlay Permission

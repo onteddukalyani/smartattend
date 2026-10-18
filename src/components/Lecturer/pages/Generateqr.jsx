@@ -94,7 +94,7 @@ function GenerateQR() {
     const [rotationIntervalSec, setRotationIntervalSec] = useState(DEFAULT_ROTATION_INTERVAL);
     const [rotationSecondsLeft, setRotationSecondsLeft] = useState(DEFAULT_ROTATION_INTERVAL);
     const [dynamicQrUrl, setDynamicQrUrl] = useState("");
-    const [geofenceRadius, setGeofenceRadius] = useState(10); // Mandatory default: 10 metres, adjustable live by lecturer (0 = disabled)
+    const [geofenceRadius, setGeofenceRadius] = useState(30); // Mandatory default: 30 metres standard, adjustable live by lecturer (0 = disabled)
     const [classroomCoords, setClassroomCoords] = useState(null);
     const [classroomGpsStatus, setClassroomGpsStatus] = useState("IDLE"); // "IDLE" | "ACTIVE" | "UNAVAILABLE" | "DISABLED"
 
@@ -190,13 +190,24 @@ function GenerateQR() {
             if (data.phase === "PHASE_2" || data.phase === "CLOSED") {
                 setPhase(data.phase);
             }
+            if (data.sessionStartAt) {
+                const start = typeof data.sessionStartAt.toMillis === 'function' ? data.sessionStartAt.toMillis() : Number(data.sessionStartAt);
+                if (start > 0) setSessionStartAt(start);
+            }
             if (data.qr1ExpiresAt) {
-                const exp = typeof data.qr1ExpiresAt.toMillis === 'function' ? data.qr1ExpiresAt.toMillis() : data.qr1ExpiresAt;
+                const exp = typeof data.qr1ExpiresAt.toMillis === 'function' ? data.qr1ExpiresAt.toMillis() : Number(data.qr1ExpiresAt);
                 setQr1ExpiresAt(exp);
             }
             if (data.kioskEndsAt) {
-                const end = typeof data.kioskEndsAt.toMillis === 'function' ? data.kioskEndsAt.toMillis() : data.kioskEndsAt;
+                const end = typeof data.kioskEndsAt.toMillis === 'function' ? data.kioskEndsAt.toMillis() : Number(data.kioskEndsAt);
                 setKioskEndsAt(end);
+            }
+            if (data.classroomLocation) {
+                setClassroomCoords(data.classroomLocation);
+                setClassroomGpsStatus("ACTIVE");
+            }
+            if (typeof data.geofenceRadius === 'number') {
+                setGeofenceRadius(data.geofenceRadius);
             }
         });
 
@@ -234,9 +245,11 @@ function GenerateQR() {
         }
 
         const updateTimeline = () => {
-            const totalSeconds = (kioskEndsAt && sessionStartAt && kioskEndsAt > sessionStartAt)
-                ? Math.max(30, Math.round((kioskEndsAt - sessionStartAt) / 1000))
-                : 180;
+            const totalSeconds = (sessionData?.totalDurationSeconds && Number(sessionData.totalDurationSeconds) > 0)
+                ? Number(sessionData.totalDurationSeconds)
+                : ((kioskEndsAt && sessionStartAt && kioskEndsAt > sessionStartAt)
+                    ? Math.max(30, Math.round((kioskEndsAt - sessionStartAt) / 1000))
+                    : (Number(qr1Seconds) + Number(qr2Seconds) || 180));
 
             if (phase === "CLOSED" || sessionData?.phase === "CLOSED" || sessionData?.status === "CLOSED" || sessionData?.active === false) {
                 setPhase("CLOSED");
@@ -246,7 +259,7 @@ function GenerateQR() {
             }
 
             const now = Date.now();
-            const elapsed = Math.min(totalSeconds, Math.floor((now - sessionStartAt) / 1000));
+            const elapsed = Math.min(totalSeconds, Math.max(0, Math.floor((now - sessionStartAt) / 1000)));
             setElapsedSeconds(elapsed);
 
             if (now >= kioskEndsAt || elapsed >= totalSeconds) {
@@ -256,7 +269,7 @@ function GenerateQR() {
                 if (sessionId) {
                     closeAttendanceSession(sessionId).catch(() => {});
                 }
-            } else if (phase === "PHASE_2" || sessionData?.phase === "PHASE_2" || now >= qr1ExpiresAt) {
+            } else if (phase === "PHASE_2" || sessionData?.phase === "PHASE_2" || (qr1ExpiresAt && now >= qr1ExpiresAt)) {
                 setPhase("PHASE_2");
             } else {
                 setPhase("PHASE_1");
@@ -269,7 +282,7 @@ function GenerateQR() {
         return () => {
             if (timerRef.current) clearInterval(timerRef.current);
         };
-    }, [sessionStartAt, qr1ExpiresAt, kioskEndsAt, phase, sessionData?.phase, sessionData?.status, sessionData?.active]);
+    }, [sessionStartAt, qr1ExpiresAt, kioskEndsAt, phase, sessionData?.phase, sessionData?.status, sessionData?.active, sessionData?.totalDurationSeconds, qr1Seconds, qr2Seconds]);
 
     const handleSelectCourse = (code) => {
         setCourseCode(code);
@@ -387,10 +400,10 @@ function GenerateQR() {
                                     console.warn("Classroom GPS unavailable on lecturer device:", err2?.message || err2);
                                     setClassroomGpsStatus("UNAVAILABLE");
                                 },
-                                { enableHighAccuracy: false, timeout: 5000, maximumAge: 0 }
+                                { enableHighAccuracy: false, timeout: 7000, maximumAge: 10000 }
                             );
                         },
-                        { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
+                        { enableHighAccuracy: true, timeout: 7000, maximumAge: 5000 }
                     );
 
                     // High-precision watcher refinement for 5 seconds during session start
@@ -699,21 +712,12 @@ function GenerateQR() {
         setIsTransitioning(true);
         try {
             const now = Date.now();
-            const currentTotalMs = (kioskEndsAt && sessionStartAt && kioskEndsAt > sessionStartAt)
-                ? (kioskEndsAt - sessionStartAt)
-                : 180000;
-            const newStartAt = now - 60000; // Aligns elapsed time to Phase 2 start
-            const newEndsAt = newStartAt + currentTotalMs;
-            setSessionStartAt(newStartAt);
             setQr1ExpiresAt(now);
-            setKioskEndsAt(newEndsAt);
-            setElapsedSeconds(60);
             setPhase("PHASE_2");
             await transitionSessionToPhase2(sessionId);
         } catch (error) {
             console.warn("Notice transitioning early:", error);
             setPhase("PHASE_2");
-            setElapsedSeconds(60);
         } finally {
             setIsTransitioning(false);
         }
@@ -725,9 +729,11 @@ function GenerateQR() {
             return;
         }
         if (timerRef.current) clearInterval(timerRef.current);
-        const totalSec = (kioskEndsAt && sessionStartAt && kioskEndsAt > sessionStartAt)
-            ? Math.round((kioskEndsAt - sessionStartAt) / 1000)
-            : 180;
+        const totalSec = (sessionData?.totalDurationSeconds && Number(sessionData.totalDurationSeconds) > 0)
+            ? Number(sessionData.totalDurationSeconds)
+            : ((kioskEndsAt && sessionStartAt && kioskEndsAt > sessionStartAt)
+                ? Math.round((kioskEndsAt - sessionStartAt) / 1000)
+                : 180);
         setPhase("CLOSED");
         setElapsedSeconds(totalSec);
         try {
@@ -1161,18 +1167,24 @@ function GenerateQR() {
     };
 
     const totalDurationSeconds = useMemo(() => {
+        if (sessionData?.totalDurationSeconds && Number(sessionData.totalDurationSeconds) > 0) {
+            return Number(sessionData.totalDurationSeconds);
+        }
         if (kioskEndsAt && sessionStartAt && kioskEndsAt > sessionStartAt) {
             return Math.max(30, Math.round((kioskEndsAt - sessionStartAt) / 1000));
         }
         return Math.max(30, Number(qr1Seconds) + Number(qr2Seconds));
-    }, [kioskEndsAt, sessionStartAt, qr1Seconds, qr2Seconds]);
+    }, [sessionData?.totalDurationSeconds, kioskEndsAt, sessionStartAt, qr1Seconds, qr2Seconds]);
 
     const qr1TotalSeconds = useMemo(() => {
+        if (sessionData?.qr1DurationSeconds && Number(sessionData.qr1DurationSeconds) > 0) {
+            return Number(sessionData.qr1DurationSeconds);
+        }
         if (qr1ExpiresAt && sessionStartAt && qr1ExpiresAt > sessionStartAt) {
             return Math.max(10, Math.round((qr1ExpiresAt - sessionStartAt) / 1000));
         }
-        return Math.max(10, Number(qr1Seconds));
-    }, [qr1ExpiresAt, sessionStartAt, qr1Seconds]);
+        return Math.max(10, Number(qr1Seconds) || 60);
+    }, [sessionData?.qr1DurationSeconds, qr1ExpiresAt, sessionStartAt, qr1Seconds]);
 
     const qr1Remaining = Math.max(0, qr1ExpiresAt ? Math.floor((qr1ExpiresAt - Date.now()) / 1000) : (qr1TotalSeconds - elapsedSeconds));
     const sessionRemaining = Math.max(0, kioskEndsAt ? Math.floor((kioskEndsAt - Date.now()) / 1000) : (totalDurationSeconds - elapsedSeconds));
@@ -1500,10 +1512,9 @@ function GenerateQR() {
                             <div style={{ display: "flex", gap: "5px", flexWrap: "wrap" }}>
                                 {[
                                     { label: "0m (Off)", val: 0 },
-                                    { label: "10m (Default)", val: 10 },
                                     { label: "15m Lab", val: 15 },
                                     { label: "20m Small", val: 20 },
-                                    { label: "30m Standard", val: 30 },
+                                    { label: "30m (Default)", val: 30 },
                                     { label: "50m Hall", val: 50 },
                                     { label: "100m Campus", val: 100 }
                                 ].map((p) => (

@@ -178,10 +178,10 @@ function QrScannerApp() {
                 watchId = navigator.geolocation.watchPosition(
                     (pos) => {
                         if (pos && pos.coords) {
-                            const acc = Number(pos.coords.accuracy) || 100;
+                            const acc = Number(pos.coords.accuracy) || 80;
                             const prev = prewarmedLocationRef.current;
                             // Keep fix if fresher or more precise (lower accuracy radius)
-                            if (!prev || (Date.now() - prev.timestamp > 12000) || acc <= prev.accuracy) {
+                            if (!prev || (Date.now() - prev.timestamp > 15000) || acc <= prev.accuracy) {
                                 prewarmedLocationRef.current = {
                                     latitude: pos.coords.latitude,
                                     longitude: pos.coords.longitude,
@@ -194,7 +194,7 @@ function QrScannerApp() {
                         }
                     },
                     (err) => console.warn('[Scanner] GPS prewarm notice:', err?.message || err),
-                    { enableHighAccuracy: true, maximumAge: 5000, timeout: 8000 }
+                    { enableHighAccuracy: true, maximumAge: 5000, timeout: 10000 }
                 );
             } catch (_) { }
         }
@@ -1287,17 +1287,18 @@ function QrScannerApp() {
         // 2. Geofence Check (Enforces classroom boundary with indoor tolerance)
         let studentCoords = null;
         const classroomTarget = payload.geo || sessionData?.classroomLocation;
-        if (classroomTarget && classroomTarget.radius !== 0 && classroomTarget.enabled !== false) {
+        const isGeofenceDisabled = sessionData?.geofenceRadius === 0 || classroomTarget?.radius === 0 || classroomTarget?.enabled === false;
+        if (classroomTarget && !isGeofenceDisabled) {
             try {
                 const getCoords = async () => {
                     const cached = prewarmedLocationRef.current;
-                    if (cached && (Date.now() - cached.timestamp < 15000)) {
-                        // Instant return (0ms latency) from high-precision background GPS watcher
+                    // If cached fix is fresh (under 25s) and has strong accuracy (<= 40m), return immediately
+                    if (cached && (Date.now() - cached.timestamp < 25000) && cached.accuracy <= 40) {
                         return cached;
                     }
                     return new Promise((resolve) => {
                         if (typeof navigator === "undefined" || !navigator.geolocation) {
-                            resolve(null);
+                            resolve(cached || null);
                             return;
                         }
                         navigator.geolocation.getCurrentPosition(
@@ -1307,13 +1308,14 @@ function QrScannerApp() {
                                     longitude: pos.coords.longitude,
                                     lat: pos.coords.latitude,
                                     lng: pos.coords.longitude,
-                                    accuracy: Number(pos.coords.accuracy) || 40,
+                                    accuracy: Number(pos.coords.accuracy) || 25,
                                     timestamp: Date.now()
                                 };
                                 prewarmedLocationRef.current = fresh;
                                 resolve(fresh);
                             },
                             () => {
+                                // Fallback with standard network positioning if high-accuracy GPS satellite lock takes longer indoors
                                 navigator.geolocation.getCurrentPosition(
                                     (pos2) => {
                                         const fallback = {
@@ -1321,17 +1323,17 @@ function QrScannerApp() {
                                             longitude: pos2.coords.longitude,
                                             lat: pos2.coords.latitude,
                                             lng: pos2.coords.longitude,
-                                            accuracy: Number(pos2.coords.accuracy) || 80,
+                                            accuracy: Number(pos2.coords.accuracy) || 50,
                                             timestamp: Date.now()
                                         };
                                         prewarmedLocationRef.current = fallback;
                                         resolve(fallback);
                                     },
                                     () => resolve(prewarmedLocationRef.current || null),
-                                    { enableHighAccuracy: false, timeout: 3000, maximumAge: 0 }
+                                    { enableHighAccuracy: false, timeout: 5000, maximumAge: 10000 }
                                 );
                             },
-                            { enableHighAccuracy: true, timeout: 3500, maximumAge: 0 }
+                            { enableHighAccuracy: true, timeout: 7000, maximumAge: 5000 }
                         );
                     });
                 };

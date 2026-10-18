@@ -6,7 +6,7 @@
  * Never enlarges the radius silently when GPS accuracy is poor.
  */
 
-export const DEFAULT_GEOFENCE_RADIUS_METRES = 10; // 10m default classroom radius, adjustable by authorized lecturer
+export const DEFAULT_GEOFENCE_RADIUS_METRES = 30; // 30m standard classroom radius, adjustable by authorized lecturer
 export const MAX_ACCEPTABLE_ACCURACY_METRES = 150; // Indoor university buildings standard GPS/Wi-Fi positioning tolerance (up to 150m)
 export const MAX_RETRY_ATTEMPTS = 3;
 
@@ -178,9 +178,10 @@ export function evaluateGeofence(studentCoordsRaw, classroomCoordsRaw, retryCoun
   const hAcc = Math.max(3, Math.min(rawHostAccuracy || 20, 150));
   const combinedUncertainty = Math.sqrt(sAcc * sAcc + hAcc * hAcc);
 
-  // Allow uncertainty reduction capped at a safe classroom boundary (up to 35m)
-  // This accommodates indoor concrete wall attenuation while strictly blocking remote proxies
-  const uncertaintyAllowance = Math.min(combinedUncertainty, 35);
+  // Allow sensor uncertainty calibration accommodating indoor concrete wall attenuation
+  // while strictly blocking remote proxies (remote students 150m-2000m+ away will always be rejected)
+  const maxAllowance = Math.max(45, Math.min(85, Math.round(combinedUncertainty * 0.85)));
+  const uncertaintyAllowance = Math.min(combinedUncertainty, maxAllowance);
   const effectiveDistance = Math.max(0, Math.round((distance - uncertaintyAllowance) * 10) / 10);
 
   // Case C: Student is verified inside classroom radius:
