@@ -20,18 +20,28 @@ export const MAX_RETRY_ATTEMPTS = 3;
  * @returns {number} Distance in metres
  */
 export function calculateHaversineDistance(lat1, lon1, lat2, lon2) {
-  const R = 6371000; // Earth radius in metres
+  const nLat1 = Number(lat1);
+  const nLon1 = Number(lon1);
+  const nLat2 = Number(lat2);
+  const nLon2 = Number(lon2);
+
+  if (!Number.isFinite(nLat1) || !Number.isFinite(nLon1) || !Number.isFinite(nLat2) || !Number.isFinite(nLon2)) {
+    return NaN;
+  }
+
+  const R = 6371000; // Earth mean radius in metres (WGS84 spherical approximation)
   const toRad = (deg) => (deg * Math.PI) / 180;
 
-  const dLat = toRad(lat2 - lat1);
-  const dLon = toRad(lon2 - lon1);
+  const dLat = toRad(nLat2 - nLat1);
+  const dLon = toRad(nLon2 - nLon1);
 
   const a =
     Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+    Math.cos(toRad(nLat1)) * Math.cos(toRad(nLat2)) *
     Math.sin(dLon / 2) * Math.sin(dLon / 2);
 
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  const aClamped = Math.max(0, Math.min(1, a));
+  const c = 2 * Math.atan2(Math.sqrt(aClamped), Math.sqrt(1 - aClamped));
   return R * c;
 }
 
@@ -121,16 +131,7 @@ export function evaluateGeofence(studentCoordsRaw, classroomCoordsRaw, retryCoun
   const accuracy = Math.max(0, Math.round(Number(student.accuracy) || 0));
   const rawHostAccuracy = Math.round(Number(classroom.accuracy) || 0);
 
-  // 2. Adaptive Indoor vs. Outdoor Uncertainty Calibration:
-  // - High-precision Outdoor GNSS: When both devices report direct satellite fixes (< 25m),
-  //   uncertainty stays tight (< 35m) to strictly prevent unauthorized outdoor proximity.
-  // - Concrete University Classrooms: Laptops on Wi-Fi (BSSID triangulation) and mobile phones on
-  //   cellular/indoor Wi-Fi have an intrinsic displacement of 80m–95m.
-  //   The 95% statistical confidence envelope (sqrt(sigma_host^2 + sigma_student^2) + radius) evaluates to ~100m.
-  const isIndoorContext = rawHostAccuracy >= 25 || rawHostAccuracy === 0 || accuracy >= 25;
-  const hostAccuracy = isIndoorContext ? Math.max(75, rawHostAccuracy || 75) : rawHostAccuracy;
-  const studentAccuracy = isIndoorContext ? Math.max(35, accuracy || 35) : accuracy;
-
+  // 2. Exact physical distance calculation
   const rawDistance = calculateHaversineDistance(
     student.latitude,
     student.longitude,
@@ -152,8 +153,6 @@ export function evaluateGeofence(studentCoordsRaw, classroomCoordsRaw, retryCoun
   }
 
   const distance = Math.round(rawDistance * 10) / 10;
-  const combinedUncertainty = Math.min(180, studentAccuracy + hostAccuracy);
-  const effectiveDistance = Math.max(0, Math.round((distance - combinedUncertainty) * 10) / 10);
 
   // 3. Tri-state Decision Matrix:
   // Case A: Accuracy is completely degraded (> 150m threshold, e.g. cellar or bad tower fix)
@@ -172,11 +171,22 @@ export function evaluateGeofence(studentCoordsRaw, classroomCoordsRaw, retryCoun
     };
   }
 
-  // Case B: Student is verified inside classroom radius:
+  // Case B: RSS (Root-Sum-Square) Sensor Uncertainty Calibration
+  // Mobile devices and Wi-Fi positioning report 68% confidence radius.
+  // Physical standard error: sigma = sqrt(sAcc^2 + hAcc^2)
+  const sAcc = Math.max(3, Math.min(accuracy || 20, 150));
+  const hAcc = Math.max(3, Math.min(rawHostAccuracy || 20, 150));
+  const combinedUncertainty = Math.sqrt(sAcc * sAcc + hAcc * hAcc);
+
+  // Allow uncertainty reduction capped at a safe classroom boundary (up to 35m)
+  // This accommodates indoor concrete wall attenuation while strictly blocking remote proxies
+  const uncertaintyAllowance = Math.min(combinedUncertainty, 35);
+  const effectiveDistance = Math.max(0, Math.round((distance - uncertaintyAllowance) * 10) / 10);
+
+  // Case C: Student is verified inside classroom radius:
   // - Direct geometric presence (distance <= radius)
   // - Effective distance inside radius considering sensor confidence circles (effectiveDistance <= radius)
-  // - Direct projector line-of-sight inside indoor classroom statistical confidence boundary (<= 100m)
-  if (distance <= radius || effectiveDistance <= radius || (isIndoorContext && distance <= 100)) {
+  if (distance <= radius || effectiveDistance <= radius) {
     return {
       status: "PASS",
       distance,
@@ -184,11 +194,11 @@ export function evaluateGeofence(studentCoordsRaw, classroomCoordsRaw, retryCoun
       accuracy,
       radius,
       geofenceEnforced: true,
-      message: `✅ Geofence Verified: Inside classroom (Direct Projector Line-of-Sight • Synchronized within classroom boundary).`
+      message: `✅ Geofence Verified: Inside classroom (${distance}m measured distance within ${radius}m boundary).`
     };
   }
 
-  // Case C: Student is definitively outside classroom radius (e.g. remote / dorm / proxy)
+  // Case D: Student is definitively outside classroom radius (e.g. remote / dorm / proxy)
   return {
     status: "REJECT",
     distance,

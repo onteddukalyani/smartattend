@@ -364,7 +364,7 @@ function App() {
           <Route path="profile" element={<Settings />} />
           <Route path="attendance-data" element={<AttendanceData />} />
           <Route path="violations" element={<AttendanceData />} />
-          <Route path="facedetection" element={<FaceScanner allowRearCamera={true} />} />
+          <Route path="facedetection" element={<FaceScanner />} />
           <Route path="attendance-sessions" element={<ClassesData />} />
           <Route path="attendance-sessions/:sessionId" element={<SessionAttendanceData />} />
           <Route path="attendance-sessions/*" element={<SessionAttendanceData />} />

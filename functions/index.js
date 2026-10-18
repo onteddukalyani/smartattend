@@ -29,15 +29,25 @@ function hashToken(token) {
  * Utility: Calculate Haversine great-circle distance between two GPS coordinates in metres.
  */
 function calculateHaversineDistance(lat1, lon1, lat2, lon2) {
+  const nLat1 = Number(lat1);
+  const nLon1 = Number(lon1);
+  const nLat2 = Number(lat2);
+  const nLon2 = Number(lon2);
+
+  if (!Number.isFinite(nLat1) || !Number.isFinite(nLon1) || !Number.isFinite(nLat2) || !Number.isFinite(nLon2)) {
+    return NaN;
+  }
+
   const R = 6371000;
   const toRad = (deg) => (deg * Math.PI) / 180;
-  const dLat = toRad(lat2 - lat1);
-  const dLon = toRad(lon2 - lon1);
+  const dLat = toRad(nLat2 - nLat1);
+  const dLon = toRad(nLon2 - nLon1);
   const a =
     Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+    Math.cos(toRad(nLat1)) * Math.cos(toRad(nLat2)) *
     Math.sin(dLon / 2) * Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  const aClamped = Math.max(0, Math.min(1, a));
+  const c = 2 * Math.atan2(Math.sqrt(aClamped), Math.sqrt(1 - aClamped));
   return R * c;
 }
 
@@ -78,13 +88,17 @@ function evaluateServerGeofence(studentCoords, classroomCoords, radiusMetres) {
 
   const accuracy = Math.max(0, Math.round(Number(studentCoords.accuracy) || 0));
   const rawHostAccuracy = Math.round(Number(classroomCoords.accuracy ?? classroomCoords.acc) || 0);
-  const hostAccuracy = rawHostAccuracy > 0 ? Math.max(80, rawHostAccuracy) : 80;
-  const studentAccuracy = accuracy > 0 ? Math.max(40, accuracy) : 40;
-  const combinedUncertainty = Math.min(200, studentAccuracy + hostAccuracy);
-  const effectiveDist = Math.max(0, Math.round((rawDist - combinedUncertainty) * 10) / 10);
-  const measuredDist = Math.round(rawDist * 10) / 10;
 
-  if (rawDist <= radius || effectiveDist <= radius || rawDist <= 100) {
+  // RSS (Root-Sum-Square) Sensor Uncertainty Calibration
+  const sAcc = Math.max(3, Math.min(accuracy || 20, 150));
+  const hAcc = Math.max(3, Math.min(rawHostAccuracy || 20, 150));
+  const combinedUncertainty = Math.sqrt(sAcc * sAcc + hAcc * hAcc);
+  const uncertaintyAllowance = Math.min(combinedUncertainty, 35);
+
+  const measuredDist = Math.round(rawDist * 10) / 10;
+  const effectiveDist = Math.max(0, Math.round((rawDist - uncertaintyAllowance) * 10) / 10);
+
+  if (rawDist <= radius || effectiveDist <= radius) {
     return {
       status: "PASS",
       geofenceEnforced: true,
@@ -502,7 +516,13 @@ function resolveWebAuthnTarget(requestedOrigin, requestedRpId) {
  * @returns {boolean}
  */
 function validateFaceVectorDescriptor(descriptor, fieldName = "Face descriptor") {
-  if (!Array.isArray(descriptor) || descriptor.length !== 128) {
+  let arr = descriptor;
+  if (!Array.isArray(arr) && typeof arr === "object" && arr !== null) {
+    const vals = Object.values(arr);
+    if (vals.length === 128) arr = vals;
+  }
+
+  if (!Array.isArray(arr) || arr.length !== 128) {
     throw new HttpsError("invalid-argument", `${fieldName} must be a valid 128-dimensional array.`);
   }
 
@@ -1477,12 +1497,20 @@ exports.submitAttendance = onCall(async (request) => {
     throw new HttpsError("failed-precondition", `Authoritative student record for ${rollNo} not found.`);
   }
   const studentDocData = studentDocSnap.data() || {};
-  const enrolledDescriptor = studentDocData.faceDescriptor;
+  let enrolledDescriptor = studentDocData.faceDescriptor;
+  if (!Array.isArray(enrolledDescriptor) && typeof enrolledDescriptor === "object" && enrolledDescriptor !== null) {
+    const vals = Object.values(enrolledDescriptor);
+    if (vals.length === 128) enrolledDescriptor = vals;
+  }
 
   // Validate structural integrity and entropy of authoritative enrolled template
   validateFaceVectorDescriptor(enrolledDescriptor, `Enrolled face template for ${rollNo}`);
 
-  const liveDescriptor = biometricData?.liveDescriptor || biometricData?.faceDescriptor;
+  let liveDescriptor = biometricData?.liveDescriptor || biometricData?.faceDescriptor;
+  if (!Array.isArray(liveDescriptor) && typeof liveDescriptor === "object" && liveDescriptor !== null) {
+    const vals = Object.values(liveDescriptor);
+    if (vals.length === 128) liveDescriptor = vals;
+  }
   // Validate structural integrity and entropy of live descriptor
   validateFaceVectorDescriptor(liveDescriptor, "Live face descriptor");
 

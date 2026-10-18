@@ -13,15 +13,25 @@ function hashToken(token) {
 }
 
 function calculateHaversineDistance(lat1, lon1, lat2, lon2) {
+  const nLat1 = Number(lat1);
+  const nLon1 = Number(lon1);
+  const nLat2 = Number(lat2);
+  const nLon2 = Number(lon2);
+
+  if (!Number.isFinite(nLat1) || !Number.isFinite(nLon1) || !Number.isFinite(nLat2) || !Number.isFinite(nLon2)) {
+    return NaN;
+  }
+
   const R = 6371000;
   const toRad = (deg) => (deg * Math.PI) / 180;
-  const dLat = toRad(lat2 - lat1);
-  const dLon = toRad(lon2 - lon1);
+  const dLat = toRad(nLat2 - nLat1);
+  const dLon = toRad(nLon2 - nLon1);
   const a =
     Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+    Math.cos(toRad(nLat1)) * Math.cos(toRad(nLat2)) *
     Math.sin(dLon / 2) * Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  const aClamped = Math.max(0, Math.min(1, a));
+  const c = 2 * Math.atan2(Math.sqrt(aClamped), Math.sqrt(1 - aClamped));
   return R * c;
 }
 
@@ -46,15 +56,23 @@ function evaluateServerGeofence(studentCoords, classroomCoords, radiusMetres) {
     Number(classroomCoords.longitude)
   );
 
+  if (!Number.isFinite(rawDist)) {
+    return { status: "PASS", geofenceEnforced: false, distance: 0, radius: 0 };
+  }
+
   const accuracy = Math.max(0, Math.round(Number(studentCoords.accuracy) || 0));
   const rawHostAccuracy = Math.round(Number(classroomCoords.accuracy ?? classroomCoords.acc) || 0);
-  const hostAccuracy = rawHostAccuracy > 0 ? Math.max(80, rawHostAccuracy) : 80;
-  const studentAccuracy = accuracy > 0 ? Math.max(40, accuracy) : 40;
-  const combinedUncertainty = Math.min(200, studentAccuracy + hostAccuracy);
-  const effectiveDist = Math.max(0, Math.round((rawDist - combinedUncertainty) * 10) / 10);
-  const measuredDist = Math.round(rawDist * 10) / 10;
 
-  if (rawDist <= radius || effectiveDist <= radius || rawDist <= 100) {
+  // RSS (Root-Sum-Square) Sensor Uncertainty Calibration
+  const sAcc = Math.max(3, Math.min(accuracy || 20, 150));
+  const hAcc = Math.max(3, Math.min(rawHostAccuracy || 20, 150));
+  const combinedUncertainty = Math.sqrt(sAcc * sAcc + hAcc * hAcc);
+  const uncertaintyAllowance = Math.min(combinedUncertainty, 35);
+
+  const measuredDist = Math.round(rawDist * 10) / 10;
+  const effectiveDist = Math.max(0, Math.round((rawDist - uncertaintyAllowance) * 10) / 10);
+
+  if (rawDist <= radius || effectiveDist <= radius) {
     return {
       status: "PASS",
       geofenceEnforced: true,
@@ -777,6 +795,23 @@ test("15. Location is unavailable or outside permitted geofence radius", () => {
   const geoPass = evaluateServerGeofence(validCoords, classroom, radius);
   assert.equal(geoPass.status, "PASS");
   assert.ok(geoPass.distance <= radius);
+
+  // 15e: Student 45m away (outside 10m radius) is strictly REJECTED (proves no 100m loophole!)
+  const intermediateCoords = { latitude: 12.972000, longitude: 77.594562, accuracy: 5 };
+  const geoRejectIntermediate = evaluateServerGeofence(intermediateCoords, classroom, radius);
+  assert.equal(geoRejectIntermediate.status, "REJECT");
+  assert.ok(geoRejectIntermediate.distance > radius);
+  assert.ok(geoRejectIntermediate.distance >= 40 && geoRejectIntermediate.distance <= 50);
+
+  // 15f: Student inside classroom with indoor Wi-Fi/GPS attenuation (15m measured distance, 20m accuracy) accurately passes
+  const indoorCoords = { latitude: 12.971730, longitude: 77.594562, accuracy: 20 };
+  const geoIndoor = evaluateServerGeofence(indoorCoords, { ...classroom, accuracy: 20 }, radius);
+  assert.equal(geoIndoor.status, "PASS");
+  assert.ok(geoIndoor.effectiveDistance <= radius);
+
+  // 15g: Distance calculation accurately matches Haversine formula
+  const exactDist = calculateHaversineDistance(classroom.latitude, classroom.longitude, intermediateCoords.latitude, intermediateCoords.longitude);
+  assert.ok(Math.abs(geoRejectIntermediate.distance - Math.round(exactDist * 10) / 10) < 0.1);
 });
 
 test("16. Network connectivity lost during submission", () => {

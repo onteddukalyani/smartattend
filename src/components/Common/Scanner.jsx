@@ -351,15 +351,8 @@ function QrScannerApp() {
         }
     };
 
-    // Camera default preference (desktop vs mobile) and unmount track release
+    // Unmount track release
     useEffect(() => {
-        if (typeof window !== 'undefined') {
-            const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-            if (!isMobile) {
-                setFacingMode('user');
-            }
-        }
-
         return () => {
             releaseCameraLock();
             releaseAllMediaTracks();
@@ -1344,10 +1337,7 @@ function QrScannerApp() {
             setPermissionDenied(true);
             setCameraError("Camera permission blocked on HTTP. Use 'Snap / Upload QR Photo' below for instant scan!");
         } else if (errName === 'OverconstrainedError' || errMsg.toLowerCase().includes('constraint')) {
-            if (facingMode === 'environment') {
-                setFacingMode('user');
-                setRetryKey((k) => k + 1);
-            }
+            setRetryKey((k) => k + 1);
         } else {
             setCameraError('WebRTC camera stream unavailable. Please use the camera snap button below.');
         }
@@ -2838,11 +2828,10 @@ function QrScannerApp() {
                         </div>
 
                         <NativeQrScanner
-                            key={`waiting-${retryKey}-${facingMode}`}
+                            key={`waiting-${retryKey}-environment`}
                             onScan={handleCameraScan}
                             onError={handleCameraError}
-                            facingMode={facingMode}
-                            onToggleFacingMode={() => setFacingMode((f) => (f === 'environment' ? 'user' : 'environment'))}
+                            facingMode="environment"
                             active={scanState === 'KIOSK_WAITING_QR2' && isQr2Released}
                         />
                     </div>
@@ -3167,11 +3156,10 @@ function QrScannerApp() {
             }}>
                 {scannerActive && (
                     <NativeQrScanner
-                        key={`${retryKey}-${facingMode}`}
+                        key={`${retryKey}-environment`}
                         onScan={handleCameraScan}
                         onError={handleCameraError}
-                        facingMode={facingMode}
-                        onToggleFacingMode={() => setFacingMode((f) => (f === 'environment' ? 'user' : 'environment'))}
+                        facingMode="environment"
                         active={scannerActive}
                     />
                 )}

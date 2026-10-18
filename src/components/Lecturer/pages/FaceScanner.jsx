@@ -31,6 +31,7 @@ import {
   STATIC_VARIANCE_THRESHOLD,
   RandomizedChallengeEngine
 } from "../../../utils/livenessDetector";
+import { normalizeDescriptor } from "../../../utils/studentDataHelper";
 import "./FaceScanner.css";
 
 const MODEL_CDN_URL = "https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/";
@@ -56,27 +57,49 @@ export const releaseAllMediaTracks = () => {
 };
 
 // Helper for camera stream capture with progressive fallback and automatic retry
-const getCameraStream = async (requestedFacingMode = "user", maxRetries = 3) => {
+const getCameraStream = async (_requestedFacingMode = "user", maxRetries = 3) => {
   releaseAllMediaTracks();
   // Safe cooldown for hardware camera HAL release between rear and front sensors
   await new Promise((resolve) => setTimeout(resolve, 300));
 
-  const safeFacingMode = (typeof requestedFacingMode === 'string' && requestedFacingMode) ? requestedFacingMode : "user";
+  // Identify front/user camera device ID if multiple video devices are available
+  let frontDeviceId = null;
+  try {
+    if (navigator?.mediaDevices?.enumerateDevices) {
+      const devs = await navigator.mediaDevices.enumerateDevices();
+      const videoDevs = devs.filter((d) => d.kind === "videoinput");
+      const frontDev = videoDevs.find((d) =>
+        /front|user|selfie|face/i.test(d.label)
+      );
+      if (frontDev?.deviceId) {
+        frontDeviceId = frontDev.deviceId;
+      }
+    }
+  } catch (_) { }
 
   if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
     const attempts = [
+      ...(frontDeviceId ? [{
+        video: {
+          deviceId: { exact: frontDeviceId },
+          width: { ideal: 640, max: 1280 },
+          height: { ideal: 480, max: 720 },
+          frameRate: { ideal: 30, max: 30 }
+        },
+        audio: false
+      }] : []),
       {
         video: {
-          facingMode: { ideal: safeFacingMode },
+          facingMode: { ideal: "user" },
           width: { ideal: 640, max: 1280 },
           height: { ideal: 480, max: 720 },
           frameRate: { ideal: 30, max: 30 }
         },
         audio: false
       },
-      { video: { facingMode: { ideal: safeFacingMode }, width: { ideal: 640 }, height: { ideal: 480 } }, audio: false },
-      { video: { facingMode: { ideal: safeFacingMode } }, audio: false },
-      { video: { facingMode: safeFacingMode }, audio: false },
+      { video: { facingMode: { ideal: "user" }, width: { ideal: 640 }, height: { ideal: 480 } }, audio: false },
+      { video: { facingMode: { ideal: "user" } }, audio: false },
+      { video: { facingMode: "user" }, audio: false },
       { video: true, audio: false }
     ];
 
@@ -319,14 +342,7 @@ function FaceScanner({
       setStatus("error");
       setFeedback("Failed to load facial recognition models.");
     }
-  }, [facingMode]);
-
-  const toggleCameraFacing = async () => {
-    if (!allowRearCamera) return;
-    const nextMode = facingMode === "user" ? "environment" : "user";
-    setFacingMode(nextMode);
-    await initCameraAndModels(nextMode);
-  };
+  }, []);
 
   useEffect(() => {
     initCameraAndModels();
@@ -362,12 +378,13 @@ function FaceScanner({
         const map = new Map();
         [...studentsSnap.docs, ...usersSnap.docs, ...authSnap.docs].forEach((docSnap) => {
           const d = docSnap.data();
-          if (d.faceDescriptor && Array.isArray(d.faceDescriptor) && d.faceDescriptor.length === 128) {
+          const normalized = normalizeDescriptor(d.faceDescriptor || d.descriptor);
+          if (normalized) {
             let key = (d.rollNo && String(d.rollNo).trim()) ? String(d.rollNo).trim() : docSnap.id;
             if (key.includes("@")) key = key.split("@")[0];
             key = key.toUpperCase().trim();
             const existing = map.get(key) || {};
-            map.set(key, { ...existing, ...d, rollNo: key, descriptor: new Float32Array(d.faceDescriptor) });
+            map.set(key, { ...existing, ...d, rollNo: key, descriptor: new Float32Array(normalized) });
           }
         });
         setStandaloneStudents(Array.from(map.values()));
@@ -388,7 +405,8 @@ function FaceScanner({
       return;
     }
 
-    if (verifiedStudent && (!verifiedStudent.faceDescriptor || !Array.isArray(verifiedStudent.faceDescriptor) || verifiedStudent.faceDescriptor.length !== 128)) {
+    const enrolledVector = normalizeDescriptor(verifiedStudent?.faceDescriptor || verifiedStudent?.descriptor);
+    if (verifiedStudent && !enrolledVector) {
       resetLivenessState();
       updateStatus("unregistered");
       updateFeedback(`⚠️ No registered face biometrics found for ${verifiedStudent.name || "Student"} (Roll No: ${verifiedStudent.rollNo || rollNo}). Please complete in-app Face Registration in the Biometric Registration hub before marking attendance.`);
@@ -501,9 +519,20 @@ function FaceScanner({
             // B. BIOMETRIC MATCHING & VERIFICATION GATING
             // -------------------------------------------------------------
             // SCENARIO 1: Targeted student verification (Form mode / Attendance)
-            if (verifiedStudent && verifiedStudent.faceDescriptor) {
-              const targetDescriptor = new Float32Array(verifiedStudent.faceDescriptor);
-              const dist = faceapi.euclideanDistance(liveDescriptor, targetDescriptor);
+            if (verifiedStudent && enrolledVector) {
+              const targetDescriptor = new Float32Array(enrolledVector);
+
+              // Accurate Euclidean distance calculation (with multi-frame centroid fusion)
+              const distSingle = faceapi.euclideanDistance(liveDescriptor, targetDescriptor);
+              const fusedVector = (challengeEngine?.collectedDescriptors?.length >= 2)
+                ? fuseFaceDescriptors(challengeEngine.collectedDescriptors)
+                : null;
+              const distFused = fusedVector
+                ? faceapi.euclideanDistance(fusedVector, targetDescriptor)
+                : distSingle;
+
+              const dist = Math.min(distSingle, distFused);
+              const bestLiveVector = (distFused <= distSingle && fusedVector) ? fusedVector : liveDescriptor;
 
               // Accurately calibrated confidence score mapping
               const conf = dist <= MATCH_THRESHOLD
@@ -562,7 +591,7 @@ function FaceScanner({
                     antiSpoof: "PASSED",
                     blinkCount: challengeEngine.blinkCount || 1,
                     student: verifiedStudent,
-                    liveDescriptor: Array.from(liveDescriptor)
+                    liveDescriptor: Array.from(bestLiveVector)
                   });
                 } else {
                   updateStatus("scanning");
@@ -776,28 +805,24 @@ function FaceScanner({
 
         {/* Actions & Status */}
         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-          {allowRearCamera && (
-            <button
-              type="button"
-              onClick={toggleCameraFacing}
-              title="Switch Camera (Front / Rear)"
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "5px",
-                padding: "5px 10px",
-                borderRadius: "8px",
-                background: "var(--surface-soft, #f1f5f9)",
-                border: "1px solid var(--border, #cbd5e1)",
-                color: "var(--text-main, #334155)",
-                fontSize: "0.75rem",
-                fontWeight: 700,
-                cursor: "pointer"
-              }}
-            >
-              <FaSyncAlt /> {facingMode === "user" ? "Front Cam" : "Rear Cam"}
-            </button>
-          )}
+          {/* Front Camera Biometrics Badge */}
+          <div
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "6px",
+              padding: "5px 11px",
+              borderRadius: "8px",
+              background: "rgba(99, 102, 241, 0.08)",
+              border: "1px solid rgba(99, 102, 241, 0.25)",
+              color: "#4f46e5",
+              fontSize: "0.75rem",
+              fontWeight: 700
+            }}
+          >
+            <span style={{ width: "7px", height: "7px", borderRadius: "50%", background: "#6366f1", boxShadow: "0 0 6px #6366f1" }}></span>
+            Front Cam · Biometrics
+          </div>
 
           {/* Status Pill */}
           <div className={`scanner-status-pill ${status === "liveness_check" ? "liveness" : status === "spoof" ? "spoof" : status}`}>

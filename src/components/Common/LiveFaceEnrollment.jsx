@@ -195,31 +195,95 @@ export function LiveFaceEnrollment({
 
         try {
             if (streamRef.current) {
-                streamRef.current.getTracks().forEach((t) => t.stop());
+                streamRef.current.getTracks().forEach((t) => {
+                    try { t.stop(); } catch (_) { }
+                });
                 streamRef.current = null;
             }
+
+            // Release any active video tracks across DOM to avoid hardware HAL collisions
+            if (typeof document !== 'undefined') {
+                document.querySelectorAll('video').forEach((v) => {
+                    if (v.srcObject && typeof v.srcObject.getTracks === 'function') {
+                        v.srcObject.getTracks().forEach((t) => {
+                            try { t.stop(); } catch (_) { }
+                        });
+                        v.srcObject = null;
+                    }
+                });
+            }
+
+            // Cooldown for hardware camera HAL release
+            await new Promise((r) => setTimeout(r, 200));
 
             if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
                 throw new Error("Camera API is not supported in this browser.");
             }
 
-            let stream = null;
+            // Check if device enumeration can find a front/user camera deviceId
+            let frontDeviceId = null;
             try {
-                stream = await navigator.mediaDevices.getUserMedia({
+                if (navigator?.mediaDevices?.enumerateDevices) {
+                    const devs = await navigator.mediaDevices.enumerateDevices();
+                    const videoDevs = devs.filter((d) => d.kind === 'videoinput');
+                    const frontDev = videoDevs.find((d) =>
+                        /front|user|selfie|face/i.test(d.label)
+                    );
+                    if (frontDev?.deviceId) {
+                        frontDeviceId = frontDev.deviceId;
+                    }
+                }
+            } catch (_) { }
+
+            const attempts = [
+                ...(frontDeviceId ? [{
+                    video: {
+                        deviceId: { exact: frontDeviceId },
+                        width: { ideal: 640, min: 320 },
+                        height: { ideal: 480, min: 240 }
+                    },
+                    audio: false
+                }] : []),
+                {
+                    video: {
+                        facingMode: { ideal: "user" },
+                        width: { ideal: 640, min: 320 },
+                        height: { ideal: 480, min: 240 }
+                    },
+                    audio: false
+                },
+                {
                     video: {
                         facingMode: "user",
                         width: { ideal: 640, min: 320 },
                         height: { ideal: 480, min: 240 }
                     },
                     audio: false
-                });
-            } catch (err1) {
-                console.warn("Camera facingMode fallback:", err1);
-                stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+                },
+                { video: { facingMode: { ideal: "user" } }, audio: false },
+                { video: { facingMode: "user" }, audio: false },
+                { video: true, audio: false }
+            ];
+
+            let stream = null;
+            let lastErr = null;
+            for (const constraints of attempts) {
+                try {
+                    stream = await navigator.mediaDevices.getUserMedia(constraints);
+                    if (stream && stream.getVideoTracks().length > 0) {
+                        break;
+                    }
+                } catch (err) {
+                    lastErr = err;
+                    console.warn("Front camera attempt notice:", constraints, err?.name, err?.message);
+                    if (err?.name === "NotAllowedError" || err?.name === "PermissionDeniedError") {
+                        throw err;
+                    }
+                }
             }
 
             if (!stream) {
-                throw new Error("Unable to obtain camera stream.");
+                throw lastErr || new Error("Unable to obtain front camera stream.");
             }
 
             streamRef.current = stream;

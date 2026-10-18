@@ -84,36 +84,59 @@ function NativeQrScanner({
             return;
         }
 
+        // Check if device enumeration can find the rear camera deviceId directly
+        let rearDeviceId = null;
+        try {
+            if (navigator?.mediaDevices?.enumerateDevices) {
+                const devs = await navigator.mediaDevices.enumerateDevices();
+                const videoDevs = devs.filter((d) => d.kind === 'videoinput');
+                const rearDev = videoDevs.find((d) =>
+                    /back|rear|environment|world/i.test(d.label)
+                );
+                if (rearDev?.deviceId) {
+                    rearDeviceId = rearDev.deviceId;
+                }
+            }
+        } catch (_) { }
+
         const progressiveConstraints = [
-            // Tier 1: Ideal HD with requested facingMode
+            ...(rearDeviceId ? [{
+                video: {
+                    deviceId: { exact: rearDeviceId },
+                    width: { ideal: 1280 },
+                    height: { ideal: 720 }
+                },
+                audio: false
+            }] : []),
+            // Tier 1: Ideal HD rear camera (environment)
             {
                 video: {
-                    facingMode: { ideal: facingMode },
+                    facingMode: { ideal: 'environment' },
                     width: { ideal: 1280 },
                     height: { ideal: 720 }
                 },
                 audio: false
             },
-            // Tier 2: Ideal 480p portrait friendly
+            // Tier 2: Ideal 480p portrait friendly rear camera
             {
                 video: {
-                    facingMode: { ideal: facingMode },
+                    facingMode: { ideal: 'environment' },
                     width: { ideal: 640 },
                     height: { ideal: 480 }
                 },
                 audio: false
             },
-            // Tier 3: Loose facingMode
+            // Tier 3: Loose rear camera constraint
             {
-                video: { facingMode: { ideal: facingMode } },
+                video: { facingMode: { ideal: 'environment' } },
                 audio: false
             },
-            // Tier 4: Alternate camera
+            // Tier 4: Exact environment constraint (for multi-camera mobile devices)
             {
-                video: { facingMode: facingMode === 'environment' ? 'user' : 'environment' },
+                video: { facingMode: 'environment' },
                 audio: false
             },
-            // Tier 5: Any camera available
+            // Tier 5: Generic video fallback for single-camera desktop/laptop without environment label
             {
                 video: true,
                 audio: false
@@ -294,7 +317,7 @@ function NativeQrScanner({
                     width: '100%',
                     height: '100%',
                     objectFit: 'cover',
-                    transform: facingMode === 'user' ? 'scaleX(-1)' : 'none',
+                    transform: 'none',
                     display: loading || errorMsg ? 'none' : 'block'
                 }}
             />
@@ -313,7 +336,7 @@ function NativeQrScanner({
                     gap: '12px'
                 }}>
                     <FaSpinner className="fa-spin" style={{ fontSize: '2.2rem', color: '#6366f1' }} />
-                    <span style={{ fontSize: '0.9rem', fontWeight: 700, color: '#c7d2fe' }}>Starting camera...</span>
+                    <span style={{ fontSize: '0.9rem', fontWeight: 700, color: '#c7d2fe' }}>Starting rear camera...</span>
                 </div>
             )}
 
@@ -358,27 +381,6 @@ function NativeQrScanner({
                         >
                             <FaSyncAlt /> Retry Camera
                         </button>
-                        {onToggleFacingMode && (
-                            <button
-                                type="button"
-                                onClick={onToggleFacingMode}
-                                style={{
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    gap: '6px',
-                                    padding: '9px 16px',
-                                    borderRadius: '10px',
-                                    background: 'rgba(255, 255, 255, 0.12)',
-                                    color: '#ffffff',
-                                    border: '1px solid rgba(255, 255, 255, 0.2)',
-                                    fontWeight: 700,
-                                    fontSize: '0.85rem',
-                                    cursor: 'pointer'
-                                }}
-                            >
-                                Switch Camera
-                            </button>
-                        )}
                     </div>
                 </div>
             )}
@@ -422,7 +424,29 @@ function NativeQrScanner({
                         `}</style>
                     </div>
 
-                    {/* Camera Control Action Buttons: Torch & Camera Switch */}
+                    {/* Camera Badge: Rear Camera Active Indicator */}
+                    <div style={{
+                        position: 'absolute',
+                        top: '12px',
+                        left: '12px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        padding: '5px 11px',
+                        borderRadius: '20px',
+                        background: 'rgba(15, 23, 42, 0.8)',
+                        color: '#e2e8f0',
+                        fontSize: '0.74rem',
+                        fontWeight: 700,
+                        backdropFilter: 'blur(6px)',
+                        border: '1px solid rgba(255, 255, 255, 0.15)',
+                        zIndex: 5
+                    }}>
+                        <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: '#10b981', boxShadow: '0 0 6px #10b981' }}></span>
+                        Rear Camera · Scanning QR
+                    </div>
+
+                    {/* Camera Control Action Buttons: Torch / Flashlight */}
                     <div style={{
                         position: 'absolute',
                         top: '12px',
@@ -452,28 +476,6 @@ function NativeQrScanner({
                                 }}
                             >
                                 <FaBolt style={{ fontSize: '0.9rem' }} />
-                            </button>
-                        )}
-                        {onToggleFacingMode && (
-                            <button
-                                type="button"
-                                onClick={onToggleFacingMode}
-                                title="Switch Camera"
-                                style={{
-                                    width: '38px',
-                                    height: '38px',
-                                    borderRadius: '50%',
-                                    background: 'rgba(15, 23, 42, 0.75)',
-                                    color: '#ffffff',
-                                    border: '1px solid rgba(255, 255, 255, 0.25)',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    cursor: 'pointer',
-                                    backdropFilter: 'blur(6px)'
-                                }}
-                            >
-                                <FaSyncAlt style={{ fontSize: '0.9rem' }} />
                             </button>
                         )}
                     </div>
