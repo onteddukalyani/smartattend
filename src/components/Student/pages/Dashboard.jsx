@@ -32,7 +32,8 @@ import {
     FaEdit,
     FaCheck,
     FaMobileAlt,
-    FaFingerprint
+    FaFingerprint,
+    FaShieldAlt
 } from "react-icons/fa";
 import { MdQrCodeScanner } from "react-icons/md";
 import { db } from "../../../firebase";
