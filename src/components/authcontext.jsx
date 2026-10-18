@@ -100,6 +100,7 @@ export const AuthProvider = ({ children }) => {
 
       if (candidateDocs.length > 0) {
         let merged = {};
+        let authoritativeRollNo = "";
         let authoritativeName = "";
         let authoritativeSemester = "";
         let authoritativeBranch = "";
@@ -108,20 +109,25 @@ export const AuthProvider = ({ children }) => {
 
         const studentDoc = studentRollSnap.exists() ? studentRollSnap.data() : (studentEmailDocSnap.exists() ? studentEmailDocSnap.data() : (studentPrefixSnap.exists() ? studentPrefixSnap.data() : null));
         if (studentDoc) {
+          if (studentDoc.rollNo) authoritativeRollNo = String(studentDoc.rollNo).trim().toUpperCase();
+          else if (studentRollSnap.exists()) authoritativeRollNo = studentRollSnap.id.trim().toUpperCase();
           if (studentDoc.semester) authoritativeSemester = String(studentDoc.semester).trim();
           if (studentDoc.branch && String(studentDoc.branch).toLowerCase() !== "general") authoritativeBranch = String(studentDoc.branch).trim();
-          if (studentDoc.name && !isGenericName(studentDoc.name, rollFromEmail, cleanEmail)) authoritativeName = String(studentDoc.name).trim();
-          if (studentDoc.fullName && !isGenericName(studentDoc.fullName, rollFromEmail, cleanEmail)) authoritativeName = String(studentDoc.fullName).trim();
+          if (studentDoc.name && !isGenericName(studentDoc.name, authoritativeRollNo, cleanEmail)) authoritativeName = String(studentDoc.name).trim();
+          if (studentDoc.fullName && !isGenericName(studentDoc.fullName, authoritativeRollNo, cleanEmail)) authoritativeName = String(studentDoc.fullName).trim();
         }
 
         for (const c of candidateDocs) {
-          if (!authoritativeName && c.name && !isGenericName(c.name, rollFromEmail, cleanEmail)) {
+          if (!authoritativeRollNo && c.rollNo) {
+            authoritativeRollNo = String(c.rollNo).trim().toUpperCase();
+          }
+          if (!authoritativeName && c.name && !isGenericName(c.name, authoritativeRollNo, cleanEmail)) {
             authoritativeName = String(c.name).trim();
           }
-          if (!authoritativeName && c.fullName && !isGenericName(c.fullName, rollFromEmail, cleanEmail)) {
+          if (!authoritativeName && c.fullName && !isGenericName(c.fullName, authoritativeRollNo, cleanEmail)) {
             authoritativeName = String(c.fullName).trim();
           }
-          if (!authoritativeName && c.displayName && !isGenericName(c.displayName, rollFromEmail, cleanEmail)) {
+          if (!authoritativeName && c.displayName && !isGenericName(c.displayName, authoritativeRollNo, cleanEmail)) {
             authoritativeName = String(c.displayName).trim();
           }
           if (!authoritativeSemester && c.semester) {
@@ -143,7 +149,7 @@ export const AuthProvider = ({ children }) => {
             photoURL: c.photoURL || c.photo || c.image || merged.photoURL || "",
             branch: authoritativeBranch || (c.branch && String(c.branch).toLowerCase() !== "general" ? c.branch : (merged.branch || "CSE")),
             semester: authoritativeSemester || c.semester || merged.semester || "1",
-            rollNo: c.rollNo || merged.rollNo || rollFromEmail,
+            rollNo: authoritativeRollNo || (c.rollNo ? String(c.rollNo).trim().toUpperCase() : (merged.rollNo || "")),
             role: c.role || merged.role || "student"
           };
         }
@@ -156,14 +162,15 @@ export const AuthProvider = ({ children }) => {
           merged.faceRemovedAt = mostRecentRemovalTime || Date.now();
         }
 
+        const finalRollNo = authoritativeRollNo || merged.rollNo || (studentRollSnap.exists() ? studentRollSnap.id.toUpperCase() : "");
         const finalName = authoritativeName || merged.name || merged.fullName || "";
         return {
-          id: rollFromEmail || cleanEmail,
+          id: finalRollNo || cleanEmail,
           ...merged,
           name: finalName,
           fullName: finalName,
           email: merged.email || cleanEmail,
-          rollNo: merged.rollNo || rollFromEmail,
+          rollNo: finalRollNo,
           role: String(merged.role || "student").trim().toLowerCase()
         };
       }
@@ -172,10 +179,10 @@ export const AuthProvider = ({ children }) => {
       const [adminQuerySnap, lectQuerySnap, qStudentEmail, qStudentRoll, qUserEmail, qAuthEmail] = await Promise.all([
         getDocs(query(collection(db, "admins"), where("email", "==", cleanEmail))).catch(() => ({ empty: true })),
         getDocs(query(collection(db, "lecturers"), where("email", "==", cleanEmail))).catch(() => ({ empty: true })),
-        getDocs(query(collection(db, "students"), where("email", "==", cleanEmail))).catch(() => ({ empty: true })),
-        getDocs(query(collection(db, "students"), where("rollNo", "==", rollFromEmail))).catch(() => ({ empty: true })),
-        getDocs(query(collection(db, "users"), where("email", "==", cleanEmail))).catch(() => ({ empty: true })),
-        getDocs(query(collection(db, "authorizedUsers"), where("email", "==", cleanEmail))).catch(() => ({ empty: true }))
+        getDocs(query(collection(db, "students"), where("email", "==", cleanEmail))).catch(() => ({ empty: true, docs: [] })),
+        getDocs(query(collection(db, "students"), where("rollNo", "==", rollFromEmail))).catch(() => ({ empty: true, docs: [] })),
+        getDocs(query(collection(db, "users"), where("email", "==", cleanEmail))).catch(() => ({ empty: true, docs: [] })),
+        getDocs(query(collection(db, "authorizedUsers"), where("email", "==", cleanEmail))).catch(() => ({ empty: true, docs: [] }))
       ]);
 
       if (!adminQuerySnap.empty) {
@@ -195,14 +202,19 @@ export const AuthProvider = ({ children }) => {
         !qStudentRoll.empty ? qStudentRoll.docs[0].data() : null
       ].filter(Boolean);
 
-      const studentFallback = (!qStudentRoll.empty ? qStudentRoll.docs[0].data() : (!qStudentEmail.empty ? qStudentEmail.docs[0].data() : null));
+      const studentDocMatch = !qStudentRoll.empty ? qStudentRoll.docs[0] : (!qStudentEmail.empty ? qStudentEmail.docs[0] : null);
+      const studentFallback = studentDocMatch ? studentDocMatch.data() : null;
+      let authoritativeRollNo = "";
       let authoritativeName = "";
       let authoritativeBranch = "";
       let authoritativeSemester = "";
       if (studentFallback) {
+        if (studentFallback.rollNo) authoritativeRollNo = String(studentFallback.rollNo).trim().toUpperCase();
+        else if (studentDocMatch && !studentDocMatch.id.includes("@")) authoritativeRollNo = studentDocMatch.id.trim().toUpperCase();
         if (studentFallback.semester) authoritativeSemester = String(studentFallback.semester).trim();
         if (studentFallback.branch && String(studentFallback.branch).toLowerCase() !== "general") authoritativeBranch = String(studentFallback.branch).trim();
-        if (studentFallback.name && !isGenericName(studentFallback.name, rollFromEmail, cleanEmail)) authoritativeName = String(studentFallback.name).trim();
+        if (studentFallback.name && !isGenericName(studentFallback.name, authoritativeRollNo, cleanEmail)) authoritativeName = String(studentFallback.name).trim();
+        if (studentFallback.fullName && !isGenericName(studentFallback.fullName, authoritativeRollNo, cleanEmail)) authoritativeName = String(studentFallback.fullName).trim();
       }
 
       if (fieldDocs.length > 0) {
@@ -211,13 +223,16 @@ export const AuthProvider = ({ children }) => {
         let mostRecentRemovalTime = 0;
 
         for (const c of fieldDocs) {
-          if (!authoritativeName && c.name && !isGenericName(c.name, rollFromEmail, cleanEmail)) {
+          if (!authoritativeRollNo && c.rollNo) {
+            authoritativeRollNo = String(c.rollNo).trim().toUpperCase();
+          }
+          if (!authoritativeName && c.name && !isGenericName(c.name, authoritativeRollNo, cleanEmail)) {
             authoritativeName = String(c.name).trim();
           }
-          if (!authoritativeName && c.fullName && !isGenericName(c.fullName, rollFromEmail, cleanEmail)) {
+          if (!authoritativeName && c.fullName && !isGenericName(c.fullName, authoritativeRollNo, cleanEmail)) {
             authoritativeName = String(c.fullName).trim();
           }
-          if (!authoritativeName && c.displayName && !isGenericName(c.displayName, rollFromEmail, cleanEmail)) {
+          if (!authoritativeName && c.displayName && !isGenericName(c.displayName, authoritativeRollNo, cleanEmail)) {
             authoritativeName = String(c.displayName).trim();
           }
           if (!authoritativeSemester && c.semester) {
@@ -239,7 +254,7 @@ export const AuthProvider = ({ children }) => {
             photoURL: c.photoURL || c.photo || c.image || merged.photoURL || "",
             branch: authoritativeBranch || ((c.branch && String(c.branch).toLowerCase() !== "general") ? c.branch : (merged.branch || "CSE")),
             semester: authoritativeSemester || c.semester || merged.semester || "1",
-            rollNo: c.rollNo || merged.rollNo || rollFromEmail,
+            rollNo: authoritativeRollNo || (c.rollNo ? String(c.rollNo).trim().toUpperCase() : (merged.rollNo || "")),
             role: c.role || merged.role || "student"
           };
         }
@@ -252,14 +267,15 @@ export const AuthProvider = ({ children }) => {
           merged.faceRemovedAt = mostRecentRemovalTime || Date.now();
         }
 
+        const finalRollNo = authoritativeRollNo || merged.rollNo || (studentDocMatch && !studentDocMatch.id.includes("@") ? studentDocMatch.id.toUpperCase() : "");
         const finalName = authoritativeName || merged.name || merged.fullName || "";
         return {
-          id: rollFromEmail || cleanEmail,
+          id: finalRollNo || cleanEmail,
           ...merged,
           name: finalName,
           fullName: finalName,
           email: merged.email || cleanEmail,
-          rollNo: merged.rollNo || rollFromEmail,
+          rollNo: finalRollNo,
           role: String(merged.role || "student").trim().toLowerCase()
         };
       }
@@ -301,7 +317,9 @@ export const AuthProvider = ({ children }) => {
     const databaseRole = normalizeRole(registeredUser.role);
     const cleanEmail = currentUser.email.toLowerCase().trim();
     const prefix = cleanEmail.split("@")[0].toLowerCase().trim();
-    const cleanRollNo = registeredUser.rollNo || (databaseRole === "student" ? prefix.toUpperCase() : undefined);
+    const cleanRollNo = registeredUser.rollNo
+      ? String(registeredUser.rollNo).trim().toUpperCase()
+      : (registeredUser.id && !registeredUser.id.includes("@") ? registeredUser.id.toUpperCase() : (databaseRole === "student" ? (registeredUser.rollNumber || "") : undefined));
     const branch = (registeredUser.branch && String(registeredUser.branch).toLowerCase() !== "general")
       ? registeredUser.branch
       : ((registeredUser.department && String(registeredUser.department).toLowerCase() !== "general") ? registeredUser.department : "CSE");

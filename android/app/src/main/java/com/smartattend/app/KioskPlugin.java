@@ -123,74 +123,20 @@ public class KioskPlugin extends Plugin {
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(activity)) {
             activity.runOnUiThread(() -> {
-                if (activity.isFinishing() || activity.isDestroyed()) {
-                    JSObject ret = new JSObject();
-                    ret.put("requested", false);
-                    call.resolve(ret);
-                    return;
+                try {
+                    Intent intent = new Intent(
+                        Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                        Uri.parse("package:" + activity.getPackageName())
+                    );
+                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    activity.startActivity(intent);
+                } catch (Exception e) {
+                    try {
+                        Intent fallbackIntent = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION);
+                        fallbackIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                        activity.startActivity(fallbackIntent);
+                    } catch (Exception ignored) {}
                 }
-                boolean isAndroid13Plus = Build.VERSION.SDK_INT >= 33;
-                androidx.appcompat.app.AlertDialog.Builder builder = new androidx.appcompat.app.AlertDialog.Builder(activity);
-                if (isAndroid13Plus) {
-                    builder.setTitle("⚠️ Action Required: Allow Restricted Settings & Overlay")
-                        .setMessage("To activate Lock Mode and secure your attendance session:\n\n" +
-                                    "📌 Android 13+ Security Step (Downloaded APK):\n" +
-                                    "Because SmartAttend was installed directly, Android restricts special permissions by default.\n\n" +
-                                    "Step 1: Tap '1. Open App Info' below.\n" +
-                                    "Step 2: Tap the 3 DOTS (⋮) at the top-right corner of App Info.\n" +
-                                    "Step 3: Tap 'Allow restricted settings' and verify your Fingerprint or PIN.\n" +
-                                    "Step 4: Tap '2. Enable Overlay' below and turn ON the switch for SmartAttend.")
-                        .setPositiveButton("1. Open App Info (3 Dots ⋮)", (dialog, which) -> {
-                            try {
-                                Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
-                                intent.setData(Uri.parse("package:" + activity.getPackageName()));
-                                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                                activity.startActivity(intent);
-                            } catch (Exception ignored) {}
-                        })
-                        .setNeutralButton("2. Enable Overlay", (dialog, which) -> {
-                            try {
-                                Intent intent = new Intent(
-                                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                                    Uri.parse("package:" + activity.getPackageName())
-                                );
-                                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                                activity.startActivity(intent);
-                            } catch (Exception e) {
-                                try {
-                                    Intent fallbackIntent = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION);
-                                    fallbackIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                                    activity.startActivity(fallbackIntent);
-                                } catch (Exception ignored) {}
-                            }
-                        })
-                        .setNegativeButton("Cancel", (dialog, which) -> dialog.dismiss());
-                } else {
-                    builder.setTitle("Permission: Display Over Other Apps")
-                        .setMessage("To activate Lock Mode and prevent attendance disqualification:\n\n" +
-                                    "1. Tap 'Open Settings' below.\n" +
-                                    "2. Locate 'SmartAttend' in the application list.\n" +
-                                    "3. Turn ON 'Allow display over other apps'.\n" +
-                                    "4. Tap your device's Back button to return to attendance scanning.")
-                        .setPositiveButton("Open Settings", (dialog, which) -> {
-                            try {
-                                Intent intent = new Intent(
-                                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                                    Uri.parse("package:" + activity.getPackageName())
-                                );
-                                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                                activity.startActivity(intent);
-                            } catch (Exception e) {
-                                try {
-                                    Intent fallbackIntent = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION);
-                                    fallbackIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                                    activity.startActivity(fallbackIntent);
-                                } catch (Exception ignored) {}
-                            }
-                        })
-                        .setNegativeButton("Cancel", (dialog, which) -> dialog.dismiss());
-                }
-                builder.setCancelable(true).show();
 
                 JSObject ret = new JSObject();
                 ret.put("requested", true);
@@ -200,7 +146,6 @@ public class KioskPlugin extends Plugin {
             JSObject ret = new JSObject();
             ret.put("requested", false);
             ret.put("alreadyGranted", true);
-            call.resolve(ret);
         }
     }
 

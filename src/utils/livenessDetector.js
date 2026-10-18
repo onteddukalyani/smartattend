@@ -217,17 +217,9 @@ export class RandomizedChallengeEngine {
             return ["CENTER", "BLINK"];
         }
 
-        // Attendance mode: DYNAMIC RANDOMIZED ANTI-REPLAY CHALLENGE POOL
-        // Pre-recorded videos CANNOT guess which interactive reflex is required at this exact second!
-        const dynamicChallenges = [
-            ["CENTER", "BLINK"],       // Blink naturally
-            ["CENTER", "SMILE"],       // Smile naturally (detects mouth corner elevation & MAR expansion)
-            ["CENTER", "TURN_LEFT"],   // Turn head slightly left
-            ["CENTER", "TURN_RIGHT"],  // Turn head slightly right
-            ["CENTER", "NOD"]          // Nod head slightly up
-        ];
-
-        return dynamicChallenges[Math.floor(Math.random() * dynamicChallenges.length)];
+        // Attendance mode: Ultra-fast 1-step live face verification (< 1 second)
+        // Aligns live face in frame, confirms natural human micro-movement, and verifies immediately
+        return ["CENTER"];
     }
 
     reset() {

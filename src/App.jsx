@@ -11,7 +11,9 @@ import { FaGraduationCap, FaSpinner } from "react-icons/fa";
 import ProtectedRoute from "./components/ProtectedRoute";
 import { useAuth } from "./components/authcontext";
 import AppUpdateModal from "./components/Common/AppUpdateModal";
+import AppUpdateBanner from "./components/Common/AppUpdateBanner";
 import HeadsUpNotification from "./components/Common/HeadsUpNotification";
+import AndroidOverlayPermissionModal from "./components/Common/AndroidOverlayPermissionModal";
 import { checkForAppUpdate, subscribeToAppUpdates } from "./services/appUpdateService";
 import { requestAppNotificationPermissions, triggerRealAppNotification } from "./services/nativeNotificationService";
 import "./App.css";
@@ -69,6 +71,7 @@ function App() {
   const navigate = useNavigate();
   const { user, profile, loading } = useAuth();
   const [updateInfo, setUpdateInfo] = useState(null);
+  const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
 
   // 0. Real-time Live Subscription & Auto-check for APK / App Updates
   useEffect(() => {
@@ -82,9 +85,12 @@ function App() {
       const dismissedTime = parseInt(localStorage.getItem("smartattend_dismissed_update_time") || "0", 10);
       const isRecentlyDismissed = dismissedVer === info.latestVersion && (now - dismissedTime) < 24 * 60 * 60 * 1000;
 
-      // Whoever is using the app receives the modal prompt
+      // Keep update info active so notification banner & floating pill remain visible
+      setUpdateInfo(info);
+
+      // Whoever is using the app receives the modal prompt if mandatory or not recently dismissed
       if (info.isMandatory || !isRecentlyDismissed) {
-        setUpdateInfo(info);
+        setIsUpdateModalOpen(true);
       }
 
       // Notify the active user via OS/native push notification immediately
@@ -915,8 +921,22 @@ function App() {
         <Route path="*" element={<Navigate to={defaultDashboard} replace />} />
       </Routes>
     </Suspense>
+    <AppUpdateBanner
+      updateInfo={updateInfo}
+      onOpenModal={() => setIsUpdateModalOpen(true)}
+      onDismiss={() => {
+        try {
+          localStorage.setItem("smartattend_dismissed_update_version", updateInfo?.latestVersion || "");
+          localStorage.setItem("smartattend_dismissed_update_time", String(Date.now()));
+        } catch (_) {}
+      }}
+    />
     <HeadsUpNotification />
-    <AppUpdateModal updateInfo={updateInfo} onClose={() => setUpdateInfo(null)} />
+    <AppUpdateModal
+      updateInfo={isUpdateModalOpen ? updateInfo : null}
+      onClose={() => setIsUpdateModalOpen(false)}
+    />
+    <AndroidOverlayPermissionModal />
     </>
   );
 }

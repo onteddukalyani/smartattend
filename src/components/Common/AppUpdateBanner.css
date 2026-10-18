@@ -1,0 +1,318 @@
+/* ==========================================================================
+   SmartAttend Real-Time App Update Banner Styles
+   Glassmorphism, Vibrant Gradients & Responsive Dark/Light System
+   ========================================================================== */
+
+.st-update-banner-container {
+    position: fixed;
+    top: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: min(94vw, 840px);
+    z-index: 999990;
+    border-radius: 18px;
+    background: rgba(15, 23, 42, 0.88);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(99, 102, 241, 0.35);
+    box-shadow: 0 16px 36px -8px rgba(0, 0, 0, 0.45),
+                0 0 24px rgba(99, 102, 241, 0.25);
+    color: #f8fafc;
+    animation: stBannerSlideDown 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    padding: 12px 18px;
+    box-sizing: border-box;
+    font-family: inherit;
+}
+
+@keyframes stBannerSlideDown {
+    from {
+        opacity: 0;
+        transform: translate(-50%, -24px) scale(0.96);
+    }
+    to {
+        opacity: 1;
+        transform: translate(-50%, 0) scale(1);
+    }
+}
+
+.st-update-banner-container.mandatory {
+    border-color: rgba(239, 68, 68, 0.55);
+    box-shadow: 0 16px 36px -8px rgba(0, 0, 0, 0.5),
+                0 0 28px rgba(239, 68, 68, 0.3);
+}
+
+.st-update-banner-content {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    justify-content: space-between;
+}
+
+/* Icon & Platform Badge */
+.st-update-banner-icon-wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+}
+
+.st-update-banner-rocket {
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #ffffff;
+    font-size: 1.25rem;
+    box-shadow: 0 4px 14px rgba(99, 102, 241, 0.4);
+    animation: stRocketBob 2s ease-in-out infinite alternate;
+}
+
+.st-update-banner-container.mandatory .st-update-banner-rocket {
+    background: linear-gradient(135deg, #ef4444, #f97316);
+    box-shadow: 0 4px 14px rgba(239, 68, 68, 0.4);
+}
+
+@keyframes stRocketBob {
+    0% { transform: translateY(0) rotate(-5deg); }
+    100% { transform: translateY(-4px) rotate(5deg); }
+}
+
+.st-banner-platform-tag {
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 2px 7px;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.12);
+    color: #e2e8f0;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+/* Information Center */
+.st-update-banner-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.st-update-banner-title-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 3px;
+}
+
+.st-update-banner-title {
+    margin: 0;
+    font-size: 0.98rem;
+    font-weight: 700;
+    color: #ffffff;
+    letter-spacing: -0.01em;
+}
+
+.st-version-diff-tag {
+    font-size: 0.72rem;
+    font-weight: 700;
+    background: rgba(99, 102, 241, 0.22);
+    color: #a5b4fc;
+    border: 1px solid rgba(99, 102, 241, 0.35);
+    padding: 2px 8px;
+    border-radius: 999px;
+}
+
+.st-update-banner-desc {
+    margin: 0;
+    font-size: 0.82rem;
+    color: #cbd5e1;
+    line-height: 1.35;
+}
+
+.st-update-banner-desc strong {
+    color: #f1f5f9;
+}
+
+/* Actions Section */
+.st-update-banner-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-shrink: 0;
+}
+
+.st-update-banner-primary-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: linear-gradient(135deg, #4f46e5, #7c3aed);
+    color: #ffffff;
+    border: none;
+    padding: 9px 18px;
+    border-radius: 12px;
+    font-size: 0.88rem;
+    font-weight: 700;
+    cursor: pointer;
+    box-shadow: 0 4px 14px rgba(79, 70, 229, 0.4);
+    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    white-space: nowrap;
+}
+
+.st-update-banner-primary-btn:hover {
+    background: linear-gradient(135deg, #4338ca, #6d28d9);
+    transform: translateY(-1px);
+    box-shadow: 0 6px 18px rgba(79, 70, 229, 0.55);
+}
+
+.st-update-banner-primary-btn:active {
+    transform: translateY(1px);
+}
+
+.st-update-banner-controls {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.st-update-banner-collapse-btn,
+.st-update-banner-close-btn {
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    color: #94a3b8;
+    width: 34px;
+    height: 34px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    font-size: 0.85rem;
+}
+
+.st-update-banner-collapse-btn:hover,
+.st-update-banner-close-btn:hover {
+    background: rgba(255, 255, 255, 0.18);
+    color: #ffffff;
+    transform: translateY(-1px);
+}
+
+/* ==========================================================================
+   Compact Floating Update Pill (Collapsed State)
+   ========================================================================== */
+.st-update-pill-floating {
+    position: fixed;
+    top: 12px;
+    right: 16px;
+    z-index: 999990;
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+    background: rgba(15, 23, 42, 0.92);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(99, 102, 241, 0.4);
+    padding: 6px 12px 6px 10px;
+    border-radius: 999px;
+    box-shadow: 0 8px 24px -4px rgba(0, 0, 0, 0.4),
+                0 0 16px rgba(99, 102, 241, 0.3);
+    cursor: pointer;
+    color: #f8fafc;
+    animation: stPillPulse 2.5s infinite alternate;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.st-update-pill-floating:hover {
+    transform: scale(1.03);
+    box-shadow: 0 10px 28px -4px rgba(0, 0, 0, 0.5),
+                0 0 20px rgba(99, 102, 241, 0.45);
+}
+
+@keyframes stPillPulse {
+    0% { border-color: rgba(99, 102, 241, 0.4); }
+    100% { border-color: rgba(147, 51, 234, 0.7); }
+}
+
+.st-pill-icon {
+    color: #818cf8;
+    display: flex;
+    font-size: 0.9rem;
+}
+
+.st-pill-text {
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: #f1f5f9;
+}
+
+.st-pill-action-btn {
+    background: #6366f1;
+    color: #ffffff;
+    border: none;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background 0.2s ease;
+}
+
+.st-pill-action-btn:hover {
+    background: #4f46e5;
+}
+
+/* ==========================================================================
+   Mobile Responsiveness (Phones, Tablets & Small Screens)
+   ========================================================================== */
+@media (max-width: 680px) {
+    .st-update-banner-container {
+        top: 8px;
+        width: 95vw;
+        padding: 12px 14px;
+        border-radius: 16px;
+    }
+
+    .st-update-banner-content {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 12px;
+    }
+
+    .st-update-banner-icon-wrap {
+        flex-direction: row;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .st-update-banner-rocket {
+        width: 34px;
+        height: 34px;
+        font-size: 1rem;
+        border-radius: 9px;
+    }
+
+    .st-update-banner-actions {
+        width: 100%;
+        display: flex;
+        justify-content: space-between;
+    }
+
+    .st-update-banner-primary-btn {
+        flex: 1;
+        justify-content: center;
+        padding: 10px 14px;
+        font-size: 0.85rem;
+    }
+
+    .st-update-pill-floating {
+        top: 8px;
+        right: 8px;
+        left: auto;
+        padding: 5px 10px;
+    }
+}

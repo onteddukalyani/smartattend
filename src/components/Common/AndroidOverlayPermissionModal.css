@@ -1,0 +1,385 @@
+/* AndroidOverlayPermissionModal.css - Premium Glassmorphic Overlay Guide */
+
+.overlay-guide-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 999999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(15, 23, 42, 0.78);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    padding: 16px;
+    animation: overlayFadeIn 0.28s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes overlayFadeIn {
+    from {
+        opacity: 0;
+        transform: scale(0.97);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+.overlay-guide-card {
+    position: relative;
+    width: 100%;
+    max-width: 490px;
+    background: linear-gradient(145deg, #1e293b, #0f172a);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 20px;
+    box-shadow: 0 24px 60px -12px rgba(0, 0, 0, 0.65), 0 0 40px rgba(99, 102, 241, 0.15);
+    color: #f8fafc;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    padding: 24px 22px;
+}
+
+/* Header */
+.overlay-guide-header {
+    text-align: center;
+    position: relative;
+    margin-bottom: 16px;
+}
+
+.overlay-guide-icon-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 14px;
+    background: rgba(99, 102, 241, 0.12);
+    border: 1px solid rgba(99, 102, 241, 0.3);
+    border-radius: 9999px;
+    margin-bottom: 12px;
+}
+
+.shield-icon {
+    font-size: 1.15rem;
+    color: #6366f1;
+    filter: drop-shadow(0 0 8px rgba(99, 102, 241, 0.6));
+    animation: shieldPulse 2.4s ease-in-out infinite;
+}
+
+@keyframes shieldPulse {
+    0%, 100% {
+        transform: scale(1);
+        filter: drop-shadow(0 0 6px rgba(99, 102, 241, 0.5));
+    }
+    50% {
+        transform: scale(1.08);
+        filter: drop-shadow(0 0 14px rgba(99, 102, 241, 0.9));
+    }
+}
+
+.android-chip {
+    font-size: 0.76rem;
+    font-weight: 750;
+    letter-spacing: 0.04em;
+    color: #a5b4fc;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.overlay-guide-close {
+    position: absolute;
+    top: -6px;
+    right: -4px;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: #94a3b8;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.9rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.overlay-guide-close:hover {
+    background: rgba(239, 68, 68, 0.2);
+    color: #f87171;
+    border-color: rgba(239, 68, 68, 0.4);
+}
+
+.overlay-guide-title {
+    font-size: 1.25rem;
+    font-weight: 800;
+    line-height: 1.35;
+    margin: 0 0 8px;
+    background: linear-gradient(135deg, #ffffff 40%, #cbd5e1 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+.overlay-guide-subtitle {
+    font-size: 0.88rem;
+    color: #94a3b8;
+    margin: 0;
+    line-height: 1.45;
+}
+
+.overlay-guide-subtitle strong {
+    color: #e2e8f0;
+}
+
+/* Security Notice Box */
+.overlay-security-notice {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    padding: 10px 14px;
+    background: rgba(245, 158, 11, 0.1);
+    border: 1px solid rgba(245, 158, 11, 0.3);
+    border-radius: 12px;
+    margin-bottom: 16px;
+    font-size: 0.82rem;
+    line-height: 1.4;
+    color: #fde68a;
+}
+
+.notice-icon {
+    font-size: 1.05rem;
+    color: #f59e0b;
+    margin-top: 1px;
+    flex-shrink: 0;
+}
+
+.notice-content strong {
+    color: #fbbf24;
+}
+
+/* 4-Step Cards Container */
+.overlay-steps-container {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 16px;
+}
+
+.overlay-step-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 10px 12px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    border-radius: 12px;
+    transition: all 0.25s ease;
+}
+
+.overlay-step-row.active {
+    background: rgba(99, 102, 241, 0.08);
+    border-color: rgba(99, 102, 241, 0.3);
+}
+
+.step-number {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: #334155;
+    color: #cbd5e1;
+    font-size: 0.78rem;
+    font-weight: 800;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    margin-top: 2px;
+    transition: all 0.25s ease;
+}
+
+.overlay-step-row.active .step-number {
+    background: linear-gradient(135deg, #6366f1, #4f46e5);
+    color: #ffffff;
+    box-shadow: 0 0 10px rgba(99, 102, 241, 0.5);
+}
+
+.step-details {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.step-title {
+    font-size: 0.86rem;
+    font-weight: 750;
+    color: #f1f5f9;
+}
+
+.step-desc {
+    font-size: 0.78rem;
+    color: #94a3b8;
+    line-height: 1.35;
+}
+
+.step-desc strong {
+    color: #cbd5e1;
+}
+
+/* Status Banner */
+.overlay-status-banner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 14px;
+    border-radius: 10px;
+    font-size: 0.82rem;
+    font-weight: 700;
+    margin-bottom: 16px;
+}
+
+.overlay-status-banner.checking {
+    background: rgba(100, 116, 139, 0.12);
+    border: 1px solid rgba(100, 116, 139, 0.25);
+    color: #94a3b8;
+}
+
+.overlay-status-banner.success {
+    background: rgba(16, 185, 129, 0.12);
+    border: 1px solid rgba(16, 185, 129, 0.3);
+    color: #34d399;
+}
+
+.status-icon {
+    font-size: 0.95rem;
+    margin-right: 6px;
+}
+
+.btn-recheck {
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    color: #cbd5e1;
+    font-size: 0.74rem;
+    font-weight: 750;
+    padding: 3px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    transition: all 0.2s ease;
+}
+
+.btn-recheck:hover {
+    background: rgba(255, 255, 255, 0.15);
+    color: #ffffff;
+}
+
+.btn-recheck .spin {
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+/* Action Buttons */
+.overlay-action-buttons {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-bottom: 12px;
+}
+
+.btn-overlay-action {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    width: 100%;
+    padding: 12px 18px;
+    border-radius: 12px;
+    font-size: 0.92rem;
+    font-weight: 800;
+    cursor: pointer;
+    border: none;
+    transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    letter-spacing: 0.01em;
+}
+
+.btn-overlay-action.primary {
+    background: linear-gradient(135deg, #6366f1, #4f46e5);
+    color: #ffffff;
+    box-shadow: 0 4px 14px rgba(99, 102, 241, 0.35);
+}
+
+.btn-overlay-action.primary:hover {
+    background: linear-gradient(135deg, #4f46e5, #4338ca);
+    box-shadow: 0 6px 20px rgba(99, 102, 241, 0.5);
+    transform: translateY(-1px);
+}
+
+.btn-overlay-action.secondary {
+    background: linear-gradient(135deg, #059669, #047857);
+    color: #ffffff;
+    box-shadow: 0 4px 14px rgba(5, 150, 105, 0.3);
+}
+
+.btn-overlay-action.secondary:hover {
+    background: linear-gradient(135deg, #047857, #065f46);
+    box-shadow: 0 6px 20px rgba(5, 150, 105, 0.45);
+    transform: translateY(-1px);
+}
+
+.btn-overlay-action:active {
+    transform: scale(0.985);
+}
+
+/* Footer */
+.overlay-guide-footer {
+    text-align: center;
+}
+
+.btn-overlay-dismiss {
+    background: transparent;
+    border: none;
+    color: #64748b;
+    font-size: 0.8rem;
+    font-weight: 700;
+    cursor: pointer;
+    padding: 4px 12px;
+    border-radius: 6px;
+    transition: all 0.2s ease;
+}
+
+.btn-overlay-dismiss:hover {
+    color: #94a3b8;
+    text-decoration: underline;
+}
+
+/* Light Theme Compatibility if system preference or theme */
+@media (prefers-color-scheme: light) {
+    .overlay-guide-card {
+        background: linear-gradient(145deg, #ffffff, #f8fafc);
+        border: 1px solid rgba(226, 232, 240, 0.9);
+        color: #0f172a;
+    }
+    .overlay-guide-title {
+        background: linear-gradient(135deg, #0f172a, #334155);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+    }
+    .overlay-step-row {
+        background: #f1f5f9;
+        border-color: #e2e8f0;
+    }
+    .step-title {
+        color: #0f172a;
+    }
+    .step-desc {
+        color: #64748b;
+    }
+    .overlay-step-row.active {
+        background: rgba(99, 102, 241, 0.06);
+        border-color: rgba(99, 102, 241, 0.35);
+    }
+}

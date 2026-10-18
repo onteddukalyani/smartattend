@@ -1,0 +1,485 @@
+/* ==========================================================================
+   SmartAttend Attendance Scanner & Verification Stylesheet
+   Spacious, Elegant, Glassmorphic Design with Breathing Room
+   ========================================================================== */
+
+/* Main Attendance Container - Generous spacing, smooth padding */
+.st-scanner-container {
+    max-width: 640px;
+    margin: 24px auto;
+    padding: 32px 28px;
+    background: var(--surface, #ffffff);
+    border-radius: 28px;
+    border: 1.5px solid var(--border, #e2e8f0);
+    box-shadow: 0 20px 45px -15px rgba(0, 0, 0, 0.08),
+                0 0 20px rgba(99, 102, 241, 0.06);
+    color: var(--text-main, #0f172a);
+    text-align: center;
+    position: relative;
+    box-sizing: border-box;
+    transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@media (max-width: 680px) {
+    .st-scanner-container {
+        margin: 16px auto;
+        padding: 24px 20px;
+        width: 93vw;
+        border-radius: 24px;
+    }
+}
+
+/* Header & Top Bar */
+.st-scanner-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 20px;
+    gap: 12px;
+}
+
+.st-scanner-back-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: transparent;
+    border: none;
+    color: var(--accent, #6366f1);
+    font-size: 0.95rem;
+    font-weight: 700;
+    cursor: pointer;
+    padding: 8px 12px;
+    border-radius: 10px;
+    transition: all 0.2s ease;
+}
+
+.st-scanner-back-btn:hover {
+    background: rgba(99, 102, 241, 0.08);
+    transform: translateX(-2px);
+}
+
+.st-scanner-student-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    border-radius: 999px;
+    background: var(--surface-soft, #f8fafc);
+    border: 1.5px solid var(--border, #e2e8f0);
+    font-size: 0.88rem;
+    font-weight: 700;
+    color: #334155;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
+}
+
+.st-scanner-student-chip .chip-icon {
+    color: #6366f1;
+    font-size: 1rem;
+}
+
+.st-scanner-student-chip strong {
+    color: #1e293b;
+    font-weight: 800;
+}
+
+/* Titles & Supervised Badges */
+.st-scanner-title-section {
+    margin-bottom: 22px;
+}
+
+.st-scanner-title {
+    margin: 0 0 8px 0;
+    font-size: 1.65rem;
+    font-weight: 800;
+    color: var(--text-main, #0f172a);
+    letter-spacing: -0.02em;
+}
+
+.st-scanner-subtitle {
+    margin: 0 0 14px 0;
+    font-size: 0.92rem;
+    color: var(--text-muted, #64748b);
+    line-height: 1.5;
+}
+
+.st-scanner-supervised-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 16px;
+    border-radius: 999px;
+    background: rgba(16, 185, 129, 0.1);
+    color: #059669;
+    font-size: 0.85rem;
+    font-weight: 800;
+    border: 1px solid rgba(16, 185, 129, 0.25);
+}
+
+.st-scanner-waiting-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 18px;
+    border-radius: 999px;
+    background: rgba(99, 102, 241, 0.1);
+    color: #4338ca;
+    font-size: 0.88rem;
+    font-weight: 800;
+    border: 1px solid rgba(99, 102, 241, 0.25);
+    margin-bottom: 20px;
+}
+
+/* Camera Viewport - Spacious, Rounded & Focused */
+.st-camera-viewport-card {
+    border-radius: 22px;
+    overflow: hidden;
+    border: 2.5px solid rgba(99, 102, 241, 0.4);
+    background: #020617;
+    position: relative;
+    min-height: 320px;
+    height: 340px;
+    box-shadow: 0 12px 32px -6px rgba(0, 0, 0, 0.3),
+                0 0 24px rgba(99, 102, 241, 0.2);
+    margin-bottom: 24px;
+}
+
+@media (max-width: 680px) {
+    .st-camera-viewport-card {
+        min-height: 280px;
+        height: 300px;
+        margin-bottom: 18px;
+    }
+}
+
+.st-camera-viewport-card.active-phase2 {
+    border-color: #10b981;
+    box-shadow: 0 12px 32px -6px rgba(0, 0, 0, 0.3),
+                0 0 30px rgba(16, 185, 129, 0.35);
+}
+
+.st-camera-badge-floating {
+    position: absolute;
+    top: 14px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 10;
+    padding: 6px 16px;
+    border-radius: 999px;
+    background: rgba(6, 78, 59, 0.94);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border: 1px solid #34d399;
+    color: #ecfdf5;
+    font-size: 0.84rem;
+    font-weight: 800;
+    white-space: nowrap;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+/* Waiting for QR 2 Card */
+.st-scanner-waiting-box {
+    border-radius: 20px;
+    padding: 28px 22px;
+    border: 2px dashed #cbd5e1;
+    background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
+    text-align: center;
+    margin-bottom: 24px;
+}
+
+.st-scanner-waiting-box p {
+    margin: 0 0 16px 0;
+    font-size: 0.95rem;
+    color: #64748b;
+    line-height: 1.5;
+}
+
+.st-countdown-display {
+    display: inline-block;
+    padding: 12px 28px;
+    border-radius: 16px;
+    background: #ffffff;
+    border: 2px solid #c7d2fe;
+    box-shadow: 0 4px 14px rgba(99, 102, 241, 0.12);
+}
+
+.st-countdown-label {
+    font-size: 0.78rem;
+    font-weight: 800;
+    color: #6366f1;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 2px;
+}
+
+.st-countdown-time {
+    font-size: 1.85rem;
+    font-weight: 900;
+    color: #312e81;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+/* Supervised Lock Task Bar */
+.st-supervised-bar {
+    padding: 12px 18px;
+    border-radius: 16px;
+    background: linear-gradient(135deg, #4338ca 0%, #6366f1 100%);
+    color: #ffffff;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 20px;
+    box-shadow: 0 6px 18px rgba(99, 102, 241, 0.3);
+}
+
+.st-supervised-bar-left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: 800;
+    font-size: 0.92rem;
+}
+
+.st-supervised-release-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(255, 255, 255, 0.22);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    border-radius: 10px;
+    padding: 6px 14px;
+    color: #ffffff;
+    font-size: 0.82rem;
+    font-weight: 750;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.st-supervised-release-btn:hover {
+    background: rgba(255, 255, 255, 0.32);
+}
+
+/* Spacious Success Screen */
+.st-success-card {
+    max-width: 640px;
+    margin: 24px auto;
+    padding: 36px 30px;
+    background: var(--surface, #ffffff);
+    border-radius: 28px;
+    border: 1.5px solid var(--border, #e2e8f0);
+    box-shadow: 0 20px 45px -15px rgba(22, 163, 74, 0.15),
+                0 0 20px rgba(0, 0, 0, 0.05);
+    color: var(--text-main, #0f172a);
+    text-align: center;
+    position: relative;
+    box-sizing: border-box;
+}
+
+.st-success-icon-badge {
+    width: 68px;
+    height: 68px;
+    border-radius: 50%;
+    background: #dcfce7;
+    color: #15803d;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 16px;
+    font-size: 34px;
+    box-shadow: 0 6px 20px rgba(22, 163, 74, 0.25);
+}
+
+.st-success-title {
+    font-size: 1.6rem;
+    font-weight: 850;
+    margin: 0 0 8px 0;
+    color: #15803d;
+    letter-spacing: -0.01em;
+}
+
+.st-success-kiosk-status {
+    color: #4338ca;
+    font-size: 0.92rem;
+    font-weight: 750;
+    margin: 0 0 20px 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+}
+
+/* Details Box - Breathable Rows */
+.st-attendance-details-box {
+    background: var(--surface-soft, #f8fafc);
+    border: 1.5px solid var(--border, #e2e8f0);
+    border-radius: 18px;
+    padding: 16px 20px;
+    text-align: left;
+    margin-bottom: 24px;
+}
+
+.st-attendance-details-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 0;
+    border-bottom: 1px solid rgba(226, 232, 240, 0.8);
+}
+
+.st-attendance-details-row:last-child {
+    border-bottom: none;
+}
+
+.st-attendance-details-label {
+    color: #64748b;
+    font-size: 0.92rem;
+    font-weight: 600;
+}
+
+.st-attendance-details-val {
+    color: #1e293b;
+    font-weight: 800;
+    font-size: 0.98rem;
+}
+
+/* PIN Exit Card in Success Screen */
+.st-pin-unlock-card {
+    background: rgba(99, 102, 241, 0.04);
+    border: 1.5px solid rgba(99, 102, 241, 0.22);
+    border-radius: 18px;
+    padding: 22px 20px;
+    margin-bottom: 20px;
+    text-align: center;
+}
+
+.st-pin-unlock-title {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    color: #4338ca;
+    font-weight: 800;
+    font-size: 1.05rem;
+    margin-bottom: 6px;
+}
+
+.st-pin-unlock-desc {
+    margin: 0 0 16px 0;
+    font-size: 0.88rem;
+    color: #64748b;
+    line-height: 1.45;
+}
+
+.st-pin-input-field {
+    width: 100%;
+    max-width: 320px;
+    margin: 0 auto 12px;
+    padding: 12px 18px;
+    border-radius: 14px;
+    border: 2px solid #6366f1;
+    font-size: 1.45rem;
+    letter-spacing: 8px;
+    text-align: center;
+    font-weight: 800;
+    outline: none;
+    background: #ffffff;
+    color: #0f172a;
+    box-shadow: 0 4px 12px rgba(99, 102, 241, 0.12);
+    transition: all 0.2s ease;
+    box-sizing: border-box;
+}
+
+.st-pin-input-field:focus {
+    border-color: #4338ca;
+    box-shadow: 0 6px 16px rgba(99, 102, 241, 0.22);
+}
+
+.st-pin-submit-btn {
+    width: 100%;
+    max-width: 320px;
+    padding: 14px 20px;
+    border-radius: 14px;
+    background: linear-gradient(135deg, #4f46e5, #7c3aed);
+    color: #ffffff;
+    border: none;
+    font-size: 0.98rem;
+    font-weight: 800;
+    cursor: pointer;
+    box-shadow: 0 4px 14px rgba(79, 70, 229, 0.35);
+    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+}
+
+.st-pin-submit-btn:hover {
+    background: linear-gradient(135deg, #4338ca, #6d28d9);
+    transform: translateY(-1px);
+    box-shadow: 0 6px 18px rgba(79, 70, 229, 0.45);
+}
+
+/* Error message banner */
+.st-scanner-error-banner {
+    margin-top: 16px;
+    padding: 14px 18px;
+    border-radius: 14px;
+    background: #fee2e2;
+    border: 1px solid #fca5a5;
+    color: #b91c1c;
+    font-size: 0.9rem;
+    font-weight: 700;
+    text-align: left;
+    line-height: 1.45;
+}
+
+/* Fast Biometric Verification View */
+.st-biometric-container {
+    max-width: 640px;
+    margin: 24px auto;
+    padding: 32px 28px;
+    background: var(--surface, #ffffff);
+    border-radius: 28px;
+    border: 1.5px solid var(--border, #e2e8f0);
+    box-shadow: 0 20px 45px -15px rgba(0, 0, 0, 0.1);
+    color: var(--text-main, #0f172a);
+    text-align: center;
+    position: relative;
+    box-sizing: border-box;
+}
+
+.st-biometric-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 20px;
+}
+
+.st-biometric-phase-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 16px;
+    border-radius: 999px;
+    background: rgba(16, 185, 129, 0.12);
+    color: #059669;
+    font-size: 0.88rem;
+    font-weight: 800;
+}
+
+.st-biometric-exit-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: transparent;
+    border: none;
+    color: #6366f1;
+    font-size: 0.88rem;
+    font-weight: 700;
+    cursor: pointer;
+    padding: 6px 12px;
+    border-radius: 8px;
+}
+
+.st-biometric-exit-btn:hover {
+    background: rgba(99, 102, 241, 0.08);
+}
