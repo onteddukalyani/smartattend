@@ -232,85 +232,16 @@ export default function FaceEnrollPage() {
                     className="back-btn"
                     onClick={() => navigate("/student")}
                 >
-                    <FaArrowLeft /> Back to Dashboard
+                    <FaArrowLeft /> Dashboard
                 </button>
                 <div className="top-badge">
-                    <FaShieldAlt /> Biometric Hub
+                    <FaShieldAlt /> <strong>{activeRollNo}</strong> ({studentName})
                 </div>
             </div>
-
-            {/* Cryptographic Device Biometrics Notice */}
-            <div className="inapp-bio-guarantee-banner">
-                <FaShieldAlt className="guarantee-icon" />
-                <div>
-                    <strong>Hardware-Bound Biometric Security</strong>
-                    <p>
-                        SmartAttend binds your physical device's hardware chip ({isNative ? (platform === "android" ? "Android Keystore" : "Apple Secure Enclave") : "Platform Authenticator"}) and 3D facial vectors to your student account for anti-proxy attendance security.
-                    </p>
-                </div>
-            </div>
-
-            {/* 1. Dual-Biometric Status Overview Cards */}
-            <div className="bio-status-overview-grid">
-                <div
-                    className={`bio-status-card ${hasFaceRegistered ? "enrolled" : "pending"} ${activeTab === "face" ? "active-tab-card" : ""}`}
-                    onClick={() => setActiveTab("face")}
-                    role="button"
-                    tabIndex={0}
-                >
-                    <div className="bio-status-icon-wrap face-icon-wrap">
-                        <FaCamera />
-                    </div>
-                    <div className="bio-status-info">
-                        <div className="bio-status-label">1. Face Biometrics</div>
-                        <div className="bio-status-title">
-                            {hasFaceRegistered ? (
-                                <span className="status-badge-enrolled"><FaCheckCircle /> Registered &amp; Active</span>
-                            ) : (
-                                <span className="status-badge-pending"><FaExclamationTriangle /> Not Registered</span>
-                            )}
-                        </div>
-                        <p className="bio-status-desc">3D facial vector with live anti-spoofing</p>
-                    </div>
-                </div>
-
-                <div
-                    className={`bio-status-card ${hasHwRegistered ? "enrolled" : "pending"} ${activeTab === "fingerprint" ? "active-tab-card" : ""}`}
-                    onClick={() => setActiveTab("fingerprint")}
-                    role="button"
-                    tabIndex={0}
-                >
-                    <div className="bio-status-icon-wrap fp-icon-wrap">
-                        <FaFingerprint />
-                    </div>
-                    <div className="bio-status-info">
-                        <div className="bio-status-label">2. Device Fingerprint</div>
-                        <div className="bio-status-title">
-                            {hasHwRegistered ? (
-                                <span className="status-badge-enrolled"><FaCheckCircle /> Enrolled on Device</span>
-                            ) : (
-                                <span className="status-badge-pending"><FaExclamationTriangle /> Not Registered</span>
-                            )}
-                        </div>
-                        <p className="bio-status-desc">Hardware security chip signature</p>
-                    </div>
-                </div>
-            </div>
-
-            {/* All-Set Congratulatory & Permanent Lock Banner */}
-            {isAllRegistered && (
-                <div className="bio-all-registered-banner bio-permanent-lock-banner">
-                    <FaLock className="banner-icon lock-icon-main" />
-                    <div>
-                        <strong>Biometrics Permanently Locked &amp; Protected 🔒</strong>
-                        <p>Both your 3D Face Biometrics and Device Fingerprint are officially registered under Roll No: <strong>{activeRollNo}</strong>. Self-editing and re-enrollment are permanently disabled.</p>
-                    </div>
-                </div>
-            )}
 
             {/* Main Interactive Card */}
             <div className="face-enroll-card">
-                {/* Tab Navigation Switcher */}
+                {/* Tab Navigation Switcher with Live Status */}
                 <div className="bio-tabs-switcher" role="tablist">
                     <button
                         type="button"
@@ -319,7 +250,7 @@ export default function FaceEnrollPage() {
                         className={`bio-tab-btn ${activeTab === "face" ? "active" : ""}`}
                         onClick={() => setActiveTab("face")}
                     >
-                        <FaCamera /> Face Registration {hasFaceRegistered ? <FaLock className="tab-lock" /> : null}
+                        <FaCamera /> 1. Face Biometrics {hasFaceRegistered ? <span style={{ color: '#10b981', fontWeight: 800, fontSize: '0.82rem' }}>✓ Active</span> : <span style={{ color: '#d97706', fontSize: '0.78rem' }}>(Not Set)</span>}
                     </button>
                     <button
                         type="button"
@@ -328,7 +259,7 @@ export default function FaceEnrollPage() {
                         className={`bio-tab-btn ${activeTab === "fingerprint" ? "active" : ""}`}
                         onClick={() => setActiveTab("fingerprint")}
                     >
-                        <FaFingerprint /> Device Fingerprint {hasHwRegistered ? <FaLock className="tab-lock" /> : null}
+                        <FaFingerprint /> 2. Fingerprint {hasHwRegistered ? <span style={{ color: '#10b981', fontWeight: 800, fontSize: '0.82rem' }}>✓ Active</span> : <span style={{ color: '#d97706', fontSize: '0.78rem' }}>(Not Set)</span>}
                     </button>
                 </div>
 

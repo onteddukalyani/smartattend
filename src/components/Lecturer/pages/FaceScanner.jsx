@@ -869,17 +869,23 @@ function FaceScanner({
 
       {/* Anti-Spoofing & Liveness Shield Badges */}
       <div className="liveness-badge-row">
-        <span className={`liveness-shield-tag ${isSpoof ? "spoof-warn" : livenessPassed ? "live-pass" : ""}`}>
-          <FaShieldAlt /> Anti-Spoof: {isSpoof ? "⚠️ ALERT (Static Photo/Screen)" : livenessPassed ? "PASSED (Live Human)" : "Active 🛡️"}
-        </span>
-        {verifiedStudent && (
-          <span className={`liveness-shield-tag ${status === "mismatch" ? "spoof-warn" : status === "verified" ? "live-pass" : ""}`}>
-            <FaUserCheck /> 1:1 Identity: {status === "mismatch" ? "❌ Mismatch (Proxy Blocked)" : status === "verified" ? `✅ Matched (${verifiedStudent?.rollNo || "Verified"})` : `Verifying ${verifiedStudent?.rollNo || ""}`}
+        {isSpoof ? (
+          <span className="liveness-shield-tag spoof-warn">
+            <FaShieldAlt /> ⚠️ Anti-Spoof: Static Photo/Screen Blocked
+          </span>
+        ) : status === "mismatch" ? (
+          <span className="liveness-shield-tag spoof-warn">
+            <FaUserCheck /> ❌ Biometric Identity Mismatch
+          </span>
+        ) : livenessPassed ? (
+          <span className="liveness-shield-tag live-pass">
+            <FaShieldAlt /> ✅ Anti-Spoof Passed · Live Biometric Verified
+          </span>
+        ) : (
+          <span className="liveness-shield-tag">
+            <FaShieldAlt /> 🛡️ Anti-Spoof Active · Look at Camera
           </span>
         )}
-        <span className={`liveness-shield-tag ${livenessPassed ? "live-pass" : ""}`}>
-          {livenessPassed ? <FaEye /> : <FaEyeSlash />} Active Challenge: {livenessPassed ? "✅ Verified" : (activeChallenge ? `${activeChallenge.currentIndex + 1}/3` : "Pending")}
-        </span>
       </div>
 
       {/* Active Anti-Spoofing Challenge HUD */}

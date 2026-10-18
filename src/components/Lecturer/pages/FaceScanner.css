@@ -366,13 +366,13 @@
 .liveness-shield-tag {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 3px 8px;
+  gap: 6px;
+  padding: 5px 12px;
   background: rgba(99, 102, 241, 0.1);
   color: #4f46e5;
-  border-radius: 6px;
-  font-size: 0.72rem;
-  font-weight: 700;
+  border-radius: 8px;
+  font-size: 0.82rem;
+  font-weight: 750;
 }
 
 .liveness-shield-tag.live-pass {

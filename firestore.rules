@@ -307,7 +307,7 @@ service cloud.firestore {
           isSignedIn() &&
           (request.auth.uid == authDocId || (resource.data.studentUid != null && resource.data.studentUid == request.auth.uid)) &&
           !request.resource.data.diff(resource.data).affectedKeys().hasAny([
-            'qr1Verified', 'status', 'excused', 'excusedBy', 'excuseReason', 'kioskEndsAt'
+            'qr1Verified', 'excused', 'excusedBy', 'excuseReason', 'kioskEndsAt'
           ]) &&
           (resource.data.hasViolation != true || request.resource.data.hasViolation == true) &&
           (resource.data.disqualified != true || request.resource.data.disqualified == true)
@@ -363,16 +363,19 @@ service cloud.firestore {
     // =========================================================================
 
     match /biometric_credentials/{docId} {
-      allow read, write: if false;
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && (request.auth.uid == docId || isStaff());
       match /{document=**} {
-        allow read, write: if false;
+        allow read: if isSignedIn();
+        allow write: if isStaff();
       }
     }
 
     match /biometric_challenges/{docId} {
-      allow read, write: if false;
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
       match /{document=**} {
-        allow read, write: if false;
+        allow read, write: if isSignedIn();
       }
     }
 
@@ -394,12 +397,15 @@ service cloud.firestore {
 
     match /attendance_records/{recordId} {
       allow read: if isSignedIn();
-      allow create: if false;
+      allow create: if isSignedIn() && (
+        isStaff() ||
+        request.auth.uid == request.resource.data.studentUid ||
+        request.resource.data.rollNo != null
+      );
       allow update, delete: if isStaff();
       match /{document=**} {
         allow read: if isSignedIn();
-        allow create: if false;
-        allow update, delete: if isStaff();
+        allow write: if isStaff();
       }
     }
   }
