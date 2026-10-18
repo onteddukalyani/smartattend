@@ -46,25 +46,18 @@ export const AuthProvider = ({ children }) => {
     const rollFromEmail = prefix.toUpperCase();
 
     try {
-      // 1. Run all primary direct lookups in parallel for maximum speed
+      // 1. Check Admins & Lecturers first
       const [
         adminPrefixSnap, adminEmailSnap,
         lectPrefixSnap, lectEmailSnap,
-        studentRollSnap, studentPrefixSnap, studentEmailDocSnap,
-        userRollSnap, userPrefixSnap,
-        authPrefixSnap, authEmailSnap
+        adminQuerySnap, lectQuerySnap
       ] = await Promise.all([
         getDoc(doc(db, "admins", prefix)).catch(() => ({ exists: () => false })),
         getDoc(doc(db, "admins", cleanEmail)).catch(() => ({ exists: () => false })),
         getDoc(doc(db, "lecturers", prefix)).catch(() => ({ exists: () => false })),
         getDoc(doc(db, "lecturers", cleanEmail)).catch(() => ({ exists: () => false })),
-        getDoc(doc(db, "students", rollFromEmail)).catch(() => ({ exists: () => false })),
-        prefix !== rollFromEmail.toLowerCase() ? getDoc(doc(db, "students", prefix)).catch(() => ({ exists: () => false })) : Promise.resolve({ exists: () => false }),
-        getDoc(doc(db, "students", cleanEmail)).catch(() => ({ exists: () => false })),
-        getDoc(doc(db, "users", rollFromEmail)).catch(() => ({ exists: () => false })),
-        prefix !== rollFromEmail.toLowerCase() ? getDoc(doc(db, "users", prefix)).catch(() => ({ exists: () => false })) : Promise.resolve({ exists: () => false }),
-        getDoc(doc(db, "authorizedUsers", prefix)).catch(() => ({ exists: () => false })),
-        getDoc(doc(db, "authorizedUsers", cleanEmail)).catch(() => ({ exists: () => false }))
+        getDocs(query(collection(db, "admins"), where("email", "==", cleanEmail))).catch(() => ({ empty: true, docs: [] })),
+        getDocs(query(collection(db, "lecturers"), where("email", "==", cleanEmail))).catch(() => ({ empty: true, docs: [] }))
       ]);
 
       // Check Admin
@@ -76,6 +69,10 @@ export const AuthProvider = ({ children }) => {
         const d = adminEmailSnap.data();
         return { id: adminEmailSnap.id, ...d, email: cleanEmail, role: "admin" };
       }
+      if (!adminQuerySnap.empty) {
+        const d = adminQuerySnap.docs[0].data();
+        return { id: adminQuerySnap.docs[0].id, ...d, email: cleanEmail, role: "admin" };
+      }
 
       // Check Lecturer
       if (lectPrefixSnap.exists()) {
@@ -86,16 +83,130 @@ export const AuthProvider = ({ children }) => {
         const d = lectEmailSnap.data();
         return { id: lectEmailSnap.id, ...d, email: cleanEmail, role: "lecturer" };
       }
+      if (!lectQuerySnap.empty) {
+        const d = lectQuerySnap.docs[0].data();
+        return { id: lectQuerySnap.docs[0].id, ...d, email: cleanEmail, role: "lecturer" };
+      }
 
-      // Check Student direct docs
+      // 2. CHECK STUDENTS DATABASE COLLECTION BY LOGGED IN EMAIL ID
+      // If student email is in students collection in database, use those exact details!
+      const [
+        studentEmailQuerySnap,
+        studentEmailDocSnap,
+        studentRollSnap,
+        studentPrefixSnap,
+        allStudentsSnap
+      ] = await Promise.all([
+        getDocs(query(collection(db, "students"), where("email", "==", cleanEmail))).catch(() => ({ empty: true, docs: [] })),
+        getDoc(doc(db, "students", cleanEmail)).catch(() => ({ exists: () => false })),
+        getDoc(doc(db, "students", rollFromEmail)).catch(() => ({ exists: () => false })),
+        prefix !== rollFromEmail.toLowerCase() ? getDoc(doc(db, "students", prefix)).catch(() => ({ exists: () => false })) : Promise.resolve({ exists: () => false }),
+        getDocs(collection(db, "students")).catch(() => ({ empty: true, docs: [] }))
+      ]);
+
+      let matchedStudentDoc = null;
+      let matchedStudentId = "";
+
+      // A. Query students by exact email
+      if (!studentEmailQuerySnap.empty && studentEmailQuerySnap.docs?.[0]) {
+        matchedStudentDoc = studentEmailQuerySnap.docs[0].data();
+        matchedStudentId = studentEmailQuerySnap.docs[0].id;
+      }
+      // B. Direct document lookup by email
+      else if (studentEmailDocSnap.exists()) {
+        matchedStudentDoc = studentEmailDocSnap.data();
+        matchedStudentId = studentEmailDocSnap.id;
+      }
+      // C. Case-insensitive scan across students collection
+      else if (!allStudentsSnap.empty) {
+        for (const d of allStudentsSnap.docs) {
+          const data = d.data();
+          const docEmail = (data.email || "").toLowerCase().trim();
+          if (docEmail && docEmail === cleanEmail) {
+            matchedStudentDoc = data;
+            matchedStudentId = d.id;
+            break;
+          }
+        }
+      }
+      // D. Roll number document lookup in students
+      if (!matchedStudentDoc) {
+        if (studentRollSnap.exists()) {
+          matchedStudentDoc = studentRollSnap.data();
+          matchedStudentId = studentRollSnap.id;
+        } else if (studentPrefixSnap.exists()) {
+          matchedStudentDoc = studentPrefixSnap.data();
+          matchedStudentId = studentPrefixSnap.id;
+        }
+      }
+
+      // If student is found in database, USE EXACT DATABASE DETAILS!
+      if (matchedStudentDoc) {
+        const authoritativeRollNo = String(
+          matchedStudentDoc.rollNo ||
+          (!matchedStudentId.includes("@") ? matchedStudentId : "")
+        ).trim().toUpperCase();
+
+        const authoritativeName = String(
+          matchedStudentDoc.name ||
+          matchedStudentDoc.fullName ||
+          ""
+        ).trim();
+
+        const hasFaceRemoval = Boolean(
+          matchedStudentDoc.faceRemovedAt ||
+          matchedStudentDoc.faceRegistered === false ||
+          matchedStudentDoc.biometricEnrolled === false ||
+          matchedStudentDoc.hasFaceRegistered === false ||
+          !matchedStudentDoc.faceDescriptor ||
+          (Array.isArray(matchedStudentDoc.faceDescriptor) && matchedStudentDoc.faceDescriptor.length !== 128)
+        );
+
+        const hasValidFace = Boolean(
+          !hasFaceRemoval &&
+          Array.isArray(matchedStudentDoc.faceDescriptor) &&
+          matchedStudentDoc.faceDescriptor.length === 128
+        );
+
+        return {
+          id: authoritativeRollNo || matchedStudentId || cleanEmail,
+          ...matchedStudentDoc,
+          rollNo: authoritativeRollNo,
+          name: authoritativeName || authoritativeRollNo,
+          fullName: authoritativeName || authoritativeRollNo,
+          email: matchedStudentDoc.email || cleanEmail,
+          branch: (matchedStudentDoc.branch && String(matchedStudentDoc.branch).toLowerCase() !== "general")
+            ? String(matchedStudentDoc.branch).trim()
+            : (matchedStudentDoc.department || "CSE"),
+          semester: matchedStudentDoc.semester ? String(matchedStudentDoc.semester).trim() : "1",
+          role: "student",
+          status: matchedStudentDoc.status || "active",
+          approved: matchedStudentDoc.approved !== false,
+          faceDescriptor: hasValidFace ? matchedStudentDoc.faceDescriptor : null,
+          faceRegistered: hasValidFace,
+          biometricEnrolled: hasValidFace,
+          hasFaceRegistered: hasValidFace,
+          faceRemovedAt: matchedStudentDoc.faceRemovedAt || (hasFaceRemoval ? Date.now() : null)
+        };
+      }
+
+      // 3. Fallback: Check authorizedUsers & users collections if not yet in students
+      const [userRollSnap, userPrefixSnap, authPrefixSnap, authEmailSnap, qUserEmail, qAuthEmail] = await Promise.all([
+        getDoc(doc(db, "users", rollFromEmail)).catch(() => ({ exists: () => false })),
+        prefix !== rollFromEmail.toLowerCase() ? getDoc(doc(db, "users", prefix)).catch(() => ({ exists: () => false })) : Promise.resolve({ exists: () => false }),
+        getDoc(doc(db, "authorizedUsers", prefix)).catch(() => ({ exists: () => false })),
+        getDoc(doc(db, "authorizedUsers", cleanEmail)).catch(() => ({ exists: () => false })),
+        getDocs(query(collection(db, "users"), where("email", "==", cleanEmail))).catch(() => ({ empty: true, docs: [] })),
+        getDocs(query(collection(db, "authorizedUsers"), where("email", "==", cleanEmail))).catch(() => ({ empty: true, docs: [] }))
+      ]);
+
       const candidateDocs = [
         authEmailSnap.exists() ? authEmailSnap.data() : null,
         authPrefixSnap.exists() ? authPrefixSnap.data() : null,
         userPrefixSnap.exists() ? userPrefixSnap.data() : null,
         userRollSnap.exists() ? userRollSnap.data() : null,
-        studentEmailDocSnap.exists() ? studentEmailDocSnap.data() : null,
-        studentPrefixSnap.exists() ? studentPrefixSnap.data() : null,
-        studentRollSnap.exists() ? studentRollSnap.data() : null
+        !qAuthEmail.empty ? qAuthEmail.docs[0].data() : null,
+        !qUserEmail.empty ? qUserEmail.docs[0].data() : null
       ].filter(Boolean);
 
       if (candidateDocs.length > 0) {
@@ -107,18 +218,8 @@ export const AuthProvider = ({ children }) => {
         let isExplicitlyFaceRemoved = false;
         let mostRecentRemovalTime = 0;
 
-        const studentDoc = studentRollSnap.exists() ? studentRollSnap.data() : (studentEmailDocSnap.exists() ? studentEmailDocSnap.data() : (studentPrefixSnap.exists() ? studentPrefixSnap.data() : null));
-        if (studentDoc) {
-          if (studentDoc.rollNo) authoritativeRollNo = String(studentDoc.rollNo).trim().toUpperCase();
-          else if (studentRollSnap.exists()) authoritativeRollNo = studentRollSnap.id.trim().toUpperCase();
-          if (studentDoc.semester) authoritativeSemester = String(studentDoc.semester).trim();
-          if (studentDoc.branch && String(studentDoc.branch).toLowerCase() !== "general") authoritativeBranch = String(studentDoc.branch).trim();
-          if (studentDoc.name && !isGenericName(studentDoc.name, authoritativeRollNo, cleanEmail)) authoritativeName = String(studentDoc.name).trim();
-          if (studentDoc.fullName && !isGenericName(studentDoc.fullName, authoritativeRollNo, cleanEmail)) authoritativeName = String(studentDoc.fullName).trim();
-        }
-
         for (const c of candidateDocs) {
-          if (!authoritativeRollNo && c.rollNo) {
+          if (!authoritativeRollNo && c.rollNo && !String(c.rollNo).includes("@")) {
             authoritativeRollNo = String(c.rollNo).trim().toUpperCase();
           }
           if (!authoritativeName && c.name && !isGenericName(c.name, authoritativeRollNo, cleanEmail)) {
@@ -126,9 +227,6 @@ export const AuthProvider = ({ children }) => {
           }
           if (!authoritativeName && c.fullName && !isGenericName(c.fullName, authoritativeRollNo, cleanEmail)) {
             authoritativeName = String(c.fullName).trim();
-          }
-          if (!authoritativeName && c.displayName && !isGenericName(c.displayName, authoritativeRollNo, cleanEmail)) {
-            authoritativeName = String(c.displayName).trim();
           }
           if (!authoritativeSemester && c.semester) {
             authoritativeSemester = String(c.semester).trim();
@@ -162,113 +260,8 @@ export const AuthProvider = ({ children }) => {
           merged.faceRemovedAt = mostRecentRemovalTime || Date.now();
         }
 
-        const finalRollNo = authoritativeRollNo || merged.rollNo || (studentRollSnap.exists() ? studentRollSnap.id.toUpperCase() : "");
-        const finalName = authoritativeName || merged.name || merged.fullName || "";
-        return {
-          id: finalRollNo || cleanEmail,
-          ...merged,
-          name: finalName,
-          fullName: finalName,
-          email: merged.email || cleanEmail,
-          rollNo: finalRollNo,
-          role: String(merged.role || "student").trim().toLowerCase()
-        };
-      }
-
-      // 2. Query fallback in parallel
-      const [adminQuerySnap, lectQuerySnap, qStudentEmail, qStudentRoll, qUserEmail, qAuthEmail] = await Promise.all([
-        getDocs(query(collection(db, "admins"), where("email", "==", cleanEmail))).catch(() => ({ empty: true })),
-        getDocs(query(collection(db, "lecturers"), where("email", "==", cleanEmail))).catch(() => ({ empty: true })),
-        getDocs(query(collection(db, "students"), where("email", "==", cleanEmail))).catch(() => ({ empty: true, docs: [] })),
-        getDocs(query(collection(db, "students"), where("rollNo", "==", rollFromEmail))).catch(() => ({ empty: true, docs: [] })),
-        getDocs(query(collection(db, "users"), where("email", "==", cleanEmail))).catch(() => ({ empty: true, docs: [] })),
-        getDocs(query(collection(db, "authorizedUsers"), where("email", "==", cleanEmail))).catch(() => ({ empty: true, docs: [] }))
-      ]);
-
-      if (!adminQuerySnap.empty) {
-        const d = adminQuerySnap.docs[0].data();
-        return { id: adminQuerySnap.docs[0].id, ...d, email: cleanEmail, role: "admin" };
-      }
-
-      if (!lectQuerySnap.empty) {
-        const d = lectQuerySnap.docs[0].data();
-        return { id: lectQuerySnap.docs[0].id, ...d, email: cleanEmail, role: "lecturer" };
-      }
-
-      const fieldDocs = [
-        !qAuthEmail.empty ? qAuthEmail.docs[0].data() : null,
-        !qUserEmail.empty ? qUserEmail.docs[0].data() : null,
-        !qStudentEmail.empty ? qStudentEmail.docs[0].data() : null,
-        !qStudentRoll.empty ? qStudentRoll.docs[0].data() : null
-      ].filter(Boolean);
-
-      const studentDocMatch = !qStudentRoll.empty ? qStudentRoll.docs[0] : (!qStudentEmail.empty ? qStudentEmail.docs[0] : null);
-      const studentFallback = studentDocMatch ? studentDocMatch.data() : null;
-      let authoritativeRollNo = "";
-      let authoritativeName = "";
-      let authoritativeBranch = "";
-      let authoritativeSemester = "";
-      if (studentFallback) {
-        if (studentFallback.rollNo) authoritativeRollNo = String(studentFallback.rollNo).trim().toUpperCase();
-        else if (studentDocMatch && !studentDocMatch.id.includes("@")) authoritativeRollNo = studentDocMatch.id.trim().toUpperCase();
-        if (studentFallback.semester) authoritativeSemester = String(studentFallback.semester).trim();
-        if (studentFallback.branch && String(studentFallback.branch).toLowerCase() !== "general") authoritativeBranch = String(studentFallback.branch).trim();
-        if (studentFallback.name && !isGenericName(studentFallback.name, authoritativeRollNo, cleanEmail)) authoritativeName = String(studentFallback.name).trim();
-        if (studentFallback.fullName && !isGenericName(studentFallback.fullName, authoritativeRollNo, cleanEmail)) authoritativeName = String(studentFallback.fullName).trim();
-      }
-
-      if (fieldDocs.length > 0) {
-        let merged = {};
-        let isExplicitlyFaceRemoved = false;
-        let mostRecentRemovalTime = 0;
-
-        for (const c of fieldDocs) {
-          if (!authoritativeRollNo && c.rollNo) {
-            authoritativeRollNo = String(c.rollNo).trim().toUpperCase();
-          }
-          if (!authoritativeName && c.name && !isGenericName(c.name, authoritativeRollNo, cleanEmail)) {
-            authoritativeName = String(c.name).trim();
-          }
-          if (!authoritativeName && c.fullName && !isGenericName(c.fullName, authoritativeRollNo, cleanEmail)) {
-            authoritativeName = String(c.fullName).trim();
-          }
-          if (!authoritativeName && c.displayName && !isGenericName(c.displayName, authoritativeRollNo, cleanEmail)) {
-            authoritativeName = String(c.displayName).trim();
-          }
-          if (!authoritativeSemester && c.semester) {
-            authoritativeSemester = String(c.semester).trim();
-          }
-          if (!authoritativeBranch && c.branch && String(c.branch).toLowerCase() !== "general") {
-            authoritativeBranch = String(c.branch).trim();
-          }
-          if (c.faceRemovedAt || c.faceRegistered === false || c.biometricEnrolled === false || c.hasFaceRegistered === false) {
-            isExplicitlyFaceRemoved = true;
-            if (typeof c.faceRemovedAt === "number" && c.faceRemovedAt > mostRecentRemovalTime) {
-              mostRecentRemovalTime = c.faceRemovedAt;
-            }
-          }
-          merged = {
-            ...merged,
-            ...c,
-            faceDescriptor: c.faceDescriptor || merged.faceDescriptor,
-            photoURL: c.photoURL || c.photo || c.image || merged.photoURL || "",
-            branch: authoritativeBranch || ((c.branch && String(c.branch).toLowerCase() !== "general") ? c.branch : (merged.branch || "CSE")),
-            semester: authoritativeSemester || c.semester || merged.semester || "1",
-            rollNo: authoritativeRollNo || (c.rollNo ? String(c.rollNo).trim().toUpperCase() : (merged.rollNo || "")),
-            role: c.role || merged.role || "student"
-          };
-        }
-
-        if (isExplicitlyFaceRemoved) {
-          merged.faceDescriptor = null;
-          merged.faceRegistered = false;
-          merged.biometricEnrolled = false;
-          merged.hasFaceRegistered = false;
-          merged.faceRemovedAt = mostRecentRemovalTime || Date.now();
-        }
-
-        const finalRollNo = authoritativeRollNo || merged.rollNo || (studentDocMatch && !studentDocMatch.id.includes("@") ? studentDocMatch.id.toUpperCase() : "");
-        const finalName = authoritativeName || merged.name || merged.fullName || "";
+        const finalRollNo = authoritativeRollNo || merged.rollNo || "";
+        const finalName = authoritativeName || merged.name || merged.fullName || finalRollNo || "";
         return {
           id: finalRollNo || cleanEmail,
           ...merged,

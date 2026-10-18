@@ -261,15 +261,15 @@ function QrScannerApp() {
                 let foundData = null;
                 let foundId = '';
 
-                if (rollSnap.exists && rollSnap.exists()) {
+                if (!emailQuerySnap.empty && emailQuerySnap.docs?.[0]) {
+                    foundData = emailQuerySnap.docs[0].data();
+                    foundId = emailQuerySnap.docs[0].id;
+                } else if (rollSnap.exists && rollSnap.exists()) {
                     foundData = rollSnap.data();
                     foundId = rollSnap.id;
                 } else if (uidSnap.exists && uidSnap.exists()) {
                     foundData = uidSnap.data();
                     foundId = uidSnap.id;
-                } else if (!emailQuerySnap.empty && emailQuerySnap.docs?.[0]) {
-                    foundData = emailQuerySnap.docs[0].data();
-                    foundId = emailQuerySnap.docs[0].id;
                 } else if (!uidQuerySnap.empty && uidQuerySnap.docs?.[0]) {
                     foundData = uidQuerySnap.docs[0].data();
                     foundId = uidQuerySnap.docs[0].id;
@@ -289,12 +289,12 @@ function QrScannerApp() {
                 }
 
                 if (isMounted && foundData) {
-                    const studentRoll = String(foundData.rollNo || (!foundId.includes('@') ? foundId : (profile?.rollNo || ''))).trim().toUpperCase();
-                    const studentName = String(foundData.name || foundData.fullName || profile?.name || profile?.fullName || '').trim();
+                    const studentRoll = String(foundData.rollNo || (!foundId.includes('@') ? foundId : '')).trim().toUpperCase();
+                    const studentName = String(foundData.name || foundData.fullName || '').trim();
                     setDbStudent({
                         ...foundData,
                         rollNo: studentRoll,
-                        name: studentName,
+                        name: studentName || studentRoll,
                         id: studentRoll || foundId
                     });
                 }
@@ -309,8 +309,8 @@ function QrScannerApp() {
         return () => { isMounted = false; };
     }, [user, profile?.rollNo]);
 
-    const loggedInRollNo = (dbStudent?.rollNo || (profile?.rollNo && !profile.rollNo.includes('@') ? profile.rollNo : '')).trim().toUpperCase();
-    const rawProfileName = dbStudent?.name || dbStudent?.fullName || profile?.name || profile?.fullName || '';
+    const loggedInRollNo = (dbStudent?.rollNo || (!profile?.rollNo?.includes('@') && !isGenericName(profile?.rollNo) ? profile?.rollNo : '')).trim().toUpperCase();
+    const rawProfileName = dbStudent?.name || dbStudent?.fullName || (!isGenericName(profile?.name, loggedInRollNo, user?.email) ? profile?.name : (profile?.fullName || ''));
     const loggedInName = rawProfileName ? rawProfileName.trim() : (loggedInRollNo ? loggedInRollNo : 'Student');
 
     // Lecturer Emergency PIN Release Modal State

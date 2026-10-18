@@ -17,7 +17,7 @@ import {
 import { sendFacultyNotification, sendBroadcastNotification, sendStudentNotification } from "../../../services/notificationsService";
 import { useAuth } from "../../authcontext";
 import { isCourseAssignedToLecturer } from "../../Common/CoursesManager";
-import { normalizeBranchName } from "../../../utils/studentDataHelper";
+import { normalizeBranchName, isGenericName } from "../../../utils/studentDataHelper";
 import { generateRotatingQrPayload, DEFAULT_ROTATION_INTERVAL, ROTATION_INTERVALS } from "../../../utils/qrCrypto";
 import {
     FaQrcode,
@@ -101,8 +101,40 @@ function GenerateQR() {
     const [sessionData, setSessionData] = useState(null);
     const [authorizedStudents, setAuthorizedStudents] = useState([]);
     const [attendanceRecords, setAttendanceRecords] = useState([]);
+    const [dbStudentsMap, setDbStudentsMap] = useState(new Map());
     const [releasingStudentId, setReleasingStudentId] = useState(null);
     const [excusingStudentId, setExcusingStudentId] = useState(null);
+
+    // Subscribe to students collection to resolve authentic database details (Roll No, Name) for every logged-in email
+    useEffect(() => {
+        const unsub = onSnapshot(collection(db, "students"), (snap) => {
+            const m = new Map();
+            snap.docs.forEach((d) => {
+                const data = d.data();
+                const cleanRoll = String(data.rollNo || (!d.id.includes("@") ? d.id : "")).trim().toUpperCase();
+                const cleanEmail = String(data.email || "").trim().toLowerCase();
+                const cleanName = String(data.name || data.fullName || "").trim();
+                const studentInfo = {
+                    id: d.id,
+                    rollNo: cleanRoll,
+                    name: cleanName || cleanRoll,
+                    fullName: cleanName || cleanRoll,
+                    email: cleanEmail,
+                    branch: data.branch || "",
+                    semester: data.semester || "",
+                    uid: data.uid || ""
+                };
+                if (cleanRoll) m.set(cleanRoll, studentInfo);
+                if (cleanEmail) m.set(cleanEmail, studentInfo);
+                if (d.id) m.set(d.id.toUpperCase(), studentInfo);
+                if (data.uid) m.set(data.uid, studentInfo);
+            });
+            setDbStudentsMap(m);
+        }, (err) => {
+            console.warn("Notice loading students in Generateqr:", err);
+        });
+        return () => unsub();
+    }, []);
 
     // Manual Excuse / Reinstatement Modal State
     const [showManualExcuseModal, setShowManualExcuseModal] = useState(false);
@@ -941,32 +973,60 @@ function GenerateQR() {
         return false;
     };
 
-    // Deduplicated list of students (guarantees no student/device is shown twice or more)
+    // Deduplicated list of students (guarantees no student/device is shown twice, and resolves authentic database details by email)
     const uniqueStudentsList = useMemo(() => {
         const map = new Map();
 
+        const resolveStudentIdentity = (raw) => {
+            const rawEmail = (raw.studentEmail || raw.email || "").toLowerCase().trim();
+            const rawRoll = String(raw.rollNo || "").toUpperCase().trim();
+            const rawUid = raw.studentUid || raw.uid || "";
+            const rawId = String(raw.id || "").toUpperCase().trim();
+
+            const dbMatch = (rawEmail && dbStudentsMap.get(rawEmail)) ||
+                            (rawRoll && dbStudentsMap.get(rawRoll)) ||
+                            (rawUid && dbStudentsMap.get(rawUid)) ||
+                            (rawId && dbStudentsMap.get(rawId)) || null;
+
+            const canonicalRoll = dbMatch?.rollNo || (!rawRoll.includes("@") && rawRoll ? rawRoll : (!rawId.includes("@") ? rawId : ""));
+            const rawName = raw.studentName || raw.fullName || raw.name || "";
+            const canonicalName = dbMatch?.name || dbMatch?.fullName || (!isGenericName(rawName, canonicalRoll, rawEmail) ? rawName : (canonicalRoll || "Student"));
+            const canonicalEmail = dbMatch?.email || rawEmail;
+            const canonicalUid = rawUid || dbMatch?.uid || canonicalRoll;
+            const dedupeKey = (canonicalEmail || canonicalRoll || canonicalUid || rawId).toLowerCase();
+
+            return {
+                canonicalRoll,
+                canonicalName,
+                canonicalEmail,
+                canonicalUid,
+                dedupeKey
+            };
+        };
+
         // 1. Process authorized students (QR 1 check-ins)
         (authorizedStudents || []).forEach((st) => {
-            const roll = (st.rollNo || st.studentUid || st.id || "").toUpperCase().trim();
-            if (!roll) return;
+            const { canonicalRoll, canonicalName, canonicalEmail, canonicalUid, dedupeKey } = resolveStudentIdentity(st);
+            if (!dedupeKey) return;
 
             const isDisq = checkIsDisqualified(st);
             const hasV = isDisq || checkHasViolation(st);
             const vCount = Math.max(Number(st.violationCount || st.confirmedKioskViolations || 0), isDisq ? 2 : hasV ? 1 : 0);
 
-            if (!map.has(roll)) {
-                map.set(roll, {
+            if (!map.has(dedupeKey)) {
+                map.set(dedupeKey, {
                     ...st,
-                    rollNo: roll,
-                    studentName: st.studentName || st.fullName || roll,
-                    studentUid: st.studentUid || st.id || roll,
+                    rollNo: canonicalRoll || st.rollNo || dedupeKey.toUpperCase(),
+                    studentName: canonicalName || st.studentName || canonicalRoll || "Student",
+                    studentEmail: canonicalEmail,
+                    studentUid: canonicalUid || st.studentUid,
                     disqualified: isDisq,
                     hasViolation: hasV,
                     violationCount: vCount,
                     violations: Array.isArray(st.violations) ? st.violations : []
                 });
             } else {
-                const existing = map.get(roll);
+                const existing = map.get(dedupeKey);
                 const mergedDisq = isDisq || existing.disqualified === true;
                 const mergedHasV = hasV || existing.hasViolation === true || mergedDisq;
                 const mergedVCount = Math.max(vCount, Number(existing.violationCount || 0));
@@ -975,11 +1035,13 @@ function GenerateQR() {
                     ...(Array.isArray(st.violations) ? st.violations : [])
                 ];
 
-                map.set(roll, {
+                map.set(dedupeKey, {
                     ...existing,
                     ...st,
-                    rollNo: roll,
-                    studentName: st.studentName || existing.studentName || roll,
+                    rollNo: canonicalRoll || existing.rollNo || st.rollNo,
+                    studentName: canonicalName || existing.studentName || st.studentName,
+                    studentEmail: canonicalEmail || existing.studentEmail,
+                    studentUid: canonicalUid || existing.studentUid,
                     released: st.released === true || existing.released === true,
                     status: (st.status === "FLAGGED_DISQUALIFIED" || st.status === "DISQUALIFIED") ? st.status : (existing.status || st.status),
                     flagged: st.flagged === true || existing.flagged === true,
@@ -991,20 +1053,21 @@ function GenerateQR() {
             }
         });
 
-        // 2. Also incorporate any students present in attendance_records (e.g. submitted or disqualified records)
+        // 2. Also incorporate any students present in attendance_records (e.g. submitted or excused records)
         (attendanceRecords || []).forEach((rec) => {
-            const roll = (rec.rollNo || rec.studentUid || "").toUpperCase().trim();
-            if (!roll) return;
+            const { canonicalRoll, canonicalName, canonicalEmail, canonicalUid, dedupeKey } = resolveStudentIdentity(rec);
+            if (!dedupeKey) return;
 
             const isDisq = checkIsDisqualified(rec);
             const hasV = isDisq || checkHasViolation(rec);
 
-            if (!map.has(roll)) {
-                map.set(roll, {
-                    id: rec.id || roll,
-                    rollNo: roll,
-                    studentName: rec.fullName || rec.name || rec.studentName || roll,
-                    studentUid: rec.studentUid || roll,
+            if (!map.has(dedupeKey)) {
+                map.set(dedupeKey, {
+                    id: rec.id || dedupeKey,
+                    rollNo: canonicalRoll || rec.rollNo || dedupeKey.toUpperCase(),
+                    studentName: canonicalName || rec.fullName || rec.name || rec.studentName || canonicalRoll || "Student",
+                    studentEmail: canonicalEmail,
+                    studentUid: canonicalUid || rec.studentUid,
                     disqualified: isDisq,
                     hasViolation: hasV,
                     violationCount: isDisq ? 2 : hasV ? 1 : 0,
@@ -1013,7 +1076,9 @@ function GenerateQR() {
                     isAttended: rec.excused || rec.faceVerified || rec.status === "APPROVED" || rec.status === "ATTENDED"
                 });
             } else {
-                const existing = map.get(roll);
+                const existing = map.get(dedupeKey);
+                if (canonicalRoll) existing.rollNo = canonicalRoll;
+                if (canonicalName && !isGenericName(canonicalName, canonicalRoll, canonicalEmail)) existing.studentName = canonicalName;
                 if (isDisq) {
                     existing.disqualified = true;
                     existing.hasViolation = true;
@@ -1023,22 +1088,33 @@ function GenerateQR() {
                         existing.violationReason = rec.violationReason;
                     }
                 }
+                if (rec.excused || rec.faceVerified || rec.status === "APPROVED" || rec.status === "ATTENDED") {
+                    existing.isAttended = true;
+                    if (rec.status) existing.status = rec.status;
+                }
             }
         });
 
         return Array.from(map.values()).sort((a, b) => (a.rollNo || "").localeCompare(b.rollNo || ""));
-    }, [authorizedStudents, attendanceRecords]);
+    }, [authorizedStudents, attendanceRecords, dbStudentsMap]);
 
     const attendeesSet = useMemo(() => {
-        const set = new Set(
-            (sessionData?.attendees || []).map((a) => (a.rollNo || a.studentUid || "").toUpperCase().trim())
-        );
+        const set = new Set();
+        (sessionData?.attendees || []).forEach((a) => {
+            if (a.rollNo) set.add(a.rollNo.toUpperCase().trim());
+            if (a.studentUid) set.add(a.studentUid.toUpperCase().trim());
+            if (a.email || a.studentEmail) set.add((a.email || a.studentEmail).toLowerCase().trim());
+        });
         (attendanceRecords || []).forEach((rec) => {
-            const roll = (rec.rollNo || rec.studentUid || "").toUpperCase().trim();
+            const roll = (rec.rollNo || "").toUpperCase().trim();
+            const uid = (rec.studentUid || "").toUpperCase().trim();
+            const email = (rec.studentEmail || rec.email || "").toLowerCase().trim();
             const isExcused = rec.excused === true;
             const isDisq = !isExcused && checkIsDisqualified(rec);
-            if (roll && !isDisq && (isExcused || rec.faceVerified || rec.status === "APPROVED" || rec.status === "ATTENDED")) {
-                set.add(roll);
+            if (!isDisq && (isExcused || rec.faceVerified || rec.status === "APPROVED" || rec.status === "ATTENDED")) {
+                if (roll) set.add(roll);
+                if (uid) set.add(uid);
+                if (email) set.add(email);
             }
         });
         return set;
@@ -1051,21 +1127,26 @@ function GenerateQR() {
             if (isReviewed) return;
             const r = (f.rollNo || "").toUpperCase().trim();
             const u = (f.studentUid || "").toUpperCase().trim();
+            const e = (f.email || f.studentEmail || "").toLowerCase().trim();
             const isDisq = f.disqualified === true || f.status === "FLAGGED_DISQUALIFIED" || Number(f.count || f.violationCount || 0) >= 2;
             const reason = f.violationReason || f.violationType || (isDisq ? "Attendance forfeited: 2 confirmed kiosk exits" : "App switched / screen capture violation");
             const entry = { reason, isDisqualified: isDisq };
             if (r) map.set(r, entry);
             if (u) map.set(u, entry);
+            if (e) map.set(e, entry);
         });
 
         // Also incorporate any disqualified records from attendanceRecords
         (attendanceRecords || []).forEach((rec) => {
             const roll = (rec.rollNo || rec.studentUid || "").toUpperCase().trim();
+            const email = (rec.studentEmail || rec.email || "").toLowerCase().trim();
             if (roll && checkIsDisqualified(rec) && !map.has(roll)) {
-                map.set(roll, {
+                const entry = {
                     reason: rec.violationReason || "Attendance forfeited: 2 confirmed kiosk exits",
                     isDisqualified: true
-                });
+                };
+                map.set(roll, entry);
+                if (email) map.set(email, entry);
             }
         });
 
@@ -1077,9 +1158,10 @@ function GenerateQR() {
         return uniqueStudentsList.map((st) => {
             const roll = (st.rollNo || "").toUpperCase().trim();
             const uid = (st.studentUid || "").toUpperCase().trim();
-            const flagEntry = flaggedMap.get(roll) || flaggedMap.get(uid);
+            const email = (st.studentEmail || st.email || "").toLowerCase().trim();
+            const flagEntry = flaggedMap.get(roll) || flaggedMap.get(uid) || (email && flaggedMap.get(email));
 
-            const isAttended = attendeesSet.has(roll) || attendeesSet.has(uid) || st.status === "ATTENDED" || st.status === "APPROVED" || st.attended === true || st.excused === true;
+            const isAttended = st.isAttended === true || attendeesSet.has(roll) || attendeesSet.has(uid) || (email && attendeesSet.has(email)) || st.status === "ATTENDED" || st.status === "APPROVED" || st.attended === true || st.excused === true;
             const isExcused = st.excused === true || (isAttended && (flagEntry || st.flagged || st.hasViolation || st.disqualified));
 
             const isDisqualified = !isExcused && !isAttended && (

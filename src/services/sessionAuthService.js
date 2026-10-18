@@ -1,9 +1,9 @@
 import { httpsCallable } from "firebase/functions";
-import { doc, onSnapshot, collection, setDoc, getDoc, updateDoc, arrayUnion, increment, serverTimestamp } from "firebase/firestore";
+import { doc, onSnapshot, collection, setDoc, getDoc, updateDoc, deleteDoc, query, where, getDocs, arrayUnion, increment, serverTimestamp } from "firebase/firestore";
 import { functions, db, auth } from "../firebase";
 import { sendFacultyNotification, sendStudentNotification, reportUserVerificationComplaint } from "./notificationsService";
 import { detectDeviceType, getClientIpAddress, getDeviceDisplayName, isDeviceMatching } from "../utils/deviceDetection";
-import { normalizeBranchName } from "../utils/studentDataHelper";
+import { normalizeBranchName, isGenericName } from "../utils/studentDataHelper";
 
 /**
  * Utility: Compute SHA-256 hash using Web Crypto API.
@@ -182,12 +182,45 @@ export async function authorizeStudentQR1(sessionId, qr1Token, studentProfileOve
   // Fallback verification
   const currentUser = auth.currentUser;
   const studentEmail = (currentUser?.email || studentProfileOverride?.email || "").toLowerCase().trim();
-  const rollNo = (studentProfileOverride?.rollNo || studentEmail.split("@")[0] || "STUDENT").toUpperCase();
-  const studentName = studentProfileOverride?.name || studentProfileOverride?.fullName || currentUser?.displayName || rollNo;
-  const studentUid = currentUser?.uid || studentEmail || rollNo;
+  const studentUid = currentUser?.uid || studentProfileOverride?.deviceId || studentEmail;
 
   if (!currentUser && !studentProfileOverride?.email && !studentProfileOverride?.rollNo) {
     throw new Error("Please log in with your student account to authorize attendance.");
+  }
+
+  // Resolve Student Details strictly from Database (Firestore 'students' collection)
+  let rollNo = (studentProfileOverride?.rollNo || "").toUpperCase().trim();
+  let studentName = (studentProfileOverride?.name || studentProfileOverride?.fullName || "").trim();
+
+  if (studentEmail) {
+    try {
+      const studentQuerySnap = await getDocs(query(collection(db, "students"), where("email", "==", studentEmail))).catch(() => ({ empty: true, docs: [] }));
+      let dbStudentData = null;
+      let dbStudentId = "";
+      if (!studentQuerySnap.empty && studentQuerySnap.docs?.[0]) {
+        dbStudentData = studentQuerySnap.docs[0].data();
+        dbStudentId = studentQuerySnap.docs[0].id;
+      } else {
+        const directSnap = await getDoc(doc(db, "students", studentEmail)).catch(() => ({ exists: () => false }));
+        if (directSnap.exists()) {
+          dbStudentData = directSnap.data();
+          dbStudentId = directSnap.id;
+        }
+      }
+      if (dbStudentData) {
+        rollNo = String(dbStudentData.rollNo || (!dbStudentId.includes("@") ? dbStudentId : rollNo)).trim().toUpperCase();
+        studentName = String(dbStudentData.name || dbStudentData.fullName || studentName).trim();
+      }
+    } catch (dbErr) {
+      console.warn("Notice querying student in authorizeStudentQR1:", dbErr);
+    }
+  }
+
+  if (!rollNo || rollNo.includes("@")) {
+    rollNo = (studentProfileOverride?.rollNo || studentEmail.split("@")[0] || "STUDENT").toUpperCase();
+  }
+  if (!studentName || isGenericName(studentName, rollNo, studentEmail)) {
+    studentName = studentProfileOverride?.name || studentProfileOverride?.fullName || rollNo;
   }
 
   const sessionRef = doc(db, "attendance_sessions", sessionId);
@@ -274,14 +307,17 @@ export async function authorizeStudentQR1(sessionId, qr1Token, studentProfileOve
     localStorage.setItem(`smartattend_qr1_auth_${sessionId}`, JSON.stringify(authPayload));
   } catch (e) { }
 
-  // Write authorization by studentUid and rollNo in Firestore
+  // STRICT SINGLE DOCUMENT WRITE:
+  // Write authorization strictly once under studentUid (or rollNo if no studentUid)
+  // This guarantees no ghost second device / duplicate roster row is ever created!
   try {
-    const authRef = doc(db, "attendance_sessions", sessionId, "authorizations", studentUid);
+    const canonicalAuthId = studentUid || rollNo;
+    const authRef = doc(db, "attendance_sessions", sessionId, "authorizations", canonicalAuthId);
     await setDoc(authRef, authPayload, { merge: true });
 
-    if (rollNo && rollNo !== studentUid) {
-      const authRollRef = doc(db, "attendance_sessions", sessionId, "authorizations", rollNo);
-      await setDoc(authRollRef, authPayload, { merge: true });
+    // Clean up any legacy second document that might have been written under rollNo previously
+    if (rollNo && rollNo !== canonicalAuthId) {
+      deleteDoc(doc(db, "attendance_sessions", sessionId, "authorizations", rollNo)).catch(() => {});
     }
   } catch (authErr) {
     console.warn("Authorizations subcollection write notice:", authErr.message);
@@ -539,10 +575,28 @@ export async function submitVerifiedAttendance(sessionId, qr2Token, biometricDat
   const authSnap = await getDoc(authRef);
   const authData = authSnap.exists() ? (authSnap.data() || {}) : {};
 
-  // Verify rollNo, studentName, studentEmail
-  const rollNo = (authData.rollNo || currentUser.displayName || "STUDENT").toUpperCase().trim();
-  const studentName = authData.studentName || authData.fullName || currentUser.displayName || rollNo;
+  // Verify rollNo, studentName, studentEmail strictly from database
+  let rollNo = (authData.rollNo || "").toUpperCase().trim();
+  let studentName = (authData.studentName || authData.fullName || "").trim();
   const studentEmail = (authData.studentEmail || currentUser.email || "").toLowerCase().trim();
+
+  if (studentEmail && (!rollNo || rollNo === "STUDENT" || rollNo.includes("@") || !studentName || isGenericName(studentName, rollNo, studentEmail))) {
+    try {
+      const studentQuerySnap = await getDocs(query(collection(db, "students"), where("email", "==", studentEmail))).catch(() => ({ empty: true, docs: [] }));
+      if (!studentQuerySnap.empty && studentQuerySnap.docs?.[0]) {
+        const dbStudentData = studentQuerySnap.docs[0].data();
+        const dbStudentId = studentQuerySnap.docs[0].id;
+        rollNo = String(dbStudentData.rollNo || (!dbStudentId.includes("@") ? dbStudentId : rollNo)).trim().toUpperCase();
+        studentName = String(dbStudentData.name || dbStudentData.fullName || studentName).trim();
+      }
+    } catch (_) {}
+  }
+  if (!rollNo || rollNo.includes("@")) {
+    rollNo = (studentEmail.split("@")[0] || "STUDENT").toUpperCase();
+  }
+  if (!studentName || isGenericName(studentName, rollNo, studentEmail)) {
+    studentName = rollNo;
+  }
   const recordDocId = `${sessionId}_${rollNo}`;
 
   // Check violation status
@@ -766,25 +820,13 @@ export async function recordSessionViolation(sessionId, studentUid, rollNo, reas
       disqualified: disqualified
     };
 
-    // 1. Update session authorizations subcollection
-    if (studentUid) {
-      const authRef = doc(db, "attendance_sessions", sessionId, "authorizations", studentUid);
+    // 1. Update session authorizations subcollection (Strictly single document)
+    const targetDocId = studentUid || cleanRoll;
+    if (targetDocId) {
+      const authRef = doc(db, "attendance_sessions", sessionId, "authorizations", targetDocId);
       await setDoc(authRef, {
-        studentUid: studentUid,
-        rollNo: cleanRoll || studentUid,
-        status: status,
-        violations: arrayUnion(violationPayload),
-        violationCount: count,
-        hasViolation: true,
-        disqualified: disqualified
-      }, { merge: true }).catch(() => { });
-    }
-
-    if (cleanRoll && cleanRoll !== studentUid) {
-      const authRollRef = doc(db, "attendance_sessions", sessionId, "authorizations", cleanRoll);
-      await setDoc(authRollRef, {
-        studentUid: studentUid || cleanRoll,
-        rollNo: cleanRoll,
+        studentUid: studentUid || targetDocId,
+        rollNo: cleanRoll || targetDocId,
         status: status,
         violations: arrayUnion(violationPayload),
         violationCount: count,
@@ -1075,13 +1117,10 @@ export async function excuseAndReinstateAttendance(sessionId, studentInfo, lectu
       excuseReason: excuseReason
     };
 
-    if (studentUid) {
-      const authRef = doc(db, "attendance_sessions", sessionId, "authorizations", studentUid);
+    const targetDocId = studentUid || rollNo;
+    if (targetDocId) {
+      const authRef = doc(db, "attendance_sessions", sessionId, "authorizations", targetDocId);
       await setDoc(authRef, authPayload, { merge: true }).catch(() => { });
-    }
-    if (rollNo && rollNo !== studentUid) {
-      const authRollRef = doc(db, "attendance_sessions", sessionId, "authorizations", rollNo);
-      await setDoc(authRollRef, authPayload, { merge: true }).catch(() => { });
     }
 
     // 5. Notify Student in real-time
@@ -1613,10 +1652,8 @@ export async function releaseIndividualStudentDevice(sessionId, studentUid, roll
     ];
 
     if (cleanRoll && cleanRoll !== targetDocId) {
-      writes.push(setDoc(doc(db, "attendance_sessions", sessionId, "authorizations", cleanRoll), authPayload, { merge: true }));
-    }
-    if (studentUid && studentUid !== targetDocId) {
-      writes.push(setDoc(doc(db, "attendance_sessions", sessionId, "authorizations", studentUid), authPayload, { merge: true }));
+      // Clean up legacy authorization document if one exists under roll number
+      deleteDoc(doc(db, "attendance_sessions", sessionId, "authorizations", cleanRoll)).catch(() => {});
     }
 
     // Also update parent session document releasedStudents map
