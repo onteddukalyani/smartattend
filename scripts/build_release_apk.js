@@ -32,6 +32,12 @@ try {
     }
   }
 
+  // Remove any raw files directly inside res/ (e.g. .gitkeep) which breaks AAPT2 / AGP ParseLibraryResourcesTask
+  const badResGitkeep = path.join(androidDir, 'capacitor-cordova-android-plugins', 'src', 'main', 'res', '.gitkeep');
+  if (fs.existsSync(badResGitkeep)) {
+    try { fs.unlinkSync(badResGitkeep); } catch (_) {}
+  }
+
   // 1. Build Vite Web Assets
   console.log('📦 Step 1/3: Building Production Web Assets (vite build)...');
   execSync('npm run build', { cwd: rootDir, stdio: 'inherit' });

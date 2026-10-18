@@ -2142,56 +2142,39 @@ function QrScannerApp() {
     if (scanState === 'ATTENDANCE_SUCCESS') {
         return (
             <div style={{
-                maxWidth: '540px',
-                margin: '30px auto',
-                padding: '30px 22px',
+                maxWidth: '520px',
+                margin: '10px auto',
+                padding: '14px 16px',
                 background: 'var(--surface, #ffffff)',
-                borderRadius: '24px',
+                borderRadius: '18px',
                 border: '1.5px solid var(--border, #e2e8f0)',
-                boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.15)',
+                boxShadow: '0 12px 30px -10px rgba(0, 0, 0, 0.12)',
                 color: 'var(--text-main, #0f172a)',
                 textAlign: 'center',
                 position: 'relative'
             }}>
                 <div style={{
-                    width: '72px',
-                    height: '72px',
+                    width: '42px',
+                    height: '42px',
                     borderRadius: '50%',
                     background: '#dcfce7',
                     color: '#15803d',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    margin: '0 auto 16px',
-                    fontSize: '38px',
-                    boxShadow: '0 8px 20px rgba(22, 163, 74, 0.2)'
+                    margin: '0 auto 8px',
+                    fontSize: '22px',
+                    boxShadow: '0 4px 12px rgba(22, 163, 74, 0.2)'
                 }}>
                     <FaCheckCircle />
                 </div>
 
-                <h2 style={{ fontSize: '1.45rem', fontWeight: 800, margin: '0 0 6px 0', color: '#15803d' }}>
-                    Attendance Submitted — Waiting for Lecturer Release
+                <h2 style={{ fontSize: '1.18rem', fontWeight: 800, margin: '0 0 2px 0', color: '#15803d' }}>
+                    Attendance Submitted Successfully
                 </h2>
-                <p style={{ color: '#4338ca', fontSize: '0.92rem', fontWeight: 700, margin: '0 0 14px 0' }}>
-                    {isIOSDevice() ? '🔒 Apple Guided Access Session Active' : '🔒 Android Enterprise Lock Task Mode Active'}
-                </p>
-
-                {/* Zero-Tolerance App Switching Notice during Post-Attendance Lock */}
-                <div style={{
-                    margin: '0 0 16px 0',
-                    padding: '12px 16px',
-                    borderRadius: '14px',
-                    background: '#fef2f2',
-                    border: '1px solid #fecaca',
-                    color: '#991b1b',
-                    textAlign: 'left',
-                    fontSize: '0.82rem',
-                    lineHeight: 1.45
-                }}>
-                    <strong style={{ color: '#b91c1c', display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '2px' }}>
-                        <FaShieldAlt /> Attendance Lock Mode Active:
-                    </strong>
-                    Do <strong>NOT</strong> attempt to exit or switch apps while waiting for release. Your device remains under attendance supervision until the lecturer releases the class with the Session PIN.
+                <div style={{ color: '#4338ca', fontSize: '0.78rem', fontWeight: 700, margin: '0 0 8px 0', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+                    <FaShieldAlt style={{ color: '#10b981' }} />
+                    <span>{isIOSDevice() ? 'Guided Access Active' : 'Lock Task Mode Active'} · Awaiting Release</span>
                 </div>
 
                 {/* On iOS: Guided Access Exit Guidance Notice */}
@@ -2200,47 +2183,43 @@ function QrScannerApp() {
                 {/* Details Box */}
                 <div style={{
                     background: 'var(--surface-soft, #f8fafc)',
-                    border: '1.5px solid var(--border, #e2e8f0)',
-                    borderRadius: '16px',
-                    padding: '14px 18px',
+                    border: '1px solid var(--border, #e2e8f0)',
+                    borderRadius: '12px',
+                    padding: '8px 14px',
                     textAlign: 'left',
-                    marginBottom: '18px'
+                    marginBottom: '10px'
                 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderBottom: '1px solid #e2e8f0' }}>
-                        <span style={{ color: '#64748b', fontSize: '0.84rem' }}>Roll Number:</span>
-                        <strong style={{ fontWeight: 800 }}>{submissionDetails?.rollNo || loggedInRollNo}</strong>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0', borderBottom: '1px solid #e2e8f0' }}>
+                        <span style={{ color: '#64748b', fontSize: '0.78rem' }}>Student:</span>
+                        <strong style={{ fontWeight: 800, fontSize: '0.8rem' }}>{submissionDetails?.rollNo || loggedInRollNo} · {submissionDetails?.studentName || loggedInName}</strong>
                     </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderBottom: '1px solid #e2e8f0' }}>
-                        <span style={{ color: '#64748b', fontSize: '0.84rem' }}>Student Name:</span>
-                        <strong style={{ fontWeight: 800 }}>{submissionDetails?.studentName || loggedInName}</strong>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0', borderBottom: '1px solid #e2e8f0' }}>
+                        <span style={{ color: '#64748b', fontSize: '0.78rem' }}>Class / Room:</span>
+                        <strong style={{ fontWeight: 800, fontSize: '0.8rem' }}>{submissionDetails?.courseCode} · Room {submissionDetails?.roomNo}</strong>
                     </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderBottom: '1px solid #e2e8f0' }}>
-                        <span style={{ color: '#64748b', fontSize: '0.84rem' }}>Class / Room:</span>
-                        <strong style={{ fontWeight: 800 }}>{submissionDetails?.courseCode} · Room {submissionDetails?.roomNo}</strong>
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0' }}>
-                        <span style={{ color: '#64748b', fontSize: '0.84rem' }}>Biometric Verification:</span>
-                        <strong style={{ color: '#15803d', fontWeight: 800 }}>✅ PASSED (100% Match)</strong>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0' }}>
+                        <span style={{ color: '#64748b', fontSize: '0.78rem' }}>Biometrics:</span>
+                        <strong style={{ color: '#15803d', fontWeight: 800, fontSize: '0.8rem' }}>✅ Verified (Combo Pass)</strong>
                     </div>
                 </div>
 
                 {/* Student Enters Lecturer's Announced 6-Digit Session PIN */}
                 <div style={{
-                    background: 'rgba(99, 102, 241, 0.06)',
-                    border: '1.5px solid rgba(99, 102, 241, 0.3)',
-                    borderRadius: '18px',
-                    padding: '20px 18px',
-                    marginBottom: '16px',
+                    background: 'rgba(99, 102, 241, 0.05)',
+                    border: '1.5px solid rgba(99, 102, 241, 0.25)',
+                    borderRadius: '14px',
+                    padding: '12px 14px',
+                    marginBottom: '10px',
                     textAlign: 'center'
                 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', color: '#4338ca', fontWeight: 800, fontSize: '0.95rem', marginBottom: '4px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', color: '#4338ca', fontWeight: 800, fontSize: '0.85rem', marginBottom: '2px' }}>
                         <FaLock /> Enter Session PIN to Unlock
                     </div>
-                    <p style={{ margin: '0 0 14px 0', fontSize: '0.83rem', color: '#64748b' }}>
-                        Enter the 6-digit Session PIN announced by your lecturer to exit Kiosk mode.
+                    <p style={{ margin: '0 0 8px 0', fontSize: '0.75rem', color: '#64748b' }}>
+                        Enter 6-digit Session PIN announced by lecturer to exit.
                     </p>
 
-                    <form onSubmit={handleLecturerPinUnlock} style={{ maxWidth: '320px', margin: '0 auto' }}>
+                    <form onSubmit={handleLecturerPinUnlock} style={{ maxWidth: '280px', margin: '0 auto' }}>
                         <input
                             type="password"
                             inputMode="numeric"
@@ -2255,31 +2234,31 @@ function QrScannerApp() {
                             autoFocus
                             style={{
                                 width: '100%',
-                                padding: '12px 16px',
-                                borderRadius: '12px',
+                                padding: '8px 12px',
+                                borderRadius: '10px',
                                 border: pinVerificationError ? '2px solid #ef4444' : '2px solid #6366f1',
-                                fontSize: '1.35rem',
-                                letterSpacing: '8px',
+                                fontSize: '1.15rem',
+                                letterSpacing: '6px',
                                 textAlign: 'center',
                                 fontWeight: 800,
-                                marginBottom: '10px',
+                                marginBottom: '8px',
                                 outline: 'none',
                                 background: '#ffffff',
                                 color: '#0f172a',
-                                boxShadow: '0 2px 8px rgba(99, 102, 241, 0.15)'
+                                boxShadow: '0 2px 6px rgba(99, 102, 241, 0.12)'
                             }}
                         />
 
                         {pinVerificationError && (
                             <div style={{
-                                padding: '8px 12px',
+                                padding: '6px 10px',
                                 borderRadius: '8px',
                                 background: '#fee2e2',
                                 border: '1px solid #fca5a5',
                                 color: '#b91c1c',
-                                fontSize: '0.82rem',
+                                fontSize: '0.76rem',
                                 fontWeight: 700,
-                                marginBottom: '10px',
+                                marginBottom: '8px',
                                 textAlign: 'center'
                             }}>
                                 {pinVerificationError}
@@ -2291,19 +2270,19 @@ function QrScannerApp() {
                             disabled={isVerifyingPin || !lecturerPinInput.trim()}
                             style={{
                                 width: '100%',
-                                padding: '12px 18px',
-                                borderRadius: '12px',
+                                padding: '9px 16px',
+                                borderRadius: '10px',
                                 background: 'linear-gradient(135deg, #6366f1 0%, #4338ca 100%)',
                                 border: 'none',
                                 color: '#ffffff',
                                 fontWeight: 800,
-                                fontSize: '0.95rem',
+                                fontSize: '0.85rem',
                                 cursor: isVerifyingPin || !lecturerPinInput.trim() ? 'not-allowed' : 'pointer',
-                                boxShadow: '0 4px 14px rgba(99, 102, 241, 0.4)',
+                                boxShadow: '0 3px 10px rgba(99, 102, 241, 0.35)',
                                 display: 'flex',
                                 alignItems: 'center',
                                 justifyContent: 'center',
-                                gap: '8px'
+                                gap: '6px'
                             }}
                         >
                             {isVerifyingPin ? (
@@ -2319,18 +2298,24 @@ function QrScannerApp() {
                 <div style={{
                     background: 'var(--surface-soft, #f8fafc)',
                     border: '1px solid var(--border, #e2e8f0)',
-                    borderRadius: '14px',
-                    padding: '14px 16px'
+                    borderRadius: '12px',
+                    padding: '8px 12px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: '10px'
                 }}>
-                    <div style={{ fontSize: '0.78rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px' }}>
-                        Automatic Fail-Safe Release
+                    <div style={{ textAlign: 'left' }}>
+                        <div style={{ fontSize: '0.72rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase' }}>
+                            Fail-Safe Auto Release
+                        </div>
+                        <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>
+                            Device automatically unlocks when timer expires
+                        </div>
                     </div>
-                    <div style={{ fontSize: '1.75rem', fontWeight: 800, color: '#4338ca', letterSpacing: '1px' }}>
-                        Auto Release in {formatMmSs(autoReleaseRemaining)}
+                    <div style={{ fontSize: '1.25rem', fontWeight: 800, color: '#4338ca', fontFamily: 'monospace' }}>
+                        {formatMmSs(autoReleaseRemaining)}
                     </div>
-                    <p style={{ margin: '4px 0 0 0', fontSize: '0.78rem', color: '#94a3b8' }}>
-                        If the lecturer does not announce the PIN, this device will automatically exit Kiosk mode in {formatMmSs(autoReleaseRemaining)}. Manual PIN release cancels the timer.
-                    </p>
                 </div>
             </div>
         );
@@ -2536,29 +2521,29 @@ function QrScannerApp() {
     if (scanState === 'BIOMETRIC_SCAN') {
         return (
             <div style={{
-                maxWidth: '560px',
-                margin: '20px auto',
-                padding: '24px 20px',
+                maxWidth: '520px',
+                margin: '8px auto',
+                padding: '12px 14px',
                 background: 'var(--surface, #ffffff)',
-                borderRadius: '24px',
+                borderRadius: '20px',
                 border: '1.5px solid var(--border, #e2e8f0)',
-                boxShadow: '0 20px 45px -20px rgba(0, 0, 0, 0.15)',
+                boxShadow: '0 10px 30px -15px rgba(0, 0, 0, 0.12)',
                 color: 'var(--text-main, #0f172a)',
                 textAlign: 'center',
                 position: 'relative'
             }}>
                 {renderLecturerPinModal()}
 
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
                     <div style={{
                         display: 'inline-flex',
                         alignItems: 'center',
-                        gap: '6px',
-                        padding: '6px 12px',
+                        gap: '5px',
+                        padding: '4px 10px',
                         borderRadius: '999px',
                         background: 'rgba(16, 185, 129, 0.12)',
                         color: '#059669',
-                        fontSize: '0.8rem',
+                        fontSize: '0.74rem',
                         fontWeight: 800
                     }}>
                         <FaCheckCircle /> Phase 2: Biometric Verification
@@ -2574,7 +2559,7 @@ function QrScannerApp() {
                             background: 'transparent',
                             border: 'none',
                             color: '#6366f1',
-                            fontSize: '0.78rem',
+                            fontSize: '0.74rem',
                             fontWeight: 700,
                             cursor: 'pointer'
                         }}
@@ -2588,19 +2573,19 @@ function QrScannerApp() {
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    gap: '12px',
-                    margin: '0 0 18px 0',
-                    padding: '8px 14px',
+                    gap: '8px',
+                    margin: '0 0 10px 0',
+                    padding: '4px 10px',
                     background: 'var(--surface-muted, #f8fafc)',
-                    borderRadius: '16px',
+                    borderRadius: '12px',
                     border: '1px solid var(--border, #e2e8f0)'
                 }}>
                     {/* Step 1: Fingerprint */}
                     <div style={{
                         display: 'flex',
                         alignItems: 'center',
-                        gap: '6px',
-                        padding: '6px 12px',
+                        gap: '5px',
+                        padding: '4px 10px',
                         borderRadius: '999px',
                         background: hardwareProof
                             ? 'rgba(16, 185, 129, 0.12)'
@@ -2609,7 +2594,7 @@ function QrScannerApp() {
                             ? '#059669'
                             : (biometricComboStep === 'FINGERPRINT' ? '#4f46e5' : '#94a3b8'),
                         fontWeight: 800,
-                        fontSize: '0.8rem',
+                        fontSize: '0.75rem',
                         border: hardwareProof
                             ? '1.5px solid #10b981'
                             : (biometricComboStep === 'FINGERPRINT' ? '1.5px solid #6366f1' : '1px solid transparent'),
@@ -2619,21 +2604,21 @@ function QrScannerApp() {
                         <span>1. Fingerprint {hardwareProof ? '✓' : ''}</span>
                     </div>
 
-                    <FaArrowRight style={{ color: '#cbd5e1', fontSize: '0.72rem' }} />
+                    <FaArrowRight style={{ color: '#cbd5e1', fontSize: '0.65rem' }} />
 
                     {/* Step 2: 3D Face Scan */}
                     <div style={{
                         display: 'flex',
                         alignItems: 'center',
-                        gap: '6px',
-                        padding: '6px 12px',
+                        gap: '5px',
+                        padding: '4px 10px',
                         borderRadius: '999px',
                         background: biometricComboStep === 'FACE'
                             ? 'rgba(99, 102, 241, 0.12)'
                             : 'transparent',
                         color: biometricComboStep === 'FACE' ? '#4f46e5' : '#94a3b8',
                         fontWeight: 800,
-                        fontSize: '0.8rem',
+                        fontSize: '0.75rem',
                         border: biometricComboStep === 'FACE' ? '1.5px solid #6366f1' : '1px solid transparent',
                         transition: 'all 0.3s ease'
                     }}>
@@ -2645,26 +2630,26 @@ function QrScannerApp() {
                 {biometricComboStep === 'FINGERPRINT' ? (
                     /* Step 1: Device Fingerprint Verification Card */
                     <div style={{
-                        padding: '28px 18px',
+                        padding: '16px 14px',
                         background: 'linear-gradient(180deg, rgba(248, 250, 252, 0.7) 0%, rgba(241, 245, 249, 0.95) 100%)',
-                        borderRadius: '20px',
+                        borderRadius: '16px',
                         border: '1.5px dashed var(--border, #cbd5e1)',
-                        margin: '10px 0 16px 0'
+                        margin: '6px 0 10px 0'
                     }}>
-                        <h2 style={{ margin: '0 0 6px 0', fontSize: '1.35rem', fontWeight: 800 }}>
+                        <h2 style={{ margin: '0 0 4px 0', fontSize: '1.1rem', fontWeight: 800 }}>
                             Step 1: Device Fingerprint Verification
                         </h2>
-                        <p style={{ margin: '0 0 20px 0', color: 'var(--text-muted, #64748b)', fontSize: '0.86rem' }}>
-                            Touch your device fingerprint sensor to authenticate device ownership before the face scan.
+                        <p style={{ margin: '0 0 12px 0', color: 'var(--text-muted, #64748b)', fontSize: '0.76rem' }}>
+                            Touch your device fingerprint sensor or tap below to authenticate.
                         </p>
 
                         {/* Interactive Fingerprint Graphic */}
                         <div
                             onClick={handleTriggerFingerprint}
                             style={{
-                                width: '110px',
-                                height: '110px',
-                                margin: '0 auto 18px auto',
+                                width: '72px',
+                                height: '72px',
+                                margin: '0 auto 12px auto',
                                 display: 'flex',
                                 alignItems: 'center',
                                 justifyContent: 'center',
@@ -2675,19 +2660,19 @@ function QrScannerApp() {
                                         ? 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)'
                                         : 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)'),
                                 color: '#ffffff',
-                                fontSize: '2.8rem',
+                                fontSize: '1.9rem',
                                 boxShadow: hardwareProof
-                                    ? '0 12px 28px -6px rgba(16, 185, 129, 0.55)'
-                                    : '0 12px 28px -6px rgba(99, 102, 241, 0.45)',
+                                    ? '0 8px 20px -4px rgba(16, 185, 129, 0.45)'
+                                    : '0 8px 20px -4px rgba(99, 102, 241, 0.35)',
                                 cursor: 'pointer',
                                 transition: 'all 0.3s ease'
                             }}
                             title="Touch sensor to verify fingerprint"
                         >
                             {hardwareProof ? (
-                                <FaCheckCircle style={{ fontSize: '2.8rem' }} />
+                                <FaCheckCircle style={{ fontSize: '1.9rem' }} />
                             ) : fingerprintVerifying ? (
-                                <FaSpinner className="fa-spin" style={{ fontSize: '2.5rem' }} />
+                                <FaSpinner className="fa-spin" style={{ fontSize: '1.6rem' }} />
                             ) : (
                                 <FaFingerprint />
                             )}
@@ -2698,36 +2683,35 @@ function QrScannerApp() {
                             <div style={{
                                 color: '#059669',
                                 fontWeight: 800,
-                                fontSize: '0.96rem',
+                                fontSize: '0.86rem',
                                 display: 'flex',
                                 alignItems: 'center',
                                 justifyContent: 'center',
-                                gap: '8px'
+                                gap: '6px'
                             }}>
                                 <FaCheckCircle />
                                 <span>Fingerprint Confirmed! Starting Face Scan...</span>
                             </div>
                         ) : fingerprintError ? (
                             <div>
-                                <p style={{ color: '#dc2626', fontWeight: 700, fontSize: '0.86rem', margin: '0 0 14px 0' }}>
+                                <p style={{ color: '#dc2626', fontWeight: 700, fontSize: '0.78rem', margin: '0 0 10px 0' }}>
                                     {fingerprintError}
                                 </p>
                                 <button
                                     type="button"
                                     onClick={handleTriggerFingerprint}
                                     style={{
-                                        padding: '10px 20px',
-                                        borderRadius: '12px',
+                                        padding: '8px 16px',
+                                        borderRadius: '10px',
                                         background: '#6366f1',
                                         color: '#ffffff',
                                         border: 'none',
                                         fontWeight: 800,
-                                        fontSize: '0.86rem',
+                                        fontSize: '0.8rem',
                                         cursor: 'pointer',
                                         display: 'inline-flex',
                                         alignItems: 'center',
-                                        gap: '6px',
-                                        boxShadow: '0 4px 12px rgba(99, 102, 241, 0.35)'
+                                        gap: '5px'
                                     }}
                                 >
                                     <FaSyncAlt /> Retry Fingerprint
@@ -2735,26 +2719,23 @@ function QrScannerApp() {
                             </div>
                         ) : (
                             <div>
-                                <p style={{ color: '#4f46e5', fontWeight: 700, fontSize: '0.88rem', margin: '0 0 14px 0' }}>
-                                    {fingerprintVerifying ? "Listening for sensor touch..." : "Touch fingerprint sensor or click below"}
-                                </p>
                                 <button
                                     type="button"
                                     onClick={handleTriggerFingerprint}
                                     disabled={fingerprintVerifying}
                                     style={{
-                                        padding: '10px 22px',
-                                        borderRadius: '12px',
+                                        padding: '8px 18px',
+                                        borderRadius: '10px',
                                         background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
                                         color: '#ffffff',
                                         border: 'none',
                                         fontWeight: 800,
-                                        fontSize: '0.88rem',
+                                        fontSize: '0.82rem',
                                         cursor: fingerprintVerifying ? 'wait' : 'pointer',
                                         display: 'inline-flex',
                                         alignItems: 'center',
-                                        gap: '8px',
-                                        boxShadow: '0 6px 16px rgba(99, 102, 241, 0.3)'
+                                        gap: '6px',
+                                        boxShadow: '0 4px 12px rgba(99, 102, 241, 0.25)'
                                     }}
                                 >
                                     <FaFingerprint />
@@ -2766,55 +2747,33 @@ function QrScannerApp() {
                 ) : (
                     /* Step 2: 3D Face Biometric & Liveness */
                     <div>
-                        <h2 style={{ margin: '0 0 6px 0', fontSize: '1.4rem', fontWeight: 800 }}>
-                            Step 2: Face Biometric & Liveness
-                        </h2>
-                        <p style={{ margin: '0 0 12px 0', color: 'var(--text-muted, #64748b)', fontSize: '0.86rem' }}>
-                            Position your face within the frame. Blink naturally to confirm liveness.
-                        </p>
-
-                        {/* Persistent Non-Blocking Reminder Banner */}
-                        <div style={{
-                            padding: '8px 12px',
-                            borderRadius: '10px',
-                            background: 'linear-gradient(135deg, #1e293b 0%, #334155 100%)',
-                            color: '#f8fafc',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            gap: '6px',
-                            fontSize: '0.78rem',
-                            fontWeight: 700,
-                            marginBottom: '12px'
-                        }}>
-                            <FaShieldAlt style={{ color: '#10b981' }} />
-                            <span>Attendance In Progress: Keep SmartAttend active in the foreground.</span>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', marginBottom: '6px' }}>
+                            <h2 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 800 }}>
+                                Step 2: Face Biometric &amp; Liveness
+                            </h2>
+                            <span style={{ fontSize: '0.72rem', color: '#64748b' }}>• Keep face in frame</span>
                         </div>
 
                         {/* On-Return Interruption Warning Banner */}
                         {interruptionWarning && (
                             <div style={{
-                                margin: '0 0 12px 0',
-                                padding: '10px 14px',
-                                borderRadius: '10px',
+                                margin: '0 0 8px 0',
+                                padding: '6px 10px',
+                                borderRadius: '8px',
                                 background: '#fffbeb',
-                                border: '1.5px solid #f59e0b',
+                                border: '1px solid #f59e0b',
                                 color: '#92400e',
-                                textAlign: 'left',
-                                fontSize: '0.78rem',
+                                fontSize: '0.74rem',
                                 display: 'flex',
                                 alignItems: 'center',
                                 justifyContent: 'space-between',
-                                gap: '8px'
+                                gap: '6px'
                             }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                    <FaExclamationTriangle style={{ color: '#d97706', fontSize: '1rem', flexShrink: 0 }} />
-                                    <span><strong>Interruption Recorded:</strong> Screen blur detected and logged for instructor review. Remain on this screen.</span>
-                                </div>
+                                <span><strong>Interruption Recorded:</strong> Remain on screen.</span>
                                 <button
                                     type="button"
                                     onClick={() => setInterruptionWarning(false)}
-                                    style={{ background: 'transparent', border: 'none', color: '#b45309', fontWeight: 800, fontSize: '0.75rem', cursor: 'pointer' }}
+                                    style={{ background: 'transparent', border: 'none', color: '#b45309', fontWeight: 800, fontSize: '0.72rem', cursor: 'pointer' }}
                                 >
                                     Dismiss
                                 </button>
@@ -2833,16 +2792,17 @@ function QrScannerApp() {
 
                 {submittingAttendance && (
                     <div style={{
-                        marginTop: '16px',
-                        padding: '12px',
-                        borderRadius: '12px',
+                        marginTop: '8px',
+                        padding: '8px 12px',
+                        borderRadius: '10px',
                         background: '#dcfce7',
                         color: '#15803d',
                         fontWeight: 800,
+                        fontSize: '0.8rem',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        gap: '8px'
+                        gap: '6px'
                     }}>
                         <FaSpinner className="fa-spin" />
                         <span>Biometrics Verified! Submitting attendance record...</span>
@@ -2858,13 +2818,13 @@ function QrScannerApp() {
     if (scanState === 'KIOSK_WAITING_QR2') {
         return (
             <div style={{
-                maxWidth: '540px',
-                margin: '24px auto',
-                padding: '26px 20px',
+                maxWidth: '520px',
+                margin: '8px auto',
+                padding: '12px 14px',
                 background: 'var(--surface, #ffffff)',
-                borderRadius: '24px',
+                borderRadius: '20px',
                 border: '1.5px solid var(--border, #e2e8f0)',
-                boxShadow: '0 20px 45px -20px rgba(0, 0, 0, 0.15)',
+                boxShadow: '0 10px 30px -15px rgba(0, 0, 0, 0.12)',
                 color: 'var(--text-main, #0f172a)',
                 textAlign: 'center',
                 position: 'relative'
@@ -2887,55 +2847,37 @@ function QrScannerApp() {
                         textAlign: 'center'
                     }}>
                         <div style={{
-                            width: '80px',
-                            height: '80px',
+                            width: '60px',
+                            height: '60px',
                             borderRadius: '50%',
                             background: '#fee2e2',
                             color: '#b91c1c',
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'center',
-                            fontSize: '40px',
-                            marginBottom: '16px'
+                            fontSize: '30px',
+                            marginBottom: '12px'
                         }}>
                             <FaExclamationTriangle />
                         </div>
-                        <h2 style={{ fontSize: '1.5rem', fontWeight: 800, margin: '0 0 10px 0', color: '#f87171' }}>
+                        <h2 style={{ fontSize: '1.3rem', fontWeight: 800, margin: '0 0 8px 0', color: '#f87171' }}>
                             Security Supervision Alert!
                         </h2>
-                        <p style={{ maxWidth: '440px', fontSize: '0.9rem', color: '#cbd5e1', lineHeight: 1.5, marginBottom: '16px' }}>
-                            App switching or minimization detected for student <strong>{loggedInRollNo}</strong>.
-                            Leaving SmartAttend or sharing QR codes is strictly prohibited.
+                        <p style={{ maxWidth: '400px', fontSize: '0.84rem', color: '#cbd5e1', lineHeight: 1.4, marginBottom: '14px' }}>
+                            App switching detected for <strong>{loggedInRollNo}</strong>. Leaving SmartAttend is strictly prohibited.
                         </p>
-                        <div style={{
-                            padding: '12px 16px',
-                            borderRadius: '12px',
-                            background: 'rgba(239, 68, 68, 0.15)',
-                            border: '1px solid rgba(239, 68, 68, 0.4)',
-                            color: '#fca5a5',
-                            fontSize: '0.82rem',
-                            lineHeight: 1.45,
-                            marginBottom: '20px',
-                            textAlign: 'left'
-                        }}>
-                            <div style={{ fontWeight: 800, marginBottom: '4px', color: '#f87171' }}>⚠️ Anti-Proxy Protection Active:</div>
-                            • Violations Count: <strong>{violationCount} / 2</strong> (Next violation disqualifies attendance)<br />
-                            • Phase 2 requires live 3D Facial Biometrics matching {loggedInRollNo}'s record.<br />
-                            • Session Time Remaining: <strong>{formatMmSs(sessionRemaining)}</strong>
-                        </div>
                         <button
                             type="button"
                             onClick={() => setSupervisionViolation(false)}
                             style={{
-                                padding: '14px 28px',
-                                borderRadius: '14px',
+                                padding: '10px 22px',
+                                borderRadius: '12px',
                                 background: '#6366f1',
                                 color: '#ffffff',
                                 border: 'none',
                                 fontWeight: 800,
-                                fontSize: '1rem',
-                                cursor: 'pointer',
-                                boxShadow: '0 4px 16px rgba(99, 102, 241, 0.4)'
+                                fontSize: '0.9rem',
+                                cursor: 'pointer'
                             }}
                         >
                             Return to Attendance Session
@@ -2943,19 +2885,19 @@ function QrScannerApp() {
                     </div>
                 )}
 
-                {/* Supervised Banner */}
+                {/* Supervised Bar */}
                 <div style={{
-                    padding: '10px 14px',
-                    borderRadius: '12px',
+                    padding: '6px 12px',
+                    borderRadius: '10px',
                     background: 'linear-gradient(135deg, #4338ca 0%, #6366f1 100%)',
                     color: '#ffffff',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'space-between',
-                    marginBottom: '16px'
+                    marginBottom: '10px'
                 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 800, fontSize: '0.85rem' }}>
-                        <FaLock /> Attendance Lock Mode Active
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 800, fontSize: '0.78rem' }}>
+                        <FaLock /> Lock Mode Active ({loggedInRollNo})
                     </div>
                     <button
                         type="button"
@@ -2964,193 +2906,62 @@ function QrScannerApp() {
                             display: 'inline-flex',
                             alignItems: 'center',
                             gap: '4px',
-                            background: 'rgba(255, 255, 255, 0.18)',
-                            border: '1px solid rgba(255, 255, 255, 0.3)',
-                            borderRadius: '8px',
-                            padding: '4px 10px',
+                            background: 'rgba(255, 255, 255, 0.2)',
+                            border: 'none',
+                            borderRadius: '6px',
+                            padding: '3px 8px',
                             color: '#ffffff',
-                            fontSize: '0.75rem',
+                            fontSize: '0.72rem',
                             fontWeight: 700,
                             cursor: 'pointer'
                         }}
                     >
-                        <FaLock /> Lecturer Release
+                        Release
                     </button>
                 </div>
 
-                {/* Success Icon */}
+                {/* Instruction / Status Badge */}
                 <div style={{
-                    width: '60px',
-                    height: '60px',
-                    borderRadius: '50%',
-                    background: '#dcfce7',
-                    color: '#15803d',
-                    display: 'flex',
+                    display: 'inline-flex',
                     alignItems: 'center',
-                    justifyContent: 'center',
-                    margin: '0 auto 12px',
-                    fontSize: '32px'
-                }}>
-                    <FaCheckCircle />
-                </div>
-
-                <h2 style={{ margin: '0 0 6px 0', fontSize: '1.35rem', fontWeight: 800 }}>
-                    Attendance Session Verified
-                </h2>
-                <p style={{ margin: '0 0 14px 0', color: 'var(--text-muted, #64748b)', fontSize: '0.86rem' }}>
-                    You are <strong>AUTHORIZED</strong> for this session ({loggedInRollNo} · {loggedInName}).
-                </p>
-
-                {/* Persistent Non-Blocking Reminder Banner */}
-                <div style={{
-                    padding: '8px 12px',
-                    borderRadius: '10px',
-                    background: 'linear-gradient(135deg, #1e293b 0%, #334155 100%)',
-                    color: '#f8fafc',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
                     gap: '6px',
+                    padding: '5px 12px',
+                    borderRadius: '999px',
+                    background: isQr2Released ? 'rgba(16, 185, 129, 0.12)' : 'rgba(99, 102, 241, 0.1)',
+                    color: isQr2Released ? '#059669' : '#4338ca',
                     fontSize: '0.78rem',
-                    fontWeight: 700,
-                    marginBottom: '12px'
+                    fontWeight: 800,
+                    marginBottom: '10px'
                 }}>
-                    <FaShieldAlt style={{ color: '#10b981' }} />
-                    <span>Attendance In Progress: Keep SmartAttend active in the foreground.</span>
-                </div>
-
-                {/* On-Return Interruption Warning Banner */}
-                {interruptionWarning && (
-                    <div style={{
-                        margin: '0 0 12px 0',
-                        padding: '10px 14px',
-                        borderRadius: '10px',
-                        background: '#fffbeb',
-                        border: '1.5px solid #f59e0b',
-                        color: '#92400e',
-                        textAlign: 'left',
-                        fontSize: '0.78rem',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        gap: '8px'
-                    }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                            <FaExclamationTriangle style={{ color: '#d97706', fontSize: '1rem', flexShrink: 0 }} />
-                            <span><strong>Interruption Recorded:</strong> Screen blur detected and logged for instructor review. Remain on this screen.</span>
-                        </div>
-                        <button
-                            type="button"
-                            onClick={() => setInterruptionWarning(false)}
-                            style={{ background: 'transparent', border: 'none', color: '#b45309', fontWeight: 800, fontSize: '0.75rem', cursor: 'pointer' }}
-                        >
-                            Dismiss
-                        </button>
-                    </div>
-                )}
-
-                {/* Supervision Policy Banner */}
-                <div style={{
-                    margin: '0 0 16px 0',
-                    padding: '12px 16px',
-                    borderRadius: '14px',
-                    background: '#f8fafc',
-                    border: '1.5px solid #cbd5e1',
-                    color: '#334155',
-                    textAlign: 'left',
-                    fontSize: '0.82rem',
-                    lineHeight: 1.45
-                }}>
-                    <div style={{ fontWeight: 800, color: '#4338ca', display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '2px' }}>
-                        <FaShieldAlt /> Attendance Monitoring Active
-                    </div>
-                    Keep SmartAttend open in the foreground. On Android, exiting Kiosk mode twice disqualifies attendance. On iPhone and browsers, background interruptions are logged for instructor review. Keep this screen open until you scan QR 2.
-                </div>
-
-                {/* Instruction Callout */}
-                <div style={{
-                    background: isQr2Released ? 'rgba(16, 185, 129, 0.08)' : 'rgba(99, 102, 241, 0.08)',
-                    border: isQr2Released ? '1.5px dashed #10b981' : '1.5px dashed #6366f1',
-                    borderRadius: '16px',
-                    padding: '14px 16px',
-                    marginBottom: '18px',
-                    textAlign: 'left'
-                }}>
-                    <div style={{ fontWeight: 800, color: isQr2Released ? '#047857' : '#4338ca', fontSize: '0.9rem', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        {isQr2Released ? <FaCheckCircle style={{ color: '#10b981' }} /> : <FaClock />}
-                        {isQr2Released ? 'Phase 2 Live · Scan QR 2 Now' : 'Phase 1 Complete · QR Scanning Paused'}
-                    </div>
-                    <p style={{ margin: 0, fontSize: '0.82rem', color: '#475569', lineHeight: 1.4 }}>
-                        {isQr2Released
-                            ? 'Your lecturer has released QR 2 on the screen. Point the live camera below at the screen to verify your face and mark attendance.'
-                            : 'Scanning is securely paused until your lecturer displays QR 2 on the projector screen. As soon as Phase 2 starts, camera scanning will automatically activate.'}
-                    </p>
+                    {isQr2Released ? <FaCheckCircle /> : <FaClock />}
+                    <span>{isQr2Released ? 'Phase 2 Live · Point camera at screen QR 2' : 'Phase 1 Complete · Waiting for QR 2'}</span>
                 </div>
 
                 {!isQr2Released ? (
                     /* QR Scanning Blocked / Paused View */
                     <div style={{
-                        borderRadius: '16px',
-                        padding: '28px 20px',
-                        border: '2px dashed #94a3b8',
+                        borderRadius: '14px',
+                        padding: '16px 14px',
+                        border: '1.5px dashed #cbd5e1',
                         background: 'linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%)',
-                        textAlign: 'center',
-                        position: 'relative',
-                        overflow: 'hidden'
+                        textAlign: 'center'
                     }}>
-                        <div style={{
-                            width: '60px',
-                            height: '60px',
-                            borderRadius: '50%',
-                            background: '#e0e7ff',
-                            color: '#4f46e5',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            fontSize: '26px',
-                            margin: '0 auto 12px',
-                            boxShadow: '0 4px 14px rgba(79, 70, 229, 0.2)'
-                        }}>
-                            <FaClock />
-                        </div>
-
-                        <div style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '6px',
-                            padding: '4px 12px',
-                            borderRadius: '999px',
-                            background: '#fef3c7',
-                            border: '1px solid #fde68a',
-                            color: '#92400e',
-                            fontSize: '0.78rem',
-                            fontWeight: 800,
-                            marginBottom: '10px'
-                        }}>
-                            <FaLock style={{ fontSize: '0.7rem' }} /> QR SCANNING PAUSED
-                        </div>
-
-                        <h3 style={{ margin: '0 0 6px 0', fontSize: '1.15rem', fontWeight: 800, color: '#1e293b' }}>
-                            Waiting for Lecturer to Release QR 2
-                        </h3>
-
-                        <p style={{ margin: '0 0 16px 0', fontSize: '0.84rem', color: '#64748b', lineHeight: 1.45, maxWidth: '380px', marginInline: 'auto' }}>
-                            Phase 1 check-in is complete! Camera scanning is paused to save battery and block duplicate scans. Once your lecturer releases QR 2 on the projector, scanning will automatically unlock.
+                        <p style={{ margin: '0 0 10px 0', fontSize: '0.78rem', color: '#64748b' }}>
+                            Scanning paused to save battery. Camera unlocks automatically when QR 2 appears.
                         </p>
 
                         {secondsUntilQr2 !== null && secondsUntilQr2 > 0 ? (
                             <div style={{
                                 display: 'inline-block',
-                                padding: '10px 20px',
-                                borderRadius: '12px',
+                                padding: '6px 16px',
+                                borderRadius: '10px',
                                 background: '#ffffff',
-                                border: '1.5px solid #c7d2fe',
-                                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.05)'
+                                border: '1.5px solid #c7d2fe'
                             }}>
-                                <div style={{ fontSize: '0.72rem', fontWeight: 700, color: '#6366f1', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                                    Estimated QR 2 Release In
+                                <div style={{ fontSize: '0.68rem', fontWeight: 700, color: '#6366f1', textTransform: 'uppercase' }}>
+                                    Estimated QR 2 In
                                 </div>
-                                <div style={{ fontSize: '1.6rem', fontWeight: 800, color: '#312e81', fontFamily: 'monospace' }}>
+                                <div style={{ fontSize: '1.35rem', fontWeight: 800, color: '#312e81', fontFamily: 'monospace' }}>
                                     {Math.floor(secondsUntilQr2 / 60)}:{String(secondsUntilQr2 % 60).padStart(2, '0')}
                                 </div>
                             </div>
@@ -3158,52 +2969,47 @@ function QrScannerApp() {
                             <div style={{
                                 display: 'inline-flex',
                                 alignItems: 'center',
-                                gap: '8px',
-                                padding: '8px 16px',
-                                borderRadius: '10px',
+                                gap: '6px',
+                                padding: '6px 12px',
+                                borderRadius: '8px',
                                 background: '#ffffff',
                                 border: '1px solid #e2e8f0',
-                                fontSize: '0.82rem',
+                                fontSize: '0.78rem',
                                 color: '#475569',
                                 fontWeight: 600
                             }}>
-                                <FaSpinner className="fa-spin" style={{ color: '#6366f1' }} /> Listening for lecturer to advance session...
+                                <FaSpinner className="fa-spin" style={{ color: '#6366f1' }} /> Listening for lecturer to release QR 2...
                             </div>
                         )}
                     </div>
                 ) : (
                     /* Live Scanner Frame (Only active when QR 2 is released) */
                     <div style={{
-                        borderRadius: '16px',
+                        borderRadius: '14px',
                         overflow: 'hidden',
-                        border: '2.5px solid #10b981',
+                        border: '2px solid #10b981',
                         background: '#020617',
                         position: 'relative',
-                        minHeight: '260px',
-                        boxShadow: '0 0 25px rgba(16, 185, 129, 0.25)'
+                        height: '210px',
+                        minHeight: '190px',
+                        boxShadow: '0 0 20px rgba(16, 185, 129, 0.25)'
                     }}>
                         <div style={{
                             position: 'absolute',
-                            top: '10px',
+                            top: '8px',
                             left: '50%',
                             transform: 'translateX(-50%)',
                             zIndex: 10,
-                            padding: '6px 16px',
+                            padding: '4px 12px',
                             borderRadius: '999px',
                             background: 'rgba(6, 78, 59, 0.92)',
-                            border: '1.5px solid #34d399',
-                            backdropFilter: 'blur(8px)',
+                            border: '1px solid #34d399',
                             color: '#ecfdf5',
-                            fontSize: '0.78rem',
+                            fontSize: '0.74rem',
                             fontWeight: 800,
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '6px',
-                            whiteSpace: 'nowrap',
-                            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.4)'
+                            whiteSpace: 'nowrap'
                         }}>
-                            <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', background: '#34d399', boxShadow: '0 0 10px #34d399' }}></span>
-                            ⚡ Phase 2 Live · Point Camera at QR 2 on Screen
+                            ⚡ Phase 2 Live · Scan QR 2 on Screen
                         </div>
 
                         <NativeQrScanner
@@ -3216,37 +3022,15 @@ function QrScannerApp() {
                     </div>
                 )}
 
-                <div style={{ marginTop: '14px', textAlign: 'center' }}>
-                    <button
-                        type="button"
-                        onClick={() => setShowPinModal(true)}
-                        style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '6px',
-                            padding: '8px 14px',
-                            borderRadius: '10px',
-                            background: 'var(--surface-soft, #f8fafc)',
-                            border: '1px solid var(--border, #cbd5e1)',
-                            color: '#475569',
-                            fontSize: '0.8rem',
-                            fontWeight: 700,
-                            cursor: 'pointer'
-                        }}
-                    >
-                        <FaLock style={{ color: '#6366f1' }} /> Enter Lecturer Release Code
-                    </button>
-                </div>
-
                 {errorMessage && (
                     <div style={{
-                        marginTop: '12px',
-                        padding: '10px 14px',
-                        borderRadius: '10px',
+                        marginTop: '8px',
+                        padding: '8px 12px',
+                        borderRadius: '8px',
                         background: '#fee2e2',
                         border: '1px solid #fca5a5',
                         color: '#b91c1c',
-                        fontSize: '0.84rem',
+                        fontSize: '0.78rem',
                         fontWeight: 700,
                         textAlign: 'left'
                     }}>
@@ -3262,276 +3046,87 @@ function QrScannerApp() {
     // =========================================================================
     return (
         <div style={{
-            maxWidth: '540px',
-            margin: '30px auto',
-            padding: '26px 22px',
+            maxWidth: '520px',
+            margin: '8px auto',
+            padding: '12px 14px',
             background: 'var(--surface, #ffffff)',
             borderRadius: '20px',
             border: '1.5px solid var(--border, #e2e8f0)',
-            boxShadow: '0 20px 45px -20px rgba(0, 0, 0, 0.1)',
+            boxShadow: '0 10px 30px -15px rgba(0, 0, 0, 0.1)',
             color: 'var(--text-main, #0f172a)',
             textAlign: 'center'
         }}>
-            {/* Smart App Requirement for Mobile Web Browsers */}
-            {!isNativeApp && (
-                <div style={{
-                    marginBottom: '20px',
-                    padding: '16px',
-                    borderRadius: '16px',
-                    background: 'linear-gradient(135deg, #1e1b4b 0%, #312e81 100%)',
-                    color: '#ffffff',
-                    border: '1.5px solid #6366f1',
-                    textAlign: 'left',
-                    boxShadow: '0 8px 24px rgba(49, 46, 129, 0.4)'
-                }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 800, fontSize: '0.95rem', marginBottom: '6px' }}>
-                        <FaLock style={{ color: '#a5b4fc' }} /> Hardware Lock Required
-                    </div>
-                    <p style={{ margin: '0 0 14px 0', fontSize: '0.84rem', color: '#e0e7ff', lineHeight: 1.4 }}>
-                        This attendance session uses <strong>Lecturer Kiosk Lock Mode</strong>. To lock your device and prevent exiting without a PIN, open this session in the <strong>SmartAttend Android App</strong>.
-                    </p>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                        <button
-                            type="button"
-                            onClick={handleOpenInSmartAttendApp}
-                            style={{
-                                width: '100%',
-                                padding: '11px 16px',
-                                borderRadius: '12px',
-                                background: '#6366f1',
-                                color: '#ffffff',
-                                border: 'none',
-                                fontWeight: 800,
-                                fontSize: '0.9rem',
-                                cursor: 'pointer',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                gap: '8px',
-                                boxShadow: '0 4px 14px rgba(99, 102, 241, 0.4)'
-                            }}
-                        >
-                            <FaExternalLinkAlt /> Open in SmartAttend App
-                        </button>
-                        <a
-                            href={getApkDownloadUrl()}
-                            download="SmartAttend-release.apk"
-                            style={{
-                                width: '100%',
-                                padding: '9px 16px',
-                                borderRadius: '12px',
-                                background: 'rgba(255, 255, 255, 0.12)',
-                                color: '#ffffff',
-                                border: '1px solid rgba(255, 255, 255, 0.25)',
-                                fontWeight: 700,
-                                fontSize: '0.82rem',
-                                textDecoration: 'none',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                gap: '6px',
-                                textAlign: 'center'
-                            }}
-                        >
-                            <FaMobileAlt /> Download SmartAttend Android APK
-                        </a>
-                    </div>
-                </div>
-            )}
-
-            {/* Non-blocking Available App Update Banner */}
-            {availableUpdate && !versionBlock && (
-                <div style={{
-                    marginBottom: '16px',
-                    padding: '12px 16px',
-                    borderRadius: '14px',
-                    background: 'linear-gradient(135deg, #4338ca 0%, #6366f1 100%)',
-                    color: '#ffffff',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    gap: '10px',
-                    boxShadow: '0 4px 14px rgba(99, 102, 241, 0.3)'
-                }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem' }}>
-                        <span>🚀 <strong>Update v{availableUpdate.latestVersion} Available</strong></span>
-                    </div>
-                    <button
-                        type="button"
-                        onClick={() => setShowUpdateModalFromScanner(true)}
-                        style={{
-                            padding: '6px 14px',
-                            borderRadius: '8px',
-                            background: '#ffffff',
-                            color: '#4338ca',
-                            fontWeight: 800,
-                            fontSize: '0.8rem',
-                            border: 'none',
-                            cursor: 'pointer'
-                        }}
-                    >
-                        Update
-                    </button>
-                </div>
-            )}
-
             {/* Header Navigation */}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '18px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
                 <button
                     type="button"
                     onClick={() => navigate('/student')}
                     style={{
                         display: 'inline-flex',
                         alignItems: 'center',
-                        gap: '6px',
+                        gap: '5px',
                         background: 'transparent',
                         border: 'none',
                         color: 'var(--accent, #6366f1)',
-                        fontSize: '0.9rem',
+                        fontSize: '0.82rem',
                         fontWeight: 700,
                         cursor: 'pointer'
                     }}
                 >
-                    <FaArrowLeft /> Back to Dashboard
+                    <FaArrowLeft /> Dashboard
                 </button>
+
+                {/* Compact Student Badge */}
+                {user && (
+                    <div style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '5px',
+                        padding: '3px 10px',
+                        borderRadius: '999px',
+                        background: 'var(--surface-soft, #f8fafc)',
+                        border: '1px solid var(--border, #e2e8f0)',
+                        fontSize: '0.74rem',
+                        fontWeight: 700,
+                        color: '#334155'
+                    }}>
+                        <FaUserCheck style={{ color: '#6366f1' }} />
+                        <span><strong>{loggedInRollNo}</strong> ({loggedInName})</span>
+                    </div>
+                )}
             </div>
 
-            {/* Icon & Title */}
-            <div style={{
-                width: '58px',
-                height: '58px',
-                borderRadius: '50%',
-                background: 'rgba(99, 102, 241, 0.12)',
-                color: '#6366f1',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                margin: '0 auto 12px',
-                fontSize: '30px'
-            }}>
-                <MdQrCodeScanner />
-            </div>
-
-            <h2 style={{ margin: '0 0 6px 0', fontSize: '1.45rem', fontWeight: 800 }}>
-                Scan Class QR Code
-            </h2>
-            <p style={{ margin: '0 0 16px 0', color: 'var(--text-muted, #64748b)', fontSize: '0.88rem' }}>
-                Point camera at the attendance QR code displayed on the lecturer screen.
-            </p>
-
-            {/* Pre-Scan Attendance Monitoring Policy Warning Card */}
-            <div style={{
-                margin: '0 0 18px 0',
-                padding: '14px 16px',
-                borderRadius: '16px',
-                background: 'linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%)',
-                border: '1.5px solid #86efac',
-                color: '#14532d',
-                textAlign: 'left',
-                boxShadow: '0 4px 14px rgba(16, 185, 129, 0.1)'
-            }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 800, fontSize: '0.9rem', color: '#15803d', marginBottom: '6px' }}>
-                    <FaShieldAlt style={{ color: '#16a34a', fontSize: '1.1rem' }} />
-                    <span>ATTENDANCE MONITORING POLICY</span>
-                </div>
-                <div style={{ fontSize: '0.82rem', lineHeight: 1.5, color: '#166534' }}>
-                    <p style={{ margin: '0 0 4px 0' }}>
-                        <strong>• Android Native App:</strong> SmartAttend will be pinned in Kiosk Lock Task mode during attendance. 1st exit produces a warning; 2nd confirmed violation forfeits attendance (enforced on backend).
-                    </p>
-                    <p style={{ margin: 0 }}>
-                        <strong>• iPhone &amp; Web Browsers:</strong> Keep SmartAttend active in the foreground throughout scanning and face verification. Screen interruptions are recorded for instructor review.
-                    </p>
-                </div>
-            </div>
-
-            {/* Student Info Pill */}
-            {user && (
+            {/* Title & Concise Status */}
+            <div style={{ marginBottom: '8px' }}>
+                <h2 style={{ margin: '0 0 2px 0', fontSize: '1.15rem', fontWeight: 800 }}>
+                    Scan Class QR Code
+                </h2>
                 <div style={{
                     display: 'inline-flex',
                     alignItems: 'center',
-                    gap: '6px',
-                    padding: '6px 14px',
-                    borderRadius: '999px',
-                    background: 'var(--surface-soft, #f8fafc)',
-                    border: '1px solid var(--border, #e2e8f0)',
-                    fontSize: '0.82rem',
-                    fontWeight: 700,
-                    color: '#334155',
-                    marginBottom: '16px'
+                    gap: '5px',
+                    padding: '3px 8px',
+                    borderRadius: '6px',
+                    background: 'rgba(16, 185, 129, 0.08)',
+                    color: '#15803d',
+                    fontSize: '0.72rem',
+                    fontWeight: 700
                 }}>
-                    <FaUserCheck style={{ color: '#6366f1' }} />
-                    <span>Logged in as: <strong>{loggedInRollNo}</strong> ({loggedInName})</span>
+                    <FaShieldAlt style={{ color: '#16a34a' }} />
+                    <span>Supervised Session Active · Keep in view</span>
                 </div>
-            )}
+            </div>
 
-            {/* Native Anti-Escape Guardian Status / Overlay Permission Prompt */}
-            {isNativeApp && !deviceOwnerStatus.isDeviceOwner && overlayStatus.checked && !overlayStatus.canDraw && (
-                <div style={{
-                    marginBottom: '18px',
-                    padding: '16px',
-                    borderRadius: '16px',
-                    background: 'linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%)',
-                    border: '2px solid #f59e0b',
-                    boxShadow: '0 6px 20px rgba(245, 158, 11, 0.15)',
-                    textAlign: 'left'
-                }}>
-                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
-                        <div style={{
-                            width: '38px',
-                            height: '38px',
-                            borderRadius: '10px',
-                            background: '#f59e0b',
-                            color: '#ffffff',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            flexShrink: 0,
-                            fontSize: '1.2rem'
-                        }}>
-                            <FaShieldAlt />
-                        </div>
-                        <div style={{ flex: 1 }}>
-                            <h4 style={{ margin: '0 0 4px', fontSize: '0.94rem', fontWeight: 800, color: '#92400e' }}>
-                                Attendance Lock Guard Required
-                            </h4>
-                            <p style={{ margin: '0 0 12px', fontSize: '0.82rem', color: '#b45309', lineHeight: 1.4 }}>
-                                Android requires <strong>"Display over other apps"</strong> permission to secure your device during attendance and prevent app switching.
-                            </p>
-                            <button
-                                type="button"
-                                onClick={() => setShowOverlayInstructionsModal(true)}
-                                style={{
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    gap: '8px',
-                                    padding: '9px 18px',
-                                    borderRadius: '10px',
-                                    background: '#d97706',
-                                    color: '#ffffff',
-                                    border: 'none',
-                                    fontSize: '0.84rem',
-                                    fontWeight: 800,
-                                    cursor: 'pointer',
-                                    boxShadow: '0 2px 8px rgba(217, 119, 6, 0.3)'
-                                }}
-                            >
-                                <FaShieldAlt /> Enable Lock Mode Permission
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-
-            {/* Camera Viewport */}
+            {/* Camera Viewport (Constrained for 0-scroll layout) */}
             <div style={{
-                borderRadius: '16px',
+                borderRadius: '14px',
                 overflow: 'hidden',
                 border: '2px solid rgba(99, 102, 241, 0.4)',
                 background: '#020617',
                 position: 'relative',
-                minHeight: '280px',
-                boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.15)'
+                height: '220px',
+                minHeight: '200px',
+                boxShadow: '0 8px 20px -5px rgba(0, 0, 0, 0.15)'
             }}>
                 {scannerActive && (
                     <NativeQrScanner

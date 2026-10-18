@@ -5,14 +5,14 @@
 .live-enrollment-card {
   background: var(--surface, #ffffff);
   border: 1.5px solid var(--border, #e2e8f0);
-  border-radius: 20px;
-  padding: 20px;
+  border-radius: 18px;
+  padding: 10px 12px;
   text-align: center;
   position: relative;
   box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.04);
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   margin: 0 auto;
-  max-width: 680px;
+  max-width: 520px;
   width: 100%;
   box-sizing: border-box;
 }
@@ -43,15 +43,15 @@
 .lfe-mode-tabs-wrapper {
   display: flex;
   justify-content: center;
-  margin-bottom: 12px;
+  margin-bottom: 8px;
 }
 
 .lfe-mode-tabs {
   display: inline-flex;
   background: var(--surface-soft, #f1f5f9);
-  padding: 4px;
-  border-radius: 12px;
-  gap: 4px;
+  padding: 3px;
+  border-radius: 10px;
+  gap: 3px;
   border: 1px solid var(--border, #e2e8f0);
 }
 
@@ -64,13 +64,13 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  padding: 8px 18px;
-  border-radius: 9px;
+  gap: 5px;
+  padding: 6px 14px;
+  border-radius: 8px;
   border: none;
   background: transparent;
   color: var(--text-muted, #64748b);
-  font-size: 0.86rem;
+  font-size: 0.8rem;
   font-weight: 700;
   cursor: pointer;
   transition: all 0.2s ease;
@@ -95,13 +95,13 @@
 .lfe-viewport-container {
   position: relative;
   width: 100%;
-  max-width: 480px;
-  height: 380px;
-  margin: 0 auto 12px;
-  border-radius: 20px;
+  max-width: 360px;
+  height: 230px;
+  margin: 0 auto 8px;
+  border-radius: 16px;
   overflow: hidden;
   background: #090d16;
-  box-shadow: 0 12px 30px -4px rgba(0, 0, 0, 0.25), 0 0 0 2px rgba(99, 102, 241, 0.3);
+  box-shadow: 0 8px 24px -4px rgba(0, 0, 0, 0.25), 0 0 0 2px rgba(99, 102, 241, 0.3);
   transition: all 0.3s ease;
   display: flex;
   align-items: center;
@@ -140,8 +140,8 @@
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  width: 270px;
-  height: 270px;
+  width: 185px;
+  height: 185px;
   pointer-events: none;
   display: flex;
   align-items: center;
@@ -289,23 +289,51 @@
 }
 
 @keyframes lfeSlideLeft {
-  0%, 100% { transform: translateX(0); }
-  50% { transform: translateX(-12px); }
+
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+
+  50% {
+    transform: translateX(-12px);
+  }
 }
 
 @keyframes lfeSlideRight {
-  0%, 100% { transform: translateX(0); }
-  50% { transform: translateX(12px); }
+
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+
+  50% {
+    transform: translateX(12px);
+  }
 }
 
 @keyframes lfeSlideUp {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-10px); }
+
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+
+  50% {
+    transform: translateY(-10px);
+  }
 }
 
 @keyframes lfePulseCenter {
-  0%, 100% { transform: scale(1); }
-  50% { transform: scale(1.08); }
+
+  0%,
+  100% {
+    transform: scale(1);
+  }
+
+  50% {
+    transform: scale(1.08);
+  }
 }
 
 /* Shutter Flash */
@@ -318,34 +346,40 @@
 }
 
 @keyframes lfeFlash {
-  0% { opacity: 0.95; }
-  100% { opacity: 0; }
+  0% {
+    opacity: 0.95;
+  }
+
+  100% {
+    opacity: 0;
+  }
 }
 
 /* =========================================================
    3D BIOMETRIC STEPS TRAY & PILLS
    ========================================================= */
 
-.biohud-steps-tray {
-  margin: 6px 0 12px;
+.biohud-steps-tray,
+.biohud-angle-nav {
+  margin: 4px 0 6px;
 }
 
 .biohud-pills-row {
   display: flex;
   justify-content: center;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   flex-wrap: wrap;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
 }
 
 .biohud-pill {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 4px 10px;
-  border-radius: 8px;
-  font-size: 0.74rem;
+  gap: 3px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 0.7rem;
   font-weight: 700;
   background: var(--surface-soft, #f1f5f9);
   color: var(--text-muted, #64748b);
@@ -408,18 +442,18 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  margin-bottom: 12px;
+  gap: 6px;
+  margin-bottom: 6px;
   flex-wrap: wrap;
 }
 
 .lfe-status-capsule {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  padding: 6px 14px;
-  border-radius: 20px;
-  font-size: 0.82rem;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 16px;
+  font-size: 0.74rem;
   font-weight: 750;
   background: var(--surface-soft, #f1f5f9);
   color: var(--text-main, #334155);
@@ -735,8 +769,16 @@
 }
 
 @keyframes lfeBtnPulse {
-  0%, 100% { box-shadow: 0 4px 16px rgba(99, 102, 241, 0.35); }
-  50% { box-shadow: 0 6px 24px rgba(99, 102, 241, 0.65); transform: translateY(-1px); }
+
+  0%,
+  100% {
+    box-shadow: 0 4px 16px rgba(99, 102, 241, 0.35);
+  }
+
+  50% {
+    box-shadow: 0 6px 24px rgba(99, 102, 241, 0.65);
+    transform: translateY(-1px);
+  }
 }
 
 .lfe-secondary-upload-btn {

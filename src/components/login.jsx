@@ -93,6 +93,7 @@ const Login = () => {
           }
           navigate(target, { replace: true });
         } else {
+          sessionStorage.setItem("smartattend_just_logged_in", "true");
           navigate("/student", { replace: true });
         }
       }

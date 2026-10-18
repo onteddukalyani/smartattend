@@ -512,7 +512,7 @@ export async function submitVerifiedAttendance(sessionId, qr2Token, biometricDat
     throw new Error("Server rejected attendance submission.");
   } catch (cloudErr) {
     const msg = cloudErr.message || "";
-    if (msg.includes("QR 1") || msg.includes("Access denied") || msg.includes("permission-denied")) {
+    if (msg.includes("scan QR 1 first") || msg.includes("Missing Phase 1")) {
       throw new Error("⛔ Attendance Rejected: Missing Phase 1 QR 1 check-in. You must scan QR 1 first during Phase 1 (0:00 - 1:00).");
     }
     throw cloudErr;

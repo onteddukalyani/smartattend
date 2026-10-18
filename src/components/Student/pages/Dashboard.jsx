@@ -45,6 +45,8 @@ import { removeStudentPhotoOnly, checkDuplicateFaceBiometrics } from "../../../u
 import { getCandidateRolls, computeStudentMetrics, parseTimestampMillis } from "../studentAttendanceHelper";
 import { isGenericName, normalizeBranchName } from "../../../utils/studentDataHelper";
 import DeviceOnboardingModal from "../DeviceOnboardingModal";
+import StudentReadinessModal from "../StudentReadinessModal";
+import { requestAppNotificationPermissions } from "../../../services/nativeNotificationService";
 import { subscribeToStudentNotifications, markNotificationAsRead, sendFacultyNotification, sendStudentNotification, reportUserVerificationComplaint, getTimestampMs } from "../../../services/notificationsService";
 import { detectDeviceType, getClientIpAddress, getDeviceDisplayName, isDeviceMatching } from "../../../utils/deviceDetection";
 import { Capacitor } from "@capacitor/core";
@@ -90,6 +92,7 @@ export default function StudentDashboard() {
     });
     const [overlayStatus, setOverlayStatus] = useState({ checked: false, granted: true });
     const [showPermissionsGuide, setShowPermissionsGuide] = useState(false);
+    const [showReadinessModal, setShowReadinessModal] = useState(false);
 
     // Device Mismatch & Reset Request State
     const [requestingReset, setRequestingReset] = useState(false);
@@ -150,6 +153,26 @@ export default function StudentDashboard() {
             isMounted = false;
             if (typeof unsub === "function") unsub();
         };
+    }, []);
+
+    // Auto-prompt location & notification access and biometric registration just after logging in
+    useEffect(() => {
+        const justLoggedIn = sessionStorage.getItem("smartattend_just_logged_in") === "true";
+        const sessionPrompted = sessionStorage.getItem("smartattend_readiness_prompted") === "true";
+
+        if (justLoggedIn || !sessionPrompted) {
+            if (justLoggedIn) sessionStorage.removeItem("smartattend_just_logged_in");
+            sessionStorage.setItem("smartattend_readiness_prompted", "true");
+
+            // Open the readiness setup modal
+            setShowReadinessModal(true);
+
+            // Auto-trigger native / browser permission requests
+            requestAppNotificationPermissions().catch(() => { });
+            if (typeof navigator !== "undefined" && navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(() => { }, () => { }, { timeout: 8000, maximumAge: 0 });
+            }
+        }
     }, []);
 
     // Subscribe to real-time Faculty & Admin notifications
@@ -1119,26 +1142,48 @@ export default function StudentDashboard() {
                             </p>
                         </div>
                     </div>
-                    <Link
-                        to="/student/face-enroll"
-                        style={{
-                            display: "inline-flex",
-                            alignItems: "center",
-                            gap: "8px",
-                            padding: "9px 18px",
-                            borderRadius: "10px",
-                            background: "linear-gradient(135deg, #6366f1, #4f46e5)",
-                            color: "#ffffff",
-                            textDecoration: "none",
-                            fontWeight: 700,
-                            fontSize: "0.88rem",
-                            cursor: "pointer",
-                            boxShadow: "0 4px 12px rgba(99, 102, 241, 0.25)",
-                            whiteSpace: "nowrap"
-                        }}
-                    >
-                        <FaFingerprint /> Complete Biometrics In-App
-                    </Link>
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                        <button
+                            type="button"
+                            onClick={() => setShowReadinessModal(true)}
+                            style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "6px",
+                                padding: "8px 14px",
+                                borderRadius: "10px",
+                                background: "rgba(99, 102, 241, 0.08)",
+                                border: "1.5px solid #6366f1",
+                                color: "#4f46e5",
+                                fontWeight: 700,
+                                fontSize: "0.82rem",
+                                cursor: "pointer",
+                                whiteSpace: "nowrap"
+                            }}
+                        >
+                            <FaShieldAlt /> Permissions &amp; Setup
+                        </button>
+                        <Link
+                            to="/student/face-enroll"
+                            style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "8px",
+                                padding: "9px 18px",
+                                borderRadius: "10px",
+                                background: "linear-gradient(135deg, #6366f1, #4f46e5)",
+                                color: "#ffffff",
+                                textDecoration: "none",
+                                fontWeight: 700,
+                                fontSize: "0.88rem",
+                                cursor: "pointer",
+                                boxShadow: "0 4px 12px rgba(99, 102, 241, 0.25)",
+                                whiteSpace: "nowrap"
+                            }}
+                        >
+                            <FaFingerprint /> Complete Biometrics In-App
+                        </Link>
+                    </div>
                 </div>
             )}
 
@@ -1881,6 +1926,16 @@ export default function StudentDashboard() {
                         setCurrentDeviceType(localStorage.getItem('smartattend_student_device_type') || '');
                     } catch (_) { }
                 }}
+            />
+
+            {/* Student Post-Login Readiness & Permissions Modal */}
+            <StudentReadinessModal
+                isOpen={showReadinessModal}
+                onClose={() => setShowReadinessModal(false)}
+                hasFaceRegistered={hasFaceRegistered}
+                hasHwRegistered={hasHwRegistered}
+                studentName={studentName}
+                activeRollNo={activeRollNo}
             />
 
             {/* Complete Android Permissions & Setup Instructions Modal */}

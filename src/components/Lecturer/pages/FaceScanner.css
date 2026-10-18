@@ -6,7 +6,7 @@
   background: var(--surface-soft, #f8fafc);
   border: 1.5px solid var(--border, #e2e8f0);
   border-radius: 18px;
-  padding: 20px;
+  padding: 10px 12px;
   text-align: center;
   position: relative;
   overflow: hidden;
@@ -31,9 +31,9 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 16px;
-  padding-bottom: 14px;
+  gap: 8px;
+  margin-bottom: 8px;
+  padding-bottom: 6px;
   border-bottom: 1px solid var(--border, #e2e8f0);
   flex-wrap: wrap;
 }
@@ -41,13 +41,13 @@
 .scanner-registered-student {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   text-align: left;
 }
 
 .registered-avatar-thumb {
-  width: 44px;
-  height: 44px;
+  width: 32px;
+  height: 32px;
   border-radius: 50%;
   object-fit: cover;
   border: 2px solid #6366f1;
@@ -55,27 +55,27 @@
 }
 
 .registered-avatar-placeholder {
-  width: 44px;
-  height: 44px;
+  width: 32px;
+  height: 32px;
   border-radius: 50%;
   background: #e0e7ff;
   color: #4f46e5;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 1.2rem;
+  font-size: 1rem;
 }
 
 .registered-meta h4 {
   margin: 0;
-  font-size: 0.95rem;
+  font-size: 0.88rem;
   font-weight: 750;
   color: var(--text-main, #0f172a);
 }
 
 .registered-meta p {
-  margin: 2px 0 0;
-  font-size: 0.8rem;
+  margin: 1px 0 0;
+  font-size: 0.74rem;
   color: var(--text-muted, #64748b);
   font-weight: 600;
 }
@@ -84,10 +84,10 @@
 .scanner-status-pill {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 14px;
+  gap: 5px;
+  padding: 4px 10px;
   border-radius: 999px;
-  font-size: 0.82rem;
+  font-size: 0.75rem;
   font-weight: 700;
 }
 
@@ -127,20 +127,20 @@
 .scanner-video-wrapper {
   position: relative;
   width: 100%;
-  max-width: 520px;
-  min-height: 360px;
-  height: 380px;
-  margin: 0 auto 18px;
-  border-radius: 20px;
+  max-width: 380px;
+  min-height: 200px;
+  height: 220px;
+  margin: 0 auto 8px;
+  border-radius: 16px;
   overflow: hidden;
   background: #090d16;
-  border: 3px solid #6366f1;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28);
+  border: 2.5px solid #6366f1;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.22);
 }
 
 .biometric-scanner-card.verified .scanner-video-wrapper {
   border-color: #10b981;
-  box-shadow: 0 0 20px rgba(16, 185, 129, 0.4);
+  box-shadow: 0 0 16px rgba(16, 185, 129, 0.4);
 }
 
 .biometric-scanner-card.mismatch .scanner-video-wrapper {
@@ -358,21 +358,21 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 12px;
-  margin-top: 10px;
+  gap: 6px;
+  margin-top: 6px;
   flex-wrap: wrap;
 }
 
 .liveness-shield-tag {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 4px 10px;
+  gap: 4px;
+  padding: 3px 8px;
   background: rgba(99, 102, 241, 0.1);
   color: #4f46e5;
   border-radius: 6px;
-  font-size: 0.76rem;
-  font-weight: 750;
+  font-size: 0.72rem;
+  font-weight: 700;
 }
 
 .liveness-shield-tag.live-pass {
