@@ -11,6 +11,7 @@ import {
     closeAttendanceSession,
     extendAttendanceSession,
     updateSessionGeofenceRadius,
+    updateSessionRotationInterval,
     releaseIndividualStudentDevice,
     excuseAndReinstateAttendance
 } from "../../../services/sessionAuthService";
@@ -94,7 +95,7 @@ function GenerateQR() {
     const [rotationIntervalSec, setRotationIntervalSec] = useState(DEFAULT_ROTATION_INTERVAL);
     const [rotationSecondsLeft, setRotationSecondsLeft] = useState(DEFAULT_ROTATION_INTERVAL);
     const [dynamicQrUrl, setDynamicQrUrl] = useState("");
-    const [geofenceRadius, setGeofenceRadius] = useState(30); // Mandatory default: 30 metres standard, adjustable live by lecturer (0 = disabled)
+    const [geofenceRadius, setGeofenceRadius] = useState(10); // Mandatory default: 10 metres standard, adjustable live by lecturer (0 = disabled)
     const [classroomCoords, setClassroomCoords] = useState(null);
     const [classroomGpsStatus, setClassroomGpsStatus] = useState("IDLE"); // "IDLE" | "ACTIVE" | "UNAVAILABLE" | "DISABLED"
 
@@ -170,9 +171,9 @@ function GenerateQR() {
 
     const toggleFullscreen = () => {
         if (!document.fullscreenElement) {
-            document.documentElement.requestFullscreen().catch(() => {});
+            document.documentElement.requestFullscreen().catch(() => { });
         } else {
-            document.exitFullscreen().catch(() => {});
+            document.exitFullscreen().catch(() => { });
         }
     };
 
@@ -216,8 +217,18 @@ function GenerateQR() {
 
         const unsubSession = subscribeToSession(sessionId, (data) => {
             setSessionData(data);
-            if (data.lecturerPin) {
-                setSessionPin(data.lecturerPin);
+            if (data.lecturerPin || data.sessionPin) {
+                setSessionPin(data.lecturerPin || data.sessionPin);
+            } else {
+                getDoc(doc(db, "attendance_sessions", sessionId, "security", "tokens"))
+                    .then((secSnap) => {
+                        if (secSnap.exists()) {
+                            const sec = secSnap.data() || {};
+                            const pin = sec.sessionPin || sec.lecturerPin;
+                            if (pin) setSessionPin(pin);
+                        }
+                    })
+                    .catch(() => { });
             }
             if (data.phase === "PHASE_2" || data.phase === "CLOSED") {
                 setPhase(data.phase);
@@ -240,6 +251,9 @@ function GenerateQR() {
             }
             if (typeof data.geofenceRadius === 'number') {
                 setGeofenceRadius(data.geofenceRadius);
+            }
+            if (typeof data.rotationIntervalSec === 'number' && data.rotationIntervalSec >= 5 && data.rotationIntervalSec <= 60 && data.rotationIntervalSec % 5 === 0) {
+                setRotationIntervalSec(data.rotationIntervalSec);
             }
         });
 
@@ -299,7 +313,7 @@ function GenerateQR() {
                 setElapsedSeconds(totalSeconds);
                 if (timerRef.current) clearInterval(timerRef.current);
                 if (sessionId) {
-                    closeAttendanceSession(sessionId).catch(() => {});
+                    closeAttendanceSession(sessionId).catch(() => { });
                 }
             } else if (phase === "PHASE_2" || sessionData?.phase === "PHASE_2" || (qr1ExpiresAt && now >= qr1ExpiresAt)) {
                 setPhase("PHASE_2");
@@ -380,7 +394,9 @@ function GenerateQR() {
                 effectiveDurationMinutes,
                 {
                     qr1DurationSeconds: effectiveQr1Sec,
-                    qr2DurationSeconds: effectiveQr2Sec
+                    qr2DurationSeconds: effectiveQr2Sec,
+                    classroomLocation: classroomCoords || null,
+                    rotationIntervalSec: rotationIntervalSec
                 }
             );
 
@@ -417,7 +433,7 @@ function GenerateQR() {
                                 updateDoc(doc(db, "attendance_sessions", result.sessionId), {
                                     classroomLocation: coords,
                                     geofenceRadius: geofenceRadius
-                                }).catch(() => {});
+                                }).catch(() => { });
                             }
                         }
                     };
@@ -442,13 +458,13 @@ function GenerateQR() {
                     try {
                         const refineWatchId = navigator.geolocation.watchPosition(
                             applyCoords,
-                            () => {},
+                            () => { },
                             { enableHighAccuracy: true, maximumAge: 0 }
                         );
                         setTimeout(() => {
-                            try { navigator.geolocation.clearWatch(refineWatchId); } catch (_) {}
+                            try { navigator.geolocation.clearWatch(refineWatchId); } catch (_) { }
                         }, 5000);
-                    } catch (_) {}
+                    } catch (_) { }
                 };
                 captureHostGps();
             } else if (geofenceRadius === 0) {
@@ -463,7 +479,7 @@ function GenerateQR() {
                 "SESSION_STARTED",
                 "",
                 lecturerInfo.name
-            ).catch(() => {});
+            ).catch(() => { });
 
             // Targeted Student Session Notification (ONLY students registered for this course receive it)
             const cleanTargetCode = courseCode.trim().toUpperCase();
@@ -489,7 +505,7 @@ function GenerateQR() {
                         "SESSION_STARTED",
                         lecturerInfo.name,
                         { courseCode: cleanTargetCode, sessionId: result.sessionId, roomNo: roomNo.trim() }
-                    ).catch(() => {});
+                    ).catch(() => { });
                 });
             } else {
                 sendStudentNotification(
@@ -499,7 +515,7 @@ function GenerateQR() {
                     "SESSION_STARTED",
                     lecturerInfo.name,
                     { courseCode: cleanTargetCode, sessionId: result.sessionId, roomNo: roomNo.trim() }
-                ).catch(() => {});
+                ).catch(() => { });
             }
         } catch (error) {
             console.error("Error creating attendance session:", error);
@@ -572,26 +588,26 @@ function GenerateQR() {
         }
     };
 
-    // Prompt lecturer for custom manual metres entry
+    // Prompt lecturer for custom manual metres entry (approved range 5–50m, default 10m)
     const handlePromptCustomGeofence = () => {
         const input = window.prompt(
-            "Enter custom classroom geofence distance in metres (e.g. 15, 25, 40, 75, or 0 to disable):",
-            geofenceRadius
+            "Enter custom classroom geofence distance in metres (between 5 and 50 metres, default 10m):",
+            geofenceRadius || 10
         );
         if (input !== null) {
             const val = parseInt(input.trim(), 10);
-            if (!isNaN(val) && val >= 0) {
+            if (!isNaN(val) && val >= 5 && val <= 50) {
                 handleUpdateGeofenceRadius(val);
             } else {
-                alert("Please enter a valid positive number in metres (or 0 to disable GPS).");
+                alert("Please enter a valid number between 5 and 50 metres (default is 10m).");
             }
         }
     };
 
-    // Step adjustment helper (+5m / -5m)
+    // Step adjustment helper (+5m / -5m bounded between 5m and 50m)
     const handleStepGeofenceRadius = (delta) => {
-        const current = Number(geofenceRadius) || 0;
-        const next = Math.max(0, current + delta);
+        const current = Number(geofenceRadius) || 10;
+        const next = Math.max(5, Math.min(50, current + delta));
         handleUpdateGeofenceRadius(next);
     };
 
@@ -601,30 +617,40 @@ function GenerateQR() {
             alert("Geolocation is not supported by your browser or device.");
             return;
         }
+
+        const applyRecalibration = (pos) => {
+            const targetRadius = geofenceRadius > 0 ? geofenceRadius : 30;
+            const updatedCoords = {
+                latitude: pos.coords.latitude,
+                longitude: pos.coords.longitude,
+                accuracy: Number(pos.coords.accuracy) || 50,
+                radius: targetRadius
+            };
+            setClassroomCoords(updatedCoords);
+            setClassroomGpsStatus("ACTIVE");
+            if (geofenceRadius === 0) setGeofenceRadius(30);
+            if (sessionId) {
+                updateDoc(doc(db, "attendance_sessions", sessionId), {
+                    geofenceRadius: targetRadius,
+                    classroomLocation: updatedCoords
+                }).catch(() => { });
+            }
+            alert(`✅ Classroom GPS re-calibrated successfully!\nCoordinates: ${pos.coords.latitude.toFixed(5)}, ${pos.coords.longitude.toFixed(5)}\nAccuracy: ±${Math.round(pos.coords.accuracy)}m\nRadius: ${targetRadius}m`);
+        };
+
         navigator.geolocation.getCurrentPosition(
-            (pos) => {
-                const targetRadius = geofenceRadius > 0 ? geofenceRadius : 30;
-                const updatedCoords = {
-                    latitude: pos.coords.latitude,
-                    longitude: pos.coords.longitude,
-                    accuracy: pos.coords.accuracy,
-                    radius: targetRadius
-                };
-                setClassroomCoords(updatedCoords);
-                setClassroomGpsStatus("ACTIVE");
-                if (geofenceRadius === 0) setGeofenceRadius(30);
-                if (sessionId) {
-                    updateDoc(doc(db, "attendance_sessions", sessionId), {
-                        geofenceRadius: targetRadius,
-                        classroomLocation: updatedCoords
-                    }).catch(() => {});
-                }
-                alert(`✅ Classroom GPS re-calibrated successfully!\nCoordinates: ${pos.coords.latitude.toFixed(5)}, ${pos.coords.longitude.toFixed(5)}\nAccuracy: ±${Math.round(pos.coords.accuracy)}m\nRadius: ${targetRadius}m`);
+            applyRecalibration,
+            () => {
+                // Secondary coarse / Wi-Fi fallback if high accuracy GNSS satellite fails indoors on laptop
+                navigator.geolocation.getCurrentPosition(
+                    applyRecalibration,
+                    (err) => {
+                        alert("Could not retrieve GPS coordinates. Please ensure Location access is allowed in your browser settings.\nError: " + (err.message || err));
+                    },
+                    { enableHighAccuracy: false, timeout: 8000, maximumAge: 60000 }
+                );
             },
-            (err) => {
-                alert("Could not retrieve GPS coordinates. Please ensure Location access is allowed in your browser settings.\nError: " + (err.message || err));
-            },
-            { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
+            { enableHighAccuracy: true, timeout: 6000, maximumAge: 0 }
         );
     };
 
@@ -731,7 +757,7 @@ function GenerateQR() {
             extendAttendanceSession(sessionId, {
                 deltaSeconds,
                 phaseTarget: target
-            }).catch(() => {});
+            }).catch(() => { });
         } catch (err) {
             console.error("Failed to adjust session time:", err);
         }
@@ -777,7 +803,7 @@ function GenerateQR() {
                     "SESSION_CLOSED",
                     "",
                     profile?.name || "Lecturer"
-                ).catch(() => {});
+                ).catch(() => { });
             }
         } catch (err) {
             console.error("Error closing session:", err);
@@ -937,7 +963,7 @@ function GenerateQR() {
     const handleResetSession = async () => {
         if (window.confirm("Start a new attendance session? Current session will be closed.")) {
             if (sessionId) {
-                await closeAttendanceSession(sessionId).catch(() => {});
+                await closeAttendanceSession(sessionId).catch(() => { });
             }
             setSessionId("");
             setPhase("NONE");
@@ -984,9 +1010,9 @@ function GenerateQR() {
             const rawId = String(raw.id || "").toUpperCase().trim();
 
             const dbMatch = (rawEmail && dbStudentsMap.get(rawEmail)) ||
-                            (rawRoll && dbStudentsMap.get(rawRoll)) ||
-                            (rawUid && dbStudentsMap.get(rawUid)) ||
-                            (rawId && dbStudentsMap.get(rawId)) || null;
+                (rawRoll && dbStudentsMap.get(rawRoll)) ||
+                (rawUid && dbStudentsMap.get(rawUid)) ||
+                (rawId && dbStudentsMap.get(rawId)) || null;
 
             const canonicalRoll = dbMatch?.rollNo || (!rawRoll.includes("@") && rawRoll ? rawRoll : (!rawId.includes("@") ? rawId : ""));
             const rawName = raw.studentName || raw.fullName || raw.name || "";
@@ -1630,11 +1656,11 @@ function GenerateQR() {
                                 value={rotationIntervalSec}
                                 onChange={(e) => setRotationIntervalSec(Number(e.target.value))}
                             >
-                                <option value={10}>10s (Recommended - High Security)</option>
-                                <option value={5}>5s (Ultra High Security)</option>
-                                <option value={15}>15s (Standard)</option>
-                                <option value={30}>30s (Relaxed)</option>
-                                <option value={60}>60s (Static Display)</option>
+                                {ROTATION_INTERVALS.map((sec) => (
+                                    <option key={sec} value={sec}>
+                                        {sec}s {sec === 10 ? "(Authoritative Default)" : (sec === 5 ? "(Anti-Proxy Ultra Security)" : "")}
+                                    </option>
+                                ))}
                             </select>
                         </div>
                     </div>
@@ -1714,6 +1740,9 @@ function GenerateQR() {
 
                 {/* Security Chips */}
                 <div className="qr-security-chips">
+                    <span className="qr-sec-chip" style={{ background: "rgba(99, 102, 241, 0.12)", color: "#4f46e5", border: "1px solid rgba(99, 102, 241, 0.35)", fontWeight: 750 }}>
+                        <FaShieldAlt /> Anti-Proxy Shield (5s QR + Single-Strike + Liveness)
+                    </span>
                     <span className="qr-sec-chip"><FaLock /> Kiosk Mode Locked</span>
                     <span className="qr-sec-chip"><FaMapMarkerAlt /> {geofenceRadius > 0 ? `${geofenceRadius}m GPS Active` : "GPS Disabled"}</span>
                     <span className="qr-sec-chip"><FaSyncAlt /> {rotationIntervalSec}s Token Rotation</span>
@@ -2174,7 +2203,19 @@ function GenerateQR() {
                             <span style={{ fontSize: "0.72rem", color: "var(--text-muted, #64748b)" }}>Interval:</span>
                             <select
                                 value={rotationIntervalSec}
-                                onChange={(e) => setRotationIntervalSec(Number(e.target.value))}
+                                onChange={async (e) => {
+                                    const val = Number(e.target.value);
+                                    setRotationIntervalSec(val);
+                                    setRotationSecondsLeft(val);
+                                    if (sessionId) {
+                                        try {
+                                            await updateSessionRotationInterval(sessionId, val);
+                                        } catch (err) {
+                                            console.error("Failed to update rotation interval on server:", err);
+                                            alert("Failed to update rotation interval: " + (err.message || err));
+                                        }
+                                    }
+                                }}
                                 style={{
                                     padding: "2px 6px",
                                     borderRadius: "6px",
@@ -2185,11 +2226,9 @@ function GenerateQR() {
                                     cursor: "pointer"
                                 }}
                             >
-                                <option value="5">5s</option>
-                                <option value="10">10s</option>
-                                <option value="15">15s</option>
-                                <option value="30">30s</option>
-                                <option value="60">60s</option>
+                                {ROTATION_INTERVALS.map((sec) => (
+                                    <option key={sec} value={sec}>{sec}s</option>
+                                ))}
                             </select>
                         </div>
                     </div>
@@ -2256,11 +2295,11 @@ function GenerateQR() {
                             ) : (
                                 <button
                                     type="button"
-                                    onClick={() => handleUpdateGeofenceRadius(30)}
-                                    title="Enable 30m default geofence"
+                                    onClick={() => handleUpdateGeofenceRadius(10)}
+                                    title="Enable 10m default geofence"
                                     style={{ padding: "2px 7px", borderRadius: "5px", border: "1px solid #10b981", background: "rgba(16, 185, 129, 0.15)", color: "#059669", fontSize: "0.7rem", fontWeight: 750, cursor: "pointer" }}
                                 >
-                                    Enable 30m
+                                    Enable 10m
                                 </button>
                             )}
                             <button
@@ -2383,8 +2422,8 @@ function GenerateQR() {
                         {phase === "PHASE_1"
                             ? `Phase 1 Check-in Window (0:00–${formatMmSs(qr1TotalSeconds)})`
                             : phase === "PHASE_2"
-                            ? `Phase 2 Biometric Window (${formatMmSs(qr1TotalSeconds)}–${formatMmSs(totalDurationSeconds)})`
-                            : "Session Window Finished"}
+                                ? `Phase 2 Biometric Window (${formatMmSs(qr1TotalSeconds)}–${formatMmSs(totalDurationSeconds)})`
+                                : "Session Window Finished"}
                     </span>
                     <div className="qr-projector-digital-clock">
                         {formatMmSs(elapsedSeconds)} / {formatMmSs(totalDurationSeconds)}
@@ -2519,11 +2558,11 @@ function GenerateQR() {
                                 ) : (
                                     <button
                                         type="button"
-                                        onClick={() => handleUpdateGeofenceRadius(30)}
-                                        title="Enable 30m default geofence"
+                                        onClick={() => handleUpdateGeofenceRadius(10)}
+                                        title="Enable 10m default geofence"
                                         style={{ padding: "2px 8px", borderRadius: "5px", border: "1px solid #10b981", background: "rgba(16, 185, 129, 0.15)", color: "#059669", fontSize: "0.7rem", fontWeight: 750, cursor: "pointer" }}
                                     >
-                                        Enable 30m GPS
+                                        Enable 10m GPS
                                     </button>
                                 )}
                                 <button
@@ -2657,8 +2696,8 @@ function GenerateQR() {
                                 {phase === "PHASE_1"
                                     ? `⚡ Phase 1 (0:00–${formatMmSs(qr1TotalSeconds)}) Check-in`
                                     : phase === "PHASE_2"
-                                    ? `🎯 Phase 2 (${formatMmSs(qr1TotalSeconds)}–${formatMmSs(totalDurationSeconds)}) Biometrics`
-                                    : "🔒 Session Closed"}
+                                        ? `🎯 Phase 2 (${formatMmSs(qr1TotalSeconds)}–${formatMmSs(totalDurationSeconds)}) Biometrics`
+                                        : "🔒 Session Closed"}
                             </span>
                             <span className="qr-topbar-clock">
                                 <FaClock /> {formatMmSs(elapsedSeconds)} / {formatMmSs(totalDurationSeconds)}

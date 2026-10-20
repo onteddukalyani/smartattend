@@ -5,9 +5,9 @@
  * exact expiry boundaries (interval + 5s clock skew grace), and replay prevention.
  */
 
-// Supported rotation intervals in seconds
-export const ROTATION_INTERVALS = [5, 10, 15, 30, 60];
-export const DEFAULT_ROTATION_INTERVAL = 10;
+// Supported rotation intervals in seconds: 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60 seconds
+export const ROTATION_INTERVALS = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60];
+export const DEFAULT_ROTATION_INTERVAL = 10; // 10s authoritative default
 export const MAX_CLOCK_SKEW_GRACE_SEC = 5;
 
 /**
@@ -77,7 +77,7 @@ export async function generateRotatingQrPayload({
 
   const cLat = classroomLocation ? Number(classroomLocation.latitude ?? classroomLocation.lat) : NaN;
   const cLon = classroomLocation ? Number(classroomLocation.longitude ?? classroomLocation.lng ?? classroomLocation.lon) : NaN;
-  const cRad = classroomLocation ? Number(classroomLocation.radius ?? classroomLocation.r ?? 10) : 10;
+  const cRad = classroomLocation ? Number(classroomLocation.radius ?? classroomLocation.r ?? 30) : 30;
   const cAcc = classroomLocation ? Number(classroomLocation.accuracy ?? classroomLocation.acc ?? 0) : 0;
 
   if (Number.isFinite(cLat) && Number.isFinite(cLon)) {
@@ -144,7 +144,7 @@ export async function validateRotatingQrPayload(rawScanned, options = {}) {
         const parsed = new URL(rawScanned.replace("smartattend://attend", "https://smartattend.app/student/mark-attendance"));
         const geoLat = parsed.searchParams.get("geolat");
         const geoLng = parsed.searchParams.get("geolng");
-        const geoR = Number(parsed.searchParams.get("geor") || 10);
+        const geoR = Number(parsed.searchParams.get("geor") || 30);
         const geoAcc = Number(parsed.searchParams.get("geoacc") || 0);
 
         params = {
@@ -173,7 +173,7 @@ export async function validateRotatingQrPayload(rawScanned, options = {}) {
         if (json.geo && typeof json.geo === "object") {
           const gLat = Number(json.geo.latitude ?? json.geo.lat);
           const gLng = Number(json.geo.longitude ?? json.geo.lng ?? json.geo.lon);
-          const gR = Number(json.geo.radius ?? json.geo.r ?? 10);
+          const gR = Number(json.geo.radius ?? json.geo.r ?? 30);
           const gAcc = Number(json.geo.accuracy ?? json.geo.acc ?? 0);
           if (Number.isFinite(gLat) && Number.isFinite(gLng)) {
             geoObj = {

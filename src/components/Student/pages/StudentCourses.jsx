@@ -113,12 +113,11 @@ export default function StudentCourses() {
 
     // 3. Real-time Attendance Records listener
     useEffect(() => {
-        if (!candidateRolls || candidateRolls.length === 0) return;
+        if (!user?.uid && (!candidateRolls || candidateRolls.length === 0)) return;
 
-        const q = query(
-            collection(db, "attendance_records"),
-            where("rollNo", "in", candidateRolls)
-        );
+        const q = user?.uid
+            ? query(collection(db, "attendance_records"), where("studentUid", "==", user.uid))
+            : query(collection(db, "attendance_records"), where("rollNo", "in", candidateRolls));
 
         const unsubscribeRecords = onSnapshot(
             q,
@@ -133,7 +132,7 @@ export default function StudentCourses() {
         );
 
         return () => unsubscribeRecords();
-    }, [candidateRolls]);
+    }, [user?.uid, candidateRolls]);
 
     // Manual Refresh Handler
     const handleRefresh = async () => {
@@ -142,9 +141,11 @@ export default function StudentCourses() {
             const [coursesSnap, sessionsSnap, recordsSnap] = await Promise.all([
                 getDocs(collection(db, "courses")).catch(() => ({ docs: [] })),
                 getDocs(collection(db, "attendance_sessions")).catch(() => ({ docs: [] })),
-                candidateRolls.length > 0
-                    ? getDocs(query(collection(db, "attendance_records"), where("rollNo", "in", candidateRolls))).catch(() => ({ docs: [] }))
-                    : { docs: [] }
+                user?.uid
+                    ? getDocs(query(collection(db, "attendance_records"), where("studentUid", "==", user.uid))).catch(() => ({ docs: [] }))
+                    : (candidateRolls.length > 0
+                        ? getDocs(query(collection(db, "attendance_records"), where("rollNo", "in", candidateRolls))).catch(() => ({ docs: [] }))
+                        : { docs: [] })
             ]);
 
             setCourses(coursesSnap.docs.map((d) => ({ id: d.id, ...d.data() })));

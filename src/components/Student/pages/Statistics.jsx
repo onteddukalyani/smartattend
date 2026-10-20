@@ -175,14 +175,13 @@ export default function Statistics() {
 
     // 3. Real-time Attendance Records listener
     useEffect(() => {
-        if (!candidateRolls || candidateRolls.length === 0) {
+        if (!user?.uid && (!candidateRolls || candidateRolls.length === 0)) {
             return;
         }
 
-        const recordsQ = query(
-            collection(db, "attendance_records"),
-            where("rollNo", "in", candidateRolls)
-        );
+        const recordsQ = user?.uid
+            ? query(collection(db, "attendance_records"), where("studentUid", "==", user.uid))
+            : query(collection(db, "attendance_records"), where("rollNo", "in", candidateRolls));
 
         const unsubscribeRecords = onSnapshot(
             recordsQ,
@@ -200,7 +199,7 @@ export default function Statistics() {
         );
 
         return () => unsubscribeRecords();
-    }, [candidateRolls]);
+    }, [user?.uid, candidateRolls]);
 
     const handleRefresh = async () => {
         setRefreshing(true);
@@ -208,9 +207,11 @@ export default function Statistics() {
             const [coursesSnap, sessionsSnap, recordsSnap] = await Promise.all([
                 getDocs(collection(db, "courses")).catch(() => ({ docs: [] })),
                 getDocs(collection(db, "attendance_sessions")).catch(() => ({ docs: [] })),
-                candidateRolls.length > 0
-                    ? getDocs(query(collection(db, "attendance_records"), where("rollNo", "in", candidateRolls))).catch(() => ({ docs: [] }))
-                    : { docs: [] }
+                user?.uid
+                    ? getDocs(query(collection(db, "attendance_records"), where("studentUid", "==", user.uid))).catch(() => ({ docs: [] }))
+                    : (candidateRolls.length > 0
+                        ? getDocs(query(collection(db, "attendance_records"), where("rollNo", "in", candidateRolls))).catch(() => ({ docs: [] }))
+                        : { docs: [] })
             ]);
 
             setCourses(coursesSnap.docs.map((d) => ({ id: d.id, ...d.data() })));

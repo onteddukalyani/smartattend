@@ -36,7 +36,8 @@ import {
     FaShieldAlt
 } from "react-icons/fa";
 import { MdQrCodeScanner } from "react-icons/md";
-import { db } from "../../../firebase";
+import { httpsCallable } from "firebase/functions";
+import { db, functions } from "../../../firebase";
 import { useAuth } from "../../authcontext";
 import { downloadExcel } from "../../../DownloadExcel";
 import { useTableSort, SortIcon } from "../../Common/useTableSort";
@@ -472,14 +473,13 @@ export default function StudentDashboard() {
 
     // 3. Real-time Attendance Records listener
     useEffect(() => {
-        if (!candidateRolls || candidateRolls.length === 0) {
+        if (!user?.uid && (!candidateRolls || candidateRolls.length === 0)) {
             return;
         }
 
-        const recordsQ = query(
-            collection(db, "attendance_records"),
-            where("rollNo", "in", candidateRolls)
-        );
+        const recordsQ = user?.uid
+            ? query(collection(db, "attendance_records"), where("studentUid", "==", user.uid))
+            : query(collection(db, "attendance_records"), where("rollNo", "in", candidateRolls));
 
         const unsubscribeRecords = onSnapshot(
             recordsQ,
@@ -497,7 +497,7 @@ export default function StudentDashboard() {
         );
 
         return () => unsubscribeRecords();
-    }, [candidateRolls]);
+    }, [user?.uid, candidateRolls]);
 
     // Manual Refresh Handler
     const handleManualRefresh = async () => {
@@ -506,9 +506,11 @@ export default function StudentDashboard() {
             const [coursesSnap, sessionsSnap, recordsSnap] = await Promise.all([
                 getDocs(collection(db, "courses")).catch(() => ({ docs: [] })),
                 getDocs(collection(db, "attendance_sessions")).catch(() => ({ docs: [] })),
-                candidateRolls.length > 0
-                    ? getDocs(query(collection(db, "attendance_records"), where("rollNo", "in", candidateRolls))).catch(() => ({ docs: [] }))
-                    : { docs: [] }
+                user?.uid
+                    ? getDocs(query(collection(db, "attendance_records"), where("studentUid", "==", user.uid))).catch(() => ({ docs: [] }))
+                    : (candidateRolls.length > 0
+                        ? getDocs(query(collection(db, "attendance_records"), where("rollNo", "in", candidateRolls))).catch(() => ({ docs: [] }))
+                        : { docs: [] })
             ]);
 
             setCourses(coursesSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
@@ -558,6 +560,22 @@ export default function StudentDashboard() {
                 return;
             }
 
+            const targetDocId = (fetchedStudentData?.id || activeRollNo).trim().toUpperCase();
+            let cloudSaved = false;
+            try {
+                const regFn = httpsCallable(functions, "registerStudentFace");
+                const res = await regFn({
+                    rollNo: targetDocId,
+                    faceDescriptor: cleanVector,
+                    photoURL: enrollData.photoURL || fetchedStudentData?.photoURL || profile?.photoURL || ""
+                });
+                if (res && res.data && res.data.success) {
+                    cloudSaved = true;
+                }
+            } catch (cloudErr) {
+                console.warn("Cloud function registerStudentFace notice:", cloudErr.message || cloudErr);
+            }
+
             // Purely update face registration details while guaranteeing complete student profile schema
             const updatePayload = {
                 rollNo: activeRollNo,
@@ -576,9 +594,10 @@ export default function StudentDashboard() {
                 enrolledAt: Date.now()
             };
 
-            // Append face biometrics strictly to the student's existing single Firestore document
-            const targetDocId = (fetchedStudentData?.id || activeRollNo).trim().toUpperCase();
-            await setDoc(doc(db, "students", targetDocId), updatePayload, { merge: true });
+            if (!cloudSaved) {
+                // Append face biometrics strictly to the student's existing single Firestore document
+                await setDoc(doc(db, "students", targetDocId), updatePayload, { merge: true });
+            }
 
             setFetchedStudentData((prev) => ({
                 ...(prev || {}),

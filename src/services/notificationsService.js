@@ -154,11 +154,12 @@ export async function sendStudentNotification(
 ) {
   if (!studentRollNo) return;
 
-  // STUDENT NOTIFICATION POLICY: Students receive live "SESSION_STARTED" notifications and "APP_UPDATE" notifications.
-  // Other non-essential notifications are suppressed for students.
+  // STUDENT NOTIFICATION POLICY: Students receive live "SESSION_STARTED", "APP_UPDATE", "ATTENDANCE_SUCCESS", and "SECURITY_ALERT" notifications.
   const isSessionStart = type === "SESSION_STARTED" || type === "CLASS_UPDATE" || (title && (title.includes("Live Attendance") || title.includes("Session Started")));
   const isAppUpdate = type === "APP_UPDATE" || (title && (title.toLowerCase().includes("update") || title.toLowerCase().includes("version")));
-  if (!isSessionStart && !isAppUpdate) {
+  const isAttendanceSuccess = type === "ATTENDANCE_SUCCESS" || (title && (title.includes("Attendance Recorded") || title.includes("Attendance Confirmed")));
+  const isSecurityAlert = type === "SECURITY_ALERT" || (title && (title.includes("Anti-Proxy") || title.includes("Different Phone")));
+  if (!isSessionStart && !isAppUpdate && !isAttendanceSuccess && !isSecurityAlert) {
     return;
   }
 

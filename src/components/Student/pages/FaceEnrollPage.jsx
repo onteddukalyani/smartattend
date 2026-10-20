@@ -16,8 +16,9 @@ import {
     FaCog
 } from "react-icons/fa";
 import { doc, setDoc, deleteField, onSnapshot } from "firebase/firestore";
+import { httpsCallable } from "firebase/functions";
 import { Capacitor } from "@capacitor/core";
-import { db } from "../../../firebase";
+import { db, functions } from "../../../firebase";
 import { useAuth } from "../../authcontext";
 import { LiveFaceEnrollment } from "../../Common/LiveFaceEnrollment";
 import FaceScanner from "../../Lecturer/pages/FaceScanner";
@@ -126,25 +127,42 @@ export default function FaceEnrollPage() {
                 return;
             }
 
-            const updatePayload = {
-                rollNo: activeRollNo,
-                name: studentName,
-                email: cleanEmail,
-                branch: profile?.branch || "CSE",
-                semester: profile?.semester || "1",
-                role: "student",
-                status: "active",
-                faceDescriptor: cleanVector,
-                photoURL: enrollData.photoURL || profile?.photoURL || "",
-                faceRegistered: true,
-                biometricEnrolled: true,
-                hasFaceRegistered: true,
-                faceRemovedAt: deleteField(),
-                enrolledAt: Date.now()
-            };
+            let cloudSaved = false;
+            try {
+                const regFn = httpsCallable(functions, "registerStudentFace");
+                const res = await regFn({
+                    rollNo: activeRollNo,
+                    faceDescriptor: cleanVector,
+                    photoURL: enrollData.photoURL || profile?.photoURL || ""
+                });
+                if (res && res.data && res.data.success) {
+                    cloudSaved = true;
+                }
+            } catch (cloudErr) {
+                console.warn("Cloud function registerStudentFace fallback notice:", cloudErr.message || cloudErr);
+            }
 
-            await setDoc(doc(db, "students", activeRollNo), updatePayload, { merge: true });
-            await setDoc(doc(db, "users", activeRollNo), updatePayload, { merge: true }).catch(() => {});
+            if (!cloudSaved) {
+                const updatePayload = {
+                    rollNo: activeRollNo,
+                    name: studentName,
+                    email: cleanEmail,
+                    branch: profile?.branch || "CSE",
+                    semester: profile?.semester || "1",
+                    role: "student",
+                    status: "active",
+                    faceDescriptor: cleanVector,
+                    photoURL: enrollData.photoURL || profile?.photoURL || "",
+                    faceRegistered: true,
+                    biometricEnrolled: true,
+                    hasFaceRegistered: true,
+                    faceRemovedAt: deleteField(),
+                    enrolledAt: Date.now()
+                };
+
+                await setDoc(doc(db, "students", activeRollNo), updatePayload, { merge: true });
+                await setDoc(doc(db, "users", activeRollNo), updatePayload, { merge: true }).catch(() => {});
+            }
 
             setHasFaceRegistered(true);
             setRegisteredDescriptor(cleanVector);

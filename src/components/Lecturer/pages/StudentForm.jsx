@@ -59,7 +59,9 @@ function StudentForm() {
     const [submissionDetails, setSubmissionDetails] = useState(null);
     const [countdown, setCountdown] = useState(2);
 
-    const sessionId = new URLSearchParams(window.location.search).get("session");
+    const searchParams = new URLSearchParams(window.location.search);
+    const sessionId = searchParams.get("session");
+    const scannedQr2Token = searchParams.get("qr2Token") || "";
 
     // Auto-prefill and lock if student is logged in
     useEffect(() => {
@@ -442,7 +444,7 @@ function StudentForm() {
             try {
                 await submitVerifiedAttendance(
                     sessionId,
-                    sessionData.qr2Token || sessionId,
+                    scannedQr2Token || sessionId,
                     {
                         confidence: faceVerificationData?.confidence || 100,
                         distance: faceVerificationData?.distance !== undefined ? Number(faceVerificationData.distance.toFixed(4)) : 0.35,

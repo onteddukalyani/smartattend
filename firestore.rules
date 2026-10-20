@@ -84,7 +84,7 @@ service cloud.firestore {
     }
 
     // Students collection: records managed by staff.
-    // Students can update their own personal non-academic details, but cannot alter rollNo, status, or biometrics.
+    // Students can update their own personal non-academic details, but cannot alter rollNo, status, biometrics, or platform binding.
     match /students/{studentId} {
       allow read: if isSignedIn();
       allow create, delete: if isStaff();
@@ -92,9 +92,13 @@ service cloud.firestore {
         isSignedIn() &&
         (request.auth.uid == studentId || (resource.data.studentUid != null && resource.data.studentUid == request.auth.uid)) &&
         !request.resource.data.diff(resource.data).affectedKeys().hasAny([
-          'rollNo', 'rollNumber', 'faceDescriptor', 'biometricEnrolled',
-          'hardwareBiometricPlatform', 'status', 'disqualified', 'academicYear', 'department', 'batch'
-        ])
+          'rollNo', 'rollNumber', 'status', 'disqualified', 'academicYear', 'department', 'batch', 'role',
+          'registeredPlatform', 'deviceType', 'deviceTypeLocked', 'registeredDeviceType', 'hardwareBiometricPlatform'
+        ]) &&
+        (
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny(['faceDescriptor', 'biometricEnrolled']) ||
+          (!('faceDescriptor' in resource.data) || resource.data.faceDescriptor == null)
+        )
       );
       match /{document=**} {
         allow read: if isSignedIn();
@@ -102,15 +106,30 @@ service cloud.firestore {
       }
     }
 
-    // Users collection: users can create/update own profile; non-admins cannot escalate role
+    // Users collection: users can create/update own profile; non-admins cannot escalate role or tamper with biometric/enrollment/academic/platform fields
     match /users/{userId} {
       allow read: if isSignedIn();
-      allow create: if isSignedIn() && (isAdmin() || request.auth.uid == userId);
+      allow create: if isSignedIn() && (
+        isAdmin() || (
+          request.auth.uid == userId &&
+          !request.resource.data.keys().hasAny([
+            'role', 'isAdmin', 'isLecturer', 'faceDescriptor', 'descriptor',
+            'faceRegistered', 'biometricEnrolled', 'hasFaceRegistered', 'rollNo',
+            'rollNumber', 'status', 'disqualified', 'department', 'batch',
+            'registeredPlatform', 'deviceType', 'deviceTypeLocked', 'registeredDeviceType', 'hardwareBiometricPlatform'
+          ])
+        )
+      );
       allow update: if isSignedIn() && (
         isAdmin() || (
           request.auth.uid == userId &&
-          (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'isAdmin', 'isLecturer']) ||
-           request.resource.data.role == resource.data.role)
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+            'role', 'isAdmin', 'isLecturer', 'faceDescriptor', 'descriptor',
+            'faceRegistered', 'biometricEnrolled', 'hasFaceRegistered', 'rollNo',
+            'rollNumber', 'status', 'disqualified', 'department', 'batch',
+            'registeredPlatform', 'deviceType', 'deviceTypeLocked', 'registeredDeviceType', 'hardwareBiometricPlatform'
+          ]) &&
+          (!('role' in request.resource.data) || request.resource.data.role == resource.data.role)
         )
       );
       allow delete: if isAdmin();
@@ -258,22 +277,7 @@ service cloud.firestore {
 
       allow update: if isSignedIn() && (
         isAdmin() ||
-        isLecturer() ||
-        resource.data.ownerId == request.auth.uid ||
-        resource.data.ownerEmail == request.auth.token.email ||
-        (
-          !request.resource.data.diff(resource.data).affectedKeys().hasAny([
-            'ownerId', 'ownerEmail', 'createdBy', 'lecturerName', 'lecturerEmail',
-            'kioskEndsAt', 'expiresAt', 'qr1ExpiresAt', 'qr2StartsAt', 'sessionStartAt', 'startedAt', 'createdAt',
-            'qr1DurationSeconds', 'qr2DurationSeconds', 'totalDurationSeconds', 'durationMinutes',
-            'active', 'status', 'phase', 'kioskModeEnabled', 'strictKiosk',
-            'qr1Token', 'qr2Token', 'qr1TokenHash', 'qr2TokenHash',
-            'sessionPin', 'releaseCode', 'lecturerPin', 'lecturerReleaseCode',
-            'sessionPinHash', 'lecturerPinHash', 'lecturerReleaseCodeHash', 'security',
-            'courseId', 'courseCode', 'classCode', 'batch', 'department', 'semester',
-            'geofence', 'geofenceRadius', 'classroomLocation', 'geofenceEnabled', 'location'
-          ])
-        )
+        (isLecturer() && (resource.data.ownerId == request.auth.uid || (request.auth.token.email != null && resource.data.ownerEmail == request.auth.token.email)))
       );
 
       match /security/{docId} {
@@ -285,29 +289,28 @@ service cloud.firestore {
           ))
         );
         allow write: if isSignedIn() && (
-          isStaff() ||
-          (request.resource != null && request.resource.data.ownerId == request.auth.uid) ||
-          (resource != null && resource.data.ownerId == request.auth.uid) ||
-          (exists(/databases/$(database)/documents/attendance_sessions/$(sessionId)) && (
+          isAdmin() ||
+          (isLecturer() && exists(/databases/$(database)/documents/attendance_sessions/$(sessionId)) && (
             get(/databases/$(database)/documents/attendance_sessions/$(sessionId)).data.ownerId == request.auth.uid ||
             (request.auth.token.email != null && get(/databases/$(database)/documents/attendance_sessions/$(sessionId)).data.ownerEmail == request.auth.token.email)
           ))
         );
         match /{document=**} {
-          allow read, write: if isSignedIn() && isStaff();
+          allow read: if isSignedIn() && isStaff();
+          allow write: if false;
         }
       }
 
       // Authorizations subcollection: student devices and lecturers
-      // Students CANNOT set qr1Verified: true, status: "ATTENDED", or reset/delete hasViolation or disqualified
+      // Students can only update heartbeat/telemetry fields. Cannot alter status, violations, kiosk timers, or QR gating.
       match /authorizations/{authDocId} {
         allow read: if isSignedIn();
         allow create, delete: if isStaff();
         allow update: if isStaff() || (
           isSignedIn() &&
           (request.auth.uid == authDocId || (resource.data.studentUid != null && resource.data.studentUid == request.auth.uid)) &&
-          !request.resource.data.diff(resource.data).affectedKeys().hasAny([
-            'qr1Verified', 'excused', 'excusedBy', 'excuseReason', 'kioskEndsAt'
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'lastHeartbeat', 'clientTimestamp', 'detectedPlatform', 'deviceIp', 'userAgent', 'studentLocation'
           ]) &&
           (resource.data.hasViolation != true || request.resource.data.hasViolation == true) &&
           (resource.data.disqualified != true || request.resource.data.disqualified == true)
@@ -364,7 +367,7 @@ service cloud.firestore {
 
     match /biometric_credentials/{docId} {
       allow read: if isSignedIn();
-      allow write: if isSignedIn() && (request.auth.uid == docId || isStaff());
+      allow write: if isStaff();
       match /{document=**} {
         allow read: if isSignedIn();
         allow write: if isStaff();
@@ -373,9 +376,10 @@ service cloud.firestore {
 
     match /biometric_challenges/{docId} {
       allow read: if isSignedIn();
-      allow write: if isSignedIn();
+      allow write: if false;
       match /{document=**} {
-        allow read, write: if isSignedIn();
+        allow read: if isSignedIn();
+        allow write: if false;
       }
     }
 
@@ -396,15 +400,11 @@ service cloud.firestore {
     }
 
     match /attendance_records/{recordId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn() && (
-        isStaff() ||
-        request.auth.uid == request.resource.data.studentUid ||
-        request.resource.data.rollNo != null
-      );
+      allow read: if isStaff() || (isSignedIn() && (resource.data.studentUid == request.auth.uid || resource.data.studentEmail == request.auth.token.email));
+      allow create: if isStaff();
       allow update, delete: if isStaff();
       match /{document=**} {
-        allow read: if isSignedIn();
+        allow read: if isStaff() || (isSignedIn() && (resource.data.studentUid == request.auth.uid || resource.data.studentEmail == request.auth.token.email));
         allow write: if isStaff();
       }
     }

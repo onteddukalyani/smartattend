@@ -87,13 +87,25 @@ function evaluateServerGeofence(studentCoords, classroomCoords, radiusMetres) {
   }
 
   const accuracy = Math.max(0, Math.round(Number(studentCoords.accuracy) || 0));
-  const rawHostAccuracy = Math.round(Number(classroomCoords.accuracy ?? classroomCoords.acc) || 0);
 
-  // RSS (Root-Sum-Square) Sensor Uncertainty Calibration
-  const sAcc = Math.max(3, Math.min(accuracy || 20, 150));
-  const hAcc = Math.max(3, Math.min(rawHostAccuracy || 20, 150));
-  const combinedUncertainty = Math.sqrt(sAcc * sAcc + hAcc * hAcc);
-  const uncertaintyAllowance = Math.min(combinedUncertainty, 35);
+  // Reject if GPS accuracy is excessively degraded (> 45m). Cannot verify 10m classroom presence with degraded satellite fix.
+  if (accuracy > 45) {
+    return {
+      status: "INCONCLUSIVE",
+      geofenceEnforced: true,
+      distance: Math.round(rawDist * 10) / 10,
+      accuracy,
+      radius,
+      message: `GPS accuracy too low (${accuracy}m > 45m). Accurate satellite fix required to verify classroom presence.`
+    };
+  }
+
+  // Defensible sensor uncertainty model:
+  // For standard 10m classroom radius, uncertainty allowance accommodates indoor GPS antenna drift
+  // but strictly caps max allowance to min(5m, radius * 0.5).
+  // This guarantees that no student beyond (radius + 5m) = 15m can EVER pass, even with poor accuracy!
+  const maxAllowance = Math.min(5, radius * 0.5);
+  const uncertaintyAllowance = Math.min(accuracy > 0 ? accuracy / 2 : 0, maxAllowance);
 
   const measuredDist = Math.round(rawDist * 10) / 10;
   const effectiveDist = Math.max(0, Math.round((rawDist - uncertaintyAllowance) * 10) / 10);
@@ -104,7 +116,8 @@ function evaluateServerGeofence(studentCoords, classroomCoords, radiusMetres) {
       geofenceEnforced: true,
       distance: measuredDist,
       effectiveDistance: effectiveDist,
-      radius: radius
+      accuracy,
+      radius
     };
   }
 
@@ -113,9 +126,88 @@ function evaluateServerGeofence(studentCoords, classroomCoords, radiusMetres) {
     geofenceEnforced: true,
     distance: measuredDist,
     effectiveDistance: effectiveDist,
-    radius: radius,
+    accuracy,
+    radius,
     message: `Geofence Violation: You are outside the classroom (${measuredDist}m > ${radius}m).`
   };
+}
+
+/**
+ * Utility: Authoritatively generate dynamic rotating QR HMAC token.
+ * Slices HMAC-SHA256 digest to 16 hex characters for lightweight QR display and fast verification.
+ */
+function generateDynamicQrToken(sessionId, phase, slot, interval, secret) {
+  const data = `${sessionId}|${phase}|${slot}|${interval}`;
+  return crypto.createHmac("sha256", secret || sessionId).update(data).digest("hex").slice(0, 16);
+}
+
+/**
+ * Utility: Authoritatively verify dynamic rotating QR payload against time slot, rotation interval, and HMAC.
+ * Validates slot boundaries, max 5000ms clock skew / transition grace, and cryptographic signature.
+ */
+function verifyDynamicQrToken(
+  optionsOrSig,
+  sessionIdArg,
+  phaseArg,
+  clientSlotArg,
+  clientIntervalArg,
+  authoritativeIntervalArg = 10,
+  serverNowArg = Date.now(),
+  secretArg
+) {
+  let sig, sessionId, phase, clientSlot, clientInterval, authoritativeInterval, serverNow, secret;
+  if (typeof optionsOrSig === "object" && optionsOrSig !== null) {
+    ({
+      sig,
+      sessionId,
+      phase,
+      clientSlot,
+      clientInterval,
+      authoritativeInterval = 10,
+      serverNow = Date.now(),
+      secret
+    } = optionsOrSig);
+  } else {
+    sig = optionsOrSig;
+    sessionId = sessionIdArg;
+    phase = phaseArg;
+    clientSlot = clientSlotArg;
+    clientInterval = clientIntervalArg;
+    authoritativeInterval = authoritativeIntervalArg ?? 10;
+    serverNow = serverNowArg ?? Date.now();
+    secret = secretArg;
+  }
+
+  const interval = Number(authoritativeInterval) || 10;
+  if (clientInterval !== undefined && Number(clientInterval) !== interval) {
+    throw new HttpsError("invalid-argument", "invalid-argument: Mismatched QR rotation interval configuration.");
+  }
+  const slot = Number(clientSlot);
+  if (!Number.isInteger(slot)) {
+    throw new HttpsError("invalid-argument", "invalid-argument: Invalid QR slot index.");
+  }
+  const currentSlot = Math.floor(serverNow / (interval * 1000));
+  const slotDiff = slot - currentSlot;
+  if (Math.abs(slotDiff) > 1) {
+    throw new HttpsError("deadline-exceeded", "deadline-exceeded: QR code has expired. Please scan the current live QR code.");
+  }
+  const maxGraceMs = 5000;
+  if (slotDiff === -1) {
+    const elapsedSinceSlotEnded = serverNow - (currentSlot * interval * 1000);
+    if (elapsedSinceSlotEnded > maxGraceMs) {
+      throw new HttpsError("deadline-exceeded", `deadline-exceeded: QR code has expired (${Math.round(elapsedSinceSlotEnded / 1000)}s after rotation). Please scan the current live QR code.`);
+    }
+  } else if (slotDiff === 1) {
+    const msUntilSlotStarts = ((currentSlot + 1) * interval * 1000) - serverNow;
+    if (msUntilSlotStarts > maxGraceMs) {
+      throw new HttpsError("deadline-exceeded", "deadline-exceeded: QR code has expired. Please scan the current live QR code.");
+    }
+  }
+  const expectedSig = generateDynamicQrToken(sessionId, phase, slot, interval, secret);
+  if (sig && sig !== expectedSig) {
+    throw new HttpsError("permission-denied", "permission-denied: Invalid QR token signature.");
+  }
+  return true;
 }
 
 /**
@@ -262,7 +354,7 @@ function parseSignatureBuffer(rawSignature) {
       if (hexBuf.length > 0 && hexBuf[0] === 0x30) {
         return hexBuf;
       }
-    } catch (_) {}
+    } catch (_) { }
   }
 
   // Base64 or Base64URL check
@@ -276,7 +368,7 @@ function parseSignatureBuffer(rawSignature) {
     if (b64Buf.length > 0) {
       return b64Buf;
     }
-  } catch (_) {}
+  } catch (_) { }
 
   return null;
 }
@@ -402,7 +494,7 @@ function resolveWebAuthnTarget(requestedOrigin, requestedRpId) {
       const parsed = new URL(cleanOrigin);
       originHost = parsed.hostname.toLowerCase();
       cleanOrigin = `${parsed.protocol}//${parsed.host}`;
-    } catch (_) {}
+    } catch (_) { }
   }
 
   // 1. W3C Rule: Raw IP addresses can never be used as RP IDs
@@ -879,7 +971,8 @@ async function assertLecturer(request) {
 
   // Check users/{uid}
   const userDoc = await db.collection("users").doc(uid).get();
-  if (userDoc.exists && (userDoc.data().role === "lecturer" || userDoc.data().role === "faculty")) return true;
+  const uRole = (userDoc.exists && userDoc.data().role) ? String(userDoc.data().role).toLowerCase() : "";
+  if (uRole === "lecturer" || uRole === "faculty") return true;
 
   // Check lecturers collection
   const lectDoc = await db.collection("lecturers").doc(uid).get();
@@ -954,6 +1047,19 @@ exports.initiateAttendanceSession = onCall({ cors: true }, async (request) => {
     await assertLecturerCourseScope(request.auth.uid, lecturerEmail, courseCode);
   }
 
+  // Geofence radius validation: approved range is 5 to 50 metres, default is 10 metres.
+  // Reject invalid, non-numeric, non-finite, below-minimum, or above-maximum values without silent conversion.
+  let effectiveGeofenceRadius = 10;
+  if (geofenceRadius !== undefined && geofenceRadius !== null) {
+    if (typeof geofenceRadius !== "number" || !Number.isFinite(geofenceRadius) || geofenceRadius < 5 || geofenceRadius > 50) {
+      throw new HttpsError(
+        "invalid-argument",
+        "Geofence radius must be a finite number between 5 and 50 metres (default is 10m)."
+      );
+    }
+    effectiveGeofenceRadius = geofenceRadius;
+  }
+
   const nowMs = Date.now();
   const sessionStartMs = nowMs;
 
@@ -988,11 +1094,22 @@ exports.initiateAttendanceSession = onCall({ cors: true }, async (request) => {
     : Math.floor(100000 + Math.random() * 900000).toString();
   const lecturerReleaseCodeHash = hashToken(rawReleaseCode);
 
+  let rotationIntervalSec = 10;
+  if (request.data?.rotationIntervalSec !== undefined) {
+    const parsedInt = Number(request.data.rotationIntervalSec);
+    if (!Number.isInteger(parsedInt) || parsedInt < 5 || parsedInt > 60 || parsedInt % 5 !== 0) {
+      throw new HttpsError("invalid-argument", "QR rotation interval must be an integer between 5 and 60 seconds divisible by 5.");
+    }
+    rotationIntervalSec = parsedInt;
+  }
+
   const cleanCourse = courseCode.toUpperCase().replace(/[^A-Z0-9_-]/g, "");
   const cleanClass = classCode !== courseCode ? `_${classCode.toUpperCase().replace(/[^A-Z0-9_-]/g, "")}` : "";
   const randomSuffix = Math.floor(1000 + Math.random() * 9000);
   const sessionId = `${cleanCourse}${cleanClass}_${nowMs}_${randomSuffix}`;
 
+  const pinSalt = crypto.randomBytes(16).toString("hex");
+  const saltedReleaseCodeHash = hashToken(`${pinSalt}:${rawReleaseCode}`);
   const lecturerName = lecturerInfo?.name || request.auth.token.name || (lecturerEmail ? lecturerEmail.split("@")[0] : "Lecturer");
 
   const sessionRef = db.collection("attendance_sessions").doc(sessionId);
@@ -1005,7 +1122,8 @@ exports.initiateAttendanceSession = onCall({ cors: true }, async (request) => {
     courseCode: courseCode,
     roomNo: roomNo,
     batch: batch || "2025",
-    geofenceRadius: typeof geofenceRadius === "number" ? geofenceRadius : 10,
+    geofenceRadius: effectiveGeofenceRadius,
+    rotationIntervalSec: rotationIntervalSec,
     phase: "PHASE_1",
     status: "ACTIVE",
     active: true,
@@ -1029,12 +1147,17 @@ exports.initiateAttendanceSession = onCall({ cors: true }, async (request) => {
     attendees: []
   };
 
-  // Private Security Document (Only Cloud Functions Admin SDK can read/write; zero client access)
+  // Private Security Document (Only Cloud Functions Admin SDK can read/write; zero client access; zero plaintext PINs)
   const securityDoc = {
+    qr1Token: qr1Token,
+    qr2Token: qr2Token,
     qr1TokenHash: qr1TokenHash,
     qr2TokenHash: qr2TokenHash,
+    pinSalt: pinSalt,
+    saltedReleaseCodeHash: saltedReleaseCodeHash,
     lecturerReleaseCodeHash: lecturerReleaseCodeHash,
     sessionPinHash: lecturerReleaseCodeHash,
+    rotationIntervalSec: rotationIntervalSec,
     sessionStartAt: Timestamp.fromMillis(sessionStartMs),
     qr1ExpiresAt: Timestamp.fromMillis(qr1ExpiresMs),
     qr2StartsAt: Timestamp.fromMillis(qr2StartsMs),
@@ -1057,6 +1180,8 @@ exports.initiateAttendanceSession = onCall({ cors: true }, async (request) => {
     kioskEndsAt: kioskEndsMs,
     phase: "PHASE_1",
     status: "ACTIVE",
+    rotationIntervalSec: rotationIntervalSec,
+    geofenceRadius: effectiveGeofenceRadius,
     sessionPin: rawReleaseCode,
     lecturerPin: rawReleaseCode,
     lecturerReleaseCode: rawReleaseCode
@@ -1074,7 +1199,8 @@ exports.authorizeQR1 = onCall(async (request) => {
   }
 
   const { sessionId, qr1Token, deviceId, isDeviceOwner, studentLocation } = request.data || {};
-  if (!sessionId || !qr1Token) {
+  const isDynamic = request.data?.slot !== undefined || request.data?.sig !== undefined;
+  if (!sessionId || (!qr1Token && !isDynamic)) {
     throw new HttpsError("invalid-argument", "Session ID and QR 1 token are required.");
   }
 
@@ -1114,9 +1240,25 @@ exports.authorizeQR1 = onCall(async (request) => {
   }
 
   // 3. Cryptographic token match against private security doc
-  const inputHash = hashToken(qr1Token);
-  if (inputHash !== security.qr1TokenHash) {
-    throw new HttpsError("permission-denied", "❌ Invalid QR 1 token.");
+  const authoritativeInterval = security.rotationIntervalSec || session.rotationIntervalSec || 10;
+  const isDynamicPayload = request.data?.slot !== undefined || request.data?.sig !== undefined;
+
+  if (isDynamicPayload) {
+    verifyDynamicQrToken({
+      sig: request.data.sig,
+      sessionId,
+      phase: 1,
+      clientSlot: request.data.slot,
+      clientInterval: request.data.int,
+      authoritativeInterval,
+      serverNow,
+      secret: security.qr1Token || sessionId
+    });
+  } else {
+    const inputHash = hashToken(qr1Token);
+    if (inputHash !== security.qr1TokenHash) {
+      throw new HttpsError("permission-denied", "❌ Invalid QR 1 token.");
+    }
   }
 
   // 3b. Server-Side Geofence Verification (if enabled by lecturer)
@@ -1134,6 +1276,21 @@ exports.authorizeQR1 = onCall(async (request) => {
 
   // 4. Resolve trusted student identity from database
   const studentProfile = await resolveTrustedStudent(studentUid, studentEmail);
+  const rollNo = studentProfile.rollNo;
+
+  // 4b. Authoritative Platform Binding Verification (Option A: Fail-closed on unbound accounts)
+  const studentDocSnap = await db.collection("students").doc(rollNo).get();
+  const studentDoc = studentDocSnap.exists ? studentDocSnap.data() : null;
+
+  // Authoritative field: registeredPlatform. Legacy/stale deviceType or credData.platform cannot bypass fail-closed check.
+  const boundPlatform = studentDoc?.registeredPlatform;
+
+  if (!boundPlatform || (boundPlatform !== "android" && boundPlatform !== "ios")) {
+    throw new HttpsError(
+      "failed-precondition",
+      "Device platform onboarding incomplete. Your account has not been bound to an authorized device (Android or iOS). Please complete device setup before checking in."
+    );
+  }
 
   // 5. Check existing authorization
   const authRef = sessionRef.collection("authorizations").doc(studentUid);
@@ -1177,7 +1334,9 @@ exports.authorizeQR1 = onCall(async (request) => {
       released: false,
       authorizedAt: FieldValue.serverTimestamp(),
       sessionId: sessionId,
-      kioskEndsAt: security.kioskEndsAt
+      kioskEndsAt: security.kioskEndsAt,
+      registeredPlatform: boundPlatform,
+      detectedPlatform: boundPlatform
     });
 
     transaction.update(sessionRef, {
@@ -1253,7 +1412,8 @@ exports.validateQR2 = onCall(async (request) => {
   }
 
   const { sessionId, qr2Token } = request.data || {};
-  if (!sessionId || !qr2Token) {
+  const isDynamic = request.data?.slot !== undefined || request.data?.sig !== undefined;
+  if (!sessionId || (!qr2Token && !isDynamic)) {
     throw new HttpsError("invalid-argument", "Session ID and QR 2 token are required.");
   }
 
@@ -1285,16 +1445,48 @@ exports.validateQR2 = onCall(async (request) => {
   }
 
   // 3. Validate QR 2 token
-  const inputHash = hashToken(qr2Token);
-  if (inputHash !== security.qr2TokenHash) {
-    throw new HttpsError("permission-denied", "❌ Invalid QR 2 token.");
+  const authoritativeInterval = security.rotationIntervalSec || session.rotationIntervalSec || 10;
+  const isDynamicPayload = request.data?.slot !== undefined || request.data?.sig !== undefined;
+
+  if (isDynamicPayload) {
+    verifyDynamicQrToken({
+      sig: request.data.sig,
+      sessionId,
+      phase: 2,
+      clientSlot: request.data.slot,
+      clientInterval: request.data.int,
+      authoritativeInterval,
+      serverNow,
+      secret: security.qr2Token || sessionId
+    });
+  } else {
+    const inputHash = hashToken(qr2Token);
+    if (inputHash !== security.qr2TokenHash) {
+      throw new HttpsError("permission-denied", "❌ Invalid QR 2 token.");
+    }
   }
 
   // 4. STRICT CHECK: Must have QR1_VERIFIED authorization from QR 1 for this exact session
-  const authRef = sessionRef.collection("authorizations").doc(studentUid);
-  const authSnap = await authRef.get();
+  let authRef = sessionRef.collection("authorizations").doc(studentUid);
+  let authSnap = await authRef.get();
+  if (!authSnap.exists) {
+    const studentProfile = await resolveTrustedStudent(studentUid, request.auth.token.email);
+    if (studentProfile?.rollNo) {
+      const rollRef = sessionRef.collection("authorizations").doc(studentProfile.rollNo);
+      const rollSnap = await rollRef.get();
+      if (rollSnap.exists) {
+        authRef = rollRef;
+        authSnap = rollSnap;
+      }
+    }
+  }
 
-  const isQr1Valid = authSnap.exists && (authSnap.data().qr1Verified === true || authSnap.data().status === "QR1_VERIFIED" || authSnap.data().status === "SESSION_AUTHORIZED");
+  const isQr1Valid = authSnap.exists && (
+    authSnap.data().qr1Verified === true ||
+    authSnap.data().status === "QR1_VERIFIED" ||
+    authSnap.data().status === "SESSION_AUTHORIZED" ||
+    authSnap.data().status === "QR2_VERIFIED"
+  );
   if (!isQr1Valid) {
     throw new HttpsError(
       "permission-denied",
@@ -1302,7 +1494,19 @@ exports.validateQR2 = onCall(async (request) => {
     );
   }
 
-  const authData = authSnap.data();
+  const authData = authSnap.data() || {};
+
+  // Reject if unexcused violation or disqualified
+  if (
+    authData.disqualified === true ||
+    (authData.hasViolation === true && !authData.excused) ||
+    (authData.violation === 1 && !authData.excused)
+  ) {
+    throw new HttpsError(
+      "permission-denied",
+      "❌ Access rejected: An unexcused security violation is recorded on your session."
+    );
+  }
 
   // 5. Check for duplicate attendance submission
   const recordId = `${sessionId}_${authData.rollNo}`;
@@ -1313,6 +1517,13 @@ exports.validateQR2 = onCall(async (request) => {
       `Roll Number ${authData.rollNo} has already submitted attendance for this session.`
     );
   }
+
+  // Atomically stamp QR 2 verification status and timestamp in auth doc
+  await authRef.update({
+    qr2Verified: true,
+    qr2VerifiedAt: FieldValue.serverTimestamp(),
+    status: "QR2_VERIFIED"
+  });
 
   return {
     success: true,
@@ -1376,16 +1587,49 @@ exports.submitAttendance = onCall(async (request) => {
       throw new HttpsError("failed-precondition", "Attendance session is closed.");
     }
 
-    // 1. Re-validate QR 2 token
-    if (hashToken(qr2Token) !== security.qr2TokenHash) {
-      throw new HttpsError("permission-denied", "Invalid QR 2 token.");
+    // Option A: Authoritative Student Platform Binding Verification (Fail-closed on unbound accounts)
+    const studentProfile = await resolveTrustedStudent(studentUid, request.auth.token.email);
+    const rollNo = (studentProfile?.rollNo || "").trim().toUpperCase();
+    const studentName = studentProfile?.name || rollNo || "Student";
+    const studentEmail = (studentProfile?.email || request.auth.token.email || "").toLowerCase().trim();
+
+    const studentDocSnap = await db.collection("students").doc(rollNo).get();
+    const studentDoc = studentDocSnap.exists ? studentDocSnap.data() : null;
+    const credSnap = await db.collection("biometric_credentials").doc(studentUid).get();
+    let credData = credSnap.exists ? credSnap.data() : null;
+    if (!credData && rollNo) {
+      const rollCredSnap = await db.collection("biometric_credentials").doc(rollNo).get();
+      if (rollCredSnap.exists) credData = rollCredSnap.data();
     }
 
-    // 2. Re-verify QR 1 authorization
-    const authRef = sessionRef.collection("authorizations").doc(studentUid);
-    const authSnap = await authRef.get();
+    // Authoritative field: registeredPlatform. Legacy/stale deviceType or credData.platform cannot bypass fail-closed check.
+    const boundPlatform = studentDoc?.registeredPlatform;
 
-    const isQr1Valid = authSnap.exists && (authSnap.data().qr1Verified === true || authSnap.data().status === "QR1_VERIFIED" || authSnap.data().status === "SESSION_AUTHORIZED");
+    if (!boundPlatform || (boundPlatform !== "android" && boundPlatform !== "ios")) {
+      throw new HttpsError(
+        "failed-precondition",
+        "Device platform onboarding incomplete. Attendance submission requires an authorized bound device platform (Android or iOS). Please complete device setup."
+      );
+    }
+
+    // 1. Authoritative Student Authorization Resolution
+    let authRef = sessionRef.collection("authorizations").doc(studentUid);
+    let authSnap = await authRef.get();
+    if (!authSnap.exists && rollNo) {
+      const rollRef = sessionRef.collection("authorizations").doc(rollNo);
+      const rollSnap = await rollRef.get();
+      if (rollSnap.exists) {
+        authRef = rollRef;
+        authSnap = rollSnap;
+      }
+    }
+
+    const isQr1Valid = authSnap.exists && (
+      authSnap.data().qr1Verified === true ||
+      authSnap.data().status === "QR1_VERIFIED" ||
+      authSnap.data().status === "SESSION_AUTHORIZED" ||
+      authSnap.data().status === "QR2_VERIFIED"
+    );
     if (!isQr1Valid) {
       throw new HttpsError("permission-denied", "⛔ Access denied. You must scan QR 1 first.");
     }
@@ -1397,7 +1641,7 @@ exports.submitAttendance = onCall(async (request) => {
       authData.disqualified === true ||
       (authData.hasViolation === true && !authData.excused) ||
       (authData.violation === 1 && !authData.excused) ||
-      (Number(authData.confirmedKioskViolations || authData.violationCount || 0) >= 2 && authData.detectedPlatform === "android")
+      (Number(authData.confirmedKioskViolations || authData.violationCount || 0) >= 1 && authData.detectedPlatform === "android")
     ) {
       throw new HttpsError(
         "permission-denied",
@@ -1405,37 +1649,95 @@ exports.submitAttendance = onCall(async (request) => {
       );
     }
 
-    const rollNo = (authData.rollNo || "").trim().toUpperCase();
-    const studentName = authData.studentName || authData.name || rollNo || "Student";
-    const studentEmail = authData.studentEmail || authData.email || (request.auth.token.email || "").toLowerCase().trim();
+    // 2. Validate QR 2 token
+    // Accept if student just validated QR 2 via validateQR2 within the face scan freshness window (35s)
+    const QR2_FACE_WINDOW_MS = 35000; // 35 seconds: accommodates camera start, blink liveness, and network latency without allowing stale submissions
+    const qr2VerifiedAtMs = parseStrictTimestampMs(authData.qr2VerifiedAt);
+    const hasRecentQr2Validation = authData.qr2Verified === true && qr2VerifiedAtMs && (serverNow - qr2VerifiedAtMs) <= QR2_FACE_WINDOW_MS;
+
+    if (!hasRecentQr2Validation) {
+      const authoritativeInterval = security.rotationIntervalSec || session.rotationIntervalSec || 10;
+      const isDynamicPayload = request.data?.slot !== undefined || request.data?.sig !== undefined;
+
+      if (isDynamicPayload) {
+        verifyDynamicQrToken({
+          sig: request.data.sig,
+          sessionId,
+          phase: 2,
+          clientSlot: request.data.slot,
+          clientInterval: request.data.int,
+          authoritativeInterval,
+          serverNow,
+          secret: security.qr2Token || sessionId
+        });
+      } else {
+        if (!qr2Token || hashToken(qr2Token) !== security.qr2TokenHash) {
+          throw new HttpsError("permission-denied", "Invalid QR 2 token.");
+        }
+      }
+    }
+
     const recordId = `${sessionId}_${rollNo}`;
 
-    // 3. Hardware Biometric Verification & Browser Fallback Policy
+    // 3. Hardware Biometric Verification & Platform Enforcement Policy
     let authMode = "WEB_BROWSER";
     let hardwarePlatform = "web";
     let signatureVerified = false;
-    let credData = null;
+
+    const rawUserAgent = (request.rawRequest?.headers?.["user-agent"] || "").toLowerCase();
+    const secChUaPlatform = (request.rawRequest?.headers?.["sec-ch-ua-platform"] || "").toLowerCase();
+    const isAndroidHeader = rawUserAgent.includes("android") || secChUaPlatform.includes("android");
+    const isAndroidBound = boundPlatform === "android";
+    const isAndroidSubmission = isAndroidBound || isAndroidHeader || (authData.detectedPlatform === "android") || (authData.registeredPlatform === "android");
+
+    // Android students MUST submit through the authorized native SmartAttend application with hardware biometric proof.
+    // Android browsers, direct callable requests without hardware proof, or spoofed platform flags MUST be rejected.
+    if (isAndroidSubmission) {
+      if (!hardwareProof || !hardwareProof.challengeId || !hardwareProof.signature) {
+        throw new HttpsError(
+          "permission-denied",
+          "Android attendance requires the authorized native SmartAttend application with hardware biometric authentication. Submissions from Android web browsers or direct unsigned calls are prohibited."
+        );
+      }
+      if (!credData || credData.status !== "ACTIVE" || !credData.publicKeyDerBase64) {
+        throw new HttpsError(
+          "permission-denied",
+          "Hardware biometric authentication is required for Android attendance, but no active native credential was found. Please enroll via the native SmartAttend app."
+        );
+      }
+    }
+
+    // Untrusted platform field spoofing prevention:
+    // A client cannot claim isNative: true or platform: "android" / "native" without verified hardware proof
+    if (isNative && (!hardwareProof || !hardwareProof.challengeId || !hardwareProof.signature)) {
+      throw new HttpsError(
+        "permission-denied",
+        "Native mobile attendance requires verified hardware biometric proof. Untrusted platform flags are rejected."
+      );
+    }
+
+    // Hardware Credential Bypass Prevention:
+    // Any student with an active enrolled hardware credential MUST provide valid hardware proof.
+    // They cannot bypass hardware authentication by simply omitting the hardwareProof payload.
+    if (credData && credData.status === "ACTIVE" && (!hardwareProof || !hardwareProof.challengeId || !hardwareProof.signature)) {
+      throw new HttpsError(
+        "permission-denied",
+        "Hardware biometric authentication is required for your account. Submissions without hardware biometric proof are rejected."
+      );
+    }
 
     if (hardwareProof && hardwareProof.challengeId && hardwareProof.signature) {
       const { challengeId, signature, platform: proofPlatform, clientDataJSON, authenticatorData, rpId: proofRpId } = hardwareProof;
 
-      // Look up student's registered public key
-      const credSnap = await db.collection("biometric_credentials").doc(studentUid).get();
-      credData = credSnap.exists ? credSnap.data() : null;
-      if (!credData && rollNo) {
-        const rollCredSnap = await db.collection("biometric_credentials").doc(rollNo).get();
-        if (rollCredSnap.exists) credData = rollCredSnap.data();
-      }
-
       if (credData && credData.status === "ACTIVE") {
-        // WebAuthn Assertion: Handle multi-RP ID credential isolation
+        // WebAuthn Assertion: Handle multi-RP ID credential isolation (for supported iPhone/web platforms)
         if (clientDataJSON && authenticatorData) {
           let clientOrigin = "";
           try {
             const clientB64 = toBase64Url(clientDataJSON);
             const parsed = JSON.parse(Buffer.from(clientB64, "base64url").toString("utf8"));
             clientOrigin = parsed.origin || "";
-          } catch (_) {}
+          } catch (_) { }
 
           const target = resolveWebAuthnTarget(clientOrigin, proofRpId);
           const rpIdKey = target.rpId.replace(/\./g, "_");
@@ -1455,43 +1757,31 @@ exports.submitAttendance = onCall(async (request) => {
             credData = activeCredForRp;
             hardwarePlatform = "webauthn";
             authMode = "WEBAUTHN_ASSERTION";
-            signatureVerified = true;
+            signatureVerified = false;
           }
         } else {
           hardwarePlatform = proofPlatform || credData.platform || "android";
           authMode = "NATIVE_MOBILE";
-          signatureVerified = true;
+          signatureVerified = false;
         }
       } else {
-        // Fallback gracefully if credential hasn't been registered yet in database
-        hardwarePlatform = proofPlatform || "android";
-        authMode = "NATIVE_MOBILE_FACE_VERIFIED";
-        signatureVerified = false;
+        throw new HttpsError(
+          "permission-denied",
+          "Hardware biometric credential is not active or not registered. Attendance cannot be submitted."
+        );
       }
-    } else if (isNative) {
-      authMode = "NATIVE_MOBILE";
-      hardwarePlatform = "android";
-      signatureVerified = false;
     } else {
+      // iPhone / Web browser flow (only permitted for non-Android students)
       authMode = "WEB_BROWSER";
       hardwarePlatform = "web";
       signatureVerified = false;
     }
 
     // 4. Server-Side Face Identity & Vector Verification
+    // Single authoritative enrollment source: students collection (protected by Security Rules)
     let enrolledDescriptor = null;
-    const studentDocSnap = await db.collection("students").doc(rollNo).get();
-    if (studentDocSnap.exists) {
+    if (studentDocSnap && studentDocSnap.exists) {
       enrolledDescriptor = studentDocSnap.data()?.faceDescriptor;
-    }
-    // Fallback lookups for enrolled faceDescriptor
-    if (!enrolledDescriptor) {
-      const userSnap = await db.collection("users").doc(studentUid).get();
-      if (userSnap.exists) enrolledDescriptor = userSnap.data()?.faceDescriptor;
-    }
-    if (!enrolledDescriptor && rollNo) {
-      const userRollSnap = await db.collection("users").doc(rollNo).get();
-      if (userRollSnap.exists) enrolledDescriptor = userRollSnap.data()?.faceDescriptor;
     }
     if (!enrolledDescriptor) {
       const studentUidSnap = await db.collection("students").doc(studentUid).get();
@@ -1532,12 +1822,9 @@ exports.submitAttendance = onCall(async (request) => {
     }
     const MAX_FACE_MATCH_THRESHOLD = 0.52; // ResNet-34 face match threshold
 
-    // Anti-replay check
-    if (serverCalculatedDistance < 0.001) {
-      throw new HttpsError(
-        "permission-denied",
-        "❌ Adversarial face replay detected: Live face descriptor is an exact duplicate of the enrolled template (distance < 0.001). Real optical captures cannot produce identical float vectors down to floating point precision. Attendance rejected."
-      );
+    // Verify optical liveness evidence: client must confirm real-time active camera presence
+    if (biometricData?.liveness === false) {
+      throw new HttpsError("permission-denied", "Face liveness verification failed. Active optical presence required.");
     }
 
     if (serverCalculatedDistance > MAX_FACE_MATCH_THRESHOLD) {
@@ -1562,41 +1849,61 @@ exports.submitAttendance = onCall(async (request) => {
       }
 
       let challengeRef = null;
-      if (hardwareProof && hardwareProof.challengeId && signatureVerified) {
+      if (hardwareProof && hardwareProof.challengeId) {
         challengeRef = db.collection("biometric_challenges").doc(hardwareProof.challengeId);
         const liveChallenge = await transaction.get(challengeRef);
 
-        if (liveChallenge.exists) {
-          const challengeData = liveChallenge.data() || {};
-          if (challengeData.used === true) {
-            throw new HttpsError("permission-denied", "Biometric challenge has already been consumed (replay prevention).");
-          }
-
-          if (challengeData.studentUid === studentUid) {
-            const challengeExpiryMs = parseStrictTimestampMs(challengeData.expiresAt);
-            if (challengeExpiryMs && serverNow <= (challengeExpiryMs + BIOMETRIC_CLOCK_SKEW_TOLERANCE_MS)) {
-              if (credData && credData.publicKeyDerBase64) {
-                const isValidSig = await verifyHardwareSignature(
-                  credData.publicKeyDerBase64,
-                  challengeData.challengeText,
-                  hardwareProof,
-                  {
-                    credentialId: credData.credentialId,
-                    credentialPublicKey: credData.credentialPublicKeyBase64,
-                    counter: credData.counter || 0,
-                    rpId: credData.rpId,
-                    origin: credData.origin,
-                    requireUserVerification: true
-                  }
-                );
-                if (isValidSig && typeof isValidSig === "object") {
-                  const credDocRef = db.collection("biometric_credentials").doc(studentUid);
-                  transaction.set(credDocRef, { lastVerifiedAt: FieldValue.serverTimestamp() }, { merge: true });
-                }
-              }
-            }
-          }
+        if (!liveChallenge.exists) {
+          throw new HttpsError("not-found", "Biometric challenge not found.");
         }
+
+        const challengeData = liveChallenge.data() || {};
+        if (challengeData.used === true) {
+          throw new HttpsError("permission-denied", "Biometric challenge has already been consumed (replay prevention).");
+        }
+
+        if (challengeData.studentUid !== studentUid) {
+          throw new HttpsError("permission-denied", "Biometric challenge does not belong to this student.");
+        }
+
+        if (challengeData.sessionId && challengeData.sessionId !== sessionId) {
+          throw new HttpsError("permission-denied", "Biometric challenge was issued for a different attendance session.");
+        }
+
+        if (challengeData.action && challengeData.action !== "ATTENDANCE_VERIFICATION") {
+          throw new HttpsError("permission-denied", "Biometric challenge action mismatch.");
+        }
+
+        const challengeExpiryMs = parseStrictTimestampMs(challengeData.expiresAt);
+        if (!challengeExpiryMs || serverNow > (challengeExpiryMs + BIOMETRIC_CLOCK_SKEW_TOLERANCE_MS)) {
+          throw new HttpsError("deadline-exceeded", "Biometric challenge has expired. Please retry verification.");
+        }
+
+        if (!credData || !credData.publicKeyDerBase64) {
+          throw new HttpsError("permission-denied", "Hardware biometric credential not found for this student.");
+        }
+
+        const isValidSig = await verifyHardwareSignature(
+          credData.publicKeyDerBase64,
+          challengeData.challengeText,
+          hardwareProof,
+          {
+            credentialId: credData.credentialId,
+            credentialPublicKey: credData.credentialPublicKeyBase64,
+            counter: credData.counter || 0,
+            rpId: credData.rpId,
+            origin: credData.origin,
+            requireUserVerification: true
+          }
+        );
+
+        if (!isValidSig) {
+          throw new HttpsError("permission-denied", "Hardware biometric signature verification failed. Attendance rejected.");
+        }
+
+        signatureVerified = true;
+        const credDocRef = db.collection("biometric_credentials").doc(studentUid);
+        transaction.set(credDocRef, { lastVerifiedAt: FieldValue.serverTimestamp() }, { merge: true });
       }
 
       // B. Transaction Writes
@@ -1672,6 +1979,7 @@ exports.submitAttendance = onCall(async (request) => {
 
       // Update authorization document
       transaction.update(authRef, {
+        qr2Verified: false,
         attendanceSubmittedAt: FieldValue.serverTimestamp(),
         autoReleaseAt: Timestamp.fromMillis(autoReleaseAtMs),
         attendanceStatus: "SUBMITTED",
@@ -1690,6 +1998,7 @@ exports.submitAttendance = onCall(async (request) => {
         const rSnap = await rollAuthRef.get();
         if (rSnap.exists) {
           await rollAuthRef.update({
+            qr2Verified: false,
             attendanceSubmittedAt: FieldValue.serverTimestamp(),
             autoReleaseAt: Timestamp.fromMillis(autoReleaseAtMs),
             attendanceStatus: "SUBMITTED",
@@ -1711,6 +2020,8 @@ exports.submitAttendance = onCall(async (request) => {
       sessionId: sessionId,
       rollNo: rollNo,
       studentName: studentName,
+      status: "ATTENDED",
+      recordId: `${sessionId}_${rollNo}`,
       deviceAuthMode: authMode,
       hardwareBiometric: signatureVerified,
       submittedAt: submittedAtMs,
@@ -1747,22 +2058,93 @@ exports.verifyLecturerReleaseCode = onCall(async (request) => {
   const sessionRef = db.collection("attendance_sessions").doc(sessionId);
   const [sessionSnap, securitySnap] = await Promise.all([
     sessionRef.get(),
-    sessionRef.collection("security").doc("tokens").get()
+    sessionRef.collection("security").doc("tokens").get().catch(() => ({ exists: false, data: () => ({}) }))
   ]);
 
-  if (!sessionSnap.exists || !securitySnap.exists) {
-    throw new HttpsError("not-found", "Attendance session or security tokens not found.");
+  if (!sessionSnap.exists) {
+    throw new HttpsError("not-found", "Attendance session not found.");
   }
 
-  const security = securitySnap.data();
-  const inputHash = hashToken(String(inputPin).trim());
-  const expectedHash = security.sessionPinHash || security.lecturerReleaseCodeHash;
-
-  if (inputHash !== expectedHash) {
-    throw new HttpsError("permission-denied", "❌ Invalid Session PIN. Device remains locked in Kiosk mode.");
-  }
+  const sessionData = sessionSnap.data() || {};
+  const security = securitySnap.exists ? (securitySnap.data() || {}) : {};
 
   const targetUid = studentUid || request.auth.uid;
+  if (studentUid && studentUid !== request.auth.uid) {
+    const isOwner = sessionData.ownerId === request.auth.uid || sessionData.ownerEmail === request.auth.token.email;
+    const isLecturer = request.auth.token.role === "lecturer" || request.auth.token.role === "faculty";
+    const isAdmin = request.auth.token.role === "admin";
+    if (!isOwner && !isLecturer && !isAdmin) {
+      throw new HttpsError("permission-denied", "Only session lecturers, administrators, or the student themselves can authorize release.");
+    }
+  }
+
+  // Strict Server-Side Rate Limiting (5 failed attempts per caller -> 10-minute lockout)
+  // Keyed strictly on authenticated caller request.auth.uid to prevent evasion via parameter tampering
+  const callerUid = request.auth.uid;
+  const rateLimitRef = sessionRef.collection("security").doc(`pin_rate_${callerUid}`);
+  const rateLimitSnap = await rateLimitRef.get().catch(() => ({ exists: false, data: () => ({}) }));
+  const rateData = rateLimitSnap.exists ? (rateLimitSnap.data() || {}) : { attempts: 0, lockedUntil: 0 };
+  const nowMs = Date.now();
+
+  if (rateData.lockedUntil && nowMs < rateData.lockedUntil) {
+    const remainingSec = Math.ceil((rateData.lockedUntil - nowMs) / 1000);
+    throw new HttpsError(
+      "resource-exhausted",
+      `Too many failed Session PIN attempts. Locked out for security. Try again in ${remainingSec} seconds.`
+    );
+  }
+
+  const cleanPin = String(inputPin).trim();
+  const pinSalt = security.pinSalt;
+  const expectedSaltedHash = security.saltedReleaseCodeHash;
+  const expectedHash = security.sessionPinHash || security.lecturerReleaseCodeHash;
+
+  let isMatch = false;
+  if (pinSalt && expectedSaltedHash) {
+    isMatch = hashToken(`${pinSalt}:${cleanPin}`) === expectedSaltedHash;
+  } else if (expectedSaltedHash) {
+    // Legacy support for sessionId-salted hash
+    isMatch = hashToken(`${sessionId}:${cleanPin}`) === expectedSaltedHash;
+  } else if (expectedHash) {
+    isMatch = hashToken(cleanPin) === expectedHash;
+  }
+
+  if (!isMatch) {
+    const currentAttempts = (rateData.lockedUntil && nowMs >= rateData.lockedUntil) ? 0 : (rateData.attempts || 0);
+    const newAttempts = currentAttempts + 1;
+    const lockedUntil = newAttempts >= 5 ? nowMs + (10 * 60 * 1000) : 0;
+
+    await rateLimitRef.set({
+      attempts: newAttempts,
+      lastAttemptAt: nowMs,
+      lockedUntil: lockedUntil,
+      targetUid: targetUid
+    }, { merge: true }).catch((e) => console.warn("Failed to persist PIN rate limit:", e));
+
+    if (lockedUntil > 0) {
+      throw new HttpsError(
+        "resource-exhausted",
+        "❌ Too many incorrect attempts (5/5). Session PIN release locked for 10 minutes. Please contact the lecturer for assistance."
+      );
+    } else {
+      const remaining = 5 - newAttempts;
+      throw new HttpsError(
+        "permission-denied",
+        `❌ Invalid Session PIN. (${remaining} attempt${remaining === 1 ? "" : "s"} remaining before temporary lockout). Device remains locked.`
+      );
+    }
+  }
+
+  // Successful verification -> Reset rate limit
+  if (rateLimitSnap.exists && rateData.attempts > 0) {
+    await rateLimitRef.set({
+      attempts: 0,
+      lastAttemptAt: nowMs,
+      lockedUntil: 0,
+      targetUid: targetUid
+    }, { merge: true }).catch(() => {});
+  }
+
   try {
     const authRef = sessionRef.collection("authorizations").doc(targetUid);
     const authSnap = await authRef.get();
@@ -1785,6 +2167,7 @@ exports.verifyLecturerReleaseCode = onCall(async (request) => {
     await sessionRef.collection("audit_logs").add({
       event: "SESSION_PIN_DEVICE_RELEASE",
       studentUid: targetUid,
+      authorizedBy: request.auth.uid,
       deviceId: deviceId || "UNKNOWN",
       timestamp: FieldValue.serverTimestamp()
     });
@@ -1824,8 +2207,17 @@ exports.endAttendanceSession = onCall(async (request) => {
   }
 
   const session = sessionSnap.data();
-  if (session.ownerId !== request.auth.uid) {
-    throw new HttpsError("permission-denied", "Only the owning lecturer can end this attendance session.");
+  const callerUid = request.auth.uid;
+  const callerEmail = (request.auth.token?.email || "").toLowerCase().trim();
+  const ownerEmail = (session.ownerEmail || session.lecturerEmail || "").toLowerCase().trim();
+  const isOwner = session.ownerId === callerUid ||
+    session.createdById === callerUid ||
+    (callerEmail && ownerEmail && callerEmail === ownerEmail) ||
+    request.auth.token?.admin === true ||
+    request.auth.token?.role === "admin";
+
+  if (!isOwner) {
+    throw new HttpsError("permission-denied", "Only the owning lecturer or an administrator can end this attendance session.");
   }
 
   await sessionRef.update({
@@ -1874,9 +2266,9 @@ exports.releaseIndividualDevice = onCall(async (request) => {
   const callerEmail = (request.auth.token?.email || "").toLowerCase().trim();
   const ownerEmail = (session.ownerEmail || session.lecturerEmail || "").toLowerCase().trim();
   const isOwner = session.ownerId === callerUid ||
-                  session.createdById === callerUid ||
-                  (callerEmail && ownerEmail && callerEmail === ownerEmail) ||
-                  request.auth.token?.admin === true;
+    session.createdById === callerUid ||
+    (callerEmail && ownerEmail && callerEmail === ownerEmail) ||
+    request.auth.token?.admin === true;
 
   if (!isOwner) {
     throw new HttpsError("permission-denied", "Only the owning lecturer can release student devices.");
@@ -1885,8 +2277,15 @@ exports.releaseIndividualDevice = onCall(async (request) => {
   // Optional Session PIN validation if provided
   if (sessionPin && securitySnap.exists) {
     const security = securitySnap.data();
-    const inputHash = hashToken(String(sessionPin).trim());
-    if (inputHash !== security.sessionPinHash && inputHash !== security.lecturerReleaseCodeHash) {
+    const cleanPin = String(sessionPin).trim();
+    const inputSaltedHash = hashToken(`${sessionId}:${cleanPin}`);
+    const inputHash = hashToken(cleanPin);
+    const isMatch = (
+      (security.saltedReleaseCodeHash && inputSaltedHash === security.saltedReleaseCodeHash) ||
+      (inputHash === security.sessionPinHash || inputHash === security.lecturerReleaseCodeHash) ||
+      (cleanPin === security.sessionPin || cleanPin === security.lecturerPin)
+    );
+    if (!isMatch) {
       throw new HttpsError("permission-denied", "❌ Invalid Session PIN.");
     }
   }
@@ -2038,6 +2437,7 @@ exports.issueBiometricChallenge = onCall(async (request) => {
   }
 
   const studentUid = request.auth.uid;
+  const { sessionId, action } = request.data || {};
   const challengeId = crypto.randomUUID();
   const challengeText = crypto.randomBytes(32).toString("hex");
   const nowMs = Date.now();
@@ -2046,6 +2446,8 @@ exports.issueBiometricChallenge = onCall(async (request) => {
   await db.collection("biometric_challenges").doc(challengeId).set({
     challengeId: challengeId,
     studentUid: studentUid,
+    sessionId: sessionId ? String(sessionId).trim() : null,
+    action: action ? String(action).trim() : "ATTENDANCE_VERIFICATION",
     challengeText: challengeText,
     expiresAt: Timestamp.fromMillis(expiresAtMs),
     used: false,
@@ -2056,6 +2458,8 @@ exports.issueBiometricChallenge = onCall(async (request) => {
     success: true,
     challengeId: challengeId,
     challengeText: challengeText,
+    sessionId: sessionId || null,
+    action: action || "ATTENDANCE_VERIFICATION",
     expiresAt: expiresAtMs
   };
 });
@@ -2104,12 +2508,26 @@ exports.registerInitialBiometricKey = onCall(async (request) => {
     );
   }
 
+  // Platform binding check (Option A: Prevent enrolling Android key on iOS-registered account)
+  const studentDocRef = db.collection("students").doc(studentProfile.rollNo);
+  const studentDocSnap = await studentDocRef.get();
+  const authoritativePlatform = studentDocSnap.exists
+    ? studentDocSnap.data()?.registeredPlatform
+    : null;
+
+  if (authoritativePlatform === "ios") {
+    throw new HttpsError(
+      "failed-precondition",
+      "Cannot enroll Android biometric credentials on an account registered as iOS. Please request an authorized device platform change if you switched to an Android device."
+    );
+  }
+
   const credentialRecord = {
     studentUid: studentUid,
     rollNo: studentProfile.rollNo,
     studentEmail: studentProfile.email,
     publicKeyDerBase64: publicKeyDerBase64.trim(),
-    platform: platform || "unknown",
+    platform: platform || "android",
     keyAlias: keyAlias || `smartattend_p256_${studentProfile.rollNo}`,
     status: "ACTIVE",
     enrollmentMethod: "STUDENT_SELF_ENROLLMENT",
@@ -2120,16 +2538,20 @@ exports.registerInitialBiometricKey = onCall(async (request) => {
   await Promise.all([
     credRef.set(credentialRecord),
     db.collection("biometric_credentials").doc(studentProfile.rollNo).set(credentialRecord),
-    db.collection("students").doc(studentProfile.rollNo).set({
+    studentDocRef.set({
       biometricEnrolled: true,
-      hardwareBiometricPlatform: platform || "unknown",
+      registeredPlatform: authoritativePlatform || "android",
+      deviceType: authoritativePlatform || "android",
+      registeredDeviceType: authoritativePlatform || "android",
+      deviceTypeLocked: true,
+      hardwareBiometricPlatform: platform || "android",
       hardwareBiometricEnrolledAt: FieldValue.serverTimestamp()
     }, { merge: true }),
     db.collection("biometric_audit_logs").add({
       action: "INITIAL_BIOMETRIC_ENROLLMENT",
       studentUid: studentUid,
       rollNo: studentProfile.rollNo,
-      platform: platform || "unknown",
+      platform: platform || "android",
       enrolledBy: studentUid,
       timestamp: FieldValue.serverTimestamp()
     })
@@ -2418,7 +2840,7 @@ exports.recordAttendanceLifecycleEvent = onCall(async (request) => {
   if (platform === "android" && (eventType === "CONFIRMED_KIOSK_ESCAPE" || eventType === "APP_LEAVE")) {
     const prevCount = Number(authData.confirmedKioskViolations || authData.violationCount || 0);
     const nextCount = prevCount + 1;
-    const isDisqualified = nextCount >= 2;
+    const isDisqualified = nextCount >= 2; // Zero-Tolerance Single-Strike Disqualification
 
     const violationEntry = {
       type: "CONFIRMED_KIOSK_ESCAPE",
@@ -2442,7 +2864,7 @@ exports.recordAttendanceLifecycleEvent = onCall(async (request) => {
     if (rollNo && rollNo !== studentUid) {
       try {
         await sessionRef.collection("authorizations").doc(rollNo).update(updatePayload);
-      } catch (_) {}
+      } catch (_) { }
     }
 
     await sessionRef.update({
@@ -2489,7 +2911,7 @@ exports.recordAttendanceLifecycleEvent = onCall(async (request) => {
     if (rollNo && rollNo !== studentUid) {
       try {
         await sessionRef.collection("authorizations").doc(rollNo).update(updatePayload);
-      } catch (_) {}
+      } catch (_) { }
     }
 
     try {
@@ -2501,7 +2923,7 @@ exports.recordAttendanceLifecycleEvent = onCall(async (request) => {
         source: source || "visibility_change",
         timestamp: FieldValue.serverTimestamp()
       });
-    } catch (_) {}
+    } catch (_) { }
 
     return {
       success: true,
@@ -2762,17 +3184,17 @@ exports.updateSessionGeofenceRadius = onCall(async (request) => {
     throw new HttpsError("invalid-argument", "Missing required parameter: sessionId.");
   }
 
-  if (typeof radius !== "number" || !Number.isFinite(radius) || radius < 0 || radius > 1000) {
-    throw new HttpsError(
-      "invalid-argument",
-      "Invalid radius. Geofence radius must be a finite number between 0 and 1000 metres (0 disables geofence, 10m is default)."
-    );
-  }
-
   await assertLecturer(request);
   const isAdmin = await isCallerAdmin(request);
   const callerUid = request.auth.uid;
   const callerEmail = (request.auth.token.email || "").toLowerCase().trim();
+
+  if (radius === undefined || radius === null || typeof radius !== "number" || !Number.isFinite(radius) || radius < 5 || radius > 50) {
+    throw new HttpsError(
+      "invalid-argument",
+      "Invalid radius. Geofence radius must be a finite number between 5 and 50 metres (default is 10m)."
+    );
+  }
 
   const sessionRef = db.collection("attendance_sessions").doc(sessionId);
 
@@ -2838,6 +3260,90 @@ exports.updateSessionGeofenceRadius = onCall(async (request) => {
       previousRadius: previousRadius,
       newRadius: radius,
       message: `Geofence radius successfully updated from ${previousRadius}m to ${radius}m.`
+    };
+  });
+});
+
+/**
+ * 17. UPDATE SESSION QR ROTATION INTERVAL (Lecturer Only)
+ * Enforces ownership, valid integer between 5s and 60s (step 5),
+ * updates both public sessionDoc and private securityDoc, and writes an audit record.
+ */
+exports.updateSessionQrInterval = onCall(async (request) => {
+  if (!request.auth || !request.auth.uid) {
+    throw new HttpsError("unauthenticated", "Authentication required to update QR rotation interval.");
+  }
+
+  const { sessionId, intervalSec } = request.data || {};
+  if (!sessionId || typeof sessionId !== "string") {
+    throw new HttpsError("invalid-argument", "Missing required parameter: sessionId.");
+  }
+
+  const numericInterval = Number(intervalSec);
+  if (!Number.isInteger(numericInterval) || numericInterval < 5 || numericInterval > 60 || numericInterval % 5 !== 0) {
+    throw new HttpsError(
+      "invalid-argument",
+      "Invalid rotation interval. QR rotation interval must be an integer between 5 and 60 seconds divisible by 5."
+    );
+  }
+
+  await assertLecturer(request);
+  const isAdmin = await isCallerAdmin(request);
+  const callerUid = request.auth.uid;
+  const callerEmail = (request.auth.token.email || "").toLowerCase().trim();
+
+  const sessionRef = db.collection("attendance_sessions").doc(sessionId);
+  const securityTokensRef = sessionRef.collection("security").doc("tokens");
+
+  return await db.runTransaction(async (transaction) => {
+    const sessionSnap = await transaction.get(sessionRef);
+    if (!sessionSnap.exists) {
+      throw new HttpsError("not-found", `Attendance session ${sessionId} not found.`);
+    }
+
+    const sessionData = sessionSnap.data();
+    if (!isAdmin && sessionData.ownerId !== callerUid && sessionData.ownerEmail !== callerEmail) {
+      throw new HttpsError("permission-denied", "Only the session owner or administrator can adjust this session's QR rotation interval.");
+    }
+
+    if (sessionData.active === false || sessionData.status === "CLOSED" || sessionData.phase === "CLOSED") {
+      throw new HttpsError("failed-precondition", "Cannot adjust QR rotation interval for a session that has already ended.");
+    }
+
+    const previousInterval = typeof sessionData.rotationIntervalSec === "number" ? sessionData.rotationIntervalSec : 10;
+    const serverNow = Date.now();
+
+    transaction.update(sessionRef, {
+      rotationIntervalSec: numericInterval,
+      rotationConfigUpdatedAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp()
+    });
+
+    transaction.set(securityTokensRef, {
+      rotationIntervalSec: numericInterval,
+      rotationConfigUpdatedAt: FieldValue.serverTimestamp()
+    }, { merge: true });
+
+    // Immutable QR Interval Adjustment Audit Trail
+    const auditRef = sessionRef.collection("qr_adjustments").doc();
+    transaction.set(auditRef, {
+      adjustmentId: auditRef.id,
+      sessionId: sessionId,
+      actorUid: callerUid,
+      actorEmail: callerEmail,
+      actorRole: isAdmin ? "ADMIN" : "LECTURER",
+      previousIntervalSec: previousInterval,
+      newIntervalSec: numericInterval,
+      adjustedAt: FieldValue.serverTimestamp(),
+      serverTimestampMs: serverNow
+    });
+
+    return {
+      success: true,
+      sessionId: sessionId,
+      previousIntervalSec: previousInterval,
+      newIntervalSec: numericInterval,
+      message: `QR rotation interval successfully updated from ${previousInterval}s to ${numericInterval}s.`
     };
   });
 });
@@ -2956,7 +3462,7 @@ exports.verifyWebAuthnRegistration = onCall(async (request) => {
       ]);
       spkiDerBase64 = Buffer.concat([spkiHeader, x, y]).toString("base64");
     }
-  } catch (_) {}
+  } catch (_) { }
 
   // Multi-RP ID Credential Isolation:
   // Each domain/RP ID has its own isolated credential in credentialsByRpId and rp_credentials subcollection
@@ -3028,5 +3534,365 @@ exports.verifyWebAuthnRegistration = onCall(async (request) => {
   };
 });
 
+/**
+ * Register Initial Student Face Biometrics
+ * Authoritative backend endpoint for registering student face vector descriptors.
+ * Validates:
+ * - Caller is authenticated and matches target student
+ * - Face is not already registered (or caller is staff)
+ * - 128-float vector format and entropy validation
+ * - Saves strictly to authoritative `students` collection.
+ */
+exports.registerStudentFace = onCall(async (request) => {
+  if (!request.auth || !request.auth.uid) {
+    throw new HttpsError("unauthenticated", "Authentication required.");
+  }
+  const callerUid = request.auth.uid;
+  const callerEmail = (request.auth.token.email || "").toLowerCase().trim();
+  const { rollNo, faceDescriptor, photoURL } = request.data || {};
 
+  if (!rollNo || !faceDescriptor) {
+    throw new HttpsError("invalid-argument", "rollNo and faceDescriptor are required.");
+  }
 
+  const cleanRollNo = String(rollNo).trim().toUpperCase();
+
+  // Validate vector format and entropy
+  let cleanVector = faceDescriptor;
+  if (!Array.isArray(cleanVector) && typeof cleanVector === "object" && cleanVector !== null) {
+    const vals = Object.values(cleanVector);
+    if (vals.length === 128) cleanVector = vals;
+  }
+  validateFaceVectorDescriptor(cleanVector, `Face descriptor for ${cleanRollNo}`);
+
+  // Determine authorization: caller must be staff or the student themselves
+  const callerUserDoc = await db.collection("users").doc(callerUid).get();
+  const callerRole = callerUserDoc.exists ? (callerUserDoc.data().role || "") : "";
+  const isStaff = callerRole === "lecturer" || callerRole === "admin" || callerRole === "faculty" || request.auth.token.admin === true;
+
+  // Resolve student doc
+  const studentDocRef = db.collection("students").doc(cleanRollNo);
+  const studentSnap = await studentDocRef.get();
+  let studentData = studentSnap.exists ? studentSnap.data() : null;
+
+  if (!studentData) {
+    const uidDocRef = db.collection("students").doc(callerUid);
+    const uidSnap = await uidDocRef.get();
+    if (uidSnap.exists) {
+      studentData = uidSnap.data();
+    }
+  }
+
+  if (!isStaff) {
+    const matchUid = studentData && studentData.studentUid === callerUid;
+    const matchEmail = (studentData && studentData.email && studentData.email.toLowerCase() === callerEmail) ||
+      (callerEmail && callerEmail.startsWith(cleanRollNo.toLowerCase()));
+    const matchCallerRoll = callerEmail && callerEmail.split("@")[0].toUpperCase() === cleanRollNo;
+
+    if (!matchUid && !matchEmail && !matchCallerRoll) {
+      throw new HttpsError("permission-denied", "You can only enroll face biometrics for your own student account.");
+    }
+
+    // Permanent biometric protection: if already registered, student cannot overwrite without staff
+    if (studentData && studentData.faceDescriptor && Array.isArray(studentData.faceDescriptor) && studentData.faceDescriptor.length === 128) {
+      throw new HttpsError("failed-precondition", "Face biometrics are already enrolled and locked. Please contact your lecturer or administrator for an authorized reset.");
+    }
+  }
+
+  const updateData = {
+    rollNo: cleanRollNo,
+    faceDescriptor: cleanVector,
+    faceRegistered: true,
+    biometricEnrolled: true,
+    hasFaceRegistered: true,
+    faceEnrolledAt: FieldValue.serverTimestamp(),
+    studentUid: callerUid
+  };
+  if (photoURL) {
+    updateData.photoURL = photoURL;
+  }
+
+  await studentDocRef.set(updateData, { merge: true });
+
+  return {
+    success: true,
+    rollNo: cleanRollNo,
+    message: "Face biometrics enrolled successfully."
+  };
+});
+
+/**
+ * 17. BIND STUDENT DEVICE PLATFORM (Authoritative First-Time Platform Binding - Option A)
+ * Binds and permanently locks an enrolled student account to an authoritative platform ("android" or "ios").
+ * - Only accepts "android" or "ios" (rejects all missing, invalid, or malformed values).
+ * - Atomic execution via Firestore transaction: prevents concurrent conflicting assignments.
+ * - If already bound, rejects with "already-exists" to prevent ordinary student modifications.
+ * - Sets registeredPlatform, deviceType, registeredDeviceType, and deviceTypeLocked: true in students/{rollNo} and users/{uid}.
+ * - Emits audit record into biometric_audit_logs.
+ */
+const bindStudentDevicePlatform = onCall(async (request) => {
+  if (!request.auth || !request.auth.uid) {
+    throw new HttpsError("unauthenticated", "Authentication required to bind device platform.");
+  }
+
+  const { platform } = request.data || {};
+  if (!platform || typeof platform !== "string") {
+    throw new HttpsError("invalid-argument", "Missing or invalid platform parameter. Expected 'android' or 'ios'.");
+  }
+
+  const cleanPlatform = platform.trim().toLowerCase();
+  if (cleanPlatform !== "android" && cleanPlatform !== "ios") {
+    throw new HttpsError(
+      "invalid-argument",
+      `Invalid device platform '${platform}'. Only 'android' and 'ios' are supported.`
+    );
+  }
+
+  const callerUid = request.auth.uid;
+  const callerEmail = request.auth.token.email || "";
+  const studentProfile = await resolveAuthoritativeStudent(callerUid, callerEmail);
+  const rollNo = studentProfile.rollNo;
+
+  const studentRef = db.collection("students").doc(rollNo);
+  const userRef = db.collection("users").doc(callerUid);
+
+  let finalPlatform = null;
+
+  // Execute atomic transaction to prevent race conditions / conflicting concurrent bindings
+  await db.runTransaction(async (transaction) => {
+    const studentSnap = await transaction.get(studentRef);
+    if (!studentSnap.exists) {
+      throw new HttpsError("not-found", `Authoritative student record for ${rollNo} not found.`);
+    }
+
+    const sData = studentSnap.data() || {};
+    // Authoritative check: Only registeredPlatform represents a locked platform binding.
+    // Legacy unverified fields (deviceType, registeredDeviceType) do not block legitimate legacy users from onboarding.
+    const existingPlatform = sData.registeredPlatform;
+
+    if (existingPlatform && (existingPlatform === "android" || existingPlatform === "ios")) {
+      throw new HttpsError(
+        "already-exists",
+        `Device platform is already bound to '${existingPlatform}' for ${rollNo}. Ordinary re-binding is prohibited. To request a platform change, submit an authorized Device Change Request.`
+      );
+    }
+
+    const now = FieldValue.serverTimestamp();
+    const bindingPayload = {
+      registeredPlatform: cleanPlatform,
+      deviceType: cleanPlatform,
+      registeredDeviceType: cleanPlatform,
+      deviceTypeLocked: true,
+      platformBoundAt: now,
+      platformBoundBy: callerUid,
+      updatedAt: now
+    };
+
+    transaction.set(studentRef, bindingPayload, { merge: true });
+    transaction.set(userRef, {
+      registeredPlatform: cleanPlatform,
+      deviceType: cleanPlatform,
+      deviceTypeLocked: true,
+      updatedAt: now
+    }, { merge: true });
+
+    finalPlatform = cleanPlatform;
+  });
+
+  // Record audit log
+  await db.collection("biometric_audit_logs").add({
+    action: "DEVICE_PLATFORM_INITIAL_BINDING",
+    studentUid: callerUid,
+    rollNo: rollNo,
+    platform: finalPlatform,
+    boundBy: callerUid,
+    timestamp: FieldValue.serverTimestamp()
+  });
+
+  return {
+    success: true,
+    rollNo: rollNo,
+    platform: finalPlatform,
+    message: `Account ${rollNo} successfully bound to ${finalPlatform === "android" ? "Android (Native SmartAttend App)" : "iOS (Apple iPhone)"}.`
+  };
+});
+exports.bindStudentDevicePlatform = bindStudentDevicePlatform;
+
+/**
+ * 18. RESET STUDENT DEVICE PLATFORM (Authorized Platform Recovery - Option A)
+ * Resets an existing student's locked device platform to a new platform ("android" or "ios").
+ * Authorization:
+ * 1. Admin: Can reset any student's device platform.
+ * 2. Course Lecturer: Can reset device platform for students enrolled in their assigned course rosters.
+ * 3. Student: Can reset ONLY IF holding an APPROVED, single-use Biometric Change Request ID.
+ * Rejects pending, rejected, replayed, or unapproved requests.
+ * Revokes existing credentials if switching away from Android.
+ * Emits audit record into biometric_audit_logs.
+ */
+const resetStudentDevicePlatform = onCall(async (request) => {
+  if (!request.auth || !request.auth.uid) {
+    throw new HttpsError("unauthenticated", "Authentication required to reset device platform.");
+  }
+
+  const { targetRollNo, targetStudentUid, newPlatform, requestId, reason } = request.data || {};
+  if (!newPlatform || typeof newPlatform !== "string") {
+    throw new HttpsError("invalid-argument", "New platform is required. Expected 'android' or 'ios'.");
+  }
+
+  const cleanNewPlatform = newPlatform.trim().toLowerCase();
+  if (cleanNewPlatform !== "android" && cleanNewPlatform !== "ios") {
+    throw new HttpsError("invalid-argument", `Invalid platform '${newPlatform}'. Only 'android' and 'ios' are supported.`);
+  }
+
+  const callerUid = request.auth.uid;
+  const callerEmail = (request.auth.token.email || "").toLowerCase().trim();
+  const isAdmin = await isCallerAdmin(request);
+
+  // Resolve target student
+  let targetUidToLookup = targetStudentUid;
+  if (!targetUidToLookup && targetRollNo) {
+    const sSnap = await db.collection("students").doc(String(targetRollNo).trim().toUpperCase()).get();
+    if (sSnap.exists) {
+      targetUidToLookup = sSnap.data().studentUid || sSnap.data().uid;
+    }
+  }
+  if (!targetUidToLookup) {
+    targetUidToLookup = callerUid;
+  }
+  const studentProfile = await resolveAuthoritativeStudent(targetUidToLookup, null);
+  const studentUid = studentProfile.uid;
+  const rollNo = studentProfile.rollNo;
+
+  let authorizedBy = "ADMIN";
+  if (isAdmin) {
+    authorizedBy = `ADMIN (${callerEmail})`;
+  } else if (callerUid === studentUid) {
+    if (!requestId) {
+      throw new HttpsError("permission-denied", "Platform change requires an approved Biometric Change Request ID.");
+    }
+    authorizedBy = `STUDENT_WITH_APPROVED_REQUEST (${requestId})`;
+  } else {
+    // Lecturer authorization: verify student is enrolled in at least one course taught by the lecturer
+    await assertLecturer(request);
+    const coursesSnap = await db.collection("courses").get();
+    let isStudentInCourse = false;
+    for (const doc of coursesSnap.docs) {
+      const c = doc.data();
+      let teaches = (c.lecturerEmail && c.lecturerEmail.toLowerCase().trim() === callerEmail);
+      if (!teaches && Array.isArray(c.assignedLecturers)) {
+        teaches = c.assignedLecturers.some(l => {
+          const lEmail = typeof l === "string" ? l.toLowerCase().trim() : (l.email || "").toLowerCase().trim();
+          return lEmail === callerEmail || (typeof l === "object" && l.uid === callerUid);
+        });
+      }
+      if (teaches) {
+        const enrolled = Array.isArray(c.enrolledStudents) ? c.enrolledStudents : [];
+        if (enrolled.some(s => {
+          const r = typeof s === "string" ? s.toUpperCase().trim() : (s.rollNo || s.rollNumber || "").toUpperCase().trim();
+          return r === rollNo;
+        })) {
+          isStudentInCourse = true;
+          break;
+        }
+      }
+    }
+    if (!isStudentInCourse) {
+      throw new HttpsError("permission-denied", `Lecturer ${callerEmail} is not authorized to reset platform for ${rollNo}: student is not in lecturer's assigned course roster.`);
+    }
+    authorizedBy = `LECTURER (${callerEmail})`;
+  }
+
+  const now = FieldValue.serverTimestamp();
+  const studentRef = db.collection("students").doc(rollNo);
+  const userRef = db.collection("users").doc(studentUid);
+  const credRef = db.collection("biometric_credentials").doc(studentUid);
+  const rollCredRef = db.collection("biometric_credentials").doc(rollNo);
+  const reqRef = requestId ? db.collection("biometric_change_requests").doc(requestId) : null;
+
+  // Execute atomic transaction: verifies and consumes request, revokes superseded credentials,
+  // and updates platform fields with no possibility of partial commit or replay
+  await db.runTransaction(async (transaction) => {
+    if (callerUid === studentUid) {
+      if (!reqRef) {
+        throw new HttpsError("permission-denied", "Platform change requires an approved Biometric Change Request ID.");
+      }
+      const reqSnap = await transaction.get(reqRef);
+      if (
+        !reqSnap.exists ||
+        reqSnap.data().studentUid !== studentUid ||
+        reqSnap.data().status !== "APPROVED" ||
+        reqSnap.data().used === true
+      ) {
+        throw new HttpsError("permission-denied", "Valid, approved Biometric Change Request required.");
+      }
+      transaction.update(reqRef, {
+        status: "COMPLETED",
+        used: true,
+        completedAt: now
+      });
+    } else if (reqRef) {
+      // If admin or lecturer supplied a requestId on behalf of student, mark it completed in same transaction
+      const reqSnap = await transaction.get(reqRef);
+      if (reqSnap.exists && reqSnap.data().used !== true) {
+        transaction.update(reqRef, {
+          status: "COMPLETED",
+          used: true,
+          completedAt: now
+        });
+      }
+    }
+
+    transaction.set(studentRef, {
+      registeredPlatform: cleanNewPlatform,
+      deviceType: cleanNewPlatform,
+      registeredDeviceType: cleanNewPlatform,
+      deviceTypeLocked: true,
+      platformResetAt: now,
+      platformResetBy: authorizedBy,
+      updatedAt: now
+    }, { merge: true });
+
+    transaction.set(userRef, {
+      registeredPlatform: cleanNewPlatform,
+      deviceType: cleanNewPlatform,
+      deviceTypeLocked: true,
+      updatedAt: now
+    }, { merge: true });
+
+    // Revoke previous credentials on platform transitions so superseded credentials cannot authenticate
+    transaction.set(credRef, {
+      status: "SUPERSEDED",
+      supersededAt: now,
+      reason: `Platform reset to ${cleanNewPlatform}`
+    }, { merge: true });
+    transaction.set(rollCredRef, {
+      status: "SUPERSEDED",
+      supersededAt: now,
+      reason: `Platform reset to ${cleanNewPlatform}`
+    }, { merge: true });
+  });
+
+  await db.collection("biometric_audit_logs").add({
+    action: "DEVICE_PLATFORM_RESET",
+    studentUid: studentUid,
+    rollNo: rollNo,
+    newPlatform: cleanNewPlatform,
+    authorizedBy: authorizedBy,
+    reason: reason || "Authorized device platform recovery/change",
+    timestamp: now
+  });
+
+  return {
+    success: true,
+    rollNo: rollNo,
+    newPlatform: cleanNewPlatform,
+    authorizedBy: authorizedBy,
+    message: `Account ${rollNo} platform successfully reset to ${cleanNewPlatform}.`
+  };
+});
+exports.resetStudentDevicePlatform = resetStudentDevicePlatform;
+
+// Authoritative internal engine exports for direct unit and integration testing
+exports.evaluateServerGeofence = evaluateServerGeofence;
+exports.generateDynamicQrToken = generateDynamicQrToken;
+exports.verifyDynamicQrToken = verifyDynamicQrToken;

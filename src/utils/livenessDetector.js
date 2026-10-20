@@ -217,9 +217,11 @@ export class RandomizedChallengeEngine {
             return ["CENTER", "BLINK"];
         }
 
-        // Attendance mode: Ultra-fast 1-step live face verification (< 1 second)
-        // Aligns live face in frame, confirms natural human micro-movement, and verifies immediately
-        return ["CENTER"];
+        // Attendance mode: Dynamic interactive challenge to defeat pre-recorded video playback
+        // A recorded video on a second phone CANNOT anticipate whether the random prompt will be BLINK, SMILE, TURN_LEFT, or TURN_RIGHT!
+        const dynamicActions = ["BLINK", "SMILE", "TURN_LEFT", "TURN_RIGHT"];
+        const randomAction = dynamicActions[Math.floor(Math.random() * dynamicActions.length)];
+        return ["CENTER", randomAction];
     }
 
     reset() {

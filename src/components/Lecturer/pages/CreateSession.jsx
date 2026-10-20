@@ -25,7 +25,7 @@ export async function createAttendanceSession(
     const finalBatch = (batch && String(batch).trim() !== "" && batch !== "—") ? String(batch).trim() : "2025";
     const parsedHours = Number(lectureHours) > 0 ? Number(lectureHours) : 1.0;
     const finalClassCode = normalizeBranchName(classCode || "CSE");
-    const parsedRadius = typeof geofenceRadius === "number" ? geofenceRadius : 10;
+    const parsedRadius = typeof geofenceRadius === "number" ? geofenceRadius : (typeof timetableOptions?.geofenceRadius === "number" ? timetableOptions.geofenceRadius : 10);
     const parsedDuration = Number(durationMinutes) > 0 ? Number(durationMinutes) : 3;
 
     const qr1Sec = Number(timetableOptions?.qr1DurationSeconds) > 0
@@ -42,6 +42,8 @@ export async function createAttendanceSession(
         batch: finalBatch,
         lectureHours: parsedHours,
         geofenceRadius: parsedRadius,
+        classroomLocation: timetableOptions?.classroomLocation || null,
+        rotationIntervalSec: typeof timetableOptions?.rotationIntervalSec === 'number' ? timetableOptions.rotationIntervalSec : 5,
         durationMinutes: Math.round(((qr1Sec + qr2Sec) / 60) * 10) / 10,
         qr1DurationSeconds: qr1Sec,
         qr2DurationSeconds: qr2Sec,

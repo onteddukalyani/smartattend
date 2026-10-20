@@ -124,6 +124,7 @@ function QrScannerApp() {
     // Active Session & Student Authorization Data
     const [activeSessionId, setActiveSessionId] = useState('');
     const [activeQr2Token, setActiveQr2Token] = useState('');
+    const [activeQr2Payload, setActiveQr2Payload] = useState(null);
     const [sessionData, setSessionData] = useState(null);
     const [sessionStartAt, setSessionStartAt] = useState(0);
     const [kioskEndsAt, setKioskEndsAt] = useState(0);
@@ -171,18 +172,37 @@ function QrScannerApp() {
         ? Math.max(0, Math.ceil((qr2TargetMs - nowTick) / 1000))
         : null;
 
-    // Continuous High-Accuracy GPS Pre-Warming & Model Pre-Loading
+    // Continuous GPS Pre-Warming (Dual-stage coarse prime + high-accuracy refinement) & Model Pre-Loading
     useEffect(() => {
         let watchId = null;
         if (typeof navigator !== "undefined" && navigator.geolocation) {
             try {
+                // 1. Instant coarse prime: Grab fast network/Wi-Fi fix immediately without satellite delay (<300ms)
+                navigator.geolocation.getCurrentPosition(
+                    (pos) => {
+                        if (pos && pos.coords) {
+                            prewarmedLocationRef.current = {
+                                latitude: pos.coords.latitude,
+                                longitude: pos.coords.longitude,
+                                lat: pos.coords.latitude,
+                                lng: pos.coords.longitude,
+                                accuracy: Number(pos.coords.accuracy) || 50,
+                                timestamp: Date.now()
+                            };
+                        }
+                    },
+                    () => { },
+                    { enableHighAccuracy: false, timeout: 3000, maximumAge: 60000 }
+                );
+
+                // 2. Continuous high-accuracy refinement
                 watchId = navigator.geolocation.watchPosition(
                     (pos) => {
                         if (pos && pos.coords) {
-                            const acc = Number(pos.coords.accuracy) || 80;
+                            const acc = Number(pos.coords.accuracy) || 50;
                             const prev = prewarmedLocationRef.current;
-                            // Keep fix if fresher or more precise (lower accuracy radius)
-                            if (!prev || (Date.now() - prev.timestamp > 15000) || acc <= prev.accuracy) {
+                            // Keep fix if fresher (> 10s) or more precise
+                            if (!prev || (Date.now() - prev.timestamp > 10000) || acc <= prev.accuracy) {
                                 prewarmedLocationRef.current = {
                                     latitude: pos.coords.latitude,
                                     longitude: pos.coords.longitude,
@@ -195,7 +215,7 @@ function QrScannerApp() {
                         }
                     },
                     (err) => console.warn('[Scanner] GPS prewarm notice:', err?.message || err),
-                    { enableHighAccuracy: true, maximumAge: 5000, timeout: 10000 }
+                    { enableHighAccuracy: true, maximumAge: 10000, timeout: 10000 }
                 );
             } catch (_) { }
         }
@@ -409,8 +429,15 @@ function QrScannerApp() {
 
     const handleLecturerPinUnlock = async (e) => {
         if (e && typeof e.preventDefault === 'function') e.preventDefault();
-        if (!lecturerPinInput.trim()) {
+        const pin = lecturerPinInput.trim();
+        if (!pin) {
             setPinVerificationError('Please enter the 6-digit Session PIN.');
+            return;
+        }
+
+        const targetSessionId = activeSessionId || sessionData?.sessionId || sessionData?.id || searchParams.get('session') || (typeof window !== 'undefined' ? (localStorage.getItem('smartattend_kiosk_session_id') || sessionStorage.getItem('smartattend_kiosk_session_id')) : '');
+        if (!targetSessionId) {
+            setPinVerificationError('Could not identify active session. Please try again.');
             return;
         }
 
@@ -418,9 +445,24 @@ function QrScannerApp() {
         setPinVerificationError('');
 
         try {
-            await verifyLecturerEmergencyPin(activeSessionId, lecturerPinInput.trim(), deviceIdentity?.deviceId, user?.uid);
-            console.log('[Kiosk] Session PIN verified via Cloud Function. Releasing device from Kiosk Lock Task mode...');
-            try { localStorage.removeItem('smartattend_kiosk_session_state'); } catch (_) { }
+            await verifyLecturerEmergencyPin(targetSessionId, pin, deviceIdentity?.deviceId, user?.uid);
+            console.log('[Kiosk] Session PIN verified. Releasing device from Kiosk Lock Task mode...');
+
+            // Clean up roll authorization if separate doc exists
+            if (loggedInRollNo && loggedInRollNo !== user?.uid) {
+                setDoc(doc(db, "attendance_sessions", targetSessionId, "authorizations", loggedInRollNo), {
+                    released: true,
+                    releaseStatus: "PIN_RELEASED",
+                    releasedAt: Date.now()
+                }, { merge: true }).catch(() => { });
+            }
+
+            try {
+                localStorage.removeItem('smartattend_kiosk_session_state');
+                localStorage.removeItem('smartattend_kiosk_session_id');
+                sessionStorage.removeItem('smartattend_kiosk_session_id');
+            } catch (_) { }
+
             releaseCameraLock();
             releaseAllMediaTracks();
             await Kiosk.stopKioskMode().catch(() => { });
@@ -717,12 +759,11 @@ function QrScannerApp() {
 
             const isAndroidNative = isNativeApp && !isIOSDevice();
             if (isAndroidNative) {
-                // Android native app: Strict kiosk policy
-                // 1st confirmed violation = warning; 2nd confirmed violation = rejected attendance & flagged student.
-                // Enforce the threshold on the backend.
+                // Android native app: Strict Zero-Tolerance Anti-Proxy Policy
+                // 1st confirmed violation (minimizing app / opening video calls / app switch) = Immediate Disqualification.
                 const nextCount = violationCount + 1;
                 setViolationCount(nextCount);
-                const isDisq = nextCount >= 2;
+                const isDisq = true; // Strategy 4: Zero-Tolerance Single-Strike Disqualification
 
                 let backendResult = null;
                 if (activeSessionId) {
@@ -745,28 +786,21 @@ function QrScannerApp() {
                             loggedInRollNo,
                             `CONFIRMED_KIOSK_ESCAPE: ${source}`,
                             nextCount,
-                            isDisq || Boolean(backendResult?.disqualified)
+                            true
                         );
                     } catch (vErr) {
                         console.warn('[Kiosk Guardian] Direct violation record notice:', vErr);
                     }
                 }
 
-                if (nextCount >= 2 || (backendResult && backendResult.disqualified)) {
-                    console.error(`[Kiosk Guardian] Android Security violation limit reached (count = ${nextCount}). Disqualifying attendance session.`);
-                    try { localStorage.removeItem(`smartattend_qr1_auth_${activeSessionId}`); } catch (_) { }
-                    try { sessionStorage.removeItem(`smartattend_qr1_auth_${activeSessionId}`); } catch (_) { }
-                    releaseAllMediaTracks();
-                    Kiosk.startKioskMode().catch(() => { });
-                    setErrorMessage('❌ Attendance Disqualified: Security violation limit reached (2 confirmed kiosk exits). Attendance forfeited.');
-                    setScanState('DISQUALIFIED');
-                    setSupervisionViolation(false);
-                } else {
-                    console.warn(`[Kiosk Guardian] Android Security Warning: Violation 1 of 2 recorded.`);
-                    // Immediately re-enforce Kiosk LockTask mode and keep app pinned in foreground
-                    Kiosk.startKioskMode().catch(() => { });
-                    setSupervisionViolation(true);
-                }
+                console.error(`[Kiosk Guardian] Security violation detected via ${source}. Disqualifying attendance session (Zero-Tolerance Mode).`);
+                try { localStorage.removeItem(`smartattend_qr1_auth_${activeSessionId}`); } catch (_) { }
+                try { sessionStorage.removeItem(`smartattend_qr1_auth_${activeSessionId}`); } catch (_) { }
+                releaseAllMediaTracks();
+                Kiosk.startKioskMode().catch(() => { });
+                setErrorMessage('❌ Attendance Disqualified: Security violation detected (application switch / video call attempt). Attendance forfeited.');
+                setScanState('DISQUALIFIED');
+                setSupervisionViolation(false);
                 return;
             }
 
@@ -1156,7 +1190,7 @@ function QrScannerApp() {
     }, [profile?.deviceType, profile?.registeredDeviceType, loggedInName, loggedInRollNo, user?.email, activeSessionId]);
 
     // 1. Process Phase 1 QR 1: Check-in & Start Lock Task Kiosk
-    const handleProcessQR1 = async (sessionId, qr1Token, coords = null) => {
+    const handleProcessQR1 = async (sessionId, qr1Token, coords = null, qrPayload = null) => {
         if (!user) {
             setErrorMessage('Please log in with your student account to authorize attendance.');
             return;
@@ -1200,7 +1234,7 @@ function QrScannerApp() {
                 } : null
             };
 
-            const result = await authorizeStudentQR1(sessionId, qr1Token, studentProfileOverride);
+            const result = await authorizeStudentQR1(sessionId, qr1Token, studentProfileOverride, qrPayload);
 
             setActiveSessionId(sessionId);
             setSessionStartAt(result.sessionStartAt || Date.now());
@@ -1281,7 +1315,7 @@ function QrScannerApp() {
     }, [scanState, biometricComboStep, hardwareProof, handleTriggerFingerprint]);
 
     // 2. Process Phase 2 QR 2: Gate verification & open Face Biometric Scanner
-    const handleProcessQR2 = async (sessionId, qr2Token) => {
+    const handleProcessQR2 = async (sessionId, qr2Token, qrPayload = null) => {
         if (!user) {
             setErrorMessage('Please log in to submit attendance.');
             return;
@@ -1308,7 +1342,8 @@ function QrScannerApp() {
             if (!targetSession) {
                 throw new Error("No active attendance session identified.");
             }
-            const result = await validateStudentQR2(targetSession, qr2Token);
+            if (qrPayload) setActiveQr2Payload(qrPayload);
+            const result = await validateStudentQR2(targetSession, qr2Token, qrPayload);
 
             setActiveSessionId(targetSession);
             setActiveQr2Token(qr2Token);
@@ -1329,9 +1364,9 @@ function QrScannerApp() {
             // Safe cooldown to allow Android Camera Service to complete HAL disconnection from rear camera
             await new Promise((resolve) => setTimeout(resolve, 350));
 
-            // Enter Fast Biometric Verification: Direct Face Scan (< 1s)
+            // Dual Biometric Gate: Native mobile devices must verify physical fingerprint first
             fingerprintAutoTriggeredRef.current = false;
-            setBiometricComboStep('FACE');
+            setBiometricComboStep(isNativeApp ? 'FINGERPRINT' : 'FACE');
             setFingerprintError('');
             setScanState('BIOMETRIC_SCAN');
         } catch (err) {
@@ -1372,8 +1407,8 @@ function QrScannerApp() {
             try {
                 const getCoords = async () => {
                     const cached = prewarmedLocationRef.current;
-                    // If cached fix is fresh (under 35s), return immediately without blocking!
-                    if (cached && (Date.now() - cached.timestamp < 35000)) {
+                    // If cached fix is fresh (under 45s) with valid accuracy (< 180m), return immediately!
+                    if (cached && (Date.now() - cached.timestamp < 45000) && (cached.accuracy || 0) < 180) {
                         return cached;
                     }
                     return new Promise((resolve) => {
@@ -1381,37 +1416,57 @@ function QrScannerApp() {
                             resolve(cached || null);
                             return;
                         }
-                        let resolved = false;
-                        const safetyTimer = setTimeout(() => {
-                            if (!resolved) {
-                                resolved = true;
-                                resolve(prewarmedLocationRef.current || cached || null);
-                            }
-                        }, 2500);
 
+                        let resolved = false;
+                        const finish = (coords) => {
+                            if (resolved) return;
+                            resolved = true;
+                            if (coords) {
+                                prewarmedLocationRef.current = coords;
+                            }
+                            resolve(coords || cached || null);
+                        };
+
+                        // Overall safety timer: never block student attendance flow for >3.5s
+                        const safetyTimer = setTimeout(() => {
+                            finish(prewarmedLocationRef.current || cached || null);
+                        }, 3500);
+
+                        // Stage 1: Try high accuracy (GPS / GNSS satellites)
                         navigator.geolocation.getCurrentPosition(
                             (pos) => {
-                                if (resolved) return;
-                                resolved = true;
                                 clearTimeout(safetyTimer);
-                                const fresh = {
+                                finish({
                                     latitude: pos.coords.latitude,
                                     longitude: pos.coords.longitude,
                                     lat: pos.coords.latitude,
                                     lng: pos.coords.longitude,
                                     accuracy: Number(pos.coords.accuracy) || 20,
                                     timestamp: Date.now()
-                                };
-                                prewarmedLocationRef.current = fresh;
-                                resolve(fresh);
+                                });
                             },
                             () => {
-                                if (resolved) return;
-                                resolved = true;
-                                clearTimeout(safetyTimer);
-                                resolve(prewarmedLocationRef.current || cached || null);
+                                // Stage 2: Immediate fallback to Wi-Fi / Cell tower coarse positioning (fast indoor response)
+                                navigator.geolocation.getCurrentPosition(
+                                    (pos2) => {
+                                        clearTimeout(safetyTimer);
+                                        finish({
+                                            latitude: pos2.coords.latitude,
+                                            longitude: pos2.coords.longitude,
+                                            lat: pos2.coords.latitude,
+                                            lng: pos2.coords.longitude,
+                                            accuracy: Number(pos2.coords.accuracy) || 50,
+                                            timestamp: Date.now()
+                                        });
+                                    },
+                                    () => {
+                                        clearTimeout(safetyTimer);
+                                        finish(prewarmedLocationRef.current || cached || null);
+                                    },
+                                    { enableHighAccuracy: false, timeout: 2000, maximumAge: 60000 }
+                                );
                             },
-                            { enableHighAccuracy: true, timeout: 2500, maximumAge: 15000 }
+                            { enableHighAccuracy: true, timeout: 2200, maximumAge: 15000 }
                         );
                     });
                 };
@@ -1461,24 +1516,24 @@ function QrScannerApp() {
 
             if (isQR2) {
                 console.log('[Scanner] Phase 2 (QR 2) scanned successfully. Proceeding to biometrics...');
-                handleProcessQR2(payload.sessionId || activeSessionId, payload.qr2Token || payload.sessionId);
+                handleProcessQR2(payload.sessionId || activeSessionId, payload.qr2Token || payload.sessionId, payload);
             } else if (isQR1) {
                 // QR 1 is explicitly blocked from re-scanning!
                 console.log('[Scanner] QR 1 ignored. Student already completed Phase 1 check-in. Waiting for Lecturer to display QR 2.');
                 setErrorMessage('You have already scanned QR 1. Please scan QR 2 displayed on the screen.');
             } else if (sessionData?.phase === 'PHASE_2') {
-                handleProcessQR2(payload.sessionId || activeSessionId, payload.qr2Token || payload.sessionId);
+                handleProcessQR2(payload.sessionId || activeSessionId, payload.qr2Token || payload.sessionId, payload);
             }
             return;
         }
 
         // 4. Initial state (student has not scanned QR 1 yet):
         if (payload.qr1Token || payload.phase === '1' || payload.phase === 'PHASE_1') {
-            handleProcessQR1(payload.sessionId, payload.qr1Token, studentCoords);
+            handleProcessQR1(payload.sessionId, payload.qr1Token, studentCoords, payload);
         } else if (payload.qr2Token || payload.phase === '2' || payload.phase === 'PHASE_2') {
-            handleProcessQR2(payload.sessionId, payload.qr2Token);
+            handleProcessQR2(payload.sessionId, payload.qr2Token, payload);
         } else {
-            handleProcessQR1(payload.sessionId, payload.sessionId, studentCoords);
+            handleProcessQR1(payload.sessionId, payload.sessionId, studentCoords, payload);
         }
     };
 
@@ -1594,7 +1649,8 @@ function QrScannerApp() {
                             verified: true,
                             antiSpoofScore: "PASSED"
                         },
-                        hardwareProof
+                        hardwareProof,
+                        activeQr2Payload
                     );
 
                     const submittedMs = submissionResult.submittedAt || submissionResult.attendanceSubmittedAt || Date.now();
@@ -1618,6 +1674,11 @@ function QrScannerApp() {
                     setScanState('ATTENDANCE_SUCCESS');
                 } catch (subErr) {
                     console.error('Attendance submission error:', subErr);
+                    if (subErr.message?.includes('already recorded') || subErr.message?.includes('already-exists') || subErr.message?.includes('already been recorded') || subErr.message?.includes('already submitted')) {
+                        setErrorMessage('');
+                        setScanState('ATTENDANCE_SUCCESS');
+                        return;
+                    }
                     alert('❌ Attendance submission notice: ' + (subErr.message || 'Error recording attendance'));
                     if (subErr.message?.includes('QR 1') || subErr.message?.includes('Access Denied') || subErr.message?.includes('Missing Phase 1')) {
                         setErrorMessage(subErr.message);
@@ -1628,7 +1689,7 @@ function QrScannerApp() {
                 }
             }
         }
-    }, [activeSessionId, activeQr2Token, submittingAttendance, loggedInRollNo, loggedInName, sessionData, hardwareProof]);
+    }, [activeSessionId, activeQr2Token, activeQr2Payload, submittingAttendance, loggedInRollNo, loggedInName, sessionData, hardwareProof]);
 
     const formatMmSs = (sec) => {
         const m = Math.floor(sec / 60);

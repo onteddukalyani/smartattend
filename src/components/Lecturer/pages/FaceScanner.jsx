@@ -827,7 +827,7 @@ function FaceScanner({
           {/* Status Pill */}
           <div className={`scanner-status-pill ${status === "liveness_check" ? "liveness" : status === "spoof" ? "spoof" : status}`}>
             {status === "verified" && <><FaCheckCircle /> Verified Live</>}
-            {status === "liveness_check" && <><FaEye className="fa-spin" /> Blink Required</>}
+            {status === "liveness_check" && <><FaEye className="fa-spin" /> Live Action Required</>}
             {status === "spoof" && <><FaTimesCircle /> Spoof Detected</>}
             {status === "mismatch" && <><FaTimesCircle /> Mismatch</>}
             {status === "no_face" && <><FaCamera /> Looking for Face</>}

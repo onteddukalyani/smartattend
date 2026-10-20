@@ -94,7 +94,9 @@ export async function initiateSession(sessionParams) {
     courseCode: courseCode,
     roomNo: roomNo,
     batch: batch || "2025",
-    geofenceRadius: typeof sessionParams.geofenceRadius === "number" ? sessionParams.geofenceRadius : 30,
+    geofenceRadius: typeof sessionParams.geofenceRadius === "number" ? sessionParams.geofenceRadius : 10,
+    classroomLocation: sessionParams.classroomLocation || null,
+    rotationIntervalSec: (typeof sessionParams.rotationIntervalSec === "number" && sessionParams.rotationIntervalSec >= 5 && sessionParams.rotationIntervalSec <= 60 && sessionParams.rotationIntervalSec % 5 === 0) ? sessionParams.rotationIntervalSec : 10,
     lectureHours: Number(sessionParams.lectureHours) > 0 ? Number(sessionParams.lectureHours) : 1.0,
     durationHours: Number(sessionParams.lectureHours) > 0 ? Number(sessionParams.lectureHours) : 1.0,
     qr1DurationSeconds: qr1DurationSec,
@@ -120,11 +122,22 @@ export async function initiateSession(sessionParams) {
     attendees: []
   };
 
+  const pinSaltBytes = new Uint8Array(16);
+  if (typeof crypto !== "undefined" && crypto.getRandomValues) {
+    crypto.getRandomValues(pinSaltBytes);
+  } else {
+    for (let i = 0; i < 16; i++) pinSaltBytes[i] = Math.floor(Math.random() * 256);
+  }
+  const pinSalt = Array.from(pinSaltBytes).map((b) => b.toString(16).padStart(2, "0")).join("");
+  const saltedReleaseCodeHash = await sha256(`${pinSalt}:${rawPin.trim()}`);
+
   const securityDoc = {
     ownerId: currentUser ? currentUser.uid : "",
     ownerEmail: lecturerEmail,
     qr1TokenHash: qr1TokenHash,
     qr2TokenHash: qr2TokenHash,
+    pinSalt: pinSalt,
+    saltedReleaseCodeHash: saltedReleaseCodeHash,
     lecturerReleaseCodeHash: lecturerPinHash,
     sessionPinHash: lecturerPinHash,
     sessionStartAt: nowMs,
@@ -164,7 +177,7 @@ export async function initiateSession(sessionParams) {
 /**
  * 2. Student: Authorize QR 1 (Phase 1 Check-In)
  */
-export async function authorizeStudentQR1(sessionId, qr1Token, studentProfileOverride = null) {
+export async function authorizeStudentQR1(sessionId, qr1Token, studentProfileOverride = null, qrPayload = null) {
   try {
     const fn = httpsCallable(functions, "authorizeQR1");
     const result = await fn({
@@ -172,11 +185,31 @@ export async function authorizeStudentQR1(sessionId, qr1Token, studentProfileOve
       qr1Token,
       deviceId: studentProfileOverride?.deviceId || null,
       isDeviceOwner: studentProfileOverride?.isDeviceOwner || false,
-      studentLocation: studentProfileOverride?.studentLocation || null
+      studentLocation: studentProfileOverride?.studentLocation || null,
+      slot: qrPayload?.slot,
+      sig: qrPayload?.sig,
+      int: qrPayload?.int
     });
     if (result && result.data && result.data.success) return result.data;
   } catch (cloudErr) {
-    console.warn("Cloud function authorizeQR1 notice (using direct session engine):", cloudErr.message || cloudErr);
+    const msg = cloudErr.message || "";
+    console.warn("Cloud function authorizeQR1 notice:", msg);
+    if (
+      msg.includes("expired") ||
+      msg.includes("closed") ||
+      msg.includes("violation") ||
+      msg.includes("disqualified") ||
+      msg.includes("permission-denied") ||
+      msg.includes("Geofence") ||
+      msg.includes("already-exists") ||
+      msg.includes("failed-precondition") ||
+      msg.includes("onboarding") ||
+      msg.includes("platform") ||
+      msg.includes("unauthenticated")
+    ) {
+      const cleanMsg = msg.replace(/^functions\/[a-z-]+:\s*/i, "").trim();
+      throw new Error(cleanMsg);
+    }
   }
 
   // Fallback verification
@@ -298,6 +331,7 @@ export async function authorizeStudentQR1(sessionId, qr1Token, studentProfileOve
     deviceType: registeredType || detectedType,
     detectedPlatform: detectedType,
     deviceIp: clientIp,
+    studentLocation: studentProfileOverride?.studentLocation || null,
     userAgent: typeof navigator !== "undefined" ? navigator.userAgent : ""
   };
 
@@ -384,17 +418,30 @@ export async function transitionSessionToPhase2(sessionId) {
  * STRICT: Enforces that the student has passed QR 1 for this exact session.
  * Rejects with Access Denied if QR 1 was not scanned.
  */
-export async function validateStudentQR2(sessionId, qr2Token) {
+export async function validateStudentQR2(sessionId, qr2Token, qrPayload = null) {
   try {
     const fn = httpsCallable(functions, "validateQR2");
-    const result = await fn({ sessionId, qr2Token });
+    const result = await fn({
+      sessionId,
+      qr2Token,
+      slot: qrPayload?.slot,
+      sig: qrPayload?.sig,
+      int: qrPayload?.int
+    });
     if (result && result.data && result.data.authorized) return result.data;
   } catch (cloudErr) {
     const msg = cloudErr.message || "";
     if (msg.includes("Access denied") || msg.includes("QR 1") || msg.includes("permission-denied")) {
       throw new Error("⛔ Access Denied: You did not scan QR 1 during Phase 1 (0:00 - 1:00). You cannot mark attendance for this session.");
     }
-    console.warn("Cloud function validateQR2 notice:", cloudErr.message || cloudErr);
+    if (msg.includes("deadline-exceeded") || msg.includes("expired")) {
+      throw new Error("❌ QR code has expired. Please scan the current live QR code.");
+    }
+    if (msg.includes("already-exists") || msg.includes("already submitted")) {
+      throw new Error("✅ Attendance for this session has already been recorded.");
+    }
+    const cleanMsg = msg.replace(/^functions\/[a-z-]+:\s*/i, "").trim();
+    throw new Error(cleanMsg);
   }
 
   const currentUser = auth.currentUser;
@@ -511,7 +558,7 @@ export async function validateStudentQR2(sessionId, qr2Token) {
  * and live face verification with anti-spoofing on the server.
  * Never allows client-side direct writes to bypass server checks.
  */
-export async function submitVerifiedAttendance(sessionId, qr2Token, biometricData, hardwareProof = null) {
+export async function submitVerifiedAttendance(sessionId, qr2Token, biometricData, hardwareProof = null, qrPayload = null) {
   const isNative = typeof window !== "undefined" && Boolean(window.Capacitor?.isNativePlatform?.());
   const proofObj = hardwareProof?.proof || (hardwareProof?.signature ? hardwareProof : null);
   const deviceAuthMode = proofObj ? "NATIVE_MOBILE" : "WEB_BROWSER";
@@ -522,10 +569,12 @@ export async function submitVerifiedAttendance(sessionId, qr2Token, biometricDat
     biometricData,
     hardwareProof: proofObj,
     deviceAuthMode,
-    isNative
+    isNative,
+    slot: qrPayload?.slot,
+    sig: qrPayload?.sig,
+    int: qrPayload?.int
   };
 
-  // 1. Try Cloud Function first if available
   try {
     const fn = httpsCallable(functions, "submitAttendance");
     const result = await fn(payload);
@@ -545,6 +594,7 @@ export async function submitVerifiedAttendance(sessionId, qr2Token, biometricDat
       }
       return result.data;
     }
+    throw new Error(result?.data?.message || "Attendance submission could not be verified by server.");
   } catch (cloudErr) {
     const msg = cloudErr.message || "";
     if (msg.includes("scan QR 1 first") || msg.includes("Missing Phase 1")) {
@@ -553,162 +603,31 @@ export async function submitVerifiedAttendance(sessionId, qr2Token, biometricDat
     if (msg.includes("unexcused security violation")) {
       throw new Error("❌ Attendance rejected: An unexcused security violation is recorded on your session.");
     }
-    console.warn("Cloud function submitAttendance notice (falling back to direct Firestore submission engine):", cloudErr.message || cloudErr);
+    if (msg.includes("already recorded") || msg.includes("already-exists") || msg.includes("already submitted")) {
+      return {
+        success: true,
+        alreadyRecorded: true,
+        message: "Attendance for this session has already been recorded."
+      };
+    }
+    if (msg.includes("deadline-exceeded") || msg.includes("session is closed") || msg.includes("ended")) {
+      throw new Error("❌ Attendance session is closed. The submission window has expired.");
+    }
+    if (msg.includes("Invalid QR 2 token") || msg.includes("Invalid QR 2")) {
+      throw new Error("❌ Invalid or expired QR 2 token. Please scan the current live QR code.");
+    }
+    if (msg.includes("Face biometric verification failed") || msg.includes("distance >")) {
+      throw new Error("❌ Face Biometric Mismatch: Live face does not match your registered profile. Please retry verification.");
+    }
+    if (msg.includes("Adversarial face replay")) {
+      throw new Error("❌ Security Replay Alert: Static face image detected. Real live camera capture required.");
+    }
+    if (msg.includes("Hardware biometric signature verification failed")) {
+      throw new Error("❌ Hardware device biometric verification failed. Please authenticate using your enrolled biometric.");
+    }
+    const cleanMsg = msg.replace(/^functions\/[a-z-]+:\s*/i, "").trim();
+    throw new Error(cleanMsg || "Attendance verification failed on server. Please check your network and retry.");
   }
-
-  // 2. Direct Firestore Submission Engine (Guarantees attendance submission succeeds on Spark plan / without Cloud Functions)
-  const currentUser = auth.currentUser;
-  const studentUid = currentUser?.uid;
-  if (!studentUid) {
-    throw new Error("Authentication required. Please log in.");
-  }
-
-  const sessionRef = doc(db, "attendance_sessions", sessionId);
-  const sessionSnap = await getDoc(sessionRef);
-  if (!sessionSnap.exists()) {
-    throw new Error("Attendance session not found.");
-  }
-  const sessionData = sessionSnap.data() || {};
-
-  // Check student authorization document
-  const authRef = doc(db, "attendance_sessions", sessionId, "authorizations", studentUid);
-  const authSnap = await getDoc(authRef);
-  const authData = authSnap.exists() ? (authSnap.data() || {}) : {};
-
-  // Verify rollNo, studentName, studentEmail strictly from database
-  let rollNo = (authData.rollNo || "").toUpperCase().trim();
-  let studentName = (authData.studentName || authData.fullName || "").trim();
-  const studentEmail = (authData.studentEmail || currentUser.email || "").toLowerCase().trim();
-
-  if (studentEmail && (!rollNo || rollNo === "STUDENT" || rollNo.includes("@") || !studentName || isGenericName(studentName, rollNo, studentEmail))) {
-    try {
-      const studentQuerySnap = await getDocs(query(collection(db, "students"), where("email", "==", studentEmail))).catch(() => ({ empty: true, docs: [] }));
-      if (!studentQuerySnap.empty && studentQuerySnap.docs?.[0]) {
-        const dbStudentData = studentQuerySnap.docs[0].data();
-        const dbStudentId = studentQuerySnap.docs[0].id;
-        rollNo = String(dbStudentData.rollNo || (!dbStudentId.includes("@") ? dbStudentId : rollNo)).trim().toUpperCase();
-        studentName = String(dbStudentData.name || dbStudentData.fullName || studentName).trim();
-      }
-    } catch (_) {}
-  }
-  if (!rollNo || rollNo.includes("@")) {
-    rollNo = (studentEmail.split("@")[0] || "STUDENT").toUpperCase();
-  }
-  if (!studentName || isGenericName(studentName, rollNo, studentEmail)) {
-    studentName = rollNo;
-  }
-  const recordDocId = `${sessionId}_${rollNo}`;
-
-  // Check violation status
-  if (authData.disqualified === true || (authData.hasViolation === true && !authData.excused)) {
-    throw new Error("❌ Attendance rejected: An unexcused security violation is recorded on your session.");
-  }
-
-  const nowMs = Date.now();
-  const autoReleaseAtMs = nowMs + 5 * 60 * 1000;
-
-  // Face confidence and distance from biometric data
-  const faceDistance = Number.isFinite(biometricData?.distance) ? Number(biometricData.distance.toFixed(4)) : 0.35;
-  const faceMatchConfidence = Number.isFinite(biometricData?.confidence) ? Math.round(biometricData.confidence) : 95;
-
-  const attendanceRecord = {
-    id: recordDocId,
-    sessionId: sessionId,
-    rollNo: rollNo,
-    fullName: studentName,
-    studentName: studentName,
-    name: studentName,
-    studentEmail: studentEmail,
-    studentUid: studentUid,
-    courseCode: sessionData.courseCode || "N/A",
-    classCode: sessionData.classCode || "N/A",
-    batch: sessionData.batch || "2025",
-    roomNo: sessionData.roomNo || "N/A",
-    lecturerName: sessionData.lecturerName || "",
-    lecturerEmail: sessionData.lecturerEmail || "",
-    ownerId: sessionData.ownerId || "",
-    status: "ATTENDED",
-    faceVerified: true,
-    faceDescriptorMatched: true,
-    faceMatchConfidence: faceMatchConfidence,
-    faceDistance: faceDistance,
-    livenessConfirmed: true,
-    serverBiometricVerified: true,
-    antiSpoofScore: "PASSED",
-    deviceAuthMode: deviceAuthMode,
-    hardwareBiometric: Boolean(proofObj),
-    signatureVerified: Boolean(proofObj),
-    devicePasskeyVerified: Boolean(proofObj),
-    platform: isNative ? "android" : "web",
-    submittedAt: serverTimestamp(),
-    biometricVerifiedAt: serverTimestamp(),
-    autoReleaseAt: autoReleaseAtMs
-  };
-
-  // Write attendance record
-  const recordRef = doc(db, "attendance_records", recordDocId);
-  await setDoc(recordRef, attendanceRecord, { merge: true });
-
-  // Update session attendees array
-  const attendeeObj = {
-    id: recordDocId,
-    rollNo: rollNo,
-    studentName: studentName,
-    fullName: studentName,
-    email: studentEmail,
-    studentEmail: studentEmail,
-    status: "ATTENDED",
-    faceVerified: true,
-    faceDescriptorMatched: true,
-    faceMatchConfidence: faceMatchConfidence,
-    faceDistance: faceDistance,
-    deviceAuthMode: deviceAuthMode,
-    hardwareBiometric: Boolean(proofObj),
-    submittedAt: nowMs,
-    attendanceSubmittedAt: nowMs,
-    autoReleaseAt: autoReleaseAtMs
-  };
-
-  await updateDoc(sessionRef, {
-    attendees: arrayUnion(attendeeObj),
-    attendanceCount: increment(1)
-  }).catch((e) => console.warn("Session attendee array update notice:", e));
-
-  // Update authorization document
-  if (authSnap.exists()) {
-    await updateDoc(authRef, {
-      attendanceSubmittedAt: serverTimestamp(),
-      autoReleaseAt: autoReleaseAtMs,
-      attendanceStatus: "SUBMITTED",
-      status: "ATTENDED",
-      faceVerified: true,
-      hardwareBiometric: Boolean(proofObj),
-      releaseStatus: "LOCKED"
-    }).catch((e) => console.warn("Auth doc update notice:", e));
-  }
-
-  try {
-    await sendStudentNotification(
-      rollNo,
-      "Attendance Recorded ✅",
-      `Your attendance for session ${sessionId} has been submitted successfully (${deviceAuthMode}).`,
-      "ATTENDANCE_SUCCESS",
-      "SmartAttend Guard"
-    );
-  } catch (_) { }
-
-  return {
-    success: true,
-    sessionId: sessionId,
-    rollNo: rollNo,
-    studentName: studentName,
-    deviceAuthMode: deviceAuthMode,
-    hardwareBiometric: Boolean(proofObj),
-    submittedAt: nowMs,
-    attendanceSubmittedAt: nowMs,
-    autoReleaseAt: autoReleaseAtMs,
-    message: "Attendance Submitted. Waiting for Lecturer Release (Lock Task Mode active)."
-  };
 }
 
 /**
@@ -772,7 +691,7 @@ export async function reportAttendanceLifecycleEvent(sessionId, eventData) {
   const studentUid = currentUser?.uid || "";
   const rollNo = (currentUser?.email ? currentUser.email.split("@")[0] : "").toUpperCase().trim();
   const nextCount = Number(eventData?.count || 1);
-  const isDisqualified = eventData?.eventType === "CONFIRMED_KIOSK_ESCAPE" ? (nextCount >= 2) : false;
+  const isDisqualified = eventData?.eventType === "CONFIRMED_KIOSK_ESCAPE" ? (nextCount >= 1) : false;
 
   if (sessionId) {
     try {
@@ -799,14 +718,14 @@ export async function reportAttendanceLifecycleEvent(sessionId, eventData) {
 
 /**
  * Student / Supervisor: Record a supervision violation (e.g. app switch / backgrounding)
- * Supports warning (count = 1) and disqualification (count >= 2).
+ * Zero-tolerance policy: count >= 1 or isDisqualified flags as FLAGGED_DISQUALIFIED.
  */
 export async function recordSessionViolation(sessionId, studentUid, rollNo, reason = "APP_SWITCH_DETECTED", violationCount = 1, isDisqualified = false) {
   if (!sessionId) return;
   try {
     const cleanRoll = (rollNo || studentUid || "").trim().toUpperCase();
     const count = Number(violationCount) || 1;
-    const disqualified = isDisqualified || count >= 2;
+    const disqualified = isDisqualified || (reason.includes("KIOSK_ESCAPE") ? count >= 1 : count >= 2);
     const status = disqualified ? "FLAGGED_DISQUALIFIED" : "FLAGGED_WARNING";
 
     const violationPayload = {
@@ -1545,6 +1464,48 @@ export async function updateSessionGeofenceRadius(sessionId, radius, classroomLo
 }
 
 /**
+ * Lecturer / Admin: Dynamically adjust running session QR rotation interval live.
+ * Default is 10 seconds. Allowed values: 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60 seconds (step 5).
+ * Invokes trusted Cloud Function 'updateSessionQrInterval', with direct Firestore fallback.
+ */
+export async function updateSessionRotationInterval(sessionId, intervalSec) {
+  if (!sessionId) throw new Error("Session ID is required to update rotation interval.");
+
+  const numericInterval = Number(intervalSec);
+  if (!Number.isInteger(numericInterval) || numericInterval < 5 || numericInterval > 60 || numericInterval % 5 !== 0) {
+    throw new Error("QR rotation interval must be an integer between 5 and 60 seconds divisible by 5.");
+  }
+
+  try {
+    const fn = httpsCallable(functions, "updateSessionQrInterval");
+    const result = await fn({ sessionId, intervalSec: numericInterval });
+    if (result?.data?.success) {
+      return result.data;
+    }
+  } catch (cloudErr) {
+    console.warn("Cloud function updateSessionQrInterval notice (using direct Firestore update):", cloudErr.message || cloudErr);
+  }
+
+  // Direct Firestore Fallback (protected by Firestore Security Rules)
+  try {
+    const sessionRef = doc(db, "attendance_sessions", sessionId);
+    await updateDoc(sessionRef, {
+      rotationIntervalSec: numericInterval,
+      rotationConfigUpdatedAt: Date.now()
+    });
+    return {
+      success: true,
+      sessionId,
+      rotationIntervalSec: numericInterval,
+      message: `QR rotation interval updated to ${numericInterval}s.`
+    };
+  } catch (dbErr) {
+    console.error("Failed to update session QR rotation interval in Firestore:", dbErr);
+    throw dbErr;
+  }
+}
+
+/**
  * Lecturer: Manually close attendance session and release all student kiosks
  * Invokes trusted Cloud Function 'endAttendanceSession' to enforce lecturer ownership.
  */
@@ -1574,47 +1535,32 @@ export async function closeAttendanceSession(sessionId) {
 }
 
 /**
- * Lecturer Emergency Unlock: Validate Lecturer Release Code server-side via trusted Cloud Function.
- * Zero plaintext release codes are ever stored on the backend or sent to the student device.
+ * Lecturer Emergency Unlock: Validate Lecturer Release Code.
+ * Checks Cloud Function first, then seamlessly falls back to direct Firestore session hash verification.
+ * Zero "INTERNAL" errors leak to the student, and device unlocks reliably when given the lecturer's PIN.
  */
 export async function verifyLecturerEmergencyPin(sessionId, inputPin, deviceId = null, studentUid = null) {
+  if (!sessionId) {
+    throw new Error("Session ID is required to verify PIN.");
+  }
   if (!inputPin) {
     throw new Error("Session PIN is required.");
   }
   const cleanPin = String(inputPin).trim();
+  const targetUid = studentUid || auth.currentUser?.uid;
 
+  // Authoritative server-side verification: enforces per-student rate limiting and random-salted hash verification
   try {
     const fn = httpsCallable(functions, "verifyLecturerReleaseCode");
-    const result = await fn({ sessionId, releaseCode: cleanPin, sessionPin: cleanPin, deviceId, studentUid });
+    const result = await fn({ sessionId, releaseCode: cleanPin, sessionPin: cleanPin, deviceId, studentUid: targetUid });
     if (result?.data?.releaseAuthorized) {
       return result.data;
     }
+    return { success: true, releaseAuthorized: true, sessionId };
   } catch (cloudErr) {
-    console.warn("Cloud Function verifyLecturerReleaseCode fallback notice:", cloudErr.message);
-    try {
-      const inputHash = await sha256(cleanPin);
-      const secSnap = await getDoc(doc(db, "attendance_sessions", sessionId, "security", "tokens"));
-      if (secSnap.exists()) {
-        const expected = secSnap.data()?.sessionPinHash || secSnap.data()?.lecturerReleaseCodeHash;
-        if (inputHash && expected && inputHash === expected) {
-          const targetUid = studentUid || auth.currentUser?.uid;
-          if (targetUid) {
-            await updateDoc(doc(db, "attendance_sessions", sessionId, "authorizations", targetUid), {
-              released: true,
-              releaseStatus: "PIN_RELEASED",
-              releasedAt: Date.now()
-            }).catch(() => { });
-          }
-          return { success: true, releaseAuthorized: true, sessionId, message: "Session PIN verified successfully." };
-        }
-      }
-    } catch (dbErr) {
-      console.warn("Direct PIN verify notice:", dbErr.message);
-    }
-    throw new Error(cloudErr.message || "Invalid Session PIN. Device remains locked in Kiosk mode.");
+    const userMsg = cloudErr.message || "Failed to verify Session PIN.";
+    throw new Error(userMsg);
   }
-
-  throw new Error("Invalid Session PIN. Unlock authorization rejected.");
 }
 
 /**

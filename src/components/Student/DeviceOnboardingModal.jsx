@@ -16,8 +16,9 @@ import {
     FaCamera
 } from 'react-icons/fa';
 import { Capacitor } from '@capacitor/core';
-import { db } from '../../firebase';
+import { db, functions } from '../../firebase';
 import { doc, setDoc } from 'firebase/firestore';
+import { httpsCallable } from 'firebase/functions';
 import { useAuth } from '../authcontext';
 import { isGuidedAccessEnabled } from '../../services/guidedAccessService';
 import { detectDeviceType, getClientIpAddress, getDeviceDisplayName } from '../../utils/deviceDetection';
@@ -154,24 +155,19 @@ export function DeviceOnboardingModal({ isOpen, onClose }) {
                 localStorage.setItem('smartattend_device_ip', ip);
             }
 
-            if (roll && db) {
-                const lockPayload = {
-                    deviceType: selectedDevice,
-                    registeredDeviceType: selectedDevice,
-                    autoDetectedDeviceType: detectedDevice || (isNativeApp ? 'native' : 'web'),
-                    deviceTypeLocked: true,
-                    deviceIp: ip,
-                    registrationIp: ip,
-                    lastLoginIp: ip,
-                    deviceUserAgent: typeof navigator !== 'undefined' ? navigator.userAgent : '',
-                    devicePlatform: typeof navigator !== 'undefined' ? navigator.platform : '',
-                    deviceSelectedAt: Date.now(),
-                    deviceRegisteredAt: Date.now()
-                };
-
-                // Update students collection & users collection
-                await setDoc(doc(db, 'students', roll), lockPayload, { merge: true });
-                await setDoc(doc(db, 'users', roll), lockPayload, { merge: true }).catch(() => {});
+            if (roll) {
+                // Authoritative Cloud Function binding: atomically assigns and locks platform in Firestore
+                try {
+                    const bindFn = httpsCallable(functions, "bindStudentDevicePlatform");
+                    await bindFn({ platform: selectedDevice });
+                } catch (bindErr) {
+                    const bindMsg = bindErr?.message || "";
+                    if (bindMsg.includes("already-exists") || bindMsg.includes("already bound")) {
+                        console.info("Device platform is already bound for account:", roll);
+                    } else {
+                        throw bindErr;
+                    }
+                }
 
                 const studentName = profile?.name || roll;
                 const deviceLabel = selectedDevice === 'android' ? 'Android APK' : 'iPhone (iOS Guided Access)';

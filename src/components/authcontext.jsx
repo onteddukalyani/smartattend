@@ -273,22 +273,7 @@ export const AuthProvider = ({ children }) => {
         };
       }
 
-      // Auto-provision basic student session context if students collection is empty or document was deleted
-      if (rollFromEmail && rollFromEmail.length >= 3) {
-        return {
-          id: rollFromEmail.toUpperCase(),
-          rollNo: rollFromEmail.toUpperCase(),
-          name: rollFromEmail.toUpperCase(),
-          email: cleanEmail,
-          branch: "CSE",
-          semester: "1",
-          role: "student",
-          status: "active",
-          faceRegistered: false,
-          biometricEnrolled: false
-        };
-      }
-
+      // If not registered in authoritative collections (students, users, authorizedUsers), require enrollment
       return null;
     } catch (err) {
       console.error("Error looking up user in system:", err);
