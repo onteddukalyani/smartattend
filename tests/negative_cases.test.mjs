@@ -297,7 +297,12 @@ function serverSubmitAttendance(request, serverTimeMs = Date.now()) {
     }
   }
 
-  if (auth.disqualified === true || (auth.hasViolation === true && !auth.excused) || (auth.violation === 1 && !auth.excused)) {
+  if (
+    auth.disqualified === true ||
+    (auth.hasViolation === true && !auth.excused) ||
+    (auth.violation === 1 && !auth.excused) ||
+    (Number(auth.confirmedKioskViolations || auth.violationCount || 0) >= 1 && !auth.excused)
+  ) {
     throw new Error("permission-denied: ❌ Attendance rejected: An unexcused security violation is recorded on your session.");
   }
 
@@ -414,7 +419,12 @@ function serverValidateQR2(request, serverTimeMs = Date.now()) {
     throw new Error("permission-denied: ⛔ Access denied. You must scan QR 1 first.");
   }
 
-  if (auth.disqualified === true || (auth.hasViolation === true && !auth.excused) || (auth.violation === 1 && !auth.excused)) {
+  if (
+    auth.disqualified === true ||
+    (auth.hasViolation === true && !auth.excused) ||
+    (auth.violation === 1 && !auth.excused) ||
+    (Number(auth.confirmedKioskViolations || auth.violationCount || 0) >= 1 && !auth.excused)
+  ) {
     throw new Error("permission-denied: ❌ Access rejected: An unexcused security violation is recorded on your session.");
   }
 
@@ -2815,3 +2825,87 @@ test("31. Option A First-Device Platform Binding & Recovery Regression Suite (Al
     /already-exists: Attendance for 25BCS_RACE is already recorded/
   );
 });
+
+test("32. Kiosk wait violation enforcement: student scans QR1, triggers kiosk escape/app switch while waiting for QR2 -> both validateQR2 and submitAttendance strictly rejected", () => {
+  mockDb.reset();
+  const sessionId = "kiosk_wait_viol_sess";
+  const studentUid = "student_kiosk_escaper_uid";
+  const rollNo = "25BCS999";
+  const now = Date.now();
+
+  mockDb.sessions.set(sessionId, {
+    sessionId,
+    courseCode: "CSE301",
+    lecturerId: "lecturer_123",
+    status: "ACTIVE",
+    active: true,
+    phase: "PHASE_1",
+    rotationIntervalSec: 10,
+    expiresAt: now + 600000,
+    kioskEndsAt: now + 300000,
+    classroomLocation: { latitude: 12.9716, longitude: 77.5946, radius: 10, enabled: false }
+  });
+
+  mockDb.security.set(sessionId, {
+    sessionStartAt: now,
+    qr1ExpiresAtMs: now + 60000,
+    kioskEndsAt: now + 300000,
+    qr1Token: "qr1_valid_token",
+    qr1TokenHash: hashToken("qr1_valid_token"),
+    qr2Token: "qr2_valid_token",
+    qr2TokenHash: hashToken("qr2_valid_token"),
+    rotationIntervalSec: 10
+  });
+
+  mockDb.users.set(studentUid, { uid: studentUid, role: "student", registeredPlatform: "android" });
+  mockDb.students.set(rollNo, { uid: studentUid, rollNo, registeredPlatform: "android" });
+
+  // Phase 1: Student scans QR 1
+  const authRes = serverAuthorizeQR1({
+    auth: { uid: studentUid },
+    data: {
+      sessionId,
+      qr1Token: "qr1_valid_token",
+      studentLocation: { latitude: 12.9716, longitude: 77.5946, accuracy: 5 }
+    }
+  }, now);
+  assert.strictEqual(authRes.success, true);
+  assert.strictEqual(authRes.status, "QR1_VERIFIED");
+
+  // Student enters KIOSK_WAITING_QR2 and triggers an app leave / kiosk escape / backgrounding violation
+  const authKey = `${sessionId}_${studentUid}`;
+  const authRecord = mockDb.authorizations.get(authKey);
+  assert.ok(authRecord, "Authorization must exist");
+  authRecord.hasViolation = true;
+  authRecord.violation = 1;
+  authRecord.confirmedKioskViolations = 1;
+  authRecord.violationCount = 1;
+  authRecord.disqualified = true;
+  authRecord.status = "FLAGGED_DISQUALIFIED";
+
+  // Transition session to Phase 2
+  mockDb.sessions.get(sessionId).phase = "PHASE_2";
+
+  // Student attempts to validate QR 2: MUST FAIL with permission-denied
+  assert.throws(
+    () => serverValidateQR2({
+      auth: { uid: studentUid },
+      data: { sessionId, qr2Token: "qr2_valid_token" }
+    }, now + 70000),
+    /permission-denied: ❌ Access rejected: An unexcused security violation is recorded on your session./
+  );
+
+  // Student attempts to submit attendance: MUST FAIL with permission-denied
+  assert.throws(
+    () => serverSubmitAttendance({
+      auth: { uid: studentUid, rollNo },
+      headers: { "user-agent": "SmartAttend-Native-Android/1.0" },
+      data: {
+        sessionId,
+        qr2Token: "qr2_valid_token"
+      }
+    }, now + 75000),
+    /permission-denied: ❌ Attendance rejected: An unexcused security violation is recorded on your session./
+  );
+});
+

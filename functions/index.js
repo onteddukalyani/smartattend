@@ -1495,13 +1495,39 @@ exports.validateQR2 = onCall(async (request) => {
   }
 
   const authData = authSnap.data() || {};
+  const studentProfile = await resolveTrustedStudent(studentUid, request.auth.token.email);
+  const rollNo = (authData.rollNo || studentProfile?.rollNo || "").toUpperCase().trim();
+
+  let rollAuthData = {};
+  if (rollNo && rollNo !== studentUid) {
+    try {
+      const rSnap = await sessionRef.collection("authorizations").doc(rollNo).get();
+      if (rSnap.exists) rollAuthData = rSnap.data() || {};
+    } catch (_) {}
+  }
+
+  const sessionFlagged = (session.flaggedViolations || []).find((f) => {
+    const fRoll = (f.rollNo || "").toUpperCase().trim();
+    const fUid = (f.studentUid || "").toUpperCase().trim();
+    return (rollNo && fRoll === rollNo) || (studentUid && fUid === studentUid.toUpperCase().trim());
+  });
+
+  const isDisqualified =
+    authData.disqualified === true ||
+    rollAuthData.disqualified === true ||
+    (sessionFlagged && !sessionFlagged.excused && !sessionFlagged.resolved && (sessionFlagged.disqualified === true || sessionFlagged.status === "FLAGGED_DISQUALIFIED"));
+
+  const hasUnexcusedViolation =
+    (authData.hasViolation === true && !authData.excused) ||
+    (authData.violation === 1 && !authData.excused) ||
+    (Number(authData.confirmedKioskViolations || authData.violationCount || 0) >= 1 && !authData.excused) ||
+    (rollAuthData.hasViolation === true && !rollAuthData.excused) ||
+    (rollAuthData.violation === 1 && !rollAuthData.excused) ||
+    (Number(rollAuthData.confirmedKioskViolations || rollAuthData.violationCount || 0) >= 1 && !rollAuthData.excused) ||
+    (sessionFlagged && !sessionFlagged.excused && !sessionFlagged.resolved && Number(sessionFlagged.count || sessionFlagged.violationCount || 0) >= 1);
 
   // Reject if unexcused violation or disqualified
-  if (
-    authData.disqualified === true ||
-    (authData.hasViolation === true && !authData.excused) ||
-    (authData.violation === 1 && !authData.excused)
-  ) {
+  if (isDisqualified || hasUnexcusedViolation) {
     throw new HttpsError(
       "permission-denied",
       "❌ Access rejected: An unexcused security violation is recorded on your session."
@@ -1636,13 +1662,36 @@ exports.submitAttendance = onCall(async (request) => {
 
     const authData = authSnap.data() || {};
 
-    // Strict authoritative violation enforcement: reject if unexcused violation or disqualified
-    if (
+    let rollAuthData = {};
+    if (rollNo && rollNo !== studentUid) {
+      try {
+        const rSnap = await sessionRef.collection("authorizations").doc(rollNo).get();
+        if (rSnap.exists) rollAuthData = rSnap.data() || {};
+      } catch (_) {}
+    }
+
+    const sessionFlagged = (session.flaggedViolations || []).find((f) => {
+      const fRoll = (f.rollNo || "").toUpperCase().trim();
+      const fUid = (f.studentUid || "").toUpperCase().trim();
+      return (rollNo && fRoll === rollNo.toUpperCase().trim()) || (studentUid && fUid === studentUid.toUpperCase().trim());
+    });
+
+    const isDisqualified =
       authData.disqualified === true ||
+      rollAuthData.disqualified === true ||
+      (sessionFlagged && !sessionFlagged.excused && !sessionFlagged.resolved && (sessionFlagged.disqualified === true || sessionFlagged.status === "FLAGGED_DISQUALIFIED"));
+
+    const hasUnexcusedViolation =
       (authData.hasViolation === true && !authData.excused) ||
       (authData.violation === 1 && !authData.excused) ||
-      (Number(authData.confirmedKioskViolations || authData.violationCount || 0) >= 1 && authData.detectedPlatform === "android")
-    ) {
+      (Number(authData.confirmedKioskViolations || authData.violationCount || 0) >= 1 && !authData.excused) ||
+      (rollAuthData.hasViolation === true && !rollAuthData.excused) ||
+      (rollAuthData.violation === 1 && !rollAuthData.excused) ||
+      (Number(rollAuthData.confirmedKioskViolations || rollAuthData.violationCount || 0) >= 1 && !rollAuthData.excused) ||
+      (sessionFlagged && !sessionFlagged.excused && !sessionFlagged.resolved && Number(sessionFlagged.count || sessionFlagged.violationCount || 0) >= 1);
+
+    // Strict authoritative violation enforcement: reject if unexcused violation or disqualified
+    if (isDisqualified || hasUnexcusedViolation) {
       throw new HttpsError(
         "permission-denied",
         "❌ Attendance rejected: An unexcused security violation is recorded on your session. Attendance cannot be submitted unless excused by an authorized instructor."
@@ -2826,113 +2875,121 @@ exports.recordAttendanceLifecycleEvent = onCall(async (request) => {
 
   const studentUid = request.auth.uid;
   const sessionRef = db.collection("attendance_sessions").doc(sessionId);
-  const authRef = sessionRef.collection("authorizations").doc(studentUid);
-  const authSnap = await authRef.get();
+  let authRef = sessionRef.collection("authorizations").doc(studentUid);
+  let authSnap = await authRef.get();
 
+  let studentProfile = null;
   if (!authSnap.exists) {
-    throw new HttpsError("not-found", "Session authorization not found for this student.");
+    studentProfile = await resolveTrustedStudent(studentUid, request.auth.token.email);
+    if (studentProfile?.rollNo) {
+      const rollRef = sessionRef.collection("authorizations").doc(studentProfile.rollNo);
+      const rollSnap = await rollRef.get();
+      if (rollSnap.exists) {
+        authRef = rollRef;
+        authSnap = rollSnap;
+      }
+    }
   }
 
-  const authData = authSnap.data();
-  const rollNo = authData.rollNo || studentUid;
+  if (!studentProfile) {
+    studentProfile = await resolveTrustedStudent(studentUid, request.auth.token.email);
+  }
+
+  const authData = authSnap.exists ? authSnap.data() : {};
+  const rollNo = (authData.rollNo || studentProfile?.rollNo || studentUid).toUpperCase().trim();
+  const studentName = authData.studentName || studentProfile?.name || rollNo;
   const nowMs = Date.now();
 
-  if (platform === "android" && (eventType === "CONFIRMED_KIOSK_ESCAPE" || eventType === "APP_LEAVE")) {
-    const prevCount = Number(authData.confirmedKioskViolations || authData.violationCount || 0);
-    const nextCount = prevCount + 1;
-    const isDisqualified = nextCount >= 2; // Zero-Tolerance Single-Strike Disqualification
+  const isConfirmedViolation = 
+    eventType === "CONFIRMED_KIOSK_ESCAPE" ||
+    eventType === "APP_LEAVE" ||
+    eventType === "APP_SWITCH" ||
+    eventType === "APP_BACKGROUNDED" ||
+    eventType === "DEVTOOLS_OPENED" ||
+    (source && (source.includes("kiosk") || source.includes("background") || source.includes("app_switch") || source.includes("devtools")));
 
-    const violationEntry = {
-      type: "CONFIRMED_KIOSK_ESCAPE",
-      source: source || "kiosk_exit",
-      platform: "android",
-      count: nextCount,
-      timestamp: nowMs,
-      disqualified: isDisqualified
-    };
+  const prevCount = Number(authData.confirmedKioskViolations || authData.violationCount || 0);
+  const nextCount = prevCount + 1;
+  // Zero-tolerance single-strike disqualification: any confirmed kiosk escape or app leave during kiosk mode disqualifies
+  const isDisqualified = isConfirmedViolation ? true : (nextCount >= 1);
 
-    const updatePayload = {
-      confirmedKioskViolations: nextCount,
-      violationCount: nextCount,
-      disqualified: isDisqualified,
-      status: isDisqualified ? "FLAGGED_DISQUALIFIED" : "FLAGGED_WARNING",
-      violations: FieldValue.arrayUnion(violationEntry)
-    };
+  const violationEntry = {
+    type: eventType || "CONFIRMED_KIOSK_ESCAPE",
+    source: source || "kiosk_exit",
+    platform: platform || "android",
+    count: nextCount,
+    timestamp: nowMs,
+    disqualified: isDisqualified
+  };
 
-    await authRef.update(updatePayload);
+  const updatePayload = {
+    hasViolation: true,
+    violation: 1,
+    violationCount: nextCount,
+    confirmedKioskViolations: nextCount,
+    disqualified: isDisqualified,
+    status: isDisqualified ? "FLAGGED_DISQUALIFIED" : "FLAGGED_WARNING",
+    violations: FieldValue.arrayUnion(violationEntry),
+    lastViolationAt: nowMs,
+    lastViolationReason: `Security violation (${source || eventType}) during attendance session`
+  };
 
-    if (rollNo && rollNo !== studentUid) {
-      try {
-        await sessionRef.collection("authorizations").doc(rollNo).update(updatePayload);
-      } catch (_) { }
-    }
-
-    await sessionRef.update({
-      flaggedViolations: FieldValue.arrayUnion({
-        rollNo: rollNo,
-        studentName: authData.studentName || rollNo,
-        violationType: "CONFIRMED_KIOSK_ESCAPE",
-        count: nextCount,
-        disqualified: isDisqualified,
-        timestamp: nowMs
-      })
-    });
-
-    return {
-      success: true,
-      platform: "android",
-      status: isDisqualified ? "DISQUALIFIED" : "WARNING",
-      violationCount: nextCount,
-      disqualified: isDisqualified,
-      message: isDisqualified
-        ? "Attendance forfeited: 2 confirmed kiosk escape violations."
-        : "Warning: Kiosk exit detected (Violation 1 of 2)."
-    };
-  } else {
-    // iPhone native app and website/browser:
-    // Non-disqualifying audit logging for lecturer review.
-    const eventEntry = {
-      type: "SUSPICIOUS_LIFECYCLE_INTERRUPTION",
-      source: source || "visibility_change",
-      platform: platform || "web",
-      timestamp: nowMs,
-      disqualified: false
-    };
-
-    const updatePayload = {
-      hasSuspiciousInterruption: true,
-      lastInterruptionSource: source || "unknown",
-      lastInterruptionAt: nowMs,
-      lifecycleEvents: FieldValue.arrayUnion(eventEntry)
-    };
-
-    await authRef.update(updatePayload);
-
-    if (rollNo && rollNo !== studentUid) {
-      try {
-        await sessionRef.collection("authorizations").doc(rollNo).update(updatePayload);
-      } catch (_) { }
-    }
-
+  // Authoritatively update both studentUid and rollNo documents with merge: true
+  await sessionRef.collection("authorizations").doc(studentUid).set(updatePayload, { merge: true });
+  if (rollNo && rollNo !== studentUid) {
     try {
-      await sessionRef.collection("audit_logs").add({
-        event: "LIFECYCLE_INTERRUPTION_REVIEW",
-        studentUid: studentUid,
-        rollNo: rollNo,
-        platform: platform || "web",
-        source: source || "visibility_change",
-        timestamp: FieldValue.serverTimestamp()
-      });
+      await sessionRef.collection("authorizations").doc(rollNo).set(updatePayload, { merge: true });
     } catch (_) { }
-
-    return {
-      success: true,
-      platform: platform || "web",
-      status: "RECORDED_FOR_REVIEW",
-      disqualified: false,
-      message: "Lifecycle interruption recorded for lecturer review."
-    };
   }
+
+  // Update top-level session document flaggedViolations for real-time lecturer dashboard
+  const violationItem = {
+    rollNo: rollNo,
+    studentUid: studentUid,
+    studentName: studentName,
+    violationType: eventType || "CONFIRMED_KIOSK_ESCAPE",
+    violationReason: `Security violation: ${source || eventType}`,
+    count: nextCount,
+    violationCount: nextCount,
+    disqualified: isDisqualified,
+    status: isDisqualified ? "FLAGGED_DISQUALIFIED" : "FLAGGED_WARNING",
+    timestamp: nowMs
+  };
+
+  await sessionRef.set({
+    flaggedViolations: FieldValue.arrayUnion(violationItem)
+  }, { merge: true });
+
+  // If disqualified, record in attendance_records
+  if (isDisqualified && rollNo) {
+    try {
+      const recordDocId = `${sessionId}_${rollNo}`;
+      await db.collection("attendance_records").doc(recordDocId).set({
+        sessionId: sessionId,
+        rollNo: rollNo,
+        studentUid: studentUid,
+        status: "FLAGGED_DISQUALIFIED",
+        verificationStatus: "FLAGGED",
+        flagged: true,
+        disqualified: true,
+        violationCount: nextCount,
+        violationType: eventType || "CONFIRMED_KIOSK_ESCAPE",
+        violationReason: `Security violation: ${source || eventType}`,
+        timestamp: nowMs
+      }, { merge: true });
+    } catch (_) { }
+  }
+
+  return {
+    success: true,
+    platform: platform || "android",
+    status: isDisqualified ? "DISQUALIFIED" : "WARNING",
+    violationCount: nextCount,
+    disqualified: isDisqualified,
+    message: isDisqualified
+      ? "Attendance forfeited: Confirmed security violation detected during kiosk session."
+      : "Warning: Kiosk exit detected."
+  };
 });
 
 /**

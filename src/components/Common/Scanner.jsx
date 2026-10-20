@@ -760,65 +760,47 @@ function QrScannerApp() {
             console.warn(`[Kiosk Guardian] Lifecycle interruption detected via ${source}!`);
 
             const isAndroidNative = isNativeApp && !isIOSDevice();
+            const nextCount = violationCount + 1;
+            setViolationCount(nextCount);
+            setSupervisionViolation(true);
+
+            // Immediate Disqualification on all platforms during active kiosk session
+            console.error(`[Kiosk Guardian] Security violation detected via ${source}. Disqualifying attendance session (Zero-Tolerance Mode).`);
+            try { localStorage.removeItem(`smartattend_qr1_auth_${activeSessionId}`); } catch (_) { }
+            try { sessionStorage.removeItem(`smartattend_qr1_auth_${activeSessionId}`); } catch (_) { }
+            releaseAllMediaTracks();
+            releaseCameraLock();
             if (isAndroidNative) {
-                // Android native app: Strict Zero-Tolerance Anti-Proxy Policy
-                // 1st confirmed violation (minimizing app / opening video calls / app switch) = Immediate Disqualification.
-                const nextCount = violationCount + 1;
-                setViolationCount(nextCount);
-                const isDisq = true; // Strategy 4: Zero-Tolerance Single-Strike Disqualification
+                Kiosk.startKioskMode().catch(() => { });
+            }
+            setErrorMessage('❌ Attendance Disqualified: Security violation detected (application switch / minimizing / tab change). Attendance forfeited.');
+            setScanState('DISQUALIFIED');
 
-                let backendResult = null;
-                if (activeSessionId) {
-                    try {
-                        backendResult = await reportAttendanceLifecycleEvent(activeSessionId, {
-                            eventType: 'CONFIRMED_KIOSK_ESCAPE',
-                            source: source,
-                            platform: 'android',
-                            count: nextCount
-                        });
-                    } catch (err) {
-                        console.warn('[Kiosk Guardian] Backend event report notice:', err);
-                    }
-
-                    // Explicitly update Firestore with student's roll number & UID
-                    try {
-                        await recordSessionViolation(
-                            activeSessionId,
-                            user?.uid,
-                            loggedInRollNo,
-                            `CONFIRMED_KIOSK_ESCAPE: ${source}`,
-                            nextCount,
-                            true
-                        );
-                    } catch (vErr) {
-                        console.warn('[Kiosk Guardian] Direct violation record notice:', vErr);
-                    }
+            if (activeSessionId) {
+                try {
+                    await reportAttendanceLifecycleEvent(activeSessionId, {
+                        eventType: 'CONFIRMED_KIOSK_ESCAPE',
+                        source: source,
+                        platform: isAndroidNative ? 'android' : (isIOSDevice() ? (isNativeApp ? 'ios' : 'web_ios') : 'web'),
+                        count: nextCount
+                    });
+                } catch (err) {
+                    console.warn('[Kiosk Guardian] Backend event report notice:', err);
                 }
 
-                console.error(`[Kiosk Guardian] Security violation detected via ${source}. Disqualifying attendance session (Zero-Tolerance Mode).`);
-                try { localStorage.removeItem(`smartattend_qr1_auth_${activeSessionId}`); } catch (_) { }
-                try { sessionStorage.removeItem(`smartattend_qr1_auth_${activeSessionId}`); } catch (_) { }
-                releaseAllMediaTracks();
-                Kiosk.startKioskMode().catch(() => { });
-                setErrorMessage('❌ Attendance Disqualified: Security violation detected (application switch / video call attempt). Attendance forfeited.');
-                setScanState('DISQUALIFIED');
-                setSupervisionViolation(false);
-                return;
-            }
-
-            // iPhone native app and website/browser:
-            // - Detect supported page/app lifecycle signals (visibilitychange, blur, iOS lifecycle).
-            // - When the student returns, display a warning and record event for review.
-            // - Do NOT claim iOS or browsers can reliably prevent or detect every app switch.
-            // - Do NOT treat every hidden-page event as confirmed misconduct.
-            // - Do NOT automatically reject attendance solely due to ambiguous browser lifecycle events.
-            interruptedRef.current = true;
-            if (activeSessionId) {
-                reportAttendanceLifecycleEvent(activeSessionId, {
-                    eventType: 'SUSPICIOUS_LIFECYCLE_INTERRUPTION',
-                    source: source,
-                    platform: isIOSDevice() ? (isNativeApp ? 'ios' : 'web_ios') : 'web'
-                }).catch(() => { });
+                // Explicitly update Firestore with student's roll number & UID
+                try {
+                    await recordSessionViolation(
+                        activeSessionId,
+                        user?.uid,
+                        loggedInRollNo,
+                        `CONFIRMED_KIOSK_ESCAPE: ${source}`,
+                        nextCount,
+                        true
+                    );
+                } catch (vErr) {
+                    console.warn('[Kiosk Guardian] Direct violation record notice:', vErr);
+                }
             }
         };
 
@@ -1052,20 +1034,41 @@ function QrScannerApp() {
             navigate('/student', { replace: true });
         };
 
+        const handleAuthSnapshot = (authData) => {
+            if (!authData) return;
+            if (authData.released === true || authData.status === 'RELEASED') {
+                handleReleaseTriggered();
+                return;
+            }
+            if (authData.excused === true) {
+                setSupervisionViolation(false);
+                setViolationCount(0);
+                if (scanState === 'DISQUALIFIED') {
+                    setScanState('KIOSK_WAITING_QR2');
+                    setErrorMessage('');
+                }
+                return;
+            }
+            if (
+                authData.disqualified === true ||
+                authData.hasViolation === true ||
+                authData.violation === 1 ||
+                authData.status === 'FLAGGED_DISQUALIFIED' ||
+                Number(authData.confirmedKioskViolations || authData.violationCount || 0) >= 1
+            ) {
+                setScanState('DISQUALIFIED');
+                setSupervisionViolation(true);
+                setViolationCount(Number(authData.violationCount || authData.confirmedKioskViolations || 1));
+                setErrorMessage('❌ Attendance Disqualified: Security violation detected on your session. Attendance forfeited.');
+            }
+        };
+
         const unsubs = [];
         if (studentUid) {
-            unsubs.push(subscribeToStudentAuthorization(activeSessionId, studentUid, (authData) => {
-                if (authData && (authData.released === true || authData.status === 'RELEASED')) {
-                    handleReleaseTriggered();
-                }
-            }));
+            unsubs.push(subscribeToStudentAuthorization(activeSessionId, studentUid, handleAuthSnapshot));
         }
         if (cleanRoll && cleanRoll !== studentUid) {
-            unsubs.push(subscribeToStudentAuthorization(activeSessionId, cleanRoll, (authData) => {
-                if (authData && (authData.released === true || authData.status === 'RELEASED')) {
-                    handleReleaseTriggered();
-                }
-            }));
+            unsubs.push(subscribeToStudentAuthorization(activeSessionId, cleanRoll, handleAuthSnapshot));
         }
 
         return () => {
@@ -1323,6 +1326,12 @@ function QrScannerApp() {
             return;
         }
 
+        // Strictly block QR 2 validation if student is disqualified or has an unexcused violation
+        if (scanState === 'DISQUALIFIED' || violationCount > 0 || supervisionViolation) {
+            setErrorMessage('❌ Attendance Disqualified: Security violation detected on your session. Attendance forfeited.');
+            return;
+        }
+
         // Strictly verify device platform integrity before validating QR2
         const deviceValid = await verifyDeviceIntegrity(sessionId);
         if (!deviceValid) return;
@@ -1374,12 +1383,17 @@ function QrScannerApp() {
         } catch (err) {
             console.error('Error validating QR 2:', err);
             const msg = err.message || '';
-            if (msg.includes('QR 1') || msg.includes('Access denied') || msg.includes('Access Denied') || msg.includes('permission-denied')) {
+            if (msg.includes('violation') || msg.includes('disqualified') || msg.includes('unexcused')) {
+                setErrorMessage('❌ Attendance Disqualified: Security violation detected on your session. Attendance forfeited.');
+                setScanState('DISQUALIFIED');
+                setSupervisionViolation(true);
+            } else if (msg.includes('QR 1') || msg.includes('Access denied') || msg.includes('Access Denied')) {
                 setErrorMessage('⛔ Access Denied: You did not scan QR 1 during Phase 1 (0:00 - 1:00). You cannot mark attendance for this session.');
+                setScanState(activeSessionId ? 'KIOSK_WAITING_QR2' : 'IDLE');
             } else {
                 setErrorMessage(msg || 'Invalid Phase 2 QR code.');
+                setScanState(activeSessionId ? 'KIOSK_WAITING_QR2' : 'IDLE');
             }
-            setScanState(activeSessionId ? 'KIOSK_WAITING_QR2' : 'IDLE');
         }
     };
 
@@ -1508,9 +1522,16 @@ function QrScannerApp() {
             }
         }
 
+        // 2.5 Strictly block scanning if student is in DISQUALIFIED state
+        if (scanState === 'DISQUALIFIED' || violationCount > 0 || supervisionViolation) {
+            console.warn('[Scanner] Scan rejected: Student is in DISQUALIFIED state.');
+            setErrorMessage('❌ Attendance Disqualified: Security violation detected on your session. Attendance forfeited.');
+            return;
+        }
+
         // 3. If student is already checked in (in Kiosk Mode waiting for QR 2):
         // STRICTLY IGNORE any QR 1 scans until QR 2 is released by lecturer!
-        if (scanState === 'KIOSK_WAITING_QR2' || activeSessionId) {
+        if (scanState === 'KIOSK_WAITING_QR2' || (activeSessionId && scanState !== 'DISQUALIFIED')) {
             const isQR2 = Boolean(payload.qr2Token || payload.phase === '2' || payload.phase === 'PHASE_2' || (sessionData?.phase === 'PHASE_2' && payload.sessionId === activeSessionId));
             const isQR1 = Boolean(payload.qr1Token || payload.phase === '1' || payload.phase === 'PHASE_1');
 

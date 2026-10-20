@@ -1204,7 +1204,7 @@ export function SessionAttendanceData() {
             if (isReviewed) return;
 
             const existing = map.get(roll);
-            const isDisq = f.disqualified === true || f.status === "FLAGGED_DISQUALIFIED" || Number(f.count || f.violationCount || 0) >= 2 || existing?.status === "DISQUALIFIED";
+            const isDisq = f.disqualified === true || f.status === "FLAGGED_DISQUALIFIED" || Number(f.count || f.violationCount || 0) >= 1 || existing?.status === "DISQUALIFIED";
             const sMeta = allStudentsMap.get(roll);
 
             map.set(roll, {
@@ -1220,8 +1220,8 @@ export function SessionAttendanceData() {
                 submittedAt: existing?.submittedAt || null,
                 deviceType: existing?.deviceType || "",
                 verificationType: isDisq ? "DISQUALIFIED" : "FLAGGED",
-                violationReason: f.violationReason || f.violationType || (isDisq ? "Attendance forfeited: 2 confirmed kiosk exits" : "App switch detected"),
-                violationCount: Number(f.count || f.violationCount || (isDisq ? 2 : 1)),
+                violationReason: f.violationReason || f.violationType || (isDisq ? "Attendance forfeited: confirmed kiosk exit violation" : "App switch detected"),
+                violationCount: Number(f.count || f.violationCount || 1),
                 excused: false,
                 faceVerified: false
             });

@@ -431,6 +431,12 @@ export async function validateStudentQR2(sessionId, qr2Token, qrPayload = null) 
     if (result && result.data && result.data.authorized) return result.data;
   } catch (cloudErr) {
     const msg = cloudErr.message || "";
+    if (msg.includes("violation") || msg.includes("disqualified") || msg.includes("unexcused")) {
+      throw new Error("❌ Access rejected: An unexcused security violation is recorded on your session.");
+    }
+    if (msg.includes("scan QR 1 first") || msg.includes("Missing Phase 1")) {
+      throw new Error("⛔ Access Denied: You must scan QR 1 first.");
+    }
     if (msg.includes("Access denied") || msg.includes("QR 1") || msg.includes("permission-denied")) {
       throw new Error("⛔ Access Denied: You did not scan QR 1 during Phase 1 (0:00 - 1:00). You cannot mark attendance for this session.");
     }
@@ -511,6 +517,29 @@ export async function validateStudentQR2(sessionId, qr2Token, qrPayload = null) 
       "ATTENDANCE_PHASE_GATE"
     );
     throw new Error("⛔ Access Denied: You did not scan QR 1 during Phase 1 (0:00 - 1:00). You cannot mark attendance for this session.");
+  }
+
+  // 3.5 Check for unexcused violations or disqualification
+  const hasAuthViolation =
+    authData.disqualified === true ||
+    (authData.hasViolation === true && !authData.excused) ||
+    (authData.violation === 1 && !authData.excused) ||
+    (Number(authData.confirmedKioskViolations || authData.violationCount || 0) >= 1 && !authData.excused);
+
+  let hasFlaggedViolation = false;
+  if (session && Array.isArray(session.flaggedViolations)) {
+    const flagEntry = session.flaggedViolations.find((f) => {
+      const fRoll = (f.rollNo || "").toUpperCase().trim();
+      const fUid = (f.studentUid || "").toUpperCase().trim();
+      return (currentRollNo && fRoll === currentRollNo) || (currentUid && fUid === currentUid.toUpperCase().trim());
+    });
+    if (flagEntry && !flagEntry.excused && !flagEntry.resolved && (flagEntry.disqualified === true || flagEntry.status === "FLAGGED_DISQUALIFIED" || Number(flagEntry.count || flagEntry.violationCount || 0) >= 1)) {
+      hasFlaggedViolation = true;
+    }
+  }
+
+  if (hasAuthViolation || hasFlaggedViolation) {
+    throw new Error("❌ Access rejected: An unexcused security violation is recorded on your session.");
   }
 
   const targetRoll = (authData.rollNo || currentRollNo || "STUDENT").toUpperCase();
@@ -600,7 +629,7 @@ export async function submitVerifiedAttendance(sessionId, qr2Token, biometricDat
     if (msg.includes("scan QR 1 first") || msg.includes("Missing Phase 1")) {
       throw new Error("⛔ Attendance Rejected: Missing Phase 1 QR 1 check-in. You must scan QR 1 first during Phase 1.");
     }
-    if (msg.includes("unexcused security violation")) {
+    if (msg.includes("unexcused security violation") || msg.includes("violation") || msg.includes("disqualified")) {
       throw new Error("❌ Attendance rejected: An unexcused security violation is recorded on your session.");
     }
     if (msg.includes("already recorded") || msg.includes("already-exists") || msg.includes("already submitted")) {
@@ -725,7 +754,7 @@ export async function recordSessionViolation(sessionId, studentUid, rollNo, reas
   try {
     const cleanRoll = (rollNo || studentUid || "").trim().toUpperCase();
     const count = Number(violationCount) || 1;
-    const disqualified = isDisqualified || (reason.includes("KIOSK_ESCAPE") ? count >= 1 : count >= 2);
+    const disqualified = isDisqualified || count >= 1;
     const status = disqualified ? "FLAGGED_DISQUALIFIED" : "FLAGGED_WARNING";
 
     const violationPayload = {
@@ -739,17 +768,19 @@ export async function recordSessionViolation(sessionId, studentUid, rollNo, reas
       disqualified: disqualified
     };
 
-    // 1. Update session authorizations subcollection (Strictly single document)
-    const targetDocId = studentUid || cleanRoll;
-    if (targetDocId) {
-      const authRef = doc(db, "attendance_sessions", sessionId, "authorizations", targetDocId);
+    // 1. Update session authorizations subcollection (Write to both studentUid and rollNo if available)
+    const targetIds = Array.from(new Set([studentUid, cleanRoll].filter(Boolean)));
+    for (const tid of targetIds) {
+      const authRef = doc(db, "attendance_sessions", sessionId, "authorizations", tid);
       await setDoc(authRef, {
-        studentUid: studentUid || targetDocId,
-        rollNo: cleanRoll || targetDocId,
+        studentUid: studentUid || cleanRoll,
+        rollNo: cleanRoll || studentUid,
         status: status,
         violations: arrayUnion(violationPayload),
         violationCount: count,
+        confirmedKioskViolations: count,
         hasViolation: true,
+        violation: 1,
         disqualified: disqualified
       }, { merge: true }).catch(() => { });
     }

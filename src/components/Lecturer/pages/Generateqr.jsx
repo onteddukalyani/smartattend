@@ -1154,8 +1154,8 @@ function GenerateQR() {
             const r = (f.rollNo || "").toUpperCase().trim();
             const u = (f.studentUid || "").toUpperCase().trim();
             const e = (f.email || f.studentEmail || "").toLowerCase().trim();
-            const isDisq = f.disqualified === true || f.status === "FLAGGED_DISQUALIFIED" || Number(f.count || f.violationCount || 0) >= 2;
-            const reason = f.violationReason || f.violationType || (isDisq ? "Attendance forfeited: 2 confirmed kiosk exits" : "App switched / screen capture violation");
+            const isDisq = f.disqualified === true || f.status === "FLAGGED_DISQUALIFIED" || Number(f.count || f.violationCount || 0) >= 1;
+            const reason = f.violationReason || f.violationType || (isDisq ? "Attendance forfeited: confirmed kiosk exit violation" : "App switched / screen capture violation");
             const entry = { reason, isDisqualified: isDisq };
             if (r) map.set(r, entry);
             if (u) map.set(u, entry);
@@ -1195,7 +1195,7 @@ function GenerateQR() {
                 checkIsDisqualified(st) ||
                 (flagEntry && flagEntry.isDisqualified) ||
                 (sessionData?.flaggedViolations || []).some(f =>
-                    (f.disqualified === true || f.status === "FLAGGED_DISQUALIFIED" || Number(f.count || f.violationCount || 0) >= 2) &&
+                    (f.disqualified === true || f.status === "FLAGGED_DISQUALIFIED" || Number(f.count || f.violationCount || 0) >= 1) &&
                     ((f.rollNo && f.rollNo.toUpperCase().trim() === roll) || (f.studentUid && f.studentUid.toUpperCase().trim() === uid))
                 )
             );
