@@ -177,29 +177,31 @@ function QrScannerApp() {
         let watchId = null;
         if (typeof navigator !== "undefined" && navigator.geolocation) {
             try {
-                // 1. Instant coarse prime: Grab fast network/Wi-Fi fix immediately without satellite delay (<300ms)
+                // 1. Instant GPS prime: Request high-accuracy GNSS fix with quick fallback
                 navigator.geolocation.getCurrentPosition(
                     (pos) => {
                         if (pos && pos.coords) {
+                            const rawAcc = Number(pos.coords.accuracy);
                             prewarmedLocationRef.current = {
                                 latitude: pos.coords.latitude,
                                 longitude: pos.coords.longitude,
                                 lat: pos.coords.latitude,
                                 lng: pos.coords.longitude,
-                                accuracy: Number(pos.coords.accuracy) || 50,
+                                accuracy: (Number.isFinite(rawAcc) && rawAcc > 0) ? rawAcc : 15,
                                 timestamp: Date.now()
                             };
                         }
                     },
                     () => { },
-                    { enableHighAccuracy: false, timeout: 3000, maximumAge: 60000 }
+                    { enableHighAccuracy: true, timeout: 5000, maximumAge: 30000 }
                 );
 
                 // 2. Continuous high-accuracy refinement
                 watchId = navigator.geolocation.watchPosition(
                     (pos) => {
                         if (pos && pos.coords) {
-                            const acc = Number(pos.coords.accuracy) || 50;
+                            const rawAcc = Number(pos.coords.accuracy);
+                            const acc = (Number.isFinite(rawAcc) && rawAcc > 0) ? rawAcc : 15;
                             const prev = prewarmedLocationRef.current;
                             // Keep fix if fresher (> 10s) or more precise
                             if (!prev || (Date.now() - prev.timestamp > 10000) || acc <= prev.accuracy) {
@@ -1105,8 +1107,8 @@ function QrScannerApp() {
                         lng: Number(gLng),
                         radius: gR,
                         r: gR,
-                        accuracy: gAcc > 0 ? gAcc : 50,
-                        acc: gAcc > 0 ? gAcc : 50
+                        accuracy: gAcc > 0 ? gAcc : 15,
+                        acc: gAcc > 0 ? gAcc : 15
                     };
                 }
             }
@@ -1407,8 +1409,8 @@ function QrScannerApp() {
             try {
                 const getCoords = async () => {
                     const cached = prewarmedLocationRef.current;
-                    // If cached fix is fresh (under 45s) with valid accuracy (< 180m), return immediately!
-                    if (cached && (Date.now() - cached.timestamp < 45000) && (cached.accuracy || 0) < 180) {
+                    // If cached fix is fresh (under 25s) with good indoor accuracy (<= 65m), return immediately!
+                    if (cached && (Date.now() - cached.timestamp < 25000) && (cached.accuracy || 0) <= 65 && (cached.accuracy || 0) > 0) {
                         return cached;
                     }
                     return new Promise((resolve) => {
@@ -1427,35 +1429,37 @@ function QrScannerApp() {
                             resolve(coords || cached || null);
                         };
 
-                        // Overall safety timer: never block student attendance flow for >3.5s
+                        // Overall safety timer: never block student attendance flow for >4.5s
                         const safetyTimer = setTimeout(() => {
                             finish(prewarmedLocationRef.current || cached || null);
-                        }, 3500);
+                        }, 4500);
 
                         // Stage 1: Try high accuracy (GPS / GNSS satellites)
                         navigator.geolocation.getCurrentPosition(
                             (pos) => {
                                 clearTimeout(safetyTimer);
+                                const rawAcc = Number(pos.coords.accuracy);
                                 finish({
                                     latitude: pos.coords.latitude,
                                     longitude: pos.coords.longitude,
                                     lat: pos.coords.latitude,
                                     lng: pos.coords.longitude,
-                                    accuracy: Number(pos.coords.accuracy) || 20,
+                                    accuracy: (Number.isFinite(rawAcc) && rawAcc > 0) ? rawAcc : 15,
                                     timestamp: Date.now()
                                 });
                             },
                             () => {
-                                // Stage 2: Immediate fallback to Wi-Fi / Cell tower coarse positioning (fast indoor response)
+                                // Stage 2: Fallback to Wi-Fi / Cell tower coarse positioning (fast indoor response)
                                 navigator.geolocation.getCurrentPosition(
                                     (pos2) => {
                                         clearTimeout(safetyTimer);
+                                        const rawAcc2 = Number(pos2.coords.accuracy);
                                         finish({
                                             latitude: pos2.coords.latitude,
                                             longitude: pos2.coords.longitude,
                                             lat: pos2.coords.latitude,
                                             lng: pos2.coords.longitude,
-                                            accuracy: Number(pos2.coords.accuracy) || 50,
+                                            accuracy: (Number.isFinite(rawAcc2) && rawAcc2 > 0) ? rawAcc2 : 25,
                                             timestamp: Date.now()
                                         });
                                     },
@@ -1463,10 +1467,10 @@ function QrScannerApp() {
                                         clearTimeout(safetyTimer);
                                         finish(prewarmedLocationRef.current || cached || null);
                                     },
-                                    { enableHighAccuracy: false, timeout: 2000, maximumAge: 60000 }
+                                    { enableHighAccuracy: false, timeout: 2500, maximumAge: 30000 }
                                 );
                             },
-                            { enableHighAccuracy: true, timeout: 2200, maximumAge: 15000 }
+                            { enableHighAccuracy: true, timeout: 3500, maximumAge: 10000 }
                         );
                     });
                 };
@@ -1488,13 +1492,15 @@ function QrScannerApp() {
                 }
                 if (geoEval.status === "INCONCLUSIVE_RETRY") {
                     geofenceRetriesRef.current = (geofenceRetriesRef.current || 0) + 1;
-                    if (geoEval.canRetry) {
+                    const maxAllowedBoundary = (classroomTarget.radius || 10) + 15;
+                    // If student is measured far from classroom (> 25m), enforce retry
+                    if (geoEval.canRetry && geoEval.distance > maxAllowedBoundary) {
                         setErrorMessage(geoEval.message);
                         return;
                     } else {
-                        // Max retries reached indoors: since student is scanning the 10-second rotating QR directly in front of the projector screen,
+                        // Inconclusive GPS indoors near classroom or max retries reached: since student is scanning the 10-second rotating QR directly in front of the screen,
                         // allow attendance to proceed with an indoor proximity notice rather than permanently blocking them
-                        console.warn("[Geofence] Indoor GPS inconclusive after retries. Proceeding with classroom proximity audit flag.");
+                        console.warn("[Geofence] Indoor GPS inconclusive near classroom. Proceeding with classroom proximity audit flag.");
                     }
                 }
             } catch (geoErr) {

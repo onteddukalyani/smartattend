@@ -7,7 +7,7 @@
  */
 
 export const DEFAULT_GEOFENCE_RADIUS_METRES = 10; // 10m standard classroom radius, adjustable by authorized lecturer
-export const MAX_ACCEPTABLE_ACCURACY_METRES = 45; // University classroom standard positioning tolerance ceiling (max 45m uncertainty)
+export const MAX_ACCEPTABLE_ACCURACY_METRES = 65; // University classroom standard indoor positioning tolerance ceiling (max 65m uncertainty for boundary decisions)
 export const MAX_RETRY_ATTEMPTS = 3;
 
 /**
@@ -154,24 +154,7 @@ export function evaluateGeofence(studentCoordsRaw, classroomCoordsRaw, retryCoun
 
   const distance = Math.round(rawDistance * 10) / 10;
 
-  // 3. Tri-state Decision Matrix:
-  // Case A: Accuracy is completely degraded (> 150m threshold, e.g. cellar or bad tower fix)
-  if (accuracy > MAX_ACCEPTABLE_ACCURACY_METRES) {
-    const canRetry = retryCount < MAX_RETRY_ATTEMPTS;
-    return {
-      status: "INCONCLUSIVE_RETRY",
-      distance,
-      accuracy,
-      radius,
-      retryCount,
-      canRetry,
-      message: canRetry
-        ? `⚠️ Low GPS accuracy (${accuracy}m > ${MAX_ACCEPTABLE_ACCURACY_METRES}m). Tap retry to refresh satellite lock (Attempt ${retryCount + 1}/${MAX_RETRY_ATTEMPTS}).`
-        : `⚠️ Inconclusive GPS after ${MAX_RETRY_ATTEMPTS} attempts (${accuracy}m uncertainty). Attendance flagged for lecturer classroom review.`
-    };
-  }
-
-  // Case B: Defensible Sensor Uncertainty Calibration
+  // 3. Defensible Sensor Uncertainty Calibration
   // Accommodation for indoor GPS antenna drift with a strict upper tolerance cap.
   // Maximum uncertainty allowance is strictly bounded to min(5m, radius * 0.5).
   // This guarantees that any student beyond radius + 5m (e.g. > 15m for 10m radius) is unconditionally rejected.
@@ -179,7 +162,7 @@ export function evaluateGeofence(studentCoordsRaw, classroomCoordsRaw, retryCoun
   const uncertaintyAllowance = Math.min(accuracy > 0 ? accuracy / 2 : 0, maxAllowance);
   const effectiveDistance = Math.max(0, Math.round((distance - uncertaintyAllowance) * 10) / 10);
 
-  // Case C: Student is verified inside classroom radius:
+  // Case A: Student is verified inside classroom radius:
   // - Direct geometric presence (distance <= radius)
   // - Effective distance inside radius considering sensor confidence circles (effectiveDistance <= radius)
   if (distance <= radius || effectiveDistance <= radius) {
@@ -194,7 +177,24 @@ export function evaluateGeofence(studentCoordsRaw, classroomCoordsRaw, retryCoun
     };
   }
 
-  // Case D: Student is definitively outside classroom radius (e.g. remote / dorm / proxy)
+  // Case B: Student is measured outside classroom, but GPS accuracy is excessively degraded (> 65m)
+  if (accuracy > MAX_ACCEPTABLE_ACCURACY_METRES) {
+    const canRetry = retryCount < MAX_RETRY_ATTEMPTS;
+    return {
+      status: "INCONCLUSIVE_RETRY",
+      distance,
+      effectiveDistance,
+      accuracy,
+      radius,
+      retryCount,
+      canRetry,
+      message: canRetry
+        ? `⚠️ Low GPS accuracy (±${accuracy}m uncertainty > ${MAX_ACCEPTABLE_ACCURACY_METRES}m). Tap retry to refresh satellite lock (Attempt ${retryCount + 1}/${MAX_RETRY_ATTEMPTS}).`
+        : `⚠️ Inconclusive GPS after ${MAX_RETRY_ATTEMPTS} attempts (±${accuracy}m uncertainty). Attendance flagged for lecturer classroom review.`
+    };
+  }
+
+  // Case C: Student is definitively outside classroom radius (e.g. remote / dorm / proxy)
   return {
     status: "REJECT",
     distance,

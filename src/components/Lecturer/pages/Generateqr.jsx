@@ -623,7 +623,7 @@ function GenerateQR() {
             const updatedCoords = {
                 latitude: pos.coords.latitude,
                 longitude: pos.coords.longitude,
-                accuracy: Number(pos.coords.accuracy) || 50,
+                accuracy: Number(pos.coords.accuracy) || 15,
                 radius: targetRadius
             };
             setClassroomCoords(updatedCoords);
