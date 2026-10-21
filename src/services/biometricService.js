@@ -105,11 +105,22 @@ export async function enrollHardwareBiometric(studentUid) {
               challengeId = res.data.challengeId;
             }
           } catch (genErr) {
-            console.warn("[BiometricService] Server WebAuthn options notice, using client defaults:", genErr);
+            console.warn("[BiometricService] Server WebAuthn options unavailable:", genErr);
+            return {
+              success: false,
+              platform: "web",
+              message: "Secure biometric enrollment could not contact the verification server. Please retry when online."
+            };
           }
 
-          const challengeBuf = options?.challenge ? base64UrlToBuffer(options.challenge) : new Uint8Array(32);
-          if (!options?.challenge) window.crypto.getRandomValues(challengeBuf);
+          if (!options?.challenge || !challengeId) {
+            return {
+              success: false,
+              platform: "web",
+              message: "The verification server did not issue a valid registration challenge. Enrollment was not completed."
+            };
+          }
+          const challengeBuf = base64UrlToBuffer(options.challenge);
 
           const userIdBuf = options?.user?.id
             ? (typeof options.user.id === "string" ? new TextEncoder().encode(options.user.id) : base64UrlToBuffer(options.user.id))
@@ -134,25 +145,28 @@ export async function enrollHardwareBiometric(studentUid) {
           });
 
           if (cred && challengeId) {
-            try {
-              const verifyFn = httpsCallable(functions, "verifyWebAuthnRegistration");
-              await verifyFn({
-                challengeId: challengeId,
-                origin: window.location.origin,
-                rpId: window.location.hostname || "localhost",
+            const verifyFn = httpsCallable(functions, "verifyWebAuthnRegistration");
+            const verifyResult = await verifyFn({
+              challengeId,
+              origin: window.location.origin,
+              rpId: window.location.hostname || "localhost",
+              response: {
+                id: cred.id,
+                rawId: bufferToBase64Url(cred.rawId),
                 response: {
-                  id: cred.id,
-                  rawId: bufferToBase64Url(cred.rawId),
-                  response: {
-                    attestationObject: bufferToBase64Url(cred.response.attestationObject),
-                    clientDataJSON: bufferToBase64Url(cred.response.clientDataJSON),
-                    transports: typeof cred.response.getTransports === "function" ? cred.response.getTransports() : []
-                  },
-                  type: cred.type
-                }
-              });
-            } catch (verErr) {
-              console.warn("[BiometricService] Server verification of WebAuthn registration notice:", verErr);
+                  attestationObject: bufferToBase64Url(cred.response.attestationObject),
+                  clientDataJSON: bufferToBase64Url(cred.response.clientDataJSON),
+                  transports: typeof cred.response.getTransports === "function" ? cred.response.getTransports() : []
+                },
+                type: cred.type
+              }
+            });
+            if (verifyResult?.data?.success !== true) {
+              return {
+                success: false,
+                platform: "webauthn",
+                message: "The server did not verify this biometric credential. Enrollment was not completed."
+              };
             }
           }
 
@@ -177,9 +191,9 @@ export async function enrollHardwareBiometric(studentUid) {
     }
 
     return {
-      success: true,
+      success: false,
       platform: "web",
-      message: "Web biometric verified. Live facial biometrics will be used for attendance."
+      message: "A verified platform authenticator was not enrolled. Use a supported device or contact your instructor."
     };
   }
 
@@ -214,15 +228,15 @@ export async function enrollHardwareBiometric(studentUid) {
         serverMessage = regRes.data.message;
       }
     } catch (regErr) {
-      console.warn("[BiometricService] Cloud function registration notice:", regErr);
+      console.warn("[BiometricService] Cloud function registration failed:", regErr);
       if (
         regErr.code === "already-exists" ||
         regErr.message?.includes("already registered") ||
         regErr.message?.includes("already-exists")
       ) {
-        serverMessage = "Hardware biometric key confirmed active on this device.";
+        serverMessage = "Hardware biometric key is already registered. The server must confirm its active status before attendance.";
       } else {
-        serverMessage = "Hardware biometric enrolled in-app on device successfully.";
+        throw new Error("The biometric key was created on this device but could not be registered with the verification server. Enrollment was not completed.");
       }
     }
 
