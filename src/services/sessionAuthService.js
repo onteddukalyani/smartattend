@@ -446,8 +446,7 @@ export async function validateStudentQR2(sessionId, qr2Token, qrPayload = null) 
     if (msg.includes("already-exists") || msg.includes("already submitted")) {
       throw new Error("✅ Attendance for this session has already been recorded.");
     }
-    const cleanMsg = msg.replace(/^functions\/[a-z-]+:\s*/i, "").trim();
-    throw new Error(cleanMsg);
+    console.warn("Cloud function validateQR2 notice (using direct Firestore engine):", msg || cloudErr);
   }
 
   const currentUser = auth.currentUser;
