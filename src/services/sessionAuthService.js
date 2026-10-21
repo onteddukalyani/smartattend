@@ -180,7 +180,7 @@ export async function initiateSession(sessionParams) {
 export async function authorizeStudentQR1(sessionId, qr1Token, studentProfileOverride = null, qrPayload = null) {
   try {
     const fn = httpsCallable(functions, "authorizeQR1");
-    const result = await fn({
+    const cloudPromise = fn({
       sessionId,
       qr1Token,
       deviceId: studentProfileOverride?.deviceId || null,
@@ -190,25 +190,48 @@ export async function authorizeStudentQR1(sessionId, qr1Token, studentProfileOve
       sig: qrPayload?.sig,
       int: qrPayload?.int
     });
-    if (result && result.data && result.data.success) return result.data;
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error("CLOUD_TIMEOUT")), 1100)
+    );
+    const result = await Promise.race([cloudPromise, timeoutPromise]);
+    if (result && result.data && result.data.success) {
+      try {
+        const localAuthRecord = {
+          sessionId,
+          studentUid: result.data.studentUid || studentProfileOverride?.deviceId || "",
+          rollNo: result.data.rollNo || studentProfileOverride?.rollNo || "",
+          studentName: result.data.studentName || studentProfileOverride?.name || "",
+          studentEmail: studentProfileOverride?.email || "",
+          qr1Verified: true,
+          status: "QR1_VERIFIED",
+          kioskEndsAt: result.data.kioskEndsAt || 0,
+          verifiedAt: Date.now()
+        };
+        if (typeof sessionStorage !== "undefined") sessionStorage.setItem(`smartattend_qr1_auth_${sessionId}`, JSON.stringify(localAuthRecord));
+        if (typeof localStorage !== "undefined") localStorage.setItem(`smartattend_qr1_auth_${sessionId}`, JSON.stringify(localAuthRecord));
+      } catch (_) { }
+      return result.data;
+    }
   } catch (cloudErr) {
     const msg = cloudErr.message || "";
-    console.warn("Cloud function authorizeQR1 notice:", msg);
-    if (
-      msg.includes("expired") ||
-      msg.includes("closed") ||
-      msg.includes("violation") ||
-      msg.includes("disqualified") ||
-      msg.includes("permission-denied") ||
-      msg.includes("Geofence") ||
-      msg.includes("already-exists") ||
-      msg.includes("failed-precondition") ||
-      msg.includes("onboarding") ||
-      msg.includes("platform") ||
-      msg.includes("unauthenticated")
-    ) {
-      const cleanMsg = msg.replace(/^functions\/[a-z-]+:\s*/i, "").trim();
-      throw new Error(cleanMsg);
+    if (msg !== "CLOUD_TIMEOUT") {
+      console.warn("Cloud function authorizeQR1 notice:", msg);
+      if (
+        msg.includes("expired") ||
+        msg.includes("closed") ||
+        msg.includes("violation") ||
+        msg.includes("disqualified") ||
+        msg.includes("permission-denied") ||
+        msg.includes("Geofence") ||
+        msg.includes("already-exists") ||
+        msg.includes("failed-precondition") ||
+        msg.includes("onboarding") ||
+        msg.includes("platform") ||
+        msg.includes("unauthenticated")
+      ) {
+        const cleanMsg = msg.replace(/^functions\/[a-z-]+:\s*/i, "").trim();
+        throw new Error(cleanMsg);
+      }
     }
   }
 
@@ -221,30 +244,38 @@ export async function authorizeStudentQR1(sessionId, qr1Token, studentProfileOve
     throw new Error("Please log in with your student account to authorize attendance.");
   }
 
-  // Resolve Student Details strictly from Database (Firestore 'students' collection)
+  // Resolve Student Details: Fast-path using in-memory studentProfileOverride if available
   let rollNo = (studentProfileOverride?.rollNo || "").toUpperCase().trim();
   let studentName = (studentProfileOverride?.name || studentProfileOverride?.fullName || "").trim();
-  let dbDeviceType = null;
+  let dbDeviceType = studentProfileOverride?.deviceType || null;
 
-  if (studentEmail) {
+  const hasValidRoll = rollNo && !rollNo.includes("@");
+  const hasValidName = studentName && !isGenericName(studentName, rollNo, studentEmail);
+
+  // Fast-path: Only query Firestore students collection if details are missing from profile override
+  if ((!hasValidRoll || !hasValidName || !dbDeviceType) && studentEmail) {
     try {
-      const studentQuerySnap = await getDocs(query(collection(db, "students"), where("email", "==", studentEmail))).catch(() => ({ empty: true, docs: [] }));
+      const [studentQuerySnap, directSnap, rollSnap] = await Promise.all([
+        getDocs(query(collection(db, "students"), where("email", "==", studentEmail))).catch(() => ({ empty: true, docs: [] })),
+        getDoc(doc(db, "students", studentEmail)).catch(() => ({ exists: () => false })),
+        (rollNo && !rollNo.includes("@")) ? getDoc(doc(db, "students", rollNo)).catch(() => ({ exists: () => false })) : Promise.resolve({ exists: () => false })
+      ]);
       let dbStudentData = null;
       let dbStudentId = "";
       if (!studentQuerySnap.empty && studentQuerySnap.docs?.[0]) {
         dbStudentData = studentQuerySnap.docs[0].data();
         dbStudentId = studentQuerySnap.docs[0].id;
-      } else {
-        const directSnap = await getDoc(doc(db, "students", studentEmail)).catch(() => ({ exists: () => false }));
-        if (directSnap.exists()) {
-          dbStudentData = directSnap.data();
-          dbStudentId = directSnap.id;
-        }
+      } else if (directSnap.exists()) {
+        dbStudentData = directSnap.data();
+        dbStudentId = directSnap.id;
+      } else if (rollSnap.exists()) {
+        dbStudentData = rollSnap.data();
+        dbStudentId = rollSnap.id;
       }
       if (dbStudentData) {
-        rollNo = String(dbStudentData.rollNo || (!dbStudentId.includes("@") ? dbStudentId : rollNo)).trim().toUpperCase();
-        studentName = String(dbStudentData.name || dbStudentData.fullName || studentName).trim();
-        dbDeviceType = dbStudentData.deviceType || dbStudentData.registeredPlatform || dbStudentData.registeredDeviceType || null;
+        if (!hasValidRoll) rollNo = String(dbStudentData.rollNo || (!dbStudentId.includes("@") ? dbStudentId : rollNo)).trim().toUpperCase();
+        if (!hasValidName) studentName = String(dbStudentData.name || dbStudentData.fullName || studentName).trim();
+        if (!dbDeviceType) dbDeviceType = dbStudentData.deviceType || dbStudentData.registeredPlatform || dbStudentData.registeredDeviceType || null;
       }
     } catch (dbErr) {
       console.warn("Notice querying student in authorizeStudentQR1:", dbErr);
@@ -256,22 +287,6 @@ export async function authorizeStudentQR1(sessionId, qr1Token, studentProfileOve
   }
   if (!studentName || isGenericName(studentName, rollNo, studentEmail)) {
     studentName = studentProfileOverride?.name || studentProfileOverride?.fullName || rollNo;
-  }
-
-  // Also query students collection by rollNo if dbDeviceType was not found by email
-  if (!dbDeviceType && rollNo && !rollNo.includes("@")) {
-    try {
-      const rollSnap = await getDoc(doc(db, "students", rollNo)).catch(() => ({ exists: () => false }));
-      if (rollSnap.exists()) {
-        const rData = rollSnap.data();
-        if (rData) {
-          if (!studentName || isGenericName(studentName, rollNo, studentEmail)) {
-            studentName = String(rData.name || rData.fullName || studentName).trim();
-          }
-          dbDeviceType = rData.deviceType || rData.registeredPlatform || rData.registeredDeviceType || null;
-        }
-      }
-    } catch (_) {}
   }
 
   const sessionRef = doc(db, "attendance_sessions", sessionId);
@@ -369,7 +384,7 @@ export async function authorizeStudentQR1(sessionId, qr1Token, studentProfileOve
 
     // Clean up any legacy second document that might have been written under rollNo previously
     if (rollNo && rollNo !== canonicalAuthId) {
-      deleteDoc(doc(db, "attendance_sessions", sessionId, "authorizations", rollNo)).catch(() => {});
+      deleteDoc(doc(db, "attendance_sessions", sessionId, "authorizations", rollNo)).catch(() => { });
     }
   } catch (authErr) {
     console.warn("Authorizations subcollection write notice:", authErr.message);
@@ -437,92 +452,100 @@ export async function transitionSessionToPhase2(sessionId) {
  * Rejects with Access Denied if QR 1 was not scanned.
  */
 export async function validateStudentQR2(sessionId, qr2Token, qrPayload = null) {
+  const currentUser = auth.currentUser;
+  const currentEmail = currentUser?.email?.toLowerCase().trim() || "";
+  const currentRollNo = (currentEmail ? currentEmail.split("@")[0] : "").toUpperCase();
+  const currentUid = currentUser?.uid || "";
+
+  // 1. Instant 0ms Fast-Path: Check local/session storage for QR 1 authorization
+  let authData = null;
+  try {
+    const stored = (typeof sessionStorage !== "undefined" ? sessionStorage.getItem(`smartattend_qr1_auth_${sessionId}`) : null)
+      || (typeof localStorage !== "undefined" ? localStorage.getItem(`smartattend_qr1_auth_${sessionId}`) : null);
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      const matchUid = !currentUid || parsed.studentUid === currentUid;
+      const matchRoll = !currentRollNo || parsed.rollNo?.toUpperCase() === currentRollNo;
+      const matchEmail = !currentEmail || parsed.studentEmail?.toLowerCase() === currentEmail;
+
+      if ((parsed.qr1Verified === true || parsed.status === "QR1_VERIFIED" || parsed.status === "SESSION_AUTHORIZED") && parsed.sessionId === sessionId && (matchUid || matchRoll || matchEmail)) {
+        authData = parsed;
+      }
+    }
+  } catch (_) { }
+
+  // 2. Race Cloud Function validateQR2 with 1100ms timeout
   try {
     const fn = httpsCallable(functions, "validateQR2");
-    const result = await fn({
+    const cloudPromise = fn({
       sessionId,
       qr2Token,
       slot: qrPayload?.slot,
       sig: qrPayload?.sig,
       int: qrPayload?.int
     });
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error("CLOUD_TIMEOUT")), 1100)
+    );
+    const result = await Promise.race([cloudPromise, timeoutPromise]);
     if (result && result.data && result.data.authorized) return result.data;
   } catch (cloudErr) {
     const msg = cloudErr.message || "";
-    if (msg.includes("violation") || msg.includes("disqualified") || msg.includes("unexcused")) {
-      throw new Error("❌ Access rejected: An unexcused security violation is recorded on your session.");
+    if (msg !== "CLOUD_TIMEOUT") {
+      if (msg.includes("violation") || msg.includes("disqualified") || msg.includes("unexcused")) {
+        throw new Error("❌ Access rejected: An unexcused security violation is recorded on your session.");
+      }
+      if (msg.includes("scan QR 1 first") || msg.includes("Missing Phase 1")) {
+        throw new Error("⛔ Access Denied: You must scan QR 1 first.");
+      }
+      if (msg.includes("Access denied") || msg.includes("QR 1") || msg.includes("permission-denied")) {
+        throw new Error("⛔ Access Denied: You did not scan QR 1 during Phase 1 (0:00 - 1:00). You cannot mark attendance for this session.");
+      }
+      if (msg.includes("deadline-exceeded") || msg.includes("expired")) {
+        throw new Error("❌ QR code has expired. Please scan the current live QR code.");
+      }
+      if (msg.includes("already-exists") || msg.includes("already submitted")) {
+        throw new Error("✅ Attendance for this session has already been recorded.");
+      }
+      console.warn("Cloud function validateQR2 notice (using direct Firestore engine):", msg || cloudErr);
     }
-    if (msg.includes("scan QR 1 first") || msg.includes("Missing Phase 1")) {
-      throw new Error("⛔ Access Denied: You must scan QR 1 first.");
-    }
-    if (msg.includes("Access denied") || msg.includes("QR 1") || msg.includes("permission-denied")) {
-      throw new Error("⛔ Access Denied: You did not scan QR 1 during Phase 1 (0:00 - 1:00). You cannot mark attendance for this session.");
-    }
-    if (msg.includes("deadline-exceeded") || msg.includes("expired")) {
-      throw new Error("❌ QR code has expired. Please scan the current live QR code.");
-    }
-    if (msg.includes("already-exists") || msg.includes("already submitted")) {
-      throw new Error("✅ Attendance for this session has already been recorded.");
-    }
-    console.warn("Cloud function validateQR2 notice (using direct Firestore engine):", msg || cloudErr);
   }
 
-  const currentUser = auth.currentUser;
-  const currentEmail = currentUser?.email?.toLowerCase().trim() || "";
-  const currentRollNo = (currentEmail ? currentEmail.split("@")[0] : "").toUpperCase();
-  const currentUid = currentUser?.uid || "";
+  // 3. Concurrently fetch session doc and candidate authorizations in parallel (1 round-trip)
+  const candidateKeys = [currentUid, currentRollNo, currentEmail].filter(Boolean);
+  const sessionRef = doc(db, "attendance_sessions", sessionId);
 
   let session = null;
   try {
-    const sessionRef = doc(db, "attendance_sessions", sessionId);
-    const sessionSnap = await getDoc(sessionRef);
-    if (sessionSnap.exists()) {
+    const [sessionSnap, ...authSnaps] = await Promise.all([
+      getDoc(sessionRef).catch(() => ({ exists: () => false })),
+      ...candidateKeys.map(key =>
+        getDoc(doc(db, "attendance_sessions", sessionId, "authorizations", key)).catch(() => ({ exists: () => false }))
+      )
+    ]);
+
+    if (sessionSnap && typeof sessionSnap.exists === "function" && sessionSnap.exists()) {
       session = sessionSnap.data();
     }
+
+    if (!authData) {
+      for (const snap of authSnaps) {
+        if (snap && typeof snap.exists === "function" && snap.exists()) {
+          const d = snap.data();
+          if (d.qr1Verified === true || d.status === "QR1_VERIFIED" || d.status === "SESSION_AUTHORIZED") {
+            authData = d;
+            break;
+          }
+        }
+      }
+    }
   } catch (e) {
-    console.warn("Session read notice:", e.message);
+    console.warn("Session & auth read notice:", e.message);
   }
 
   const now = Date.now();
   if (session && now > ((session.kioskEndsAt || session.expiresAt || 0) + 15000)) {
     throw new Error("❌ Attendance session has closed. 3-minute deadline elapsed.");
-  }
-
-  // 1. Check QR 1 authorization in Firestore subcollection (check uid, rollNo, email)
-  let authData = null;
-  const candidateKeys = [currentUid, currentRollNo, currentEmail].filter(Boolean);
-
-  for (const key of candidateKeys) {
-    if (authData) break;
-    try {
-      const authRef = doc(db, "attendance_sessions", sessionId, "authorizations", key);
-      const authSnap = await getDoc(authRef);
-      if (authSnap.exists()) {
-        const d = authSnap.data();
-        if (d.qr1Verified === true || d.status === "QR1_VERIFIED" || d.status === "SESSION_AUTHORIZED") {
-          authData = d;
-        }
-      }
-    } catch (e) {
-      console.warn("Firestore auth read notice:", e.message);
-    }
-  }
-
-  // 2. Check Local/Session Storage Fallback (ensure it belongs to current user)
-  if (!authData) {
-    try {
-      const stored = sessionStorage.getItem(`smartattend_qr1_auth_${sessionId}`) || localStorage.getItem(`smartattend_qr1_auth_${sessionId}`);
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        const matchUid = !currentUid || parsed.studentUid === currentUid;
-        const matchRoll = !currentRollNo || parsed.rollNo?.toUpperCase() === currentRollNo;
-        const matchEmail = !currentEmail || parsed.studentEmail?.toLowerCase() === currentEmail;
-
-        if ((parsed.qr1Verified === true || parsed.status === "QR1_VERIFIED" || parsed.status === "SESSION_AUTHORIZED") && parsed.sessionId === sessionId && (matchUid || matchRoll || matchEmail)) {
-          authData = parsed;
-        }
-      }
-    } catch (e) { }
   }
 
   // 3. STRICT GATE: If student never checked in with QR 1, reject immediately & log security complaint
@@ -1824,7 +1847,7 @@ export async function releaseIndividualStudentDevice(sessionId, studentUid, roll
 
     if (cleanRoll && cleanRoll !== targetDocId) {
       // Clean up legacy authorization document if one exists under roll number
-      deleteDoc(doc(db, "attendance_sessions", sessionId, "authorizations", cleanRoll)).catch(() => {});
+      deleteDoc(doc(db, "attendance_sessions", sessionId, "authorizations", cleanRoll)).catch(() => { });
     }
 
     // Also update parent session document releasedStudents map

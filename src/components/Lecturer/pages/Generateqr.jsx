@@ -781,66 +781,11 @@ function GenerateQR() {
                 }
             }
 
-            // 2. Direct Firestore update for immediate cloud sync
-            const firestoreUpdate = {};
-            if (isPhase1) {
-                const currentQr1 = qr1ExpiresAt || (now + 30000);
-                const targetQr1 = currentQr1 + deltaSeconds * 1000;
-                const qr2Sec = Number(qr2Seconds) || 120;
-
-                if (targetQr1 <= now + 2000) {
-                    const newEnds = now + (qr2Sec * 1000);
-                    const newQr1Sec = Math.max(10, Math.round((now - startMs) / 1000));
-                    const newTotalSec = newQr1Sec + qr2Sec;
-                    firestoreUpdate.phase = "PHASE_2";
-                    firestoreUpdate.qr1ExpiresAt = now;
-                    firestoreUpdate.qr2StartsAt = now;
-                    firestoreUpdate.kioskEndsAt = newEnds;
-                    firestoreUpdate.expiresAt = newEnds;
-                    firestoreUpdate.qr1DurationSeconds = newQr1Sec;
-                    firestoreUpdate.totalDurationSeconds = newTotalSec;
-                    firestoreUpdate.durationMinutes = Math.max(1, Math.round(newTotalSec / 60));
-                } else {
-                    const newEnds = targetQr1 + (qr2Sec * 1000);
-                    const newQr1Sec = Math.max(10, Math.round((targetQr1 - startMs) / 1000));
-                    const newTotalSec = newQr1Sec + qr2Sec;
-                    firestoreUpdate.qr1ExpiresAt = targetQr1;
-                    firestoreUpdate.qr2StartsAt = targetQr1;
-                    firestoreUpdate.kioskEndsAt = newEnds;
-                    firestoreUpdate.expiresAt = newEnds;
-                    firestoreUpdate.qr1DurationSeconds = newQr1Sec;
-                    firestoreUpdate.totalDurationSeconds = newTotalSec;
-                    firestoreUpdate.durationMinutes = Math.max(1, Math.round(newTotalSec / 60));
-                }
-            } else {
-                const currentEnds = kioskEndsAt || (now + 60000);
-                const targetEnds = currentEnds + deltaSeconds * 1000;
-
-                if (targetEnds <= now + 2000) {
-                    firestoreUpdate.phase = "CLOSED";
-                    firestoreUpdate.status = "CLOSED";
-                    firestoreUpdate.active = false;
-                    firestoreUpdate.kioskEndsAt = now;
-                    firestoreUpdate.expiresAt = now;
-                } else {
-                    const newTotalSec = Math.max(30, Math.round((targetEnds - startMs) / 1000));
-                    firestoreUpdate.kioskEndsAt = targetEnds;
-                    firestoreUpdate.expiresAt = targetEnds;
-                    firestoreUpdate.totalDurationSeconds = newTotalSec;
-                    firestoreUpdate.durationMinutes = Math.max(1, Math.round(newTotalSec / 60));
-                }
-            }
-            firestoreUpdate.updatedAt = Date.now();
-
-            await updateDoc(doc(db, "attendance_sessions", sessionId), firestoreUpdate).catch((err) => {
-                console.warn("Direct firestore time adjustment notice:", err);
-            });
-
-            // 3. Also invoke backend helper in background for audit trail
-            extendAttendanceSession(sessionId, {
+            // 2. Authoritative update via extendAttendanceSession (which atomically syncs Cloud Function or Firestore fallback)
+            await extendAttendanceSession(sessionId, {
                 deltaSeconds,
                 phaseTarget: target
-            }).catch(() => { });
+            });
         } catch (err) {
             console.error("Failed to adjust session time:", err);
         }

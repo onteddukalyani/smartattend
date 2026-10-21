@@ -1335,12 +1335,10 @@ function QrScannerApp() {
             // Device Owner: disable screen capture/recording at OS level
             try { await Kiosk.setScreenCaptureDisabled({ disabled: true }); } catch (_) { }
 
-            // Pre-fetch student biometric template
-            try {
-                await lookupStudentBiometrics(result.rollNo || loggedInRollNo);
-            } catch (bioErr) {
+            // Pre-fetch student biometric template in background
+            lookupStudentBiometrics(result.rollNo || loggedInRollNo).catch((bioErr) => {
                 console.warn('Biometrics lookup notice:', bioErr);
-            }
+            });
 
             // iOS Apple Guided Access Check: Only enforce for native iOS app, never web Safari
             if (isNativeApp && isIOSDevice()) {
@@ -1457,7 +1455,7 @@ function QrScannerApp() {
             setScannerActive(false);
 
             // Safe cooldown to allow Android Camera Service to complete HAL disconnection from rear camera
-            await new Promise((resolve) => setTimeout(resolve, 350));
+            await new Promise((resolve) => setTimeout(resolve, 60));
 
             // Dual Biometric Gate: Native mobile devices must verify physical fingerprint first
             fingerprintAutoTriggeredRef.current = false;
@@ -1508,8 +1506,19 @@ function QrScannerApp() {
         const selectedGeofence = Number(classroomTarget?.radius ?? classroomTarget?.r ?? sessionData?.geofenceRadius ?? DEFAULT_GEOFENCE_RADIUS_METRES);
         const isGeofenceDisabled = selectedGeofence === 0 || classroomTarget?.enabled === false || sessionData?.geofenceRadius === 0;
 
-        // Retrieve student's device location (instant pre-warmer or fast GPS fix)
+        // Retrieve student's device location (instant pre-warmer, recent cache, or fast fix)
         let studentCoords = prewarmedLocationRef.current || currentStudentLocation;
+        if (!studentCoords) {
+            try {
+                const cached = localStorage.getItem('smartattend_student_location');
+                if (cached) {
+                    const parsed = JSON.parse(cached);
+                    if (parsed && (Date.now() - (parsed.timestamp || 0) < 180000)) {
+                        studentCoords = parsed;
+                    }
+                }
+            } catch (_) {}
+        }
         if (!studentCoords && typeof navigator !== "undefined" && navigator.geolocation) {
             try {
                 studentCoords = await new Promise((resolve) => {
@@ -1532,7 +1541,7 @@ function QrScannerApp() {
                             }
                         },
                         () => resolve(null),
-                        { enableHighAccuracy: true, timeout: 3500, maximumAge: 30000 }
+                        { enableHighAccuracy: false, timeout: 900, maximumAge: 60000 }
                     );
                 });
             } catch (_) {}
