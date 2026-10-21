@@ -31,21 +31,22 @@ export const PHASE_2_DURATION_MS = 120 * 1000;  // 2 minutes (120s)
 export const TOTAL_SESSION_DURATION_MS = 180 * 1000; // 3 minutes total (180s)
 
 /**
- * 1. Lecturer: Initiate 2-Phase Attendance Session (0:00 -> 1:00 -> 3:00)
- * Tries Cloud Function first, gracefully falls back to direct Firestore setup if functions are not deployed.
+ * 1. Lecturer: Initiate a two-phase attendance session.
+ * Session creation and token issuance must be atomic and server-authoritative.
+ * No client-side fallback may create an apparently active but unverifiable session.
  */
 export async function initiateSession(sessionParams) {
-  try {
-    const fn = httpsCallable(functions, "initiateAttendanceSession");
-    const result = await fn(sessionParams);
-    if (result && result.data && result.data.sessionId) {
-      return result.data;
-    }
-  } catch (cloudErr) {
-    console.warn("Cloud function initiateAttendanceSession notice (using direct Firestore engine):", cloudErr.message || cloudErr);
+  const fn = httpsCallable(functions, "initiateAttendanceSession");
+  const result = await fn(sessionParams);
+  if (!result?.data?.success || !result.data.sessionId || !result.data.qr1Token || !result.data.qr2Token) {
+    throw new Error("The attendance server did not confirm complete session creation. No session was started.");
   }
+  return result.data;
+}
 
-  // Direct Firestore Fallback with configurable session timeline and tokens
+ /*
+  * Legacy client-side session creation implementation intentionally removed:
+  * session tokens and privileged session state must only be issued by Cloud Functions.
   const currentUser = auth.currentUser;
   const nowMs = Date.now();
 
@@ -632,6 +633,13 @@ export async function submitVerifiedAttendance(sessionId, qr2Token, biometricDat
   const proofObj = hardwareProof?.proof || (hardwareProof?.signature ? hardwareProof : null);
   const deviceAuthMode = proofObj ? "NATIVE_MOBILE" : "WEB_BROWSER";
 
+  if (!sessionId || (!qr2Token && !qrPayload?.sig)) {
+    throw new Error("Session ID and a valid current QR 2 token are required.");
+  }
+  if (!biometricData || biometricData.liveness !== true) {
+    throw new Error("Live face challenge was not completed successfully. Attendance was not submitted.");
+  }
+
   const payload = {
     sessionId,
     qr2Token,
@@ -647,233 +655,48 @@ export async function submitVerifiedAttendance(sessionId, qr2Token, biometricDat
   try {
     const fn = httpsCallable(functions, "submitAttendance");
     const result = await fn(payload);
-
-    if (result && result.data && result.data.success) {
+    if (result?.data?.success === true && (result.data.recordId || result.data.alreadyRecorded === true || result.data.status === "ATTENDED")) {
       const cleanRoll = result.data.rollNo;
       if (cleanRoll) {
         try {
           await sendStudentNotification(
             cleanRoll,
-            "Attendance Recorded ✅",
-            `Your attendance for session ${sessionId} has been submitted successfully (${deviceAuthMode}).`,
+            "Attendance Recorded",
+            `Your attendance for session ${sessionId} has been confirmed by the attendance server (${deviceAuthMode}).`,
             "ATTENDANCE_SUCCESS",
             "SmartAttend Guard"
           );
-        } catch (_) { }
+        } catch (_) { /* Notifications must not undo a confirmed attendance record. */ }
       }
       return result.data;
     }
-    throw new Error(result?.data?.message || "Attendance submission could not be verified by server.");
+    throw new Error(result?.data?.message || "The server did not confirm an attendance record. Attendance was not marked.");
   } catch (cloudErr) {
-    const msg = cloudErr.message || "";
-    if (msg.includes("scan QR 1 first") || msg.includes("Missing Phase 1")) {
-      throw new Error("⛔ Attendance Rejected: Missing Phase 1 QR 1 check-in. You must scan QR 1 first during Phase 1.");
-    }
-    if (msg.includes("unexcused security violation") || msg.includes("violation") || msg.includes("disqualified")) {
-      throw new Error("❌ Attendance rejected: An unexcused security violation is recorded on your session.");
-    }
+    const msg = cloudErr?.message || "Attendance server could not be reached.";
     if (msg.includes("already recorded") || msg.includes("already-exists") || msg.includes("already submitted")) {
-      return {
-        success: true,
-        alreadyRecorded: true,
-        message: "Attendance for this session has already been recorded."
-      };
+      return { success: true, alreadyRecorded: true, message: "Attendance for this session has already been recorded." };
+    }
+    if (msg.includes("scan QR 1 first") || msg.includes("Missing Phase 1")) {
+      throw new Error("Attendance rejected: scan QR 1 first during Phase 1.");
+    }
+    if (msg.toLowerCase().includes("violation") || msg.toLowerCase().includes("disqualified")) {
+      throw new Error("Attendance rejected: an unexcused security violation is recorded for this session.");
     }
     if (msg.includes("deadline-exceeded") || msg.includes("session is closed") || msg.includes("ended")) {
-      throw new Error("❌ Attendance session is closed. The submission window has expired.");
+      throw new Error("Attendance session is closed. The submission window has expired.");
     }
     if (msg.includes("Invalid QR 2 token") || msg.includes("Invalid QR 2")) {
-      throw new Error("❌ Invalid or expired QR 2 token. Please scan the current live QR code.");
+      throw new Error("Invalid or expired QR 2 token. Scan the current live QR code.");
     }
-    if (msg.includes("Face biometric verification failed") || msg.includes("distance >")) {
-      throw new Error("❌ Face Biometric Mismatch: Live face does not match your registered profile. Please retry verification.");
-    }
-    if (msg.includes("Adversarial face replay")) {
-      throw new Error("❌ Security Replay Alert: Static face image detected. Real live camera capture required.");
+    if (msg.includes("Face biometric verification failed") || msg.includes("distance >") || msg.toLowerCase().includes("liveness")) {
+      throw new Error("Face/liveness verification failed. Attendance was not recorded.");
     }
     if (msg.includes("Hardware biometric signature verification failed")) {
-      throw new Error("❌ Hardware device biometric verification failed. Please authenticate using your enrolled biometric.");
+      throw new Error("Hardware biometric verification failed. Authenticate with your enrolled device biometric.");
     }
-    console.warn("Cloud function submitAttendance notice (using direct Firestore engine):", msg || cloudErr);
+    // Never fall back to direct client writes when the trusted verifier rejects or is unavailable.
+    throw new Error(`Attendance was not confirmed by the security server: ${msg}`);
   }
-
-  // Direct Firestore submission engine fallback
-  const currentUser = auth.currentUser;
-  const currentEmail = currentUser?.email?.toLowerCase().trim() || "";
-  const currentRollNo = (currentEmail ? currentEmail.split("@")[0] : "").toUpperCase();
-  const currentUid = currentUser?.uid || "";
-
-  let session = null;
-  try {
-    const sessionRef = doc(db, "attendance_sessions", sessionId);
-    const sessionSnap = await getDoc(sessionRef);
-    if (sessionSnap.exists()) {
-      session = sessionSnap.data();
-    }
-  } catch (e) {
-    console.warn("Session read notice:", e.message);
-  }
-
-  const now = Date.now();
-  if (session && now > ((session.kioskEndsAt || session.expiresAt || 0) + 15000)) {
-    throw new Error("❌ Attendance session is closed. The submission window has expired.");
-  }
-
-  // 1. Verify Phase 1 QR 1 check-in
-  let authData = null;
-  const candidateKeys = [currentUid, currentRollNo, currentEmail].filter(Boolean);
-  for (const key of candidateKeys) {
-    if (authData) break;
-    try {
-      const authRef = doc(db, "attendance_sessions", sessionId, "authorizations", key);
-      const authSnap = await getDoc(authRef);
-      if (authSnap.exists()) {
-        const d = authSnap.data();
-        if (d.qr1Verified === true || d.status === "QR1_VERIFIED" || d.status === "SESSION_AUTHORIZED" || d.status === "PRESENT") {
-          authData = d;
-        }
-      }
-    } catch (_) { }
-  }
-
-  if (!authData) {
-    try {
-      const stored = sessionStorage.getItem(`smartattend_qr1_auth_${sessionId}`) || localStorage.getItem(`smartattend_qr1_auth_${sessionId}`);
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        if (parsed.qr1Verified === true && parsed.sessionId === sessionId) {
-          authData = parsed;
-        }
-      }
-    } catch (_) { }
-  }
-
-  if (!authData) {
-    throw new Error("⛔ Attendance Rejected: Missing Phase 1 QR 1 check-in. You must scan QR 1 first during Phase 1.");
-  }
-
-  // 2. Security violation & disqualification check
-  const hasAuthViolation =
-    authData.disqualified === true ||
-    (authData.hasViolation === true && !authData.excused) ||
-    (authData.violation === 1 && !authData.excused) ||
-    (Number(authData.confirmedKioskViolations || authData.violationCount || 0) >= 1 && !authData.excused);
-
-  let hasFlaggedViolation = false;
-  if (session && Array.isArray(session.flaggedViolations)) {
-    const flagEntry = session.flaggedViolations.find((f) => {
-      const fRoll = (f.rollNo || "").toUpperCase().trim();
-      const fUid = (f.studentUid || "").toUpperCase().trim();
-      return (currentRollNo && fRoll === currentRollNo) || (currentUid && fUid === currentUid.toUpperCase().trim());
-    });
-    if (flagEntry && !flagEntry.excused && !flagEntry.resolved && (flagEntry.disqualified === true || flagEntry.status === "FLAGGED_DISQUALIFIED" || Number(flagEntry.count || flagEntry.violationCount || 0) >= 1)) {
-      hasFlaggedViolation = true;
-    }
-  }
-
-  if (hasAuthViolation || hasFlaggedViolation) {
-    throw new Error("❌ Attendance rejected: An unexcused security violation is recorded on your session.");
-  }
-
-  const targetRoll = (authData.rollNo || currentRollNo || "STUDENT").toUpperCase();
-  const studentName = authData.studentName || currentUser?.displayName || targetRoll;
-
-  // 3. Duplicate check in attendance_records
-  const recordId = `${sessionId}_${targetRoll}`;
-  try {
-    const recordRef = doc(db, "attendance_records", recordId);
-    const recordSnap = await getDoc(recordRef);
-    if (recordSnap.exists()) {
-      return {
-        success: true,
-        alreadyRecorded: true,
-        rollNo: targetRoll,
-        studentName,
-        submittedAt: recordSnap.data()?.submittedAt || now,
-        autoReleaseAt: now + 300000,
-        message: "Attendance for this session has already been recorded."
-      };
-    }
-  } catch (_) { }
-
-  // 4. Update authorization subcollection to PRESENT
-  const canonicalAuthId = currentUid || targetRoll;
-  try {
-    const authRef = doc(db, "attendance_sessions", sessionId, "authorizations", canonicalAuthId);
-    await updateDoc(authRef, {
-      status: "PRESENT",
-      qr2Verified: true,
-      attendanceSubmittedAt: now,
-      submittedAt: now,
-      biometricVerified: true,
-      deviceAuthMode: deviceAuthMode
-    });
-  } catch (_) { }
-
-  // 5. Create master attendance_record
-  const attendancePayload = {
-    sessionId,
-    session_id: sessionId,
-    rollNo: targetRoll,
-    rollNumber: targetRoll,
-    studentName,
-    fullName: studentName,
-    studentEmail: currentEmail,
-    studentUid: currentUid,
-    courseCode: session?.courseCode || "CLASS",
-    classCode: session?.classCode || "",
-    roomNo: session?.roomNo || "",
-    batch: session?.batch || "2025",
-    status: "PRESENT",
-    submittedAt: now,
-    timestamp: now,
-    deviceAuthMode: deviceAuthMode,
-    isNative: Boolean(isNative),
-    studentLocation: qrPayload?.studentLocation || authData?.studentLocation || null,
-    classroomDistance: (qrPayload?.distance !== undefined && qrPayload?.distance !== null) ? qrPayload.distance : (authData?.distance !== undefined ? authData.distance : null),
-    biometricVerification: {
-      verified: true,
-      confidence: biometricData?.confidence || 100,
-      distance: biometricData?.distance || 0.35,
-      liveness: biometricData?.liveness !== false
-    }
-  };
-
-  try {
-    const recordRef = doc(db, "attendance_records", recordId);
-    await setDoc(recordRef, attendancePayload, { merge: true });
-  } catch (recErr) {
-    console.warn("Direct attendance_records write notice:", recErr.message);
-  }
-
-  // Also update session attendee counter if permitted
-  try {
-    const sessionRef = doc(db, "attendance_sessions", sessionId);
-    await updateDoc(sessionRef, {
-      attendedCount: increment(1)
-    });
-  } catch (_) { }
-
-  // Send real-time notification
-  try {
-    await sendStudentNotification(
-      targetRoll,
-      "Attendance Recorded ✅",
-      `Your attendance for session ${sessionId} has been submitted successfully (${deviceAuthMode}).`,
-      "ATTENDANCE_SUCCESS",
-      "SmartAttend Guard"
-    );
-  } catch (_) { }
-
-  return {
-    success: true,
-    rollNo: targetRoll,
-    studentName,
-    submittedAt: now,
-    autoReleaseAt: now + 300000,
-    attendanceSubmittedAt: now,
-    deviceAuthMode
-  };
 }
 
 /**
