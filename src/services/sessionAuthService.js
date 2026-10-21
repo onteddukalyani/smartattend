@@ -49,10 +49,18 @@ export async function initiateSession(sessionParams) {
 /**
  * 2. Student: Authorize QR 1 (Phase 1 Check-In)
  */
+/**
+ * 2. Student: Authorize QR 1 through the trusted Cloud Function.
+ * Local storage is only a UI cache and is populated after the server confirms authorization.
+ */
 export async function authorizeStudentQR1(sessionId, qr1Token, studentProfileOverride = null, qrPayload = null) {
+  if (!sessionId || (!qr1Token && qrPayload?.sig == null)) {
+    throw new Error("Session ID and a current QR 1 token are required.");
+  }
+  const fn = httpsCallable(functions, "authorizeQR1");
+  let result;
   try {
-    const fn = httpsCallable(functions, "authorizeQR1");
-    const cloudPromise = fn({
+    result = await fn({
       sessionId,
       qr1Token,
       deviceId: studentProfileOverride?.deviceId || null,
@@ -62,260 +70,50 @@ export async function authorizeStudentQR1(sessionId, qr1Token, studentProfileOve
       sig: qrPayload?.sig,
       int: qrPayload?.int
     });
-    const timeoutPromise = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error("CLOUD_TIMEOUT")), 1100)
-    );
-    const result = await Promise.race([cloudPromise, timeoutPromise]);
-    if (result && result.data && result.data.success) {
-      try {
-        const localAuthRecord = {
-          sessionId,
-          studentUid: result.data.studentUid || studentProfileOverride?.deviceId || "",
-          rollNo: result.data.rollNo || studentProfileOverride?.rollNo || "",
-          studentName: result.data.studentName || studentProfileOverride?.name || "",
-          studentEmail: studentProfileOverride?.email || "",
-          qr1Verified: true,
-          status: "QR1_VERIFIED",
-          kioskEndsAt: result.data.kioskEndsAt || 0,
-          verifiedAt: Date.now()
-        };
-        if (typeof sessionStorage !== "undefined") sessionStorage.setItem(`smartattend_qr1_auth_${sessionId}`, JSON.stringify(localAuthRecord));
-        if (typeof localStorage !== "undefined") localStorage.setItem(`smartattend_qr1_auth_${sessionId}`, JSON.stringify(localAuthRecord));
-      } catch (_) { }
-      return result.data;
-    }
-  } catch (cloudErr) {
-    const msg = cloudErr.message || "";
-    if (msg !== "CLOUD_TIMEOUT") {
-      console.warn("Cloud function authorizeQR1 notice:", msg);
-      if (
-        msg.includes("expired") ||
-        msg.includes("closed") ||
-        msg.includes("violation") ||
-        msg.includes("disqualified") ||
-        msg.includes("permission-denied") ||
-        msg.includes("Geofence") ||
-        msg.includes("already-exists") ||
-        msg.includes("failed-precondition") ||
-        msg.includes("onboarding") ||
-        msg.includes("platform") ||
-        msg.includes("unauthenticated")
-      ) {
-        const cleanMsg = msg.replace(/^functions\/[a-z-]+:\s*/i, "").trim();
-        throw new Error(cleanMsg);
-      }
-    }
+  } catch (error) {
+    throw new Error(error?.message || "QR 1 could not be verified by the attendance server.");
   }
 
-  // Fallback verification
-  const currentUser = auth.currentUser;
-  const studentEmail = (currentUser?.email || studentProfileOverride?.email || "").toLowerCase().trim();
-  const studentUid = currentUser?.uid || studentProfileOverride?.deviceId || studentEmail;
-
-  if (!currentUser && !studentProfileOverride?.email && !studentProfileOverride?.rollNo) {
-    throw new Error("Please log in with your student account to authorize attendance.");
+  if (result?.data?.success !== true || result.data.status !== "QR1_VERIFIED") {
+    throw new Error(result?.data?.message || "QR 1 authorization was not confirmed by the server.");
   }
 
-  // Resolve Student Details: Fast-path using in-memory studentProfileOverride if available
-  let rollNo = (studentProfileOverride?.rollNo || "").toUpperCase().trim();
-  let studentName = (studentProfileOverride?.name || studentProfileOverride?.fullName || "").trim();
-  let dbDeviceType = studentProfileOverride?.deviceType || null;
-
-  const hasValidRoll = rollNo && !rollNo.includes("@");
-  const hasValidName = studentName && !isGenericName(studentName, rollNo, studentEmail);
-
-  // Fast-path: Only query Firestore students collection if details are missing from profile override
-  if ((!hasValidRoll || !hasValidName || !dbDeviceType) && studentEmail) {
-    try {
-      const [studentQuerySnap, directSnap, rollSnap] = await Promise.all([
-        getDocs(query(collection(db, "students"), where("email", "==", studentEmail))).catch(() => ({ empty: true, docs: [] })),
-        getDoc(doc(db, "students", studentEmail)).catch(() => ({ exists: () => false })),
-        (rollNo && !rollNo.includes("@")) ? getDoc(doc(db, "students", rollNo)).catch(() => ({ exists: () => false })) : Promise.resolve({ exists: () => false })
-      ]);
-      let dbStudentData = null;
-      let dbStudentId = "";
-      if (!studentQuerySnap.empty && studentQuerySnap.docs?.[0]) {
-        dbStudentData = studentQuerySnap.docs[0].data();
-        dbStudentId = studentQuerySnap.docs[0].id;
-      } else if (directSnap.exists()) {
-        dbStudentData = directSnap.data();
-        dbStudentId = directSnap.id;
-      } else if (rollSnap.exists()) {
-        dbStudentData = rollSnap.data();
-        dbStudentId = rollSnap.id;
-      }
-      if (dbStudentData) {
-        if (!hasValidRoll) rollNo = String(dbStudentData.rollNo || (!dbStudentId.includes("@") ? dbStudentId : rollNo)).trim().toUpperCase();
-        if (!hasValidName) studentName = String(dbStudentData.name || dbStudentData.fullName || studentName).trim();
-        if (!dbDeviceType) dbDeviceType = dbStudentData.deviceType || dbStudentData.registeredPlatform || dbStudentData.registeredDeviceType || null;
-      }
-    } catch (dbErr) {
-      console.warn("Notice querying student in authorizeStudentQR1:", dbErr);
-    }
-  }
-
-  if (!rollNo || rollNo.includes("@")) {
-    rollNo = (studentProfileOverride?.rollNo || studentEmail.split("@")[0] || "STUDENT").toUpperCase();
-  }
-  if (!studentName || isGenericName(studentName, rollNo, studentEmail)) {
-    studentName = studentProfileOverride?.name || studentProfileOverride?.fullName || rollNo;
-  }
-
-  const sessionRef = doc(db, "attendance_sessions", sessionId);
-  let session = null;
-  try {
-    const sessionSnap = await getDoc(sessionRef);
-    if (sessionSnap.exists()) {
-      session = sessionSnap.data();
-    }
-  } catch (e) {
-    console.warn("Session read notice:", e.message);
-  }
-
-  const now = Date.now();
-  const qr1ExpiresAt = session?.qr1ExpiresAt || (session?.sessionStartAt ? session.sessionStartAt + 60000 : now + 60000);
-  const kioskEndsAt = session?.kioskEndsAt || (now + 180000);
-
-  // Allow QR 1 authorization if session is explicitly in PHASE_1 or within clock-skew grace window (15s)
-  const isPhase1Active = session?.phase === "PHASE_1" || (!session?.phase && now <= (qr1ExpiresAt + 15000));
-  if (session && !isPhase1Active && now > (qr1ExpiresAt + 15000)) {
-    throw new Error("❌ QR 1 has expired! The 60-second check-in window is closed.");
-  }
-
-  const detectedType = detectDeviceType() || "web";
-  let clientIp = studentProfileOverride?.deviceIp || (typeof window !== "undefined" ? localStorage.getItem("smartattend_device_ip") : null) || "Unknown IP";
-  if (!clientIp || clientIp === "Unknown IP") {
-    try {
-      clientIp = await getClientIpAddress();
-    } catch (_) { }
-  }
-
-  // Device Mismatch Protection Check
-  const registeredType = studentProfileOverride?.deviceType || dbDeviceType || (typeof window !== "undefined" ? localStorage.getItem("smartattend_student_device_type") : null);
-  if (registeredType && !isDeviceMatching(registeredType, detectedType)) {
-    const regLabel = getDeviceDisplayName(registeredType);
-    const curLabel = getDeviceDisplayName(detectedType);
-
-    await sendFacultyNotification(
-      `🚨 Anti-Proxy Alert: Device Mismatch for ${studentName} (${rollNo})`,
-      `Student ${studentName} (${rollNo}) attempted attendance from an unauthorized device.\n• Registered: ${regLabel}\n• Attempted: ${curLabel}\n• IP Address: ${clientIp}\n• Session: ${sessionId}\n\nAttendance check-in was blocked to prevent proxy.`,
-      "DEVICE_MISMATCH_SECURITY_ALERT",
-      rollNo,
-      "Anti-Proxy Sentinel"
-    );
-
-    await sendStudentNotification(
-      rollNo,
-      "⚠️ Different Phone Detected",
-      `Attendance could not be marked because your account is linked to a ${regLabel}, but you scanned using a ${curLabel}.\n\nIf you switched phones, please ask your teacher or administrator to reset your registered phone.`,
-      "SECURITY_ALERT",
-      "Attendance Security"
-    );
-
-    await reportUserVerificationComplaint(
-      { email: studentEmail, rollNo: rollNo, name: studentName },
-      `Device Mismatch: Registered as ${regLabel} but attempted attendance from ${curLabel} (IP: ${clientIp})`,
-      "ATTENDANCE_PHASE_GATE"
-    );
-
-    throw new Error(`⛔ Device Mismatch: Your account is locked to a ${regLabel}. You cannot mark attendance from a ${curLabel} (IP: ${clientIp}).`);
-  }
-
-  const authPayload = {
-    studentUid: studentUid,
-    studentEmail: studentEmail,
-    rollNo: rollNo,
-    studentName: studentName,
-    status: "QR1_VERIFIED",
+  const data = result.data;
+  const localAuthRecord = {
+    sessionId,
+    studentUid: data.studentUid || auth.currentUser?.uid || "",
+    rollNo: data.rollNo || studentProfileOverride?.rollNo || "",
+    studentName: data.studentName || studentProfileOverride?.name || "",
+    studentEmail: auth.currentUser?.email || studentProfileOverride?.email || "",
     qr1Verified: true,
-    releaseStatus: "LOCKED",
-    released: false,
-    authorizedAt: now,
-    sessionId: sessionId,
-    kioskEndsAt: kioskEndsAt,
-    deviceType: registeredType || detectedType,
-    detectedPlatform: detectedType,
-    deviceIp: clientIp,
-    studentLocation: studentProfileOverride?.studentLocation || null,
-    userAgent: typeof navigator !== "undefined" ? navigator.userAgent : ""
-  };
-
-  // Always store local fallback token to guarantee gating
-  try {
-    sessionStorage.setItem(`smartattend_qr1_auth_${sessionId}`, JSON.stringify(authPayload));
-    localStorage.setItem(`smartattend_qr1_auth_${sessionId}`, JSON.stringify(authPayload));
-  } catch (e) { }
-
-  // STRICT SINGLE DOCUMENT WRITE:
-  // Write authorization strictly once under studentUid (or rollNo if no studentUid)
-  // This guarantees no ghost second device / duplicate roster row is ever created!
-  try {
-    const canonicalAuthId = studentUid || rollNo;
-    const authRef = doc(db, "attendance_sessions", sessionId, "authorizations", canonicalAuthId);
-    await setDoc(authRef, authPayload, { merge: true });
-
-    // Clean up any legacy second document that might have been written under rollNo previously
-    if (rollNo && rollNo !== canonicalAuthId) {
-      deleteDoc(doc(db, "attendance_sessions", sessionId, "authorizations", rollNo)).catch(() => { });
-    }
-  } catch (authErr) {
-    console.warn("Authorizations subcollection write notice:", authErr.message);
-  }
-
-  try {
-    await updateDoc(sessionRef, {
-      authorizedCount: increment(1)
-    });
-  } catch (upErr) {
-    console.warn("Session doc update notice:", upErr.message);
-  }
-
-  return {
-    success: true,
     status: "QR1_VERIFIED",
-    qr1Verified: true,
-    sessionId: sessionId,
-    rollNo: rollNo,
-    studentName: studentName,
-    sessionStartAt: session?.sessionStartAt || now,
-    qr1ExpiresAt: qr1ExpiresAt,
-    kioskEndsAt: kioskEndsAt,
-    deviceType: registeredType || detectedType,
-    deviceIp: clientIp
+    kioskEndsAt: data.kioskEndsAt || 0,
+    verifiedAt: Date.now()
   };
+  try {
+    sessionStorage.setItem(`smartattend_qr1_auth_${sessionId}`, JSON.stringify(localAuthRecord));
+    localStorage.setItem(`smartattend_qr1_auth_${sessionId}`, JSON.stringify(localAuthRecord));
+  } catch (_) {
+    // Server authorization remains authoritative even when local caching is unavailable.
+  }
+  return data;
 }
 
 /**
  * 3. Lecturer: Transition Session to Phase 2 (Generate QR 2)
  */
+/**
+ * 3. Lecturer: Transition Session to Phase 2 (Generate QR 2).
+ * The server must authorize the transition; never report success after a failed write.
+ */
 export async function transitionSessionToPhase2(sessionId) {
-  try {
-    const fn = httpsCallable(functions, "transitionToPhase2");
-    const result = await fn({ sessionId });
-    if (result && result.data) return result.data;
-  } catch (cloudErr) {
-    console.warn("Cloud function transitionToPhase2 notice:", cloudErr.message || cloudErr);
+  if (!sessionId) throw new Error("Session ID is required.");
+  const fn = httpsCallable(functions, "transitionToPhase2");
+  const result = await fn({ sessionId });
+  if (result?.data?.success !== true || result.data.phase !== "PHASE_2") {
+    throw new Error(result?.data?.message || "The attendance server did not confirm the Phase 2 transition.");
   }
-
-  const now = Date.now();
-  try {
-    const sessionRef = doc(db, "attendance_sessions", sessionId);
-    await updateDoc(sessionRef, {
-      phase: "PHASE_2",
-      qr1ExpiresAt: now,
-      qr2StartsAt: now
-    });
-  } catch (err) {
-    console.warn("Transition phase notice:", err.message);
-  }
-
-  return {
-    success: true,
-    sessionId: sessionId,
-    phase: "PHASE_2",
-    qr1ExpiresAt: now,
-    qr2StartsAt: now
-  };
+  return result.data;
 }
 
 /**
