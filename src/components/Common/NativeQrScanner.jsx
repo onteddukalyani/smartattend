@@ -215,8 +215,15 @@ function NativeQrScanner({
         }
 
         let frameCount = 0;
+        let isProcessing = false;
         const scanFrame = async () => {
             if (!isScanningRef.current || !videoRef.current) return;
+            if (isProcessing) {
+                if (isScanningRef.current) {
+                    animRef.current = requestAnimationFrame(scanFrame);
+                }
+                return;
+            }
 
             const video = videoRef.current;
             const now = Date.now();
@@ -226,62 +233,68 @@ function NativeQrScanner({
             if (video.readyState >= 2 && now - lastScanTimeRef.current >= minInterval) {
                 lastScanTimeRef.current = now;
                 frameCount++;
+                isProcessing = true;
 
-                // 1. Fast Native BarcodeDetector (hardware accelerated GPU pipeline)
-                let detected = false;
-                if (barcodeDetector) {
-                    try {
-                        const barcodes = await barcodeDetector.detect(video);
-                        if (barcodes && barcodes.length > 0 && barcodes[0].rawValue) {
-                            detected = true;
-                            isScanningRef.current = false;
-                            if (onScanRef.current) onScanRef.current(barcodes[0].rawValue);
-                            return;
-                        }
-                    } catch (_) { }
-                }
-
-                // 2. High-performance jsQR fallback (optimized 360px scan frame for ~18ms decode)
-                if (!detected && canvasRef.current) {
-                    try {
-                        const canvas = canvasRef.current;
-                        const vW = video.videoWidth || 640;
-                        const vH = video.videoHeight || 480;
-                        const targetW = Math.min(360, vW);
-                        const targetH = Math.round(targetW * (vH / vW)) || 270;
-
-                        // Only re-dimension canvas when aspect ratio or resolution genuinely changes
-                        if (canvas.width !== targetW || canvas.height !== targetH) {
-                            canvas.width = targetW;
-                            canvas.height = targetH;
-                        }
-
-                        const ctx = canvas.getContext('2d', { willReadFrequently: true });
-                        if (ctx) {
-                            ctx.drawImage(video, 0, 0, targetW, targetH);
-                            const imgData = ctx.getImageData(0, 0, targetW, targetH);
-
-                            // Primary scan: normal contrast (3x faster than attemptBoth)
-                            let code = jsQR(imgData.data, targetW, targetH, {
-                                inversionAttempts: 'dontInvert'
-                            });
-
-                            // Secondary pass: every 3rd frame try inversion in case of dark mode inversion
-                            if (!code && frameCount % 3 === 0) {
-                                code = jsQR(imgData.data, targetW, targetH, {
-                                    inversionAttempts: 'attemptBoth'
-                                });
-                            }
-
-                            if (code && code.data) {
+                try {
+                    // 1. Fast Native BarcodeDetector (hardware accelerated GPU pipeline)
+                    let detected = false;
+                    if (barcodeDetector) {
+                        try {
+                            const barcodes = await barcodeDetector.detect(video);
+                            if (barcodes && barcodes.length > 0 && barcodes[0].rawValue) {
+                                detected = true;
                                 isScanningRef.current = false;
-                                if (onScanRef.current) onScanRef.current(code.data);
+                                if (onScanRef.current) onScanRef.current(barcodes[0].rawValue);
                                 return;
                             }
-                        }
-                    } catch (decodeErr) {
-                        console.warn('[NativeQrScanner] Frame decode notice:', decodeErr);
+                        } catch (_) { }
                     }
+
+                    // 2. High-performance jsQR fallback (optimized 360px scan frame for ~18ms decode)
+                    if (!detected && canvasRef.current) {
+                        try {
+                            const canvas = canvasRef.current;
+                            const vW = video.videoWidth || 640;
+                            const vH = video.videoHeight || 480;
+                            const targetW = Math.min(360, vW);
+                            const targetH = Math.round(targetW * (vH / vW)) || 270;
+
+                            // Only re-dimension canvas when aspect ratio or resolution genuinely changes
+                            if (canvas.width !== targetW || canvas.height !== targetH) {
+                                canvas.width = targetW;
+                                canvas.height = targetH;
+                            }
+
+                            const ctx = canvas.getContext('2d', { willReadFrequently: true });
+                            if (ctx) {
+                                ctx.drawImage(video, 0, 0, targetW, targetH);
+                                const imgData = ctx.getImageData(0, 0, targetW, targetH);
+
+                                // Primary scan: normal contrast (3x faster than attemptBoth)
+                                let code = jsQR(imgData.data, targetW, targetH, {
+                                    inversionAttempts: 'dontInvert'
+                                });
+
+                                // Secondary pass: every 3rd frame try inversion in case of dark mode inversion
+                                if (!code && frameCount % 3 === 0) {
+                                    code = jsQR(imgData.data, targetW, targetH, {
+                                        inversionAttempts: 'attemptBoth'
+                                    });
+                                }
+
+                                if (code && code.data) {
+                                    detected = true;
+                                    isScanningRef.current = false;
+                                    if (onScanRef.current) onScanRef.current(code.data);
+                                    return;
+                                }
+                            }
+                        } catch (decodeErr) {
+                            console.warn('[NativeQrScanner] Frame decode notice:', decodeErr);
+                        }
+                    }
+                } finally {
+                    isProcessing = false;
                 }
             }
 

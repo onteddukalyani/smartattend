@@ -107,16 +107,14 @@ export const AuthProvider = ({ children }) => {
         studentRollSnap,
         studentPrefixSnap,
         studentUidSnap,
-        studentUidQuerySnap,
-        allStudentsSnap
+        studentUidQuerySnap
       ] = await Promise.all([
         cleanEmail ? getDocs(query(collection(db, "students"), where("email", "==", cleanEmail))).catch(() => ({ empty: true, docs: [] })) : Promise.resolve({ empty: true, docs: [] }),
         cleanEmail ? getDoc(doc(db, "students", cleanEmail)).catch(() => ({ exists: () => false })) : Promise.resolve({ exists: () => false }),
         rollFromEmail ? getDoc(doc(db, "students", rollFromEmail)).catch(() => ({ exists: () => false })) : Promise.resolve({ exists: () => false }),
         (prefix && prefix !== rollFromEmail.toLowerCase()) ? getDoc(doc(db, "students", prefix)).catch(() => ({ exists: () => false })) : Promise.resolve({ exists: () => false }),
         cleanUid ? getDoc(doc(db, "students", cleanUid)).catch(() => ({ exists: () => false })) : Promise.resolve({ exists: () => false }),
-        cleanUid ? getDocs(query(collection(db, "students"), where("uid", "==", cleanUid))).catch(() => ({ empty: true, docs: [] })) : Promise.resolve({ empty: true, docs: [] }),
-        getDocs(collection(db, "students")).catch(() => ({ empty: true, docs: [] }))
+        cleanUid ? getDocs(query(collection(db, "students"), where("uid", "==", cleanUid))).catch(() => ({ empty: true, docs: [] })) : Promise.resolve({ empty: true, docs: [] })
       ]);
 
       let matchedStudentDoc = null;
@@ -141,27 +139,14 @@ export const AuthProvider = ({ children }) => {
         matchedStudentDoc = studentUidQuerySnap.docs[0].data();
         matchedStudentId = studentUidQuerySnap.docs[0].id;
       }
-      // D. Case-insensitive scan across students collection
-      else if (!allStudentsSnap.empty) {
-        for (const d of allStudentsSnap.docs) {
-          const data = d.data();
-          const docEmail = (data.email || "").toLowerCase().trim();
-          if (docEmail && docEmail === cleanEmail) {
-            matchedStudentDoc = data;
-            matchedStudentId = d.id;
-            break;
-          }
-        }
+      // D. Roll number document lookup in students
+      else if (studentRollSnap.exists()) {
+        matchedStudentDoc = studentRollSnap.data();
+        matchedStudentId = studentRollSnap.id;
       }
-      // E. Roll number document lookup in students
-      if (!matchedStudentDoc) {
-        if (studentRollSnap.exists()) {
-          matchedStudentDoc = studentRollSnap.data();
-          matchedStudentId = studentRollSnap.id;
-        } else if (studentPrefixSnap.exists()) {
-          matchedStudentDoc = studentPrefixSnap.data();
-          matchedStudentId = studentPrefixSnap.id;
-        }
+      else if (studentPrefixSnap.exists()) {
+        matchedStudentDoc = studentPrefixSnap.data();
+        matchedStudentId = studentPrefixSnap.id;
       }
 
       // If student is found in database, USE EXACT DATABASE DETAILS!

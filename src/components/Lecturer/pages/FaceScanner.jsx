@@ -219,6 +219,8 @@ function FaceScanner({
   const isDetectingRef = useRef(false);
   const matchScoreRef = useRef(0);
   const lastStateUpdateRef = useRef(0);
+  const liveDescriptorRef = useRef(null);
+  const frameCountRef = useRef(0);
 
   useEffect(() => {
     statusRef.current = status;
@@ -262,6 +264,8 @@ function FaceScanner({
     consecutiveMatchesRef.current = 0;
     matchScoreRef.current = 0;
     mismatchFramesRef.current = 0;
+    liveDescriptorRef.current = null;
+    frameCountRef.current = 0;
     setBlinkCount(0);
     setLivenessPassed(false);
     setIsSpoof(false);
@@ -443,10 +447,31 @@ function FaceScanner({
             }
           }
 
-          const detection = await faceapi
-            .detectSingleFace(video, detectorOptions)
-            .withFaceLandmarks()
-            .withFaceDescriptor();
+          // Decouple landmark tracking from heavy ResNet-34 descriptor computation:
+          // TinyFaceDetector + FaceLandmarks is lightweight (~15ms, silky-smooth 60 FPS).
+          // ResNet-34 FaceRecognitionNet (.withFaceDescriptor()) takes ~180-250ms per frame.
+          // Therefore, only compute descriptor on challenge progress/completion OR every 6th frame (~240ms).
+          frameCountRef.current = (frameCountRef.current || 0) + 1;
+          const isChallengeNearComplete = challengeEngineRef.current && (challengeEngineRef.current.isComplete || challengeEngineRef.current.progress >= 50);
+          const shouldComputeDescriptor = isChallengeNearComplete || (frameCountRef.current % 6 === 0) || !liveDescriptorRef.current;
+
+          let detection = null;
+          if (shouldComputeDescriptor) {
+            detection = await faceapi
+              .detectSingleFace(video, detectorOptions)
+              .withFaceLandmarks()
+              .withFaceDescriptor();
+            if (detection?.descriptor) {
+              liveDescriptorRef.current = detection.descriptor;
+            }
+          } else {
+            detection = await faceapi
+              .detectSingleFace(video, detectorOptions)
+              .withFaceLandmarks();
+            if (detection && liveDescriptorRef.current) {
+              detection.descriptor = liveDescriptorRef.current;
+            }
+          }
 
           const ctx = canvas ? canvas.getContext("2d") : null;
           if (ctx && canvas) {
