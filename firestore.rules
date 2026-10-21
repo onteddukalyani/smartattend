@@ -76,10 +76,10 @@ service cloud.firestore {
 
     match /app_updates/{docId} {
       allow read: if true;
-      allow write: if true;
+      allow write: if isAdmin();
       match /{document=**} {
         allow read: if true;
-        allow write: if true;
+        allow write: if isAdmin();
       }
     }
 
@@ -311,11 +311,7 @@ service cloud.firestore {
     match /attendance_sessions/{sessionId} {
       allow read: if isSignedIn();
 
-      allow create: if isSignedIn() && (
-        isStaff() ||
-        request.resource.data.ownerId == request.auth.uid ||
-        (request.auth.token.email != null && request.resource.data.ownerEmail == request.auth.token.email)
-      );
+      allow create: if isSignedIn() && isStaff();
 
       allow delete: if isSignedIn() && (
         isAdmin() ||
@@ -330,8 +326,8 @@ service cloud.firestore {
 
       match /security/{docId} {
         allow read: if isSignedIn() && (
-          isStaff() ||
-          (exists(/databases/$(database)/documents/attendance_sessions/$(sessionId)) && (
+          isAdmin() ||
+          (isLecturer() && exists(/databases/$(database)/documents/attendance_sessions/$(sessionId)) && (
             get(/databases/$(database)/documents/attendance_sessions/$(sessionId)).data.ownerId == request.auth.uid ||
             (request.auth.token.email != null && get(/databases/$(database)/documents/attendance_sessions/$(sessionId)).data.ownerEmail == request.auth.token.email)
           ))
@@ -344,7 +340,13 @@ service cloud.firestore {
           ))
         );
         match /{document=**} {
-          allow read: if isSignedIn() && isStaff();
+          allow read: if isSignedIn() && (
+            isAdmin() ||
+            (isLecturer() && exists(/databases/$(database)/documents/attendance_sessions/$(sessionId)) && (
+              get(/databases/$(database)/documents/attendance_sessions/$(sessionId)).data.ownerId == request.auth.uid ||
+              (request.auth.token.email != null && get(/databases/$(database)/documents/attendance_sessions/$(sessionId)).data.ownerEmail == request.auth.token.email)
+            ))
+          );
           allow write: if false;
         }
       }
@@ -414,19 +416,19 @@ service cloud.firestore {
     // =========================================================================
 
     match /biometric_credentials/{docId} {
-      allow read: if isSignedIn();
+      allow read: if isStaff() || (isSignedIn() && (docId == request.auth.uid || resource.data.studentUid == request.auth.uid));
       allow write: if isStaff();
       match /{document=**} {
-        allow read: if isSignedIn();
+        allow read: if isStaff() || (isSignedIn() && (docId == request.auth.uid || resource.data.studentUid == request.auth.uid));
         allow write: if isStaff();
       }
     }
 
     match /biometric_challenges/{docId} {
-      allow read: if isSignedIn();
+      allow read: if isStaff() || (isSignedIn() && resource.data.studentUid == request.auth.uid);
       allow write: if false;
       match /{document=**} {
-        allow read: if isSignedIn();
+        allow read: if isStaff() || (isSignedIn() && resource.data.studentUid == request.auth.uid);
         allow write: if false;
       }
     }

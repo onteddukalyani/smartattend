@@ -1367,7 +1367,8 @@ function QrScannerApp() {
         setFingerprintVerifying(true);
         setFingerprintError('');
         try {
-            const hardwareBio = await verifyHardwareBiometric(user?.uid, "SmartAttend Classroom Verification");
+            const currentSession = activeSessionId || sessionData?.sessionId || sessionData?.id || (typeof window !== 'undefined' ? (localStorage.getItem('smartattend_kiosk_session_id') || sessionStorage.getItem('smartattend_kiosk_session_id')) : '');
+            const hardwareBio = await verifyHardwareBiometric(user?.uid, "SmartAttend Classroom Verification", currentSession);
             if (!hardwareBio.success) {
                 setFingerprintError(hardwareBio.message || "❌ Hardware fingerprint authentication failed. Please touch the sensor again.");
                 setFingerprintVerifying(false);
@@ -1384,7 +1385,7 @@ function QrScannerApp() {
             setFingerprintError(bioErr.message || "Fingerprint authentication error.");
             setFingerprintVerifying(false);
         }
-    }, [user?.uid]);
+    }, [user?.uid, activeSessionId, sessionData?.sessionId, sessionData?.id]);
 
     // Auto-trigger fingerprint prompt when entering Step 1
     useEffect(() => {

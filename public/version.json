@@ -4,8 +4,8 @@
   "releaseDate": "2026-10-21",
   "minRequiredVersion": "1.0.1",
   "apkUrl": "https://raw.githubusercontent.com/onteddukalyani/smartattend/main/SmartAttend-release.apk",
-  "sha256Checksum": "c5bae6e5875fbb9e43c61c0ea64dc9a13113ed1c65d391f902b8fc43a419f01b",
-  "fileSizeBytes": 15545695,
+  "sha256Checksum": "f4457048da35dfa07df180701c19f36ee9c40cb8827bffc5ee97934ba3950abf",
+  "fileSizeBytes": 15547317,
   "title": "SmartAttend Release (v1.0.1)",
   "releaseNotes": [
     "Official Version 1 Release of SmartAttend",

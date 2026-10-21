@@ -94,23 +94,18 @@ export async function enrollHardwareBiometric(studentUid) {
         if (isAvailable && navigator.credentials && navigator.credentials.create) {
           let options = null;
           let challengeId = "";
-          try {
-            const genFn = httpsCallable(functions, "generateWebAuthnRegistrationOptions");
-            const res = await genFn({
-              rpId: window.location.hostname || "localhost",
-              origin: window.location.origin
-            });
-            if (res.data?.options) {
-              options = res.data.options;
-              challengeId = res.data.challengeId;
-            }
-          } catch (genErr) {
-            console.warn("[BiometricService] Server WebAuthn options notice, using client defaults:", genErr);
+          const genFn = httpsCallable(functions, "generateWebAuthnRegistrationOptions");
+          const res = await genFn({
+            rpId: window.location.hostname || "localhost",
+            origin: window.location.origin
+          });
+          if (!res.data?.options || !res.data?.challengeId) {
+            throw new Error("Server failed to issue authoritative WebAuthn registration challenge.");
           }
+          options = res.data.options;
+          challengeId = res.data.challengeId;
 
-          const challengeBuf = options?.challenge ? base64UrlToBuffer(options.challenge) : new Uint8Array(32);
-          if (!options?.challenge) window.crypto.getRandomValues(challengeBuf);
-
+          const challengeBuf = base64UrlToBuffer(options.challenge);
           const userIdBuf = options?.user?.id
             ? (typeof options.user.id === "string" ? new TextEncoder().encode(options.user.id) : base64UrlToBuffer(options.user.id))
             : new TextEncoder().encode(studentUid || "student");
@@ -133,40 +128,52 @@ export async function enrollHardwareBiometric(studentUid) {
             }
           });
 
-          if (cred && challengeId) {
-            try {
-              const verifyFn = httpsCallable(functions, "verifyWebAuthnRegistration");
-              await verifyFn({
-                challengeId: challengeId,
-                origin: window.location.origin,
-                rpId: window.location.hostname || "localhost",
-                response: {
-                  id: cred.id,
-                  rawId: bufferToBase64Url(cred.rawId),
-                  response: {
-                    attestationObject: bufferToBase64Url(cred.response.attestationObject),
-                    clientDataJSON: bufferToBase64Url(cred.response.clientDataJSON),
-                    transports: typeof cred.response.getTransports === "function" ? cred.response.getTransports() : []
-                  },
-                  type: cred.type
-                }
-              });
-            } catch (verErr) {
-              console.warn("[BiometricService] Server verification of WebAuthn registration notice:", verErr);
-            }
+          if (!cred || !challengeId) {
+            throw new Error("Platform authenticator did not produce a credential.");
           }
 
-          if (cred) {
+          const verifyFn = httpsCallable(functions, "verifyWebAuthnRegistration");
+          const verifyRes = await verifyFn({
+            challengeId: challengeId,
+            origin: window.location.origin,
+            rpId: window.location.hostname || "localhost",
+            response: {
+              id: cred.id,
+              rawId: bufferToBase64Url(cred.rawId),
+              response: {
+                attestationObject: bufferToBase64Url(cred.response.attestationObject),
+                clientDataJSON: bufferToBase64Url(cred.response.clientDataJSON),
+                transports: typeof cred.response.getTransports === "function" ? cred.response.getTransports() : []
+              },
+              type: cred.type
+            }
+          });
+
+          if (verifyRes?.data?.success) {
             return {
               success: true,
               platform: "webauthn",
-              message: "Device hardware biometric / platform authenticator enrolled successfully."
+              message: "Device hardware biometric / platform authenticator enrolled and verified successfully."
             };
+          } else {
+            throw new Error("Server verification of WebAuthn registration failed.");
           }
+        } else {
+          return {
+            success: false,
+            platform: "web",
+            message: "Platform biometric authenticator is not available in this browser. Please use the official SmartAttend app."
+          };
         }
+      } else {
+        return {
+          success: false,
+          platform: "web",
+          message: "WebAuthn biometric credentials not supported in this browser."
+        };
       }
     } catch (webAuthnErr) {
-      console.warn("[BiometricService] WebAuthn enrollment notice:", webAuthnErr);
+      console.error("[BiometricService] WebAuthn enrollment error:", webAuthnErr);
       if (webAuthnErr.name === "NotAllowedError") {
         return {
           success: false,
@@ -174,13 +181,12 @@ export async function enrollHardwareBiometric(studentUid) {
           message: "Biometric sensor prompt was cancelled."
         };
       }
+      return {
+        success: false,
+        platform: "web",
+        message: webAuthnErr.message || "WebAuthn platform authenticator enrollment failed."
+      };
     }
-
-    return {
-      success: true,
-      platform: "web",
-      message: "Web biometric verified. Live facial biometrics will be used for attendance."
-    };
   }
 
   try {
@@ -202,9 +208,9 @@ export async function enrollHardwareBiometric(studentUid) {
     }
 
     // 3. Register public key with Cloud Function
+    const registerFn = httpsCallable(functions, "registerInitialBiometricKey");
     let serverMessage = "Biometric key registered successfully.";
     try {
-      const registerFn = httpsCallable(functions, "registerInitialBiometricKey");
       const regRes = await registerFn({
         publicKeyDerBase64: keyResult.publicKey,
         platform: Capacitor.getPlatform(),
@@ -214,7 +220,6 @@ export async function enrollHardwareBiometric(studentUid) {
         serverMessage = regRes.data.message;
       }
     } catch (regErr) {
-      console.warn("[BiometricService] Cloud function registration notice:", regErr);
       if (
         regErr.code === "already-exists" ||
         regErr.message?.includes("already registered") ||
@@ -222,7 +227,8 @@ export async function enrollHardwareBiometric(studentUid) {
       ) {
         serverMessage = "Hardware biometric key confirmed active on this device.";
       } else {
-        serverMessage = "Hardware biometric enrolled in-app on device successfully.";
+        console.error("[BiometricService] Cloud function registration failed:", regErr);
+        throw new Error(regErr.message || "Failed to register biometric key with server.");
       }
     }
 
@@ -272,9 +278,10 @@ export async function enrollHardwareBiometric(studentUid) {
  * 
  * @param {string} studentUid
  * @param {string} [promptSubtitle]
+ * @param {string} [sessionId]
  * @returns {Promise<{ success: boolean, method: string, hardwareAvailable: boolean, isNative: boolean, proof: Object|null, message: string, error?: string }>}
  */
-export async function verifyHardwareBiometric(studentUid, promptSubtitle = "Confirm attendance with biometrics") {
+export async function verifyHardwareBiometric(studentUid, promptSubtitle = "Confirm attendance with biometrics", sessionId = "") {
   const hw = await isHardwareBiometricAvailable();
 
   // 1. Web Browser Mode: Clean fallback without signature fabrication
@@ -330,37 +337,54 @@ export async function verifyHardwareBiometric(studentUid, promptSubtitle = "Conf
       }
     }
 
-    // 3. Obtain single-use challenge: use pre-warmed challenge (0ms) or fetch with fast 1200ms race
-    let challengeId = "chal_" + Date.now();
-    let challengeText = "";
+    // 3. Obtain authoritative server challenge bound to session and attempt
+    let challengeId = null;
+    let challengeText = null;
 
-    if (prewarmedBiometricChallenge && (Date.now() - prewarmedChallengeTimestamp) < 120000) {
-      challengeId = prewarmedBiometricChallenge.challengeId || challengeId;
-      challengeText = prewarmedBiometricChallenge.challengeText || "";
+    if (
+      prewarmedBiometricChallenge &&
+      (Date.now() - prewarmedChallengeTimestamp) < 120000 &&
+      (!sessionId || !prewarmedBiometricChallenge.sessionId || prewarmedBiometricChallenge.sessionId === sessionId)
+    ) {
+      challengeId = prewarmedBiometricChallenge.challengeId;
+      challengeText = prewarmedBiometricChallenge.challengeText;
       prewarmedBiometricChallenge = null; // consume
     } else {
       try {
         const issueFn = httpsCallable(functions, "issueBiometricChallenge");
         const chalRes = await Promise.race([
-          issueFn({ action: "ATTENDANCE_VERIFICATION" }),
-          new Promise((_, reject) => setTimeout(() => reject(new Error("challenge_timeout")), 1200))
+          issueFn({
+            sessionId: sessionId ? String(sessionId).trim() : null,
+            action: "ATTENDANCE_VERIFICATION"
+          }),
+          new Promise((_, reject) => setTimeout(() => reject(new Error("challenge_timeout")), 2500))
         ]);
-        if (chalRes.data?.challengeText) {
-          challengeId = chalRes.data.challengeId || challengeId;
+        if (chalRes.data?.challengeText && chalRes.data?.challengeId) {
+          challengeId = chalRes.data.challengeId;
           challengeText = chalRes.data.challengeText;
         }
       } catch (chalErr) {
-        console.warn("[BiometricService] Server challenge fetch notice, using secure local challenge:", chalErr);
-        const arr = new Uint8Array(32);
-        window.crypto.getRandomValues(arr);
-        challengeText = Array.from(arr).map(b => b.toString(16).padStart(2, "0")).join("");
+        console.warn("[BiometricService] Server challenge fetch failed:", chalErr);
+        return {
+          success: false,
+          error: "CHALLENGE_UNAVAILABLE",
+          hardwareAvailable: true,
+          isNative: true,
+          proof: null,
+          message: "❌ Unable to obtain server biometric challenge. Please check your connection and try again."
+        };
       }
     }
 
-    if (!challengeText) {
-      const arr = new Uint8Array(32);
-      window.crypto.getRandomValues(arr);
-      challengeText = Array.from(arr).map(b => b.toString(16).padStart(2, "0")).join("");
+    if (!challengeText || !challengeId) {
+      return {
+        success: false,
+        error: "CHALLENGE_UNAVAILABLE",
+        hardwareAvailable: true,
+        isNative: true,
+        proof: null,
+        message: "❌ Server did not issue a valid biometric challenge. Please retry."
+      };
     }
 
     // 4. Prompt native biometric sensor and sign canonical challenge bytes

@@ -187,7 +187,7 @@ test("E2E Integration: Complete 10-Step Attendance Flow Against Live Emulator", 
           slot: slotPre,
           sig: sigPre,
           int: 10,
-          studentLocation: { latitude: 12.971630, longitude: 77.594615, accuracy: 6 }
+          studentLocation: { latitude: 12.971630, longitude: 77.594615, accuracy: 6, timestamp: Date.now() }
         }
       });
     },
@@ -515,7 +515,7 @@ test("E2E Integration: Complete 10-Step Attendance Flow Against Live Emulator", 
     async () => {
       await fns.authorizeQR1.run({
         auth: { uid: LEGACY_UID, token: { email: LEGACY_EMAIL } },
-        data: { sessionId, slot: slotPre, sig: sigPre, int: 10, studentLocation: { latitude: 12.9716, longitude: 77.5946, accuracy: 5 } }
+        data: { sessionId, slot: slotPre, sig: sigPre, int: 10, studentLocation: { latitude: 12.9716, longitude: 77.5946, accuracy: 5, timestamp: Date.now() } }
       });
     },
     (err) => {
@@ -608,7 +608,7 @@ test("E2E Integration: Complete 10-Step Attendance Flow Against Live Emulator", 
   const sig1 = generateDynamicQrToken(sessionId, 1, currentSlot1, 10, qr1Secret);
 
   // A. Proxy attempt from 55m away (outside 10m + 5m = 15m ceiling)
-  const proxyLocation = { latitude: 12.972100, longitude: 77.594600, accuracy: 25 };
+  const proxyLocation = { latitude: 12.972100, longitude: 77.594600, accuracy: 25, timestamp: now };
   await assert.rejects(
     async () => {
       await fns.authorizeQR1.run({
@@ -633,7 +633,7 @@ test("E2E Integration: Complete 10-Step Attendance Flow Against Live Emulator", 
   assert.equal(proxyAuthCheck.exists, false, "Proxy attempt must not create authorization record");
 
   // B. Legitimate student inside classroom (Haversine ~3.8m <= 10m)
-  const legitLocation = { latitude: 12.971630, longitude: 77.594615, accuracy: 6 };
+  const legitLocation = { latitude: 12.971630, longitude: 77.594615, accuracy: 6, timestamp: now };
   const auth1Res = await fns.authorizeQR1.run({
     auth: { uid: STUDENT_UID, token: { email: STUDENT_EMAIL } },
     data: {
@@ -1082,60 +1082,61 @@ test("E2E Integration: Complete 10-Step Attendance Flow Against Live Emulator", 
   console.log("--> Step 13: Verifying production evaluateServerGeofence boundary points and formula...");
   const C_LAT = 12.9716;
   const C_LON = 77.5946;
+  const step13Now = Date.now();
   const step13ClassroomLoc = { latitude: C_LAT, longitude: C_LON, accuracy: 5 };
 
   // 13a. Accuracy = 8m (discount 4m -> max raw dist = 14.0m):
   // 13.9m raw dist, 8m accuracy -> effective 9.9m <= 10m -> PASS
-  const res13_9 = fns.evaluateServerGeofence({ latitude: C_LAT + 0.00012501, longitude: C_LON, accuracy: 8 }, step13ClassroomLoc, 10);
+  const res13_9 = fns.evaluateServerGeofence({ latitude: C_LAT + 0.00012501, longitude: C_LON, accuracy: 8, timestamp: step13Now }, step13ClassroomLoc, 10, step13Now);
   assert.equal(res13_9.status, "PASS");
   assert.equal(res13_9.distance, 13.9);
   assert.equal(res13_9.effectiveDistance, 9.9);
 
   // 14.0m raw dist, 8m accuracy -> effective 10.0m <= 10m -> PASS
-  const res14_0 = fns.evaluateServerGeofence({ latitude: C_LAT + 0.00012591, longitude: C_LON, accuracy: 8 }, step13ClassroomLoc, 10);
+  const res14_0 = fns.evaluateServerGeofence({ latitude: C_LAT + 0.00012591, longitude: C_LON, accuracy: 8, timestamp: step13Now }, step13ClassroomLoc, 10, step13Now);
   assert.equal(res14_0.status, "PASS");
   assert.equal(res14_0.distance, 14.0);
   assert.equal(res14_0.effectiveDistance, 10.0);
 
   // 14.1m raw dist, 8m accuracy -> effective 10.1m > 10m -> REJECT
-  const res14_1 = fns.evaluateServerGeofence({ latitude: C_LAT + 0.00012680, longitude: C_LON, accuracy: 8 }, step13ClassroomLoc, 10);
+  const res14_1 = fns.evaluateServerGeofence({ latitude: C_LAT + 0.00012680, longitude: C_LON, accuracy: 8, timestamp: step13Now }, step13ClassroomLoc, 10, step13Now);
   assert.equal(res14_1.status, "REJECT");
   assert.equal(res14_1.distance, 14.1);
   assert.equal(res14_1.effectiveDistance, 10.1);
 
   // 16.7m raw dist, 8m accuracy -> effective 12.7m > 10m -> REJECT
   // Reconciles formula: rawDist - min(accuracy/2, 5) gives 12.7m (REJECT), not 8.7m
-  const res16_7 = fns.evaluateServerGeofence({ latitude: C_LAT + 0.00015019, longitude: C_LON, accuracy: 8 }, step13ClassroomLoc, 10);
+  const res16_7 = fns.evaluateServerGeofence({ latitude: C_LAT + 0.00015019, longitude: C_LON, accuracy: 8, timestamp: step13Now }, step13ClassroomLoc, 10, step13Now);
   assert.equal(res16_7.status, "REJECT");
   assert.equal(res16_7.distance, 16.7);
   assert.equal(res16_7.effectiveDistance, 12.7);
 
   // 13b. Accuracy = 10m (discount capped at 5.0m -> max raw dist = 15.0m):
   // 14.9m raw dist, 10m accuracy -> effective 9.9m <= 10m -> PASS
-  const res14_9 = fns.evaluateServerGeofence({ latitude: C_LAT + 0.00013400, longitude: C_LON, accuracy: 10 }, step13ClassroomLoc, 10);
+  const res14_9 = fns.evaluateServerGeofence({ latitude: C_LAT + 0.00013400, longitude: C_LON, accuracy: 10, timestamp: step13Now }, step13ClassroomLoc, 10, step13Now);
   assert.equal(res14_9.status, "PASS");
   assert.equal(res14_9.distance, 14.9);
   assert.equal(res14_9.effectiveDistance, 9.9);
 
   // 15.0m raw dist, 10m accuracy -> effective 10.0m <= 10m -> PASS
-  const res15_0 = fns.evaluateServerGeofence({ latitude: C_LAT + 0.00013490, longitude: C_LON, accuracy: 10 }, step13ClassroomLoc, 10);
+  const res15_0 = fns.evaluateServerGeofence({ latitude: C_LAT + 0.00013490, longitude: C_LON, accuracy: 10, timestamp: step13Now }, step13ClassroomLoc, 10, step13Now);
   assert.equal(res15_0.status, "PASS");
   assert.equal(res15_0.distance, 15.0);
   assert.equal(res15_0.effectiveDistance, 10.0);
 
   // 15.1m raw dist, 10m accuracy -> effective 10.1m > 10m -> REJECT
-  const res15_1 = fns.evaluateServerGeofence({ latitude: C_LAT + 0.00013580, longitude: C_LON, accuracy: 10 }, step13ClassroomLoc, 10);
+  const res15_1 = fns.evaluateServerGeofence({ latitude: C_LAT + 0.00013580, longitude: C_LON, accuracy: 10, timestamp: step13Now }, step13ClassroomLoc, 10, step13Now);
   assert.equal(res15_1.status, "REJECT");
   assert.equal(res15_1.distance, 15.1);
   assert.equal(res15_1.effectiveDistance, 10.1);
 
   // 13c. Degraded accuracy (> 45m) -> INCONCLUSIVE
-  assert.equal(fns.evaluateServerGeofence({ latitude: C_LAT, longitude: C_LON, accuracy: 46 }, step13ClassroomLoc, 10).status, "INCONCLUSIVE");
-  assert.equal(fns.evaluateServerGeofence({ latitude: C_LAT, longitude: C_LON, accuracy: 60 }, step13ClassroomLoc, 10).status, "INCONCLUSIVE");
+  assert.equal(fns.evaluateServerGeofence({ latitude: C_LAT, longitude: C_LON, accuracy: 46, timestamp: step13Now }, step13ClassroomLoc, 10, step13Now).status, "INCONCLUSIVE");
+  assert.equal(fns.evaluateServerGeofence({ latitude: C_LAT, longitude: C_LON, accuracy: 60, timestamp: step13Now }, step13ClassroomLoc, 10, step13Now).status, "INCONCLUSIVE");
 
   // 13d. Invalid coordinates -> LOCATION_UNAVAILABLE
-  assert.equal(fns.evaluateServerGeofence(null, step13ClassroomLoc, 10).status, "LOCATION_UNAVAILABLE");
-  assert.equal(fns.evaluateServerGeofence({ latitude: NaN, longitude: C_LON }, step13ClassroomLoc, 10).status, "LOCATION_UNAVAILABLE");
+  assert.equal(fns.evaluateServerGeofence(null, step13ClassroomLoc, 10, step13Now).status, "LOCATION_UNAVAILABLE");
+  assert.equal(fns.evaluateServerGeofence({ latitude: NaN, longitude: C_LON, timestamp: step13Now }, step13ClassroomLoc, 10, step13Now).status, "LOCATION_UNAVAILABLE");
 
   // --------------------------------------------------------------------------
   // STEP 14: Direct Authoritative Dynamic QR 12-Interval Boundary Verification

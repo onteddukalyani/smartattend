@@ -52,42 +52,116 @@ function calculateHaversineDistance(lat1, lon1, lat2, lon2) {
 }
 
 /**
+/**
  * Utility: Authoritatively evaluate student GPS location against session classroom geofence.
- * Rejects mock/spoofed GPS and out-of-radius coordinates.
+ * Rejects mock/spoofed GPS, missing/stale timestamps, low accuracy, and out-of-radius coordinates.
+ * 
+ * SECURITY BOUNDARY NOTE:
+ * Client coordinates, timestamps, and mock-location flags are provided by client device APIs
+ * and can be forged on rooted devices with mock-location masking tools. Therefore, geofencing
+ * serves as a layered defense-in-depth barrier combined with dynamic rotating QR codes (10s
+ * rotation on classroom projector) and platform binding, rather than hardware-level location attestation.
  */
-function evaluateServerGeofence(studentCoords, classroomCoords, radiusMetres) {
+function evaluateServerGeofence(studentCoords, classroomCoords, radiusMetres, serverNowMs = Date.now()) {
   const radius = typeof radiusMetres === "number" ? radiusMetres : 10;
-  if (!classroomCoords || radius === 0) {
+  // Geofencing is optional ONLY when explicitly disabled by setting radius to 0
+  if (radius === 0) {
     return { status: "PASS", geofenceEnforced: false, distance: 0, radius: 0 };
+  }
+
+  // When geofencing is enabled (radius > 0), classroom coordinates MUST be present
+  if (!classroomCoords) {
+    return {
+      status: "INVALID_CLASSROOM_LOCATION",
+      geofenceEnforced: true,
+      distance: 0,
+      radius,
+      message: "Classroom coordinates not configured for this session. Geofence verification required."
+    };
   }
 
   const cLat = Number(classroomCoords.latitude ?? classroomCoords.lat);
   const cLon = Number(classroomCoords.longitude ?? classroomCoords.lng ?? classroomCoords.lon);
   if (!Number.isFinite(cLat) || !Number.isFinite(cLon)) {
-    return { status: "PASS", geofenceEnforced: false, distance: 0, radius: 0 };
+    return {
+      status: "INVALID_CLASSROOM_LOCATION",
+      geofenceEnforced: true,
+      distance: 0,
+      radius,
+      message: "Classroom coordinates are invalid or uncalibrated. Geofence verification failed."
+    };
   }
 
   if (!studentCoords) {
-    return { status: "LOCATION_UNAVAILABLE", geofenceEnforced: true, radius: radius, message: "GPS coordinates not provided." };
+    return {
+      status: "LOCATION_UNAVAILABLE",
+      geofenceEnforced: true,
+      radius,
+      message: "GPS coordinates not provided. Real-time classroom presence verification required."
+    };
   }
 
   const sLat = Number(studentCoords.latitude ?? studentCoords.lat);
   const sLon = Number(studentCoords.longitude ?? studentCoords.lng ?? studentCoords.lon);
   if (!Number.isFinite(sLat) || !Number.isFinite(sLon)) {
-    return { status: "LOCATION_UNAVAILABLE", geofenceEnforced: true, radius: radius, message: "GPS coordinates not provided or invalid." };
+    return {
+      status: "LOCATION_UNAVAILABLE",
+      geofenceEnforced: true,
+      radius,
+      message: "GPS coordinates not provided or invalid. Real-time satellite fix required."
+    };
   }
 
   if (studentCoords.isMock || studentCoords.mocked || studentCoords.isMockLocation) {
-    return { status: "MOCK_DETECTED", geofenceEnforced: true, radius: radius, message: "Mock GPS detected." };
+    return {
+      status: "MOCK_DETECTED",
+      geofenceEnforced: true,
+      radius,
+      message: "Mock GPS / location spoofing detected on client device."
+    };
+  }
+
+  // Mandatory Location Timestamp Freshness Check
+  const studentTimestamp = Number(studentCoords.timestamp);
+  if (!Number.isFinite(studentTimestamp) || studentTimestamp <= 0) {
+    return {
+      status: "STALE_LOCATION",
+      geofenceEnforced: true,
+      radius,
+      message: "Location timestamp is missing or invalid. Fresh live satellite fix required."
+    };
+  }
+  const serverNow = Number(serverNowMs) || Date.now();
+  const locationAgeMs = serverNow - studentTimestamp;
+  if (locationAgeMs > 90000) { // Older than 90 seconds
+    return {
+      status: "STALE_LOCATION",
+      geofenceEnforced: true,
+      radius,
+      message: `Location data is stale (captured ${Math.round(locationAgeMs / 1000)}s ago). Fresh location fix required.`
+    };
+  }
+  if (locationAgeMs < -15000) { // Future by > 15s
+    return {
+      status: "INVALID_TIMESTAMP",
+      geofenceEnforced: true,
+      radius,
+      message: "Location timestamp desynchronized with server time."
+    };
   }
 
   const rawDist = calculateHaversineDistance(sLat, sLon, cLat, cLon);
   if (!Number.isFinite(rawDist)) {
-    return { status: "PASS", geofenceEnforced: false, distance: 0, radius: 0 };
+    return {
+      status: "LOCATION_UNAVAILABLE",
+      geofenceEnforced: true,
+      distance: 0,
+      radius,
+      message: "Unable to calculate classroom distance from provided coordinates."
+    };
   }
 
   const accuracy = Math.max(0, Math.round(Number(studentCoords.accuracy) || 0));
-  const rawHostAccuracy = Math.round(Number(classroomCoords.accuracy) || 0);
 
   // Reject if GPS accuracy is excessively degraded (> 45m). Cannot verify 10m classroom presence with degraded satellite fix.
   if (accuracy > 45) {
@@ -204,8 +278,14 @@ function verifyDynamicQrToken(
       throw new HttpsError("deadline-exceeded", "deadline-exceeded: QR code has expired. Please scan the current live QR code.");
     }
   }
+  if (!sig || typeof sig !== "string" || !sig.trim()) {
+    throw new HttpsError("permission-denied", "permission-denied: Missing required cryptographic QR token signature.");
+  }
   const expectedSig = generateDynamicQrToken(sessionId, phase, slot, interval, secret);
-  if (sig && sig !== expectedSig) {
+  const cleanSig = sig.trim();
+  const sigBuf = Buffer.from(cleanSig, "utf8");
+  const expBuf = Buffer.from(expectedSig, "utf8");
+  if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) {
     throw new HttpsError("permission-denied", "permission-denied: Invalid QR token signature.");
   }
   return true;
@@ -1165,10 +1245,10 @@ exports.initiateAttendanceSession = onCall({ cors: true }, async (request) => {
     kioskEndsAt: Timestamp.fromMillis(kioskEndsMs)
   };
 
-  await Promise.all([
-    sessionRef.set(sessionDoc),
-    sessionRef.collection("security").doc("tokens").set(securityDoc)
-  ]);
+  const sessionBatch = db.batch();
+  sessionBatch.set(sessionRef, sessionDoc);
+  sessionBatch.set(sessionRef.collection("security").doc("tokens"), securityDoc);
+  await sessionBatch.commit();
 
   return {
     success: true,
@@ -1265,13 +1345,13 @@ exports.authorizeQR1 = onCall(async (request) => {
   // 3b. Server-Side Geofence Verification (if enabled by lecturer)
   const classroomLoc = session.classroomLocation;
   const radius = typeof session.geofenceRadius === "number" ? session.geofenceRadius : 10;
-  if (classroomLoc && classroomLoc.latitude != null && classroomLoc.longitude != null && radius > 0) {
-    const geoResult = evaluateServerGeofence(studentLocation, classroomLoc, radius);
-    if (geoResult.status === "MOCK_DETECTED") {
-      throw new HttpsError("permission-denied", "🚨 Anti-Proxy Violation: Mock / Spoofed GPS detected. Attendance check-in rejected.");
-    }
-    if (geoResult.status === "REJECT") {
-      throw new HttpsError("permission-denied", `❌ Geofence Violation: You are outside the classroom (${geoResult.distance}m > ${radius}m). Attendance check-in rejected.`);
+  if (radius > 0) {
+    const geoResult = evaluateServerGeofence(studentLocation, classroomLoc, radius, serverNow);
+    if (geoResult.geofenceEnforced && geoResult.status !== "PASS") {
+      throw new HttpsError(
+        "permission-denied",
+        geoResult.message || `❌ Geofence Violation: Location check failed (${geoResult.status}). Attendance check-in rejected.`
+      );
     }
   }
 
@@ -1283,11 +1363,10 @@ exports.authorizeQR1 = onCall(async (request) => {
   const studentDocSnap = await db.collection("students").doc(rollNo).get();
   const studentDoc = studentDocSnap.exists ? studentDocSnap.data() : null;
 
-  // Authoritative field: registeredPlatform, with fallback to studentDoc.deviceType or client profile deviceType
-  const rawBoundPlatform = studentDoc?.registeredPlatform || studentDoc?.deviceType || studentProfile?.deviceType || (data?.deviceType ? String(data.deviceType).toLowerCase() : null);
-  const boundPlatform = rawBoundPlatform ? String(rawBoundPlatform).toLowerCase().trim() : null;
+  // Authoritative field: registeredPlatform. Legacy/stale deviceType cannot bypass fail-closed check.
+  const boundPlatform = studentDoc?.registeredPlatform;
 
-  if (!boundPlatform || (boundPlatform !== "android" && boundPlatform !== "ios" && boundPlatform !== "web")) {
+  if (!boundPlatform || (boundPlatform !== "android" && boundPlatform !== "ios")) {
     throw new HttpsError(
       "failed-precondition",
       "Device platform onboarding incomplete. Your account has not been bound to an authorized device (Android or iOS). Please complete device setup before checking in."
@@ -1873,8 +1952,16 @@ exports.submitAttendance = onCall(async (request) => {
     }
     const MAX_FACE_MATCH_THRESHOLD = 0.52; // ResNet-34 face match threshold
 
-    // Verify optical liveness evidence: client must confirm real-time active camera presence
-    if (biometricData?.liveness === false) {
+    // Verify optical presence signal from client-side vision pipeline:
+    // ARCHITECTURAL SECURITY CONTRACT:
+    // Client-side optical liveness detection (blink detection and landmark motion variance via face-api.js)
+    // acts as a supplementary client-side heuristic. In the absence of specialized 3D depth hardware
+    // (such as Apple TrueDepth IR cameras) or server-side video stream challenge analysis, client-supplied
+    // boolean flags cannot be cryptographically proven by the backend.
+    // Genuine cryptographic student & device verification is provided separately via hardware-backed
+    // keystore challenges (biometric_challenges/{challengeId}) and authoritative face vector comparison.
+    const isAntiSpoofPassed = biometricData?.antiSpoof === "PASSED" || biometricData?.antiSpoofScore === "PASSED" || biometricData?.antiSpoof === undefined;
+    if (!biometricData || biometricData.liveness !== true || !isAntiSpoofPassed || biometricData.antiSpoof === "FAILED") {
       throw new HttpsError("permission-denied", "Face liveness verification failed. Active optical presence required.");
     }
 
@@ -2329,10 +2416,11 @@ exports.releaseIndividualDevice = onCall(async (request) => {
   if (sessionPin && securitySnap.exists) {
     const security = securitySnap.data();
     const cleanPin = String(sessionPin).trim();
-    const inputSaltedHash = hashToken(`${sessionId}:${cleanPin}`);
+    const pinSalt = security.pinSalt;
+    const inputSaltedHash = pinSalt ? hashToken(`${pinSalt}:${cleanPin}`) : hashToken(`${sessionId}:${cleanPin}`);
     const inputHash = hashToken(cleanPin);
     const isMatch = (
-      (security.saltedReleaseCodeHash && inputSaltedHash === security.saltedReleaseCodeHash) ||
+      (security.saltedReleaseCodeHash && (inputSaltedHash === security.saltedReleaseCodeHash || hashToken(`${sessionId}:${cleanPin}`) === security.saltedReleaseCodeHash)) ||
       (inputHash === security.sessionPinHash || inputHash === security.lecturerReleaseCodeHash) ||
       (cleanPin === security.sessionPin || cleanPin === security.lecturerPin)
     );

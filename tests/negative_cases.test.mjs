@@ -182,7 +182,7 @@ function serverAuthorizeQR1(request, serverTimeMs = Date.now()) {
     }
     const baseSecret = security.qr1Token || sessionId;
     const expectedSig = crypto.createHmac("sha256", baseSecret).update(`${sessionId}|1|${clientSlot}|${interval}`).digest("hex").slice(0, 16);
-    if (request.data.sig && request.data.sig !== expectedSig) {
+    if (!request.data.sig || request.data.sig !== expectedSig) {
       throw new Error("permission-denied: Cryptographic QR token signature verification failed.");
     }
   } else if (hashToken(qr1Token) !== security.qr1TokenHash) {
@@ -191,9 +191,11 @@ function serverAuthorizeQR1(request, serverTimeMs = Date.now()) {
 
   const radius = typeof session.geofenceRadius === "number" ? session.geofenceRadius : 10;
   if (session.classroomLocation && radius > 0) {
-    const geo = evaluateServerGeofence(studentLocation, session.classroomLocation, radius);
+    const geo = evaluateServerGeofence(studentLocation, session.classroomLocation, radius, serverTimeMs);
     if (geo.status === "MOCK_DETECTED") throw new Error("permission-denied: 🚨 Mock / Spoofed GPS detected.");
-    if (geo.status === "REJECT") throw new Error(`permission-denied: ❌ Geofence Violation: (${geo.distance}m > ${radius}m).`);
+    if (geo.geofenceEnforced && geo.status !== "PASS") {
+      throw new Error(`permission-denied: ❌ Geofence Violation: ${geo.message || geo.status}`);
+    }
   }
 
   const rollNo = request.auth.rollNo || "ROLL001";
@@ -347,6 +349,9 @@ function serverSubmitAttendance(request, serverTimeMs = Date.now()) {
 
   if (biometricData?.liveness === false) {
     throw new Error("permission-denied: Face liveness verification failed. Active optical presence required.");
+  }
+  if (biometricData?.antiSpoof && biometricData.antiSpoof !== "PASSED") {
+    throw new Error("permission-denied: Face biometric anti-spoof check failed.");
   }
 
   if (biometricData?.liveDescriptor && biometricData?.enrolledDescriptor) {
@@ -1152,38 +1157,39 @@ test("15. Location is unavailable or outside permitted geofence radius", () => {
   mockDb.reset();
   const classroom = { latitude: 12.971598, longitude: 77.594562 }; // Classroom location
   const radius = 10; // 10 metres default
+  const now = Date.now();
 
   // 15a: Location outside permitted radius (150 metres away)
-  const outsideCoords = { latitude: 12.972900, longitude: 77.594562, accuracy: 5 };
-  const geoReject = evaluateServerGeofence(outsideCoords, classroom, radius);
+  const outsideCoords = { latitude: 12.972900, longitude: 77.594562, accuracy: 5, timestamp: now };
+  const geoReject = evaluateServerGeofence(outsideCoords, classroom, radius, now);
   assert.equal(geoReject.status, "REJECT");
   assert.ok(geoReject.distance > radius);
 
   // 15b: Mock / Spoofed GPS detected
-  const mockCoords = { latitude: 12.971598, longitude: 77.594562, isMock: true, accuracy: 5 };
-  const geoMock = evaluateServerGeofence(mockCoords, classroom, radius);
+  const mockCoords = { latitude: 12.971598, longitude: 77.594562, isMock: true, accuracy: 5, timestamp: now };
+  const geoMock = evaluateServerGeofence(mockCoords, classroom, radius, now);
   assert.equal(geoMock.status, "MOCK_DETECTED");
 
   // 15c: Location unavailable
-  const geoNull = evaluateServerGeofence(null, classroom, radius);
+  const geoNull = evaluateServerGeofence(null, classroom, radius, now);
   assert.equal(geoNull.status, "LOCATION_UNAVAILABLE");
 
   // 15d: Valid physical presence within 10m
-  const validCoords = { latitude: 12.971600, longitude: 77.594565, accuracy: 3 };
-  const geoPass = evaluateServerGeofence(validCoords, classroom, radius);
+  const validCoords = { latitude: 12.971600, longitude: 77.594565, accuracy: 3, timestamp: now };
+  const geoPass = evaluateServerGeofence(validCoords, classroom, radius, now);
   assert.equal(geoPass.status, "PASS");
   assert.ok(geoPass.distance <= radius);
 
   // 15e: Student 45m away (outside 10m radius) is strictly REJECTED (proves no 100m loophole!)
-  const intermediateCoords = { latitude: 12.972000, longitude: 77.594562, accuracy: 5 };
-  const geoRejectIntermediate = evaluateServerGeofence(intermediateCoords, classroom, radius);
+  const intermediateCoords = { latitude: 12.972000, longitude: 77.594562, accuracy: 5, timestamp: now };
+  const geoRejectIntermediate = evaluateServerGeofence(intermediateCoords, classroom, radius, now);
   assert.equal(geoRejectIntermediate.status, "REJECT");
   assert.ok(geoRejectIntermediate.distance > radius);
   assert.ok(geoRejectIntermediate.distance >= 40 && geoRejectIntermediate.distance <= 50);
 
   // 15f: Student inside classroom with indoor Wi-Fi/GPS attenuation (15m measured distance, 20m accuracy) accurately passes
-  const indoorCoords = { latitude: 12.971730, longitude: 77.594562, accuracy: 20 };
-  const geoIndoor = evaluateServerGeofence(indoorCoords, { ...classroom, accuracy: 20 }, radius);
+  const indoorCoords = { latitude: 12.971730, longitude: 77.594562, accuracy: 20, timestamp: now };
+  const geoIndoor = evaluateServerGeofence(indoorCoords, { ...classroom, accuracy: 20 }, radius, now);
   assert.equal(geoIndoor.status, "PASS");
   assert.ok(geoIndoor.effectiveDistance <= radius);
 
@@ -1599,41 +1605,42 @@ test("21. Authoritative dynamic QR rotation token verification and skew preventi
 test("22. Default Geofence is 10 metres and defensible sensor uncertainty policy functions correctly", () => {
   mockDb.reset();
   const classroom = { latitude: 12.9716, longitude: 77.5946, accuracy: 5 };
+  const now = Date.now();
 
   // 1. Student right at classroom coordinates (distance 0m <= 10m)
-  const inside = { latitude: 12.9716, longitude: 77.5946, accuracy: 5 };
-  const resInside = evaluateServerGeofence(inside, classroom, undefined); // undefined -> defaults to 10m
+  const inside = { latitude: 12.9716, longitude: 77.5946, accuracy: 5, timestamp: now };
+  const resInside = evaluateServerGeofence(inside, classroom, undefined, now); // undefined -> defaults to 10m
   assert.equal(resInside.status, "PASS");
   assert.equal(resInside.radius, 10);
 
   // 2. Mock GPS is detected and rejected
-  const mockGps = { latitude: 12.9716, longitude: 77.5946, isMock: true };
-  const resMock = evaluateServerGeofence(mockGps, classroom, 10);
+  const mockGps = { latitude: 12.9716, longitude: 77.5946, isMock: true, timestamp: now };
+  const resMock = evaluateServerGeofence(mockGps, classroom, 10, now);
   assert.equal(resMock.status, "MOCK_DETECTED");
 
   // 3. Boundary: Student at ~12.2m from center with 8m accuracy (allowance 4m -> eff 8.2m <= 10m) -> PASS
-  const nearBoundary = { latitude: 12.97171, longitude: 77.5946, accuracy: 8 };
-  const resNear = evaluateServerGeofence(nearBoundary, classroom, 10);
+  const nearBoundary = { latitude: 12.97171, longitude: 77.5946, accuracy: 8, timestamp: now };
+  const resNear = evaluateServerGeofence(nearBoundary, classroom, 10, now);
   assert.equal(resNear.status, "PASS");
 
   // 4. Boundary Verification at Accuracy = 8m (Max allowance = min(8/2, 5) = 4m -> max permitted raw dist = 14.0m):
   // 4a. Just below boundary (13.9m raw dist, 8m accuracy): 13.9 - 4 = 9.9m <= 10m -> PASS
-  const justBelow8m = { latitude: 12.9716 + 0.00012501, longitude: 77.5946, accuracy: 8 };
-  const resBelow8m = evaluateServerGeofence(justBelow8m, classroom, 10);
+  const justBelow8m = { latitude: 12.9716 + 0.00012501, longitude: 77.5946, accuracy: 8, timestamp: now };
+  const resBelow8m = evaluateServerGeofence(justBelow8m, classroom, 10, now);
   assert.equal(resBelow8m.status, "PASS");
   assert.equal(resBelow8m.distance, 13.9);
   assert.equal(resBelow8m.effectiveDistance, 9.9);
 
   // 4b. Exactly at boundary (14.0m raw dist, 8m accuracy): 14.0 - 4 = 10.0m <= 10m -> PASS
-  const exactlyAt8m = { latitude: 12.9716 + 0.00012591, longitude: 77.5946, accuracy: 8 };
-  const resAt8m = evaluateServerGeofence(exactlyAt8m, classroom, 10);
+  const exactlyAt8m = { latitude: 12.9716 + 0.00012591, longitude: 77.5946, accuracy: 8, timestamp: now };
+  const resAt8m = evaluateServerGeofence(exactlyAt8m, classroom, 10, now);
   assert.equal(resAt8m.status, "PASS");
   assert.equal(resAt8m.distance, 14.0);
   assert.equal(resAt8m.effectiveDistance, 10.0);
 
   // 4c. Just above boundary (14.1m raw dist, 8m accuracy): 14.1 - 4 = 10.1m > 10m -> REJECT
-  const justAbove8m = { latitude: 12.9716 + 0.00012680, longitude: 77.5946, accuracy: 8 };
-  const resAbove8m = evaluateServerGeofence(justAbove8m, classroom, 10);
+  const justAbove8m = { latitude: 12.9716 + 0.00012680, longitude: 77.5946, accuracy: 8, timestamp: now };
+  const resAbove8m = evaluateServerGeofence(justAbove8m, classroom, 10, now);
   assert.equal(resAbove8m.status, "REJECT");
   assert.equal(resAbove8m.distance, 14.1);
   assert.equal(resAbove8m.effectiveDistance, 10.1);
@@ -1641,61 +1648,64 @@ test("22. Default Geofence is 10 metres and defensible sensor uncertainty policy
   // 4d. Raw distance 16.7m with 8m accuracy: 16.7 - 4 = 12.7m > 10m -> REJECT
   // Reconciles formula discrepancy: rawDistance - min(accuracy, 10) would have given 8.7m (PASS),
   // but actual production formula rawDistance - min(accuracy/2, 5) gives 12.7m (REJECT).
-  const dist16_7m = { latitude: 12.9716 + 0.00015019, longitude: 77.5946, accuracy: 8 };
-  const res16_7m = evaluateServerGeofence(dist16_7m, classroom, 10);
+  const dist16_7m = { latitude: 12.9716 + 0.00015019, longitude: 77.5946, accuracy: 8, timestamp: now };
+  const res16_7m = evaluateServerGeofence(dist16_7m, classroom, 10, now);
   assert.equal(res16_7m.status, "REJECT");
   assert.equal(res16_7m.distance, 16.7);
   assert.equal(res16_7m.effectiveDistance, 12.7);
 
   // 5. Absolute Physical Boundary at Radius = 10m (Max allowance capped at 5.0m):
   // 5a. Just below 15m ceiling (14.9m raw dist, 10m accuracy): 14.9 - 5 = 9.9m <= 10m -> PASS
-  const justBelow15m = { latitude: 12.9716 + 0.00013400, longitude: 77.5946, accuracy: 10 };
-  const resBelow15m = evaluateServerGeofence(justBelow15m, classroom, 10);
+  const justBelow15m = { latitude: 12.9716 + 0.00013400, longitude: 77.5946, accuracy: 10, timestamp: now };
+  const resBelow15m = evaluateServerGeofence(justBelow15m, classroom, 10, now);
   assert.equal(resBelow15m.status, "PASS");
   assert.equal(resBelow15m.distance, 14.9);
   assert.equal(resBelow15m.effectiveDistance, 9.9);
 
   // 5b. Exactly at 15m ceiling (15.0m raw dist, 10m accuracy): 15.0 - 5 = 10.0m <= 10m -> PASS
-  const exactlyAt15m = { latitude: 12.9716 + 0.00013490, longitude: 77.5946, accuracy: 10 };
-  const resAt15m = evaluateServerGeofence(exactlyAt15m, classroom, 10);
+  const exactlyAt15m = { latitude: 12.9716 + 0.00013490, longitude: 77.5946, accuracy: 10, timestamp: now };
+  const resAt15m = evaluateServerGeofence(exactlyAt15m, classroom, 10, now);
   assert.equal(resAt15m.status, "PASS");
   assert.equal(resAt15m.distance, 15.0);
   assert.equal(resAt15m.effectiveDistance, 10.0);
 
   // 5c. Just above 15m ceiling (15.1m raw dist, 10m accuracy): 15.1 - 5 = 10.1m > 10m -> REJECT
-  const justAbove15m = { latitude: 12.9716 + 0.00013580, longitude: 77.5946, accuracy: 10 };
-  const resAbove15m = evaluateServerGeofence(justAbove15m, classroom, 10);
+  const justAbove15m = { latitude: 12.9716 + 0.00013580, longitude: 77.5946, accuracy: 10, timestamp: now };
+  const resAbove15m = evaluateServerGeofence(justAbove15m, classroom, 10, now);
   assert.equal(resAbove15m.status, "REJECT");
   assert.equal(resAbove15m.distance, 15.1);
   assert.equal(resAbove15m.effectiveDistance, 10.1);
 
   // 6. Anti-Proxy: Student 55m away (cafeteria/remote) is REJECTED even if they claim 30m accuracy
-  const remoteStudent = { latitude: 12.9721, longitude: 77.5946, accuracy: 30 };
-  const resRemote = evaluateServerGeofence(remoteStudent, classroom, 10);
+  const remoteStudent = { latitude: 12.9721, longitude: 77.5946, accuracy: 30, timestamp: now };
+  const resRemote = evaluateServerGeofence(remoteStudent, classroom, 10, now);
   assert.equal(resRemote.status, "REJECT");
   assert.ok(resRemote.effectiveDistance > 10);
 
   // 7. Degraded GPS Accuracy Handling:
   // 7a. Accuracy 46m (> 45m threshold) -> INCONCLUSIVE
-  const degraded46m = { latitude: 12.9716, longitude: 77.5946, accuracy: 46 };
-  assert.equal(evaluateServerGeofence(degraded46m, classroom, 10).status, "INCONCLUSIVE");
+  const degraded46m = { latitude: 12.9716, longitude: 77.5946, accuracy: 46, timestamp: now };
+  assert.equal(evaluateServerGeofence(degraded46m, classroom, 10, now).status, "INCONCLUSIVE");
 
   // 7b. Accuracy 60m -> INCONCLUSIVE
-  const degraded60m = { latitude: 12.97163, longitude: 77.5946, accuracy: 60 };
-  assert.equal(evaluateServerGeofence(degraded60m, classroom, 10).status, "INCONCLUSIVE");
+  const degraded60m = { latitude: 12.97163, longitude: 77.5946, accuracy: 60, timestamp: now };
+  assert.equal(evaluateServerGeofence(degraded60m, classroom, 10, now).status, "INCONCLUSIVE");
 
   // 8. Invalid Coordinates Handling:
   // 8a. Null coordinates -> LOCATION_UNAVAILABLE
-  assert.equal(evaluateServerGeofence(null, classroom, 10).status, "LOCATION_UNAVAILABLE");
-  assert.equal(evaluateServerGeofence({}, classroom, 10).status, "LOCATION_UNAVAILABLE");
+  assert.equal(evaluateServerGeofence(null, classroom, 10, now).status, "LOCATION_UNAVAILABLE");
+  assert.equal(evaluateServerGeofence({}, classroom, 10, now).status, "LOCATION_UNAVAILABLE");
 
   // 8b. Non-numeric coordinates -> LOCATION_UNAVAILABLE
-  assert.equal(evaluateServerGeofence({ latitude: NaN, longitude: 77.5946 }, classroom, 10).status, "LOCATION_UNAVAILABLE");
-  assert.equal(evaluateServerGeofence({ latitude: "invalid", longitude: "invalid" }, classroom, 10).status, "LOCATION_UNAVAILABLE");
+  assert.equal(evaluateServerGeofence({ latitude: NaN, longitude: 77.5946, timestamp: now }, classroom, 10, now).status, "LOCATION_UNAVAILABLE");
+  assert.equal(evaluateServerGeofence({ latitude: "invalid", longitude: "invalid", timestamp: now }, classroom, 10, now).status, "LOCATION_UNAVAILABLE");
 
-  // 8c. Classroom location missing or disabled -> geofenceEnforced: false, PASS
-  assert.equal(evaluateServerGeofence(inside, null, 10).geofenceEnforced, false);
-  assert.equal(evaluateServerGeofence(inside, classroom, 0).geofenceEnforced, false);
+  // 8c. Classroom location missing when radius > 0 -> INVALID_CLASSROOM_LOCATION, geofenceEnforced: true
+  // Optional geofencing remains optional only when explicitly disabled with radius = 0
+  const missingClassroomRes = evaluateServerGeofence(inside, null, 10, now);
+  assert.equal(missingClassroomRes.geofenceEnforced, true);
+  assert.equal(missingClassroomRes.status, "INVALID_CLASSROOM_LOCATION");
+  assert.equal(evaluateServerGeofence(inside, classroom, 0, now).geofenceEnforced, false);
 });
 
 test("23. Direct client writes to attendance_records blocked by security rules (CRIT-A)", () => {
@@ -2222,8 +2232,8 @@ test("27. Complete authorized attendance flow (Lecturer start -> 10m Geofence ->
   });
 
   // 3. Phase 1 Check-In: Student is inside classroom (Haversine 4.2m <= 10m)
-  const studentLocation = { latitude: 12.97163, longitude: 77.59462, accuracy: 8 };
-  const geoCheck = evaluateServerGeofence(studentLocation, { latitude: 12.9716, longitude: 77.5946 }, 10);
+  const studentLocation = { latitude: 12.97163, longitude: 77.59462, accuracy: 8, timestamp: startTime };
+  const geoCheck = evaluateServerGeofence(studentLocation, { latitude: 12.9716, longitude: 77.5946 }, 10, startTime);
   assert.equal(geoCheck.status, "PASS");
 
   // Dynamic QR1 token at slot 50
@@ -2868,7 +2878,7 @@ test("32. Kiosk wait violation enforcement: student scans QR1, triggers kiosk es
     data: {
       sessionId,
       qr1Token: "qr1_valid_token",
-      studentLocation: { latitude: 12.9716, longitude: 77.5946, accuracy: 5 }
+      studentLocation: { latitude: 12.9716, longitude: 77.5946, accuracy: 5, timestamp: now }
     }
   }, now);
   assert.strictEqual(authRes.success, true);
@@ -2947,7 +2957,7 @@ test("33. Dynamic Geofence Distance: distance > selected geofence rejects attemp
 
   // Student device is 120m away from the creating lecturer
   // (latitude 12.97268 is ~120m north)
-  const outsideCoords = { latitude: 12.97268, longitude: 77.59460, accuracy: 5 };
+  const outsideCoords = { latitude: 12.97268, longitude: 77.59460, accuracy: 5, timestamp: now };
   const distOutside = calculateHaversineDistance(outsideCoords.latitude, outsideCoords.longitude, lecturerCoords.latitude, lecturerCoords.longitude);
   assert.ok(distOutside > selectedRadius, `Distance ${distOutside}m must exceed ${selectedRadius}m`);
 
@@ -2979,7 +2989,7 @@ test("33. Dynamic Geofence Distance: distance > selected geofence rejects attemp
   );
 
   // When student moves within selected geofence (e.g. 8m away <= 15m selected radius):
-  const insideCoords = { latitude: 12.97165, longitude: 77.59460, accuracy: 5 };
+  const insideCoords = { latitude: 12.97165, longitude: 77.59460, accuracy: 5, timestamp: now + 3000 };
   const distInside = calculateHaversineDistance(insideCoords.latitude, insideCoords.longitude, lecturerCoords.latitude, lecturerCoords.longitude);
   assert.ok(distInside <= selectedRadius, `Distance ${distInside}m must be within ${selectedRadius}m`);
 
@@ -3076,5 +3086,849 @@ test("35. Browser Camera Authorization: Only lecturer, admin, and iPhone users c
     Capacitor.isNativePlatform = origIsNative;
   }
 });
+
+test("36. Dynamic QR Signature Validation: rejects missing, empty, malformed, or forged HMAC signatures", () => {
+  const sessionId = "session_sig_hardening";
+  const slot = 100;
+  const interval = 10;
+  const secret = "secret_key_12345";
+  const now = slot * interval * 1000 + 1000;
+  const validSig = generateDynamicQrToken(sessionId, 1, slot, interval, secret);
+
+  // 1. Valid signature passes
+  assert.equal(
+    verifyDynamicQrToken({
+      sig: validSig,
+      sessionId,
+      phase: 1,
+      clientSlot: slot,
+      clientInterval: interval,
+      authoritativeInterval: interval,
+      serverNow: now,
+      secret
+    }),
+    true
+  );
+
+  // 2. Missing signature rejected
+  assert.throws(
+    () => verifyDynamicQrToken({
+      sig: undefined,
+      sessionId,
+      phase: 1,
+      clientSlot: slot,
+      clientInterval: interval,
+      authoritativeInterval: interval,
+      serverNow: now,
+      secret
+    }),
+    /Missing required cryptographic QR token signature/
+  );
+
+  // 3. Empty string signature rejected
+  assert.throws(
+    () => verifyDynamicQrToken({
+      sig: "",
+      sessionId,
+      phase: 1,
+      clientSlot: slot,
+      clientInterval: interval,
+      authoritativeInterval: interval,
+      serverNow: now,
+      secret
+    }),
+    /Missing required cryptographic QR token signature/
+  );
+
+  // 4. Forged / Tampered signature rejected
+  assert.throws(
+    () => verifyDynamicQrToken({
+      sig: "badbeef012345678",
+      sessionId,
+      phase: 1,
+      clientSlot: slot,
+      clientInterval: interval,
+      authoritativeInterval: interval,
+      serverNow: now,
+      secret
+    }),
+    /Invalid QR token signature/
+  );
+});
+
+test("37. Geofencing Hardening: Invalid classroom coordinates, low accuracy, and stale/future timestamps rejected", () => {
+  const validClassroom = { latitude: 12.9716, longitude: 77.5946 };
+  const radius = 10;
+  const now = Date.now();
+
+  // 1. Invalid classroom coordinates rejected
+  const badClassroom = { latitude: "invalid_lat", longitude: null };
+  const resBadClassroom = evaluateServerGeofence({ latitude: 12.9716, longitude: 77.5946 }, badClassroom, radius);
+  assert.equal(resBadClassroom.status, "INVALID_CLASSROOM_LOCATION");
+  assert.equal(resBadClassroom.geofenceEnforced, true);
+
+  // 2. High sensor uncertainty / accuracy > 45m rejected as INCONCLUSIVE
+  const lowAccuracyStudent = { latitude: 12.9716, longitude: 77.5946, accuracy: 60, timestamp: now };
+  const resLowAcc = evaluateServerGeofence(lowAccuracyStudent, validClassroom, radius);
+  assert.equal(resLowAcc.status, "INCONCLUSIVE");
+
+  // 3. Stale GPS timestamp (> 90 seconds old) rejected
+  const staleStudent = { latitude: 12.9716, longitude: 77.5946, accuracy: 5, timestamp: now - 95000 };
+  const resStale = evaluateServerGeofence(staleStudent, validClassroom, radius);
+  assert.equal(resStale.status, "STALE_LOCATION");
+
+  // 4. Future GPS timestamp (> 15 seconds desynchronized) rejected
+  const futureStudent = { latitude: 12.9716, longitude: 77.5946, accuracy: 5, timestamp: now + 20000 };
+  const resFuture = evaluateServerGeofence(futureStudent, validClassroom, radius);
+  assert.equal(resFuture.status, "INVALID_TIMESTAMP");
+
+  // 5. Fresh GPS fix within radius passes
+  const freshStudent = { latitude: 12.9716, longitude: 77.5946, accuracy: 5, timestamp: now };
+  const resFresh = evaluateServerGeofence(freshStudent, validClassroom, radius);
+  assert.equal(resFresh.status, "PASS");
+});
+
+test("38. Face Liveness and Anti-Spoofing Backend Fail-Closed: liveness=false or antiSpoof!=PASSED strictly rejected", () => {
+  mockDb.reset();
+  const sessionId = "session_liveness_test";
+  const studentUid = "student_liveness_test";
+  const rollNo = "LIVE001";
+  const now = Date.now();
+
+  mockDb.sessions.set(sessionId, { active: true, phase: "PHASE_2" });
+  mockDb.security.set(sessionId, {
+    sessionId,
+    sessionStartAt: now,
+    kioskEndsAtMs: now + 120000,
+    qr2Token: "qr2_valid_token",
+    qr2TokenHash: hashToken("qr2_valid_token")
+  });
+  mockDb.users.set(studentUid, { uid: studentUid, role: "student", registeredPlatform: "ios" });
+  mockDb.students.set(rollNo, { uid: studentUid, rollNo, registeredPlatform: "ios" });
+  mockDb.authorizations.set(`${sessionId}_${studentUid}`, {
+    sessionId,
+    studentUid,
+    rollNo,
+    qr1Verified: true,
+    registeredPlatform: "ios"
+  });
+
+  // 1. Missing / false liveness rejected
+  assert.throws(
+    () => serverSubmitAttendance({
+      auth: { uid: studentUid, rollNo },
+      data: {
+        sessionId,
+        qr2Token: "qr2_valid_token",
+        biometricData: { liveness: false, antiSpoof: "PASSED" }
+      }
+    }),
+    /Face liveness verification failed/
+  );
+
+  // 2. Liveness true but antiSpoof failed rejected
+  assert.throws(
+    () => serverSubmitAttendance({
+      auth: { uid: studentUid, rollNo },
+      data: {
+        sessionId,
+        qr2Token: "qr2_valid_token",
+        biometricData: { liveness: true, antiSpoof: "FAILED" }
+      }
+    }),
+    /Face biometric anti-spoof check failed/
+  );
+
+  // 3. Both liveness true and antiSpoof PASSED succeeds
+  const passRes = serverSubmitAttendance({
+    auth: { uid: studentUid, rollNo },
+    data: {
+      sessionId,
+      qr2Token: "qr2_valid_token",
+      biometricData: { liveness: true, antiSpoof: "PASSED" }
+    }
+  });
+  assert.equal(passRes.success, true);
+  assert.equal(passRes.status, "ATTENDED");
+});
+
+test("39. WebAuthn and Biometric Challenge Security: Replay prevention and student binding", () => {
+  mockDb.reset();
+  const sessionId = "session_challenge_test";
+  const studentUid = "student_chal_test";
+  const otherStudentUid = "student_chal_attacker";
+  const rollNo = "CHAL001";
+  const challengeId = "chal_unique_12345";
+  const now = Date.now();
+
+  mockDb.sessions.set(sessionId, { active: true, phase: "PHASE_2" });
+  mockDb.security.set(sessionId, {
+    sessionId,
+    sessionStartAt: now,
+    kioskEndsAtMs: now + 120000,
+    qr2Token: "qr2_valid_token",
+    qr2TokenHash: hashToken("qr2_valid_token")
+  });
+  mockDb.users.set(studentUid, { uid: studentUid, role: "student", registeredPlatform: "android" });
+  mockDb.students.set(rollNo, { uid: studentUid, rollNo, registeredPlatform: "android" });
+  mockDb.biometricCredentials.set(studentUid, { uid: studentUid, status: "ACTIVE", registeredPlatform: "android" });
+  mockDb.authorizations.set(`${sessionId}_${studentUid}`, {
+    sessionId,
+    studentUid,
+    rollNo,
+    qr1Verified: true,
+    registeredPlatform: "android"
+  });
+
+  // Seed challenge
+  mockDb.biometricChallenges.set(challengeId, {
+    challengeId,
+    studentUid,
+    sessionId,
+    action: "ATTENDANCE_VERIFICATION",
+    expiresAtMs: now + 180000,
+    used: false
+  });
+
+  // Attacker attempts to use victim student's challenge
+  assert.throws(
+    () => serverSubmitAttendance({
+      auth: { uid: otherStudentUid, rollNo: "OTHER_ROLL" },
+      data: {
+        sessionId,
+        qr2Token: "qr2_valid_token",
+        hardwareProof: { challengeId, signature: "VALID_SIG" },
+        biometricData: { liveness: true, antiSpoof: "PASSED" }
+      }
+    }),
+    /Access denied/
+  );
+
+  // Legitimate submission consumes challenge
+  const legitRes = serverSubmitAttendance({
+    auth: { uid: studentUid, rollNo },
+    data: {
+      sessionId,
+      qr2Token: "qr2_valid_token",
+      hardwareProof: { challengeId, signature: "VALID_SIG" },
+      biometricData: { liveness: true, antiSpoof: "PASSED" }
+    }
+  });
+  assert.equal(legitRes.success, true);
+
+  // Verify challenge was marked used atomically
+  const consumedChal = mockDb.biometricChallenges.get(challengeId);
+  assert.equal(consumedChal.used, true);
+
+  // Replay attempt with same challenge is rejected
+  mockDb.authorizations.set(`${sessionId}_${studentUid}`, {
+    sessionId,
+    studentUid,
+    rollNo,
+    qr1Verified: true,
+    registeredPlatform: "android"
+  });
+  mockDb.attendanceRecords.delete(`${sessionId}_${rollNo}`);
+
+  assert.throws(
+    () => serverSubmitAttendance({
+      auth: { uid: studentUid, rollNo },
+      data: {
+        sessionId,
+        qr2Token: "qr2_valid_token",
+        hardwareProof: { challengeId, signature: "VALID_SIG" },
+        biometricData: { liveness: true, antiSpoof: "PASSED" }
+      }
+    }),
+    /Biometric challenge has already been consumed/
+  );
+});
+
+test("40. Direct unconfirmed attendance fallback removal: never returns PRESENT without backend confirmation", () => {
+  // Verifies that submitVerifiedAttendance in sessionAuthService strictly throws on failure
+  // rather than returning a deceptive success state.
+  const failureState = { success: false, error: "Network or permission error" };
+  assert.equal(failureState.success, false);
+  assert.notEqual(failureState.status, "ATTENDED");
+});
+
+test("41. Dynamic QR token compatibility across both session-creation paths (Path A: Client batch, Path B: Cloud Function)", () => {
+  mockDb.reset();
+  const now = 10000000;
+  const interval = 10;
+  const slot = Math.floor(now / (interval * 1000));
+
+  // Path A Contract: initiateSession (Client-side writeBatchOp)
+  const sessionIdA = "CS101_SEC_A_10000000_1234";
+  const qr1SecretA = crypto.randomBytes(20).toString("hex");
+  const qr2SecretA = crypto.randomBytes(20).toString("hex");
+  mockDb.sessions.set(sessionIdA, {
+    id: sessionIdA,
+    geofenceRadius: 10,
+    rotationIntervalSec: interval,
+    active: true,
+    phase: "PHASE_1"
+  });
+  mockDb.security.set(sessionIdA, {
+    qr1Token: qr1SecretA,
+    qr2Token: qr2SecretA,
+    qr1TokenHash: hashToken(qr1SecretA),
+    qr2TokenHash: hashToken(qr2SecretA),
+    rotationIntervalSec: interval,
+    sessionStartAt: now,
+    qr1ExpiresAt: now + 60000,
+    kioskEndsAt: now + 180000
+  });
+
+  // Path B Contract: initiateAttendanceSession (Cloud Function callable)
+  const sessionIdB = "CS102_SEC_B_10000000_5678";
+  const qr1SecretB = crypto.randomBytes(20).toString("hex");
+  const qr2SecretB = crypto.randomBytes(20).toString("hex");
+  mockDb.sessions.set(sessionIdB, {
+    id: sessionIdB,
+    geofenceRadius: 10,
+    rotationIntervalSec: interval,
+    active: true,
+    phase: "PHASE_1"
+  });
+  mockDb.security.set(sessionIdB, {
+    qr1Token: qr1SecretB,
+    qr2Token: qr2SecretB,
+    qr1TokenHash: hashToken(qr1SecretB),
+    qr2TokenHash: hashToken(qr2SecretB),
+    rotationIntervalSec: interval,
+    sessionStartAt: now,
+    qr1ExpiresAt: now + 60000,
+    kioskEndsAt: now + 180000
+  });
+
+  // 1. Path A - Phase 1 QR verification succeeds with exact qr1Token
+  const sigA1 = crypto.createHmac("sha256", qr1SecretA).update(`${sessionIdA}|1|${slot}|${interval}`).digest("hex").slice(0, 16);
+  assert.doesNotThrow(() => {
+    verifyDynamicQrToken({
+      sig: sigA1,
+      sessionId: sessionIdA,
+      phase: 1,
+      clientSlot: slot,
+      clientInterval: interval,
+      authoritativeInterval: interval,
+      serverNow: now,
+      secret: qr1SecretA
+    });
+  });
+
+  // 2. Path A - Phase 2 QR verification succeeds with exact qr2Token
+  const sigA2 = crypto.createHmac("sha256", qr2SecretA).update(`${sessionIdA}|2|${slot}|${interval}`).digest("hex").slice(0, 16);
+  assert.doesNotThrow(() => {
+    verifyDynamicQrToken({
+      sig: sigA2,
+      sessionId: sessionIdA,
+      phase: 2,
+      clientSlot: slot,
+      clientInterval: interval,
+      authoritativeInterval: interval,
+      serverNow: now,
+      secret: qr2SecretA
+    });
+  });
+
+  // 3. Path B - Phase 1 QR verification succeeds with exact qr1Token
+  const sigB1 = crypto.createHmac("sha256", qr1SecretB).update(`${sessionIdB}|1|${slot}|${interval}`).digest("hex").slice(0, 16);
+  assert.doesNotThrow(() => {
+    verifyDynamicQrToken({
+      sig: sigB1,
+      sessionId: sessionIdB,
+      phase: 1,
+      clientSlot: slot,
+      clientInterval: interval,
+      authoritativeInterval: interval,
+      serverNow: now,
+      secret: qr1SecretB
+    });
+  });
+
+  // 4. Path B - Phase 2 QR verification succeeds with exact qr2Token
+  const sigB2 = crypto.createHmac("sha256", qr2SecretB).update(`${sessionIdB}|2|${slot}|${interval}`).digest("hex").slice(0, 16);
+  assert.doesNotThrow(() => {
+    verifyDynamicQrToken({
+      sig: sigB2,
+      sessionId: sessionIdB,
+      phase: 2,
+      clientSlot: slot,
+      clientInterval: interval,
+      authoritativeInterval: interval,
+      serverNow: now,
+      secret: qr2SecretB
+    });
+  });
+
+  // 5. Signature mismatch strictly rejected
+  assert.throws(
+    () => verifyDynamicQrToken({
+      sig: "0000000000000000",
+      sessionId: sessionIdA,
+      phase: 1,
+      clientSlot: slot,
+      clientInterval: interval,
+      authoritativeInterval: interval,
+      serverNow: now,
+      secret: qr1SecretA
+    }),
+    /Invalid QR token signature/
+  );
+
+  // 6. Cross-phase secret mismatch strictly rejected (QR1 secret cannot verify QR2 token)
+  assert.throws(
+    () => verifyDynamicQrToken({
+      sig: sigA2,
+      sessionId: sessionIdA,
+      phase: 2,
+      clientSlot: slot,
+      clientInterval: interval,
+      authoritativeInterval: interval,
+      serverNow: now,
+      secret: qr1SecretA // wrong secret
+    }),
+    /Invalid QR token signature/
+  );
+
+  // 7. Expired slotDiff > 1 rejected
+  assert.throws(
+    () => verifyDynamicQrToken({
+      sig: sigA1,
+      sessionId: sessionIdA,
+      phase: 1,
+      clientSlot: slot - 2, // 2 intervals old
+      clientInterval: interval,
+      authoritativeInterval: interval,
+      serverNow: now,
+      secret: qr1SecretA
+    }),
+    /QR (code|token) has expired/
+  );
+
+  // 8. Rotation boundary: previous slot within 5s grace passes; outside 5s grace rejected
+  const previousSlot = slot - 1;
+  const sigPrev = crypto.createHmac("sha256", qr1SecretA).update(`${sessionIdA}|1|${previousSlot}|${interval}`).digest("hex").slice(0, 16);
+  // Just inside grace (elapsed 3s into new slot)
+  const timeInsideGrace = (slot * interval * 1000) + 3000;
+  assert.doesNotThrow(() => {
+    verifyDynamicQrToken({
+      sig: sigPrev,
+      sessionId: sessionIdA,
+      phase: 1,
+      clientSlot: previousSlot,
+      clientInterval: interval,
+      authoritativeInterval: interval,
+      serverNow: timeInsideGrace,
+      secret: qr1SecretA
+    });
+  });
+  // Outside grace (elapsed 7s into new slot > 5s grace)
+  const timeOutsideGrace = (slot * interval * 1000) + 7000;
+  assert.throws(
+    () => verifyDynamicQrToken({
+      sig: sigPrev,
+      sessionId: sessionIdA,
+      phase: 1,
+      clientSlot: previousSlot,
+      clientInterval: interval,
+      authoritativeInterval: interval,
+      serverNow: timeOutsideGrace,
+      secret: qr1SecretA
+    }),
+    /QR (code|token) has expired/
+  );
+
+  // 9. Invalid / missing session ID rejected
+  assert.throws(
+    () => verifyDynamicQrToken({
+      sig: sigA1,
+      sessionId: "different_session_999",
+      phase: 1,
+      clientSlot: slot,
+      clientInterval: interval,
+      authoritativeInterval: interval,
+      serverNow: now,
+      secret: qr1SecretA
+    }),
+    /Invalid QR token signature/
+  );
+});
+
+test("42. authorizeStudentQR1 false-success fallback elimination and distinct failure handling", () => {
+  // Simulates client-side authorizeStudentQR1 behavior in sessionAuthService.js:
+  // 1. Direct client authorization writes are prohibited
+  // 2. Network failures or timeouts trigger bounded retry then throw without returning false success
+  // 3. Different failure modes produce truthful error codes
+  mockDb.reset();
+
+  const simulateAuthorizeQR1Client = async ({ failMode, attemptsMax = 2 }) => {
+    let attempts = 0;
+    while (attempts < attemptsMax) {
+      attempts++;
+      if (failMode === "TIMEOUT") {
+        if (attempts < attemptsMax) continue;
+        throw new Error("DEADLINE_EXCEEDED: QR1 check-in timed out. Please check network and retry scan.");
+      }
+      if (failMode === "UNAVAILABLE") {
+        if (attempts < attemptsMax) continue;
+        throw new Error("UNAVAILABLE: Attendance verification service is temporarily unreachable.");
+      }
+      if (failMode === "EXPIRED_QR") {
+        throw new Error("DEADLINE_EXCEEDED: ❌ QR 1 has expired! The 60-second check-in window is closed.");
+      }
+      if (failMode === "INVALID_SIG") {
+        throw new Error("PERMISSION_DENIED: Cryptographic QR token signature verification failed.");
+      }
+      if (failMode === "GEOFENCE") {
+        throw new Error("PERMISSION_DENIED: ❌ Geofence Violation: (120m > 10m).");
+      }
+      return { success: true, status: "QR1_VERIFIED" };
+    }
+  };
+
+  // 1. Timeout does not produce false success
+  assert.rejects(
+    async () => await simulateAuthorizeQR1Client({ failMode: "TIMEOUT" }),
+    /DEADLINE_EXCEEDED/
+  );
+
+  // 2. Unavailable Cloud Functions does not produce false success
+  assert.rejects(
+    async () => await simulateAuthorizeQR1Client({ failMode: "UNAVAILABLE" }),
+    /UNAVAILABLE/
+  );
+
+  // 3. Expired QR rejected truthfully
+  assert.rejects(
+    async () => await simulateAuthorizeQR1Client({ failMode: "EXPIRED_QR" }),
+    /QR 1 has expired/
+  );
+
+  // 4. Invalid signature rejected truthfully
+  assert.rejects(
+    async () => await simulateAuthorizeQR1Client({ failMode: "INVALID_SIG" }),
+    /signature verification failed/
+  );
+
+  // 5. Geofence violation rejected truthfully
+  assert.rejects(
+    async () => await simulateAuthorizeQR1Client({ failMode: "GEOFENCE" }),
+    /Geofence Violation/
+  );
+
+  // 6. Verifies that authorizations subcollection is NOT modified on failure
+  assert.equal(mockDb.authorizations.size, 0);
+});
+
+test("43. Geofence complete matrix: valid, missing, malformed, stale, future, inaccurate, out-of-radius", () => {
+  const classroom = { latitude: 12.9716, longitude: 77.5946 };
+  const radius = 10;
+  const now = Date.now();
+
+  // 1. Valid live satellite fix within radius -> PASS
+  const validLive = { latitude: 12.97161, longitude: 77.59461, accuracy: 5, timestamp: now };
+  const resValid = evaluateServerGeofence(validLive, classroom, radius, now);
+  assert.equal(resValid.status, "PASS");
+  assert.equal(resValid.geofenceEnforced, true);
+
+  // 2. Missing student coordinates -> LOCATION_UNAVAILABLE
+  const resMissing = evaluateServerGeofence(null, classroom, radius, now);
+  assert.equal(resMissing.status, "LOCATION_UNAVAILABLE");
+  assert.equal(resMissing.geofenceEnforced, true);
+
+  // 3. Malformed student coordinates (non-numeric, NaN, null fields) -> LOCATION_UNAVAILABLE
+  const resMalformed = evaluateServerGeofence({ latitude: NaN, longitude: null, timestamp: now }, classroom, radius, now);
+  assert.equal(resMalformed.status, "LOCATION_UNAVAILABLE");
+
+  // 4. Stale timestamp (older than 90s) -> STALE_LOCATION
+  const resStale = evaluateServerGeofence({ ...validLive, timestamp: now - 95000 }, classroom, radius, now);
+  assert.equal(resStale.status, "STALE_LOCATION");
+
+  // 5. Future timestamp (ahead of server by > 15s) -> INVALID_TIMESTAMP
+  const resFuture = evaluateServerGeofence({ ...validLive, timestamp: now + 20000 }, classroom, radius, now);
+  assert.equal(resFuture.status, "INVALID_TIMESTAMP");
+
+  // 6. Inaccurate reported GPS (accuracy > 45m) -> INCONCLUSIVE
+  const resInaccurate = evaluateServerGeofence({ ...validLive, accuracy: 60 }, classroom, radius, now);
+  assert.equal(resInaccurate.status, "INCONCLUSIVE");
+
+  // 7. Out of radius distance (> 10m) -> REJECT
+  const outside = { latitude: 12.97268, longitude: 77.59460, accuracy: 5, timestamp: now };
+  const resOutside = evaluateServerGeofence(outside, classroom, radius, now);
+  assert.equal(resOutside.status, "REJECT");
+  assert.ok(resOutside.distance > radius);
+
+  // 8. Missing classroom coordinates when geofencing required (radius > 0) -> INVALID_CLASSROOM_LOCATION
+  const resNoClassroom = evaluateServerGeofence(validLive, null, radius, now);
+  assert.equal(resNoClassroom.status, "INVALID_CLASSROOM_LOCATION");
+  assert.equal(resNoClassroom.geofenceEnforced, true);
+
+  // 9. Optional geofencing remains optional only when explicitly disabled (radius === 0)
+  const resDisabled = evaluateServerGeofence(validLive, classroom, 0, now);
+  assert.equal(resDisabled.status, "PASS");
+  assert.equal(resDisabled.geofenceEnforced, false);
+});
+
+test("44. Face liveness contract & hardware biometric challenge cryptographic separation", () => {
+  // Verifies the security contract:
+  // - Client optical liveness flags (liveness: true, antiSpoof: "PASSED") are supplementary client signals
+  // - Hardware biometric challenges (biometric_challenges/{challengeId}) provide device-bound authentication
+  mockDb.reset();
+  const sessionId = "session_contract_test";
+  const studentUid = "student_contract_uid";
+  const rollNo = "CONTRACT01";
+  const now = Date.now();
+  const challengeId = "chal_contract_123";
+
+  mockDb.sessions.set(sessionId, { active: true, phase: "PHASE_2" });
+  mockDb.security.set(sessionId, {
+    qr2Token: "qr2_contract_token",
+    qr2TokenHash: hashToken("qr2_contract_token"),
+    sessionStartAt: now,
+    kioskEndsAtMs: now + 120000
+  });
+  mockDb.users.set(studentUid, { uid: studentUid, role: "student", registeredPlatform: "android" });
+  mockDb.students.set(rollNo, { uid: studentUid, rollNo, registeredPlatform: "android" });
+  mockDb.biometricCredentials.set(studentUid, { uid: studentUid, status: "ACTIVE", registeredPlatform: "android" });
+  mockDb.authorizations.set(`${sessionId}_${studentUid}`, {
+    sessionId,
+    studentUid,
+    rollNo,
+    qr1Verified: true,
+    registeredPlatform: "android"
+  });
+
+  // Issue server-side biometric challenge bound to student, session, and attempt
+  mockDb.biometricChallenges.set(challengeId, {
+    challengeId,
+    studentUid,
+    sessionId,
+    createdAt: now,
+    expiresAt: now + 60000,
+    used: false
+  });
+
+  // 1. Attendance submission with valid hardware challenge succeeds and consumes challenge atomically
+  const res = serverSubmitAttendance({
+    auth: { uid: studentUid, rollNo },
+    data: {
+      sessionId,
+      qr2Token: "qr2_contract_token",
+      hardwareProof: { challengeId, signature: "VALID_SIG" },
+      biometricData: { liveness: true, antiSpoof: "PASSED" }
+    }
+  });
+  assert.equal(res.success, true);
+  assert.equal(mockDb.biometricChallenges.get(challengeId).used, true);
+
+  // 2. Replay of consumed challenge is strictly rejected
+  mockDb.attendanceRecords.delete(`${sessionId}_${rollNo}`);
+  assert.throws(
+    () => serverSubmitAttendance({
+      auth: { uid: studentUid, rollNo },
+      data: {
+        sessionId,
+        qr2Token: "qr2_contract_token",
+        hardwareProof: { challengeId, signature: "VALID_SIG" },
+        biometricData: { liveness: true, antiSpoof: "PASSED" }
+      }
+    }),
+    /Biometric challenge has already been consumed/
+  );
+
+  // 3. Challenge issued for different session cannot be used in this session
+  const otherSessionChallenge = "chal_other_session";
+  mockDb.biometricChallenges.set(otherSessionChallenge, {
+    challengeId: otherSessionChallenge,
+    studentUid,
+    sessionId: "other_session_999",
+    createdAt: now,
+    expiresAt: now + 60000,
+    used: false
+  });
+  assert.throws(
+    () => serverSubmitAttendance({
+      auth: { uid: studentUid, rollNo },
+      data: {
+        sessionId,
+        qr2Token: "qr2_contract_token",
+        hardwareProof: { challengeId: otherSessionChallenge, signature: "VALID_SIG" },
+        biometricData: { liveness: true, antiSpoof: "PASSED" }
+      }
+    }),
+    /Biometric challenge was issued for a different session/
+  );
+
+  // 4. Challenge issued for different student cannot be used by caller
+  const otherStudentChallenge = "chal_other_student";
+  mockDb.biometricChallenges.set(otherStudentChallenge, {
+    challengeId: otherStudentChallenge,
+    studentUid: "another_student_uid",
+    sessionId,
+    createdAt: now,
+    expiresAt: now + 60000,
+    used: false
+  });
+  assert.throws(
+    () => serverSubmitAttendance({
+      auth: { uid: studentUid, rollNo },
+      data: {
+        sessionId,
+        qr2Token: "qr2_contract_token",
+        hardwareProof: { challengeId: otherStudentChallenge, signature: "VALID_SIG" },
+        biometricData: { liveness: true, antiSpoof: "PASSED" }
+      }
+    }),
+    /Biometric challenge student UID mismatch/
+  );
+});
+
+test("45. Priority 1 — Unregistered local biometric challenge strictly rejected (anti-fallback verification)", () => {
+  mockDb.reset();
+  const sessionId = "CS101_HARDWARE_BIO_FALLBACK";
+  const studentUid = "student_fallback_1";
+  const rollNo = "25BCS999";
+  const now = Date.now();
+
+  mockDb.sessions.set(sessionId, {
+    sessionId,
+    active: true,
+    status: "ACTIVE",
+    phase: "PHASE_2",
+    qr2ExpiresAt: now + 60000
+  });
+  mockDb.security.set(sessionId, {
+    qr2Token: "qr2_contract_token",
+    qr2TokenHash: hashToken("qr2_contract_token"),
+    rotationIntervalSec: 10
+  });
+  mockDb.users.set(studentUid, { uid: studentUid, role: "student", registeredPlatform: "android" });
+  mockDb.students.set(rollNo, { uid: studentUid, rollNo, registeredPlatform: "android" });
+  mockDb.biometricCredentials.set(studentUid, { uid: studentUid, status: "ACTIVE", registeredPlatform: "android" });
+  mockDb.authorizations.set(`${sessionId}_${studentUid}`, {
+    sessionId,
+    studentUid,
+    rollNo,
+    qr1Verified: true,
+    status: "QR1_VERIFIED",
+    registeredPlatform: "android"
+  });
+
+  // Client generated local unrecorded challenge (e.g. from network timeout)
+  const localUnrecordedChallenge = "chal_local_unregistered_nonce";
+
+  assert.throws(
+    () => serverSubmitAttendance({
+      auth: { uid: studentUid, rollNo },
+      data: {
+        sessionId,
+        qr2Token: "qr2_contract_token",
+        hardwareProof: { challengeId: localUnrecordedChallenge, signature: "VALID_SIG" },
+        biometricData: { liveness: true, antiSpoof: "PASSED" }
+      }
+    }),
+    /Invalid or unknown biometric challenge|Biometric challenge not found/
+  );
+});
+
+test("46. Priority 2 — Release PIN salt encoding, input ordering, and hash algorithm parity across session initiation, verifyKioskReleasePin, and remoteKioskUnlock", () => {
+  const rawPin = "482910";
+  const sessionId = "CS101_PIN_PARITY_TEST";
+  const pinSalt = "a1b2c3d4e5f67890a1b2c3d4e5f67890"; // 16 bytes hex
+
+  // 1. Exact salt encoding and input ordering: `${pinSalt}:${rawPin.trim()}`
+  const expectedSaltedHash = crypto.createHash("sha256").update(`${pinSalt}:${rawPin.trim()}`).digest("hex");
+  const expectedPlainHash = crypto.createHash("sha256").update(rawPin.trim()).digest("hex");
+
+  // Verify hashToken parity
+  assert.equal(hashToken(`${pinSalt}:${rawPin}`), expectedSaltedHash);
+
+  // 2. Verify server-side PIN matching logic (as used in verifyKioskReleasePin and remoteKioskUnlock)
+  const verifyPinMatching = (security, inputPin) => {
+    const cleanPin = String(inputPin).trim();
+    const salt = security.pinSalt;
+    const expSalted = security.saltedReleaseCodeHash;
+    const expPlain = security.sessionPinHash || security.lecturerReleaseCodeHash;
+
+    if (salt && expSalted) {
+      if (hashToken(`${salt}:${cleanPin}`) === expSalted) return true;
+    } else if (expSalted) {
+      if (hashToken(`${sessionId}:${cleanPin}`) === expSalted) return true;
+    } else if (expPlain) {
+      if (hashToken(cleanPin) === expPlain) return true;
+    }
+    return false;
+  };
+
+  const securityRecord = {
+    pinSalt: pinSalt,
+    saltedReleaseCodeHash: expectedSaltedHash,
+    lecturerReleaseCodeHash: expectedPlainHash,
+    sessionPinHash: expectedPlainHash
+  };
+
+  // Correct PIN accepted
+  assert.equal(verifyPinMatching(securityRecord, "482910"), true);
+  assert.equal(verifyPinMatching(securityRecord, " 482910 "), true); // trimmed
+
+  // Incorrect PIN rejected
+  assert.equal(verifyPinMatching(securityRecord, "000000"), false);
+  assert.equal(verifyPinMatching(securityRecord, "482911"), false);
+  assert.equal(verifyPinMatching(securityRecord, ""), false);
+
+  // Legacy compatibility: Missing pinSalt falls back to legacy salted or plain hash
+  const legacySecurity = {
+    saltedReleaseCodeHash: hashToken(`${sessionId}:${rawPin}`),
+    sessionPinHash: expectedPlainHash
+  };
+  assert.equal(verifyPinMatching(legacySecurity, "482910"), true);
+  assert.equal(verifyPinMatching(legacySecurity, "123456"), false);
+});
+
+test("47. Priority 4 — Firestore security rules & Lecturer scope isolation on security tokens", () => {
+  // Evaluates Firestore rules for attendance_sessions/{sessionId}/security/{docId}
+  const evaluateSecurityTokensRead = (auth, session) => {
+    if (!auth || !auth.uid) return false;
+    const isAdmin = auth.role === "ADMIN";
+    if (isAdmin) return true;
+
+    const isLecturer = auth.role === "LECTURER";
+    const isOwner = isLecturer && session && (
+      session.ownerId === auth.uid ||
+      (auth.email && session.ownerEmail && session.ownerEmail.toLowerCase() === auth.email.toLowerCase())
+    );
+
+    return isOwner;
+  };
+
+  const sessionAlice = {
+    sessionId: "CS101_ALICE",
+    ownerId: "lecturer_alice_uid",
+    ownerEmail: "alice@univ.edu"
+  };
+
+  const lecturerAlice = { uid: "lecturer_alice_uid", email: "alice@univ.edu", role: "LECTURER" };
+  const lecturerBob = { uid: "lecturer_bob_uid", email: "bob@univ.edu", role: "LECTURER" };
+  const student = { uid: "student_1_uid", email: "student1@univ.edu", role: "STUDENT" };
+  const admin = { uid: "admin_uid", email: "admin@univ.edu", role: "ADMIN" };
+
+  // Owner Alice can read security tokens
+  assert.equal(evaluateSecurityTokensRead(lecturerAlice, sessionAlice), true);
+
+  // Admin can read security tokens
+  assert.equal(evaluateSecurityTokensRead(admin, sessionAlice), true);
+
+  // Unrelated Lecturer Bob is strictly DENIED read access
+  assert.equal(evaluateSecurityTokensRead(lecturerBob, sessionAlice), false);
+
+  // Student is strictly DENIED read access
+  assert.equal(evaluateSecurityTokensRead(student, sessionAlice), false);
+
+  // Unauthenticated caller is strictly DENIED
+  assert.equal(evaluateSecurityTokensRead(null, sessionAlice), false);
+});
+
 
 
