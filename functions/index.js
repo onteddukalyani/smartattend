@@ -57,14 +57,20 @@ function calculateHaversineDistance(lat1, lon1, lat2, lon2) {
  */
 function evaluateServerGeofence(studentCoords, classroomCoords, radiusMetres) {
   const radius = typeof radiusMetres === "number" ? radiusMetres : 10;
-  if (!classroomCoords || radius === 0) {
+  if (radius === 0) {
     return { status: "PASS", geofenceEnforced: false, distance: 0, radius: 0 };
+  }
+  if (!Number.isFinite(radius) || radius < 0) {
+    return { status: "INCONCLUSIVE", geofenceEnforced: true, radius, message: "Invalid geofence radius configuration." };
+  }
+  if (!classroomCoords) {
+    return { status: "LOCATION_UNAVAILABLE", geofenceEnforced: true, radius, message: "Classroom coordinates are not configured." };
   }
 
   const cLat = Number(classroomCoords.latitude ?? classroomCoords.lat);
   const cLon = Number(classroomCoords.longitude ?? classroomCoords.lng ?? classroomCoords.lon);
-  if (!Number.isFinite(cLat) || !Number.isFinite(cLon)) {
-    return { status: "PASS", geofenceEnforced: false, distance: 0, radius: 0 };
+  if (!Number.isFinite(cLat) || !Number.isFinite(cLon) || cLat < -90 || cLat > 90 || cLon < -180 || cLon > 180) {
+    return { status: "LOCATION_UNAVAILABLE", geofenceEnforced: true, radius, message: "Classroom coordinates are invalid." };
   }
 
   if (!studentCoords) {
@@ -73,8 +79,8 @@ function evaluateServerGeofence(studentCoords, classroomCoords, radiusMetres) {
 
   const sLat = Number(studentCoords.latitude ?? studentCoords.lat);
   const sLon = Number(studentCoords.longitude ?? studentCoords.lng ?? studentCoords.lon);
-  if (!Number.isFinite(sLat) || !Number.isFinite(sLon)) {
-    return { status: "LOCATION_UNAVAILABLE", geofenceEnforced: true, radius: radius, message: "GPS coordinates not provided or invalid." };
+  if (!Number.isFinite(sLat) || !Number.isFinite(sLon) || sLat < -90 || sLat > 90 || sLon < -180 || sLon > 180) {
+    return { status: "LOCATION_UNAVAILABLE", geofenceEnforced: true, radius, message: "GPS coordinates not provided or invalid." };
   }
 
   if (studentCoords.isMock || studentCoords.mocked || studentCoords.isMockLocation) {
@@ -86,10 +92,19 @@ function evaluateServerGeofence(studentCoords, classroomCoords, radiusMetres) {
     return { status: "PASS", geofenceEnforced: false, distance: 0, radius: 0 };
   }
 
-  const accuracy = Math.max(0, Math.round(Number(studentCoords.accuracy) || 0));
-  const rawHostAccuracy = Math.round(Number(classroomCoords.accuracy) || 0);
+  const rawAccuracy = Number(studentCoords.accuracy);
+  if (!Number.isFinite(rawAccuracy) || rawAccuracy <= 0) {
+    return {
+      status: "INCONCLUSIVE",
+      geofenceEnforced: true,
+      distance: Math.round(rawDist * 10) / 10,
+      radius,
+      message: "GPS accuracy is missing or invalid. A reliable location fix is required."
+    };
+  }
+  const accuracy = Math.round(rawAccuracy);
 
-  // Reject if GPS accuracy is excessively degraded (> 45m). Cannot verify 10m classroom presence with degraded satellite fix.
+  // Reject if GPS accuracy is excessively degraded (> 45m). Cannot verify classroom presence with degraded fix.
   if (accuracy > 45) {
     return {
       status: "INCONCLUSIVE",
@@ -205,7 +220,12 @@ function verifyDynamicQrToken(
     }
   }
   const expectedSig = generateDynamicQrToken(sessionId, phase, slot, interval, secret);
-  if (sig && sig !== expectedSig) {
+  if (typeof sig !== "string" || sig.length !== 16 || !/^[0-9a-f]{16}$/i.test(sig)) {
+    throw new HttpsError("permission-denied", "permission-denied: Missing or malformed QR token signature.");
+  }
+  const supplied = Buffer.from(sig, "hex");
+  const expected = Buffer.from(expectedSig, "hex");
+  if (supplied.length !== expected.length || !crypto.timingSafeEqual(supplied, expected)) {
     throw new HttpsError("permission-denied", "permission-denied: Invalid QR token signature.");
   }
   return true;
@@ -1265,13 +1285,16 @@ exports.authorizeQR1 = onCall(async (request) => {
   // 3b. Server-Side Geofence Verification (if enabled by lecturer)
   const classroomLoc = session.classroomLocation;
   const radius = typeof session.geofenceRadius === "number" ? session.geofenceRadius : 10;
-  if (classroomLoc && classroomLoc.latitude != null && classroomLoc.longitude != null && radius > 0) {
+  if ((classroomLoc || session.geofenceEnabled === true) && radius > 0) {
     const geoResult = evaluateServerGeofence(studentLocation, classroomLoc, radius);
     if (geoResult.status === "MOCK_DETECTED") {
       throw new HttpsError("permission-denied", "🚨 Anti-Proxy Violation: Mock / Spoofed GPS detected. Attendance check-in rejected.");
     }
-    if (geoResult.status === "REJECT") {
-      throw new HttpsError("permission-denied", `❌ Geofence Violation: You are outside the classroom (${geoResult.distance}m > ${radius}m). Attendance check-in rejected.`);
+    if (geoResult.status !== "PASS") {
+      const reason = geoResult.message || (geoResult.status === "REJECT"
+        ? `You are outside the classroom (${geoResult.distance}m > ${radius}m).`
+        : "A reliable classroom GPS fix could not be verified.");
+      throw new HttpsError("failed-precondition", `Geofence verification failed (${geoResult.status}): ${reason} Attendance check-in rejected.`);
     }
   }
 
@@ -1336,6 +1359,7 @@ exports.authorizeQR1 = onCall(async (request) => {
       authorizedAt: FieldValue.serverTimestamp(),
       sessionId: sessionId,
       kioskEndsAt: security.kioskEndsAt,
+      studentLocation: studentLocation || null,
       registeredPlatform: boundPlatform,
       detectedPlatform: boundPlatform
     });
@@ -1588,8 +1612,9 @@ exports.submitAttendance = onCall(async (request) => {
       deviceAuthMode,
       isNative
     } = request.data || {};
-    if (!sessionId || !qr2Token) {
-      throw new HttpsError("invalid-argument", "Missing sessionId or qr2Token.");
+    const hasDynamicQrPayload = request.data?.slot !== undefined || request.data?.sig !== undefined;
+    if (!sessionId || (!qr2Token && !hasDynamicQrPayload)) {
+      throw new HttpsError("invalid-argument", "Missing sessionId or QR 2 token payload.");
     }
 
     const studentUid = request.auth.uid;
@@ -1697,6 +1722,20 @@ exports.submitAttendance = onCall(async (request) => {
         "permission-denied",
         "❌ Attendance rejected: An unexcused security violation is recorded on your session. Attendance cannot be submitted unless excused by an authorized instructor."
       );
+    }
+
+    // Re-check the location captured during QR1 authorization when the session has geofencing enabled.
+    // Never trust a new location supplied only with the final attendance submission.
+    const classroomLoc = session.classroomLocation;
+    const geofenceRadius = typeof session.geofenceRadius === "number" ? session.geofenceRadius : 10;
+    if ((classroomLoc || session.geofenceEnabled === true) && geofenceRadius > 0) {
+      const geoResult = evaluateServerGeofence(authData.studentLocation, classroomLoc, geofenceRadius);
+      if (geoResult.status !== "PASS") {
+        throw new HttpsError(
+          "failed-precondition",
+          `Attendance geofence verification failed (${geoResult.status}): ${geoResult.message || "A reliable classroom location could not be verified."}`
+        );
+      }
     }
 
     // 2. Validate QR 2 token
@@ -1872,9 +1911,11 @@ exports.submitAttendance = onCall(async (request) => {
     }
     const MAX_FACE_MATCH_THRESHOLD = 0.52; // ResNet-34 face match threshold
 
-    // Verify optical liveness evidence: client must confirm real-time active camera presence
-    if (biometricData?.liveness === false) {
-      throw new HttpsError("permission-denied", "Face liveness verification failed. Active optical presence required.");
+    // Fail closed when the liveness result is absent or negative.
+    // This prevents omission-based bypasses; a client-supplied boolean is NOT cryptographic
+    // proof of liveness and must not be described as server-verified anti-spoofing.
+    if (biometricData?.liveness !== true) {
+      throw new HttpsError("permission-denied", "Face liveness verification is missing or failed. Complete the live camera challenge and retry.");
     }
 
     if (serverCalculatedDistance > MAX_FACE_MATCH_THRESHOLD) {

@@ -74,12 +74,13 @@ service cloud.firestore {
       }
     }
 
+    // Public release metadata may be read without an account; publishing is staff-only.
     match /app_updates/{docId} {
       allow read: if true;
-      allow write: if true;
+      allow create, update, delete: if isAdmin();
       match /{document=**} {
         allow read: if true;
-        allow write: if true;
+        allow write: if false;
       }
     }
 
@@ -311,11 +312,9 @@ service cloud.firestore {
     match /attendance_sessions/{sessionId} {
       allow read: if isSignedIn();
 
-      allow create: if isSignedIn() && (
-        isStaff() ||
-        request.resource.data.ownerId == request.auth.uid ||
-        (request.auth.token.email != null && request.resource.data.ownerEmail == request.auth.token.email)
-      );
+      // Session creation is privileged and must go through the callable Cloud Function.
+      // Client writes here are denied; Admin SDK writes from Cloud Functions bypass these rules.
+      allow create: if isStaff() && request.resource.data.ownerId == request.auth.uid;
 
       allow delete: if isSignedIn() && (
         isAdmin() ||
@@ -414,20 +413,24 @@ service cloud.firestore {
     // =========================================================================
 
     match /biometric_credentials/{docId} {
-      allow read: if isSignedIn();
+      // Credential public keys/metadata are private to their owner and authorized staff.
+      // Private key material must never be stored in Firestore.
+      allow read: if isStaff() || (isSignedIn() && (
+        docId == request.auth.uid ||
+        resource.data.studentUid == request.auth.uid
+      ));
       allow write: if isStaff();
       match /{document=**} {
-        allow read: if isSignedIn();
+        allow read: if isStaff();
         allow write: if isStaff();
       }
     }
 
     match /biometric_challenges/{docId} {
-      allow read: if isSignedIn();
-      allow write: if false;
+      // Challenges contain one-time secrets and are consumed only by trusted Cloud Functions.
+      allow read, write: if false;
       match /{document=**} {
-        allow read: if isSignedIn();
-        allow write: if false;
+        allow read, write: if false;
       }
     }
 

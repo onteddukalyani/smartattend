@@ -1168,6 +1168,9 @@ test("15. Location is unavailable or outside permitted geofence radius", () => {
   const geoNull = evaluateServerGeofence(null, classroom, radius);
   assert.equal(geoNull.status, "LOCATION_UNAVAILABLE");
 
+  // Invalid/missing classroom configuration must not silently disable an enabled geofence.
+  assert.equal(evaluateServerGeofence({ latitude: 12.9716, longitude: 77.5946, accuracy: 5 }, null, radius).status, "LOCATION_UNAVAILABLE");
+
   // 15d: Valid physical presence within 10m
   const validCoords = { latitude: 12.971600, longitude: 77.594565, accuracy: 3 };
   const geoPass = evaluateServerGeofence(validCoords, classroom, radius);
@@ -1572,10 +1575,18 @@ test("21. Authoritative dynamic QR rotation token verification and skew preventi
       /permission-denied: Invalid QR token signature/
     );
 
-    // 8. Forged signature / replayed invalid token rejected
+    // 8. Forged and missing signatures are rejected; a slot alone must never authorize a QR.
     assert.throws(
       () => verifyDynamicQrToken("forged_signature_token_hex_999", sessionId, 1, currentSlot, interval, interval, slotStartTime, secret),
-      /permission-denied: Invalid QR token signature/
+      /permission-denied: (Missing or malformed|Invalid) QR token signature/
+    );
+    assert.throws(
+      () => verifyDynamicQrToken(undefined, sessionId, 1, currentSlot, interval, interval, slotStartTime, secret),
+      /permission-denied: Missing or malformed QR token signature/
+    );
+    assert.throws(
+      () => verifyDynamicQrToken("", sessionId, 1, currentSlot, interval, interval, slotStartTime, secret),
+      /permission-denied: Missing or malformed QR token signature/
     );
 
     // 9. Client interval mismatch rejected
