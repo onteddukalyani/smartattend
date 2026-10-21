@@ -121,173 +121,42 @@ export async function transitionSessionToPhase2(sessionId) {
  * STRICT: Enforces that the student has passed QR 1 for this exact session.
  * Rejects with Access Denied if QR 1 was not scanned.
  */
+/**
+ * 4. Student: Validate QR 2 exclusively through the trusted Cloud Function.
+ * Local/session storage is never an authorization source.
+ */
 export async function validateStudentQR2(sessionId, qr2Token, qrPayload = null) {
-  const currentUser = auth.currentUser;
-  const currentEmail = currentUser?.email?.toLowerCase().trim() || "";
-  const currentRollNo = (currentEmail ? currentEmail.split("@")[0] : "").toUpperCase();
-  const currentUid = currentUser?.uid || "";
+  if (!sessionId || (!qr2Token && qrPayload?.sig == null)) {
+    throw new Error("Session ID and a current QR 2 token are required.");
+  }
 
-  // 1. Instant 0ms Fast-Path: Check local/session storage for QR 1 authorization
-  let authData = null;
+  const fn = httpsCallable(functions, "validateQR2");
   try {
-    const stored = (typeof sessionStorage !== "undefined" ? sessionStorage.getItem(`smartattend_qr1_auth_${sessionId}`) : null)
-      || (typeof localStorage !== "undefined" ? localStorage.getItem(`smartattend_qr1_auth_${sessionId}`) : null);
-    if (stored) {
-      const parsed = JSON.parse(stored);
-      const matchUid = !currentUid || parsed.studentUid === currentUid;
-      const matchRoll = !currentRollNo || parsed.rollNo?.toUpperCase() === currentRollNo;
-      const matchEmail = !currentEmail || parsed.studentEmail?.toLowerCase() === currentEmail;
-
-      if ((parsed.qr1Verified === true || parsed.status === "QR1_VERIFIED" || parsed.status === "SESSION_AUTHORIZED") && parsed.sessionId === sessionId && (matchUid || matchRoll || matchEmail)) {
-        authData = parsed;
-      }
-    }
-  } catch (_) { }
-
-  // 2. Race Cloud Function validateQR2 with 1100ms timeout
-  try {
-    const fn = httpsCallable(functions, "validateQR2");
-    const cloudPromise = fn({
+    const result = await fn({
       sessionId,
       qr2Token,
       slot: qrPayload?.slot,
       sig: qrPayload?.sig,
       int: qrPayload?.int
     });
-    const timeoutPromise = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error("CLOUD_TIMEOUT")), 1100)
-    );
-    const result = await Promise.race([cloudPromise, timeoutPromise]);
-    if (result && result.data && result.data.authorized) return result.data;
-  } catch (cloudErr) {
-    const msg = cloudErr.message || "";
-    if (msg !== "CLOUD_TIMEOUT") {
-      if (msg.includes("violation") || msg.includes("disqualified") || msg.includes("unexcused")) {
-        throw new Error("❌ Access rejected: An unexcused security violation is recorded on your session.");
-      }
-      if (msg.includes("scan QR 1 first") || msg.includes("Missing Phase 1")) {
-        throw new Error("⛔ Access Denied: You must scan QR 1 first.");
-      }
-      if (msg.includes("Access denied") || msg.includes("QR 1") || msg.includes("permission-denied")) {
-        throw new Error("⛔ Access Denied: You did not scan QR 1 during Phase 1 (0:00 - 1:00). You cannot mark attendance for this session.");
-      }
-      if (msg.includes("deadline-exceeded") || msg.includes("expired")) {
-        throw new Error("❌ QR code has expired. Please scan the current live QR code.");
-      }
-      if (msg.includes("already-exists") || msg.includes("already submitted")) {
-        throw new Error("✅ Attendance for this session has already been recorded.");
-      }
-      console.warn("Cloud function validateQR2 notice (using direct Firestore engine):", msg || cloudErr);
+    if (result?.data?.authorized === true) return result.data;
+    throw new Error(result?.data?.message || "QR 2 authorization was not confirmed by the server.");
+  } catch (error) {
+    const msg = error?.message || "QR 2 could not be verified by the attendance server.";
+    if (msg.toLowerCase().includes("violation") || msg.toLowerCase().includes("disqualified") || msg.toLowerCase().includes("unexcused")) {
+      throw new Error("Access rejected: an unexcused security violation is recorded for this session.");
     }
-  }
-
-  // 3. Concurrently fetch session doc and candidate authorizations in parallel (1 round-trip)
-  const candidateKeys = [currentUid, currentRollNo, currentEmail].filter(Boolean);
-  const sessionRef = doc(db, "attendance_sessions", sessionId);
-
-  let session = null;
-  try {
-    const [sessionSnap, ...authSnaps] = await Promise.all([
-      getDoc(sessionRef).catch(() => ({ exists: () => false })),
-      ...candidateKeys.map(key =>
-        getDoc(doc(db, "attendance_sessions", sessionId, "authorizations", key)).catch(() => ({ exists: () => false }))
-      )
-    ]);
-
-    if (sessionSnap && typeof sessionSnap.exists === "function" && sessionSnap.exists()) {
-      session = sessionSnap.data();
+    if (msg.includes("scan QR 1 first") || msg.includes("Missing Phase 1") || msg.includes("Access denied")) {
+      throw new Error("Access denied: you must complete QR 1 check-in during Phase 1.");
     }
-
-    if (!authData) {
-      for (const snap of authSnaps) {
-        if (snap && typeof snap.exists === "function" && snap.exists()) {
-          const d = snap.data();
-          if (d.qr1Verified === true || d.status === "QR1_VERIFIED" || d.status === "SESSION_AUTHORIZED") {
-            authData = d;
-            break;
-          }
-        }
-      }
+    if (msg.includes("deadline-exceeded") || msg.toLowerCase().includes("expired")) {
+      throw new Error("QR code has expired. Please scan the current live QR code.");
     }
-  } catch (e) {
-    console.warn("Session & auth read notice:", e.message);
-  }
-
-  const now = Date.now();
-  if (session && now > ((session.kioskEndsAt || session.expiresAt || 0) + 15000)) {
-    throw new Error("❌ Attendance session has closed. 3-minute deadline elapsed.");
-  }
-
-  // 3. STRICT GATE: If student never checked in with QR 1, reject immediately & log security complaint
-  const isQr1Verified = authData && (authData.qr1Verified === true || authData.status === "QR1_VERIFIED" || authData.status === "SESSION_AUTHORIZED");
-  if (!isQr1Verified) {
-    await reportUserVerificationComplaint(
-      { email: currentEmail, rollNo: currentRollNo },
-      "Attempted Phase 2 QR 2 validation without Phase 1 QR 1 check-in",
-      "ATTENDANCE_PHASE_GATE"
-    );
-    throw new Error("⛔ Access Denied: You did not scan QR 1 during Phase 1 (0:00 - 1:00). You cannot mark attendance for this session.");
-  }
-
-  // 3.5 Check for unexcused violations or disqualification
-  const hasAuthViolation =
-    authData.disqualified === true ||
-    (authData.hasViolation === true && !authData.excused) ||
-    (authData.violation === 1 && !authData.excused) ||
-    (Number(authData.confirmedKioskViolations || authData.violationCount || 0) >= 1 && !authData.excused);
-
-  let hasFlaggedViolation = false;
-  if (session && Array.isArray(session.flaggedViolations)) {
-    const flagEntry = session.flaggedViolations.find((f) => {
-      const fRoll = (f.rollNo || "").toUpperCase().trim();
-      const fUid = (f.studentUid || "").toUpperCase().trim();
-      return (currentRollNo && fRoll === currentRollNo) || (currentUid && fUid === currentUid.toUpperCase().trim());
-    });
-    if (flagEntry && !flagEntry.excused && !flagEntry.resolved && (flagEntry.disqualified === true || flagEntry.status === "FLAGGED_DISQUALIFIED" || Number(flagEntry.count || flagEntry.violationCount || 0) >= 1)) {
-      hasFlaggedViolation = true;
+    if (msg.includes("already-exists") || msg.includes("already submitted")) {
+      throw new Error("Attendance for this session has already been recorded.");
     }
+    throw new Error(`QR 2 authorization was not confirmed by the security server: ${msg}`);
   }
-
-  if (hasAuthViolation || hasFlaggedViolation) {
-    throw new Error("❌ Access rejected: An unexcused security violation is recorded on your session.");
-  }
-
-  const targetRoll = (authData.rollNo || currentRollNo || "STUDENT").toUpperCase();
-
-  // 4. Duplicate Check
-  try {
-    const recordId = `${sessionId}_${targetRoll}`;
-    const recordRef = doc(db, "attendance_records", recordId);
-    const recordSnap = await getDoc(recordRef);
-    if (recordSnap.exists()) {
-      await reportUserVerificationComplaint(
-        { email: currentEmail, rollNo: targetRoll },
-        `Duplicate attendance attempt for session ${sessionId}`,
-        "DUPLICATE_ATTENDANCE_ATTEMPT"
-      );
-      throw new Error(`Roll Number ${targetRoll} has already marked attendance for this session.`);
-    }
-  } catch (dupErr) {
-    if (dupErr.message && dupErr.message.includes("already marked attendance")) {
-      throw dupErr;
-    }
-  }
-
-  return {
-    success: true,
-    authorized: true,
-    sessionId: sessionId,
-    rollNo: targetRoll,
-    studentName: authData.studentName || currentUser?.displayName || targetRoll,
-    kioskEndsAt: session?.kioskEndsAt || authData.kioskEndsAt || 0,
-    sessionDetails: {
-      courseCode: session?.courseCode || "N/A",
-      classCode: session?.classCode || "N/A",
-      roomNo: session?.roomNo || "N/A",
-      batch: session?.batch || "2025",
-      lecturerName: session?.lecturerName || ""
-    }
-  };
 }
 
 /**
