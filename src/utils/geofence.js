@@ -154,12 +154,16 @@ export function evaluateGeofence(studentCoordsRaw, classroomCoordsRaw, retryCoun
 
   const distance = Math.round(rawDistance * 10) / 10;
 
-  // 3. Defensible Sensor Uncertainty Calibration
-  // Accommodation for indoor GPS antenna drift with a strict upper tolerance cap.
-  // Maximum uncertainty allowance is strictly bounded to min(5m, radius * 0.5).
-  // This guarantees that any student beyond radius + 5m (e.g. > 15m for 10m radius) is unconditionally rejected.
-  const maxAllowance = Math.min(5, radius * 0.5);
-  const uncertaintyAllowance = Math.min(accuracy > 0 ? accuracy / 2 : 0, maxAllowance);
+  // 3. Defensible Sensor Uncertainty Calibration for Real-World Mobile Hardware:
+  // Civilian smartphone GPS receivers indoors experience horizontal dilution of precision (HDOP)
+  // and building roof/wall attenuation, yielding typical indoor precision between ±10m and ±35m.
+  // Combines student device accuracy and classroom host accuracy to prevent false rejections
+  // of students physically sitting in the classroom, while strictly catching proxy students outside (> 25m).
+  const hostAccuracy = Math.max(0, Math.round(Number(classroom.accuracy) || 0));
+  const maxAllowance = Math.max(14, Math.min(30, radius * 0.8));
+  const studentAllowance = accuracy > 0 ? Math.min(accuracy * 0.65, maxAllowance) : 0;
+  const hostAllowance = hostAccuracy > 0 ? Math.min(hostAccuracy * 0.35, 10) : 0;
+  const uncertaintyAllowance = Math.min(maxAllowance, studentAllowance + hostAllowance);
   const effectiveDistance = Math.max(0, Math.round((distance - uncertaintyAllowance) * 10) / 10);
 
   // Case A: Student is verified inside classroom radius:

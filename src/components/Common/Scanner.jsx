@@ -1423,8 +1423,8 @@ function QrScannerApp() {
             try {
                 const getCoords = async () => {
                     const cached = prewarmedLocationRef.current;
-                    // If cached fix is fresh (under 25s) with good indoor accuracy (<= 65m), return immediately!
-                    if (cached && (Date.now() - cached.timestamp < 25000) && (cached.accuracy || 0) <= 65 && (cached.accuracy || 0) > 0) {
+                    // If cached fix is fresh (under 45s) with acceptable accuracy (<= 65m), return immediately!
+                    if (cached && (Date.now() - cached.timestamp < 45000) && (cached.accuracy || 0) <= 65 && (cached.accuracy || 0) > 0) {
                         return cached;
                     }
                     return new Promise((resolve) => {
@@ -1443,10 +1443,10 @@ function QrScannerApp() {
                             resolve(coords || cached || null);
                         };
 
-                        // Overall safety timer: never block student attendance flow for >4.5s
+                        // Overall safety timer: never block student attendance flow for >6.0s
                         const safetyTimer = setTimeout(() => {
                             finish(prewarmedLocationRef.current || cached || null);
-                        }, 4500);
+                        }, 6000);
 
                         // Stage 1: Try high accuracy (GPS / GNSS satellites)
                         navigator.geolocation.getCurrentPosition(
@@ -1481,10 +1481,10 @@ function QrScannerApp() {
                                         clearTimeout(safetyTimer);
                                         finish(prewarmedLocationRef.current || cached || null);
                                     },
-                                    { enableHighAccuracy: false, timeout: 2500, maximumAge: 30000 }
+                                    { enableHighAccuracy: false, timeout: 3000, maximumAge: 30000 }
                                 );
                             },
-                            { enableHighAccuracy: true, timeout: 3500, maximumAge: 10000 }
+                            { enableHighAccuracy: true, timeout: 4500, maximumAge: 15000 }
                         );
                     });
                 };
