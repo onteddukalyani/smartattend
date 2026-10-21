@@ -1359,6 +1359,7 @@ exports.authorizeQR1 = onCall(async (request) => {
       authorizedAt: FieldValue.serverTimestamp(),
       sessionId: sessionId,
       kioskEndsAt: security.kioskEndsAt,
+      studentLocation: studentLocation || null,
       registeredPlatform: boundPlatform,
       detectedPlatform: boundPlatform
     });
@@ -1611,8 +1612,9 @@ exports.submitAttendance = onCall(async (request) => {
       deviceAuthMode,
       isNative
     } = request.data || {};
-    if (!sessionId || !qr2Token) {
-      throw new HttpsError("invalid-argument", "Missing sessionId or qr2Token.");
+    const hasDynamicQrPayload = request.data?.slot !== undefined || request.data?.sig !== undefined;
+    if (!sessionId || (!qr2Token && !hasDynamicQrPayload)) {
+      throw new HttpsError("invalid-argument", "Missing sessionId or QR 2 token payload.");
     }
 
     const studentUid = request.auth.uid;
@@ -1720,6 +1722,20 @@ exports.submitAttendance = onCall(async (request) => {
         "permission-denied",
         "❌ Attendance rejected: An unexcused security violation is recorded on your session. Attendance cannot be submitted unless excused by an authorized instructor."
       );
+    }
+
+    // Re-check the location captured during QR1 authorization when the session has geofencing enabled.
+    // Never trust a new location supplied only with the final attendance submission.
+    const classroomLoc = session.classroomLocation;
+    const geofenceRadius = typeof session.geofenceRadius === "number" ? session.geofenceRadius : 10;
+    if ((classroomLoc || session.geofenceEnabled === true) && geofenceRadius > 0) {
+      const geoResult = evaluateServerGeofence(authData.studentLocation, classroomLoc, geofenceRadius);
+      if (geoResult.status !== "PASS") {
+        throw new HttpsError(
+          "failed-precondition",
+          `Attendance geofence verification failed (${geoResult.status}): ${geoResult.message || "A reliable classroom location could not be verified."}`
+        );
+      }
     }
 
     // 2. Validate QR 2 token
