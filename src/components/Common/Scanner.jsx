@@ -1589,7 +1589,10 @@ function QrScannerApp() {
 
         // 3. If student is already checked in (in Kiosk Mode waiting for QR 2):
         // STRICTLY IGNORE any QR 1 scans until QR 2 is released by lecturer!
-        if (scanState === 'KIOSK_WAITING_QR2' || (activeSessionId && scanState !== 'DISQUALIFIED')) {
+        const isCurrentSession = !activeSessionId || payload.sessionId === activeSessionId;
+        const isWaitingForQr2ThisSession = scanState === 'KIOSK_WAITING_QR2' && isCurrentSession;
+
+        if (isWaitingForQr2ThisSession) {
             const isQR2 = Boolean(payload.qr2Token || payload.phase === '2' || payload.phase === 'PHASE_2' || (sessionData?.phase === 'PHASE_2' && payload.sessionId === activeSessionId));
             const isQR1 = Boolean(payload.qr1Token || payload.phase === '1' || payload.phase === 'PHASE_1');
 

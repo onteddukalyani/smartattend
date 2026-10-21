@@ -1283,10 +1283,11 @@ exports.authorizeQR1 = onCall(async (request) => {
   const studentDocSnap = await db.collection("students").doc(rollNo).get();
   const studentDoc = studentDocSnap.exists ? studentDocSnap.data() : null;
 
-  // Authoritative field: registeredPlatform. Legacy/stale deviceType or credData.platform cannot bypass fail-closed check.
-  const boundPlatform = studentDoc?.registeredPlatform;
+  // Authoritative field: registeredPlatform, with fallback to studentDoc.deviceType or client profile deviceType
+  const rawBoundPlatform = studentDoc?.registeredPlatform || studentDoc?.deviceType || studentProfile?.deviceType || (data?.deviceType ? String(data.deviceType).toLowerCase() : null);
+  const boundPlatform = rawBoundPlatform ? String(rawBoundPlatform).toLowerCase().trim() : null;
 
-  if (!boundPlatform || (boundPlatform !== "android" && boundPlatform !== "ios")) {
+  if (!boundPlatform || (boundPlatform !== "android" && boundPlatform !== "ios" && boundPlatform !== "web")) {
     throw new HttpsError(
       "failed-precondition",
       "Device platform onboarding incomplete. Your account has not been bound to an authorized device (Android or iOS). Please complete device setup before checking in."

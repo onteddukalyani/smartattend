@@ -224,9 +224,6 @@ export async function authorizeStudentQR1(sessionId, qr1Token, studentProfileOve
         msg.includes("permission-denied") ||
         msg.includes("Geofence") ||
         msg.includes("already-exists") ||
-        msg.includes("failed-precondition") ||
-        msg.includes("onboarding") ||
-        msg.includes("platform") ||
         msg.includes("unauthenticated")
       ) {
         const cleanMsg = msg.replace(/^functions\/[a-z-]+:\s*/i, "").trim();

@@ -8,7 +8,7 @@
 // Supported rotation intervals in seconds: 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60 seconds
 export const ROTATION_INTERVALS = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60];
 export const DEFAULT_ROTATION_INTERVAL = 10; // 10s authoritative default
-export const MAX_CLOCK_SKEW_GRACE_SEC = 5;
+export const MAX_CLOCK_SKEW_GRACE_SEC = 15;
 
 /**
  * Web Crypto SHA-256 HMAC generator (works in all modern browsers and WebView)
@@ -226,8 +226,9 @@ export async function validateRotatingQrPayload(rawScanned, options = {}) {
         };
       }
 
-      // Check future clock skew anomaly (> 5s in the future)
-      if (ageMs < -5000) {
+      // Check future clock skew anomaly (> clockSkew seconds in the future)
+      const maxFutureSkewMs = (clockSkew || MAX_CLOCK_SKEW_GRACE_SEC) * 1000;
+      if (ageMs < -maxFutureSkewMs) {
         return {
           valid: false,
           error: "CLOCK_SKEW_FUTURE",

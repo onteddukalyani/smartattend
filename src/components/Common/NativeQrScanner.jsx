@@ -216,6 +216,7 @@ function NativeQrScanner({
 
         let frameCount = 0;
         let isProcessing = false;
+        let scanCooldownUntil = 0;
         const scanFrame = async () => {
             if (!isScanningRef.current || !videoRef.current) return;
             if (isProcessing) {
@@ -225,8 +226,17 @@ function NativeQrScanner({
                 return;
             }
 
-            const video = videoRef.current;
             const now = Date.now();
+
+            // If in cooldown from recent scan, keep animation frame alive but skip decoding
+            if (now < scanCooldownUntil) {
+                if (isScanningRef.current) {
+                    animRef.current = requestAnimationFrame(scanFrame);
+                }
+                return;
+            }
+
+            const video = videoRef.current;
             const minInterval = barcodeDetector ? 30 : 40;
 
             // Scan every 30-40ms for instant recognition without stutter
@@ -243,8 +253,11 @@ function NativeQrScanner({
                             const barcodes = await barcodeDetector.detect(video);
                             if (barcodes && barcodes.length > 0 && barcodes[0].rawValue) {
                                 detected = true;
-                                isScanningRef.current = false;
+                                scanCooldownUntil = Date.now() + 1500;
                                 if (onScanRef.current) onScanRef.current(barcodes[0].rawValue);
+                                if (isScanningRef.current) {
+                                    animRef.current = requestAnimationFrame(scanFrame);
+                                }
                                 return;
                             }
                         } catch (_) { }
@@ -284,8 +297,11 @@ function NativeQrScanner({
 
                                 if (code && code.data) {
                                     detected = true;
-                                    isScanningRef.current = false;
+                                    scanCooldownUntil = Date.now() + 1500;
                                     if (onScanRef.current) onScanRef.current(code.data);
+                                    if (isScanningRef.current) {
+                                        animRef.current = requestAnimationFrame(scanFrame);
+                                    }
                                     return;
                                 }
                             }
