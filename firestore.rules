@@ -84,21 +84,30 @@ service cloud.firestore {
     }
 
     // Students collection: records managed by staff.
-    // Students can update their own personal non-academic details, but cannot alter rollNo, status, biometrics, or platform binding.
+    // Students can update their own profile, faceDescriptor, and biometric hardware keys, but cannot alter rollNo, status, role, or device lock.
     match /students/{studentId} {
       allow read: if isSignedIn();
-      allow create, delete: if isStaff();
+      allow create: if isStaff() || (
+        isSignedIn() &&
+        (
+          request.auth.uid == studentId ||
+          (request.resource.data.studentUid != null && request.resource.data.studentUid == request.auth.uid) ||
+          (request.auth.token.email != null && request.resource.data.email != null && (request.resource.data.email == request.auth.token.email || request.resource.data.email.lower() == request.auth.token.email.lower()))
+        ) &&
+        !request.resource.data.keys().hasAny(['status', 'disqualified', 'role'])
+      );
+      allow delete: if isStaff();
       allow update: if isStaff() || (
         isSignedIn() &&
-        (request.auth.uid == studentId || (resource.data.studentUid != null && resource.data.studentUid == request.auth.uid)) &&
+        (
+          request.auth.uid == studentId ||
+          (resource.data.studentUid != null && resource.data.studentUid == request.auth.uid) ||
+          (request.auth.token.email != null && resource.data.email != null && (resource.data.email == request.auth.token.email || resource.data.email.lower() == request.auth.token.email.lower()))
+        ) &&
         !request.resource.data.diff(resource.data).affectedKeys().hasAny([
           'rollNo', 'rollNumber', 'status', 'disqualified', 'academicYear', 'department', 'batch', 'role',
-          'registeredPlatform', 'deviceType', 'deviceTypeLocked', 'registeredDeviceType', 'hardwareBiometricPlatform'
-        ]) &&
-        (
-          !request.resource.data.diff(resource.data).affectedKeys().hasAny(['faceDescriptor', 'biometricEnrolled']) ||
-          (!('faceDescriptor' in resource.data) || resource.data.faceDescriptor == null)
-        )
+          'deviceTypeLocked'
+        ])
       );
       match /{document=**} {
         allow read: if isSignedIn();
@@ -106,28 +115,29 @@ service cloud.firestore {
       }
     }
 
-    // Users collection: users can create/update own profile; non-admins cannot escalate role or tamper with biometric/enrollment/academic/platform fields
+    // Users collection: users can create/update own profile
     match /users/{userId} {
       allow read: if isSignedIn();
       allow create: if isSignedIn() && (
         isAdmin() || (
-          request.auth.uid == userId &&
+          (
+            request.auth.uid == userId ||
+            (request.resource.data.studentUid != null && request.resource.data.studentUid == request.auth.uid)
+          ) &&
           !request.resource.data.keys().hasAny([
-            'role', 'isAdmin', 'isLecturer', 'faceDescriptor', 'descriptor',
-            'faceRegistered', 'biometricEnrolled', 'hasFaceRegistered', 'rollNo',
-            'rollNumber', 'status', 'disqualified', 'department', 'batch',
-            'registeredPlatform', 'deviceType', 'deviceTypeLocked', 'registeredDeviceType', 'hardwareBiometricPlatform'
+            'role', 'isAdmin', 'isLecturer', 'status', 'disqualified', 'department', 'batch'
           ])
         )
       );
       allow update: if isSignedIn() && (
         isAdmin() || (
-          request.auth.uid == userId &&
+          (
+            request.auth.uid == userId ||
+            (resource.data.studentUid != null && resource.data.studentUid == request.auth.uid) ||
+            (request.auth.token.email != null && resource.data.email != null && (resource.data.email == request.auth.token.email || resource.data.email.lower() == request.auth.token.email.lower()))
+          ) &&
           !request.resource.data.diff(resource.data).affectedKeys().hasAny([
-            'role', 'isAdmin', 'isLecturer', 'faceDescriptor', 'descriptor',
-            'faceRegistered', 'biometricEnrolled', 'hasFaceRegistered', 'rollNo',
-            'rollNumber', 'status', 'disqualified', 'department', 'batch',
-            'registeredPlatform', 'deviceType', 'deviceTypeLocked', 'registeredDeviceType', 'hardwareBiometricPlatform'
+            'role', 'isAdmin', 'isLecturer', 'status', 'disqualified', 'department', 'batch'
           ]) &&
           (!('role' in request.resource.data) || request.resource.data.role == resource.data.role)
         )

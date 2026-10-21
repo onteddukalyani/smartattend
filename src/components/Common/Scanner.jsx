@@ -20,7 +20,9 @@ import {
     FaLock,
     FaKey,
     FaDownload,
-    FaFingerprint
+    FaFingerprint,
+    FaMapMarkerAlt,
+    FaUnlock
 } from 'react-icons/fa';
 import { MdQrCodeScanner } from 'react-icons/md';
 import { useAuth } from '../authcontext';
@@ -134,6 +136,8 @@ function QrScannerApp() {
     const [nowTick, setNowTick] = useState(Date.now());
     const geofenceRetriesRef = useRef(0);
     const prewarmedLocationRef = useRef(null);
+    const [gpsTelemetry, setGpsTelemetry] = useState(null);
+    const [currentStudentLocation, setCurrentStudentLocation] = useState(null);
 
     // Heartbeat clock to evaluate phase transitions and countdowns in real-time
     useEffect(() => {
@@ -182,7 +186,7 @@ function QrScannerApp() {
                     (pos) => {
                         if (pos && pos.coords) {
                             const rawAcc = Number(pos.coords.accuracy);
-                            prewarmedLocationRef.current = {
+                            const locObj = {
                                 latitude: pos.coords.latitude,
                                 longitude: pos.coords.longitude,
                                 lat: pos.coords.latitude,
@@ -190,6 +194,8 @@ function QrScannerApp() {
                                 accuracy: (Number.isFinite(rawAcc) && rawAcc > 0) ? rawAcc : 15,
                                 timestamp: Date.now()
                             };
+                            prewarmedLocationRef.current = locObj;
+                            setCurrentStudentLocation(locObj);
                         }
                     },
                     () => { },
@@ -205,7 +211,7 @@ function QrScannerApp() {
                             const prev = prewarmedLocationRef.current;
                             // Keep fix if fresher (> 10s) or more precise
                             if (!prev || (Date.now() - prev.timestamp > 10000) || acc <= prev.accuracy) {
-                                prewarmedLocationRef.current = {
+                                const locObj = {
                                     latitude: pos.coords.latitude,
                                     longitude: pos.coords.longitude,
                                     lat: pos.coords.latitude,
@@ -213,6 +219,8 @@ function QrScannerApp() {
                                     accuracy: acc,
                                     timestamp: Date.now()
                                 };
+                                prewarmedLocationRef.current = locObj;
+                                setCurrentStudentLocation(locObj);
                             }
                         }
                     },
@@ -1490,6 +1498,7 @@ function QrScannerApp() {
                 };
                 studentCoords = await getCoords();
                 const geoEval = evaluateGeofence(studentCoords, classroomTarget, geofenceRetriesRef.current);
+                setGpsTelemetry(geoEval);
 
                 if (geoEval.status === "MOCK_DETECTED") {
                     console.error("[Geofence] Mock location detected!");
@@ -1508,8 +1517,12 @@ function QrScannerApp() {
                     geofenceRetriesRef.current = (geofenceRetriesRef.current || 0) + 1;
                     const maxAllowedBoundary = (classroomTarget.radius || 10) + 15;
                     // If student is measured far from classroom (> 25m), enforce retry
-                    if (geoEval.canRetry && geoEval.distance > maxAllowedBoundary) {
+                    if (geoEval.canRetry && geoEval.distance !== null && geoEval.distance > maxAllowedBoundary) {
                         setErrorMessage(geoEval.message);
+                        return;
+                    } else if (geoEval.locationAcquiring) {
+                        console.log("[Geofence] GPS acquiring...");
+                        setErrorMessage("📍 Locking GPS coordinates to measure distance to lecturer... Please hold camera steady.");
                         return;
                     } else {
                         // Inconclusive GPS indoors near classroom or max retries reached: since student is scanning the 10-second rotating QR directly in front of the screen,
@@ -1529,6 +1542,12 @@ function QrScannerApp() {
             return;
         }
 
+        const enhancedPayload = {
+            ...payload,
+            studentLocation: studentCoords,
+            distance: gpsTelemetry?.distance ?? null
+        };
+
         // 3. If student is already checked in (in Kiosk Mode waiting for QR 2):
         // STRICTLY IGNORE any QR 1 scans until QR 2 is released by lecturer!
         if (scanState === 'KIOSK_WAITING_QR2' || (activeSessionId && scanState !== 'DISQUALIFIED')) {
@@ -1543,24 +1562,24 @@ function QrScannerApp() {
 
             if (isQR2) {
                 console.log('[Scanner] Phase 2 (QR 2) scanned successfully. Proceeding to biometrics...');
-                handleProcessQR2(payload.sessionId || activeSessionId, payload.qr2Token || payload.sessionId, payload);
+                handleProcessQR2(payload.sessionId || activeSessionId, payload.qr2Token || payload.sessionId, enhancedPayload);
             } else if (isQR1) {
                 // QR 1 is explicitly blocked from re-scanning!
                 console.log('[Scanner] QR 1 ignored. Student already completed Phase 1 check-in. Waiting for Lecturer to display QR 2.');
                 setErrorMessage('You have already scanned QR 1. Please scan QR 2 displayed on the screen.');
             } else if (sessionData?.phase === 'PHASE_2') {
-                handleProcessQR2(payload.sessionId || activeSessionId, payload.qr2Token || payload.sessionId, payload);
+                handleProcessQR2(payload.sessionId || activeSessionId, payload.qr2Token || payload.sessionId, enhancedPayload);
             }
             return;
         }
 
         // 4. Initial state (student has not scanned QR 1 yet):
         if (payload.qr1Token || payload.phase === '1' || payload.phase === 'PHASE_1') {
-            handleProcessQR1(payload.sessionId, payload.qr1Token, studentCoords, payload);
+            handleProcessQR1(payload.sessionId, payload.qr1Token, studentCoords, enhancedPayload);
         } else if (payload.qr2Token || payload.phase === '2' || payload.phase === 'PHASE_2') {
-            handleProcessQR2(payload.sessionId, payload.qr2Token, payload);
+            handleProcessQR2(payload.sessionId, payload.qr2Token, enhancedPayload);
         } else {
-            handleProcessQR1(payload.sessionId, payload.sessionId, studentCoords, payload);
+            handleProcessQR1(payload.sessionId, payload.sessionId, studentCoords, enhancedPayload);
         }
     };
 
@@ -2289,6 +2308,71 @@ function QrScannerApp() {
         );
     }
 
+    // Live GPS Coordinates & Lecturer Proximity Telemetry Component
+    const renderGpsTelemetryCard = () => (
+        <div style={{
+            margin: '12px auto 16px',
+            width: '100%',
+            maxWidth: '480px',
+            padding: '12px 16px',
+            borderRadius: '16px',
+            background: 'var(--surface, #ffffff)',
+            border: gpsTelemetry?.status === 'REJECT' ? '1.5px solid #ef4444' : (gpsTelemetry?.status === 'PASS' ? '1.5px solid #10b981' : '1px solid var(--border, #e2e8f0)'),
+            boxShadow: '0 4px 14px rgba(0, 0, 0, 0.05)',
+            textAlign: 'left',
+            boxSizing: 'border-box'
+        }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                <span style={{ fontSize: '0.82rem', fontWeight: 800, color: 'var(--text-muted, #475569)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <FaMapMarkerAlt style={{ color: '#6366f1' }} /> GPS Proximity &amp; Distance
+                </span>
+                {gpsTelemetry?.status === 'PASS' ? (
+                    <span style={{ fontSize: '0.74rem', fontWeight: 800, color: '#059669', background: 'rgba(16, 185, 129, 0.12)', padding: '2px 8px', borderRadius: '6px' }}>
+                        ✓ Within Classroom ({gpsTelemetry.distance}m)
+                    </span>
+                ) : gpsTelemetry?.status === 'REJECT' ? (
+                    <span style={{ fontSize: '0.74rem', fontWeight: 800, color: '#dc2626', background: 'rgba(239, 68, 68, 0.12)', padding: '2px 8px', borderRadius: '6px' }}>
+                        ✕ Outside Limit ({gpsTelemetry.distance}m)
+                    </span>
+                ) : (
+                    <span style={{ fontSize: '0.74rem', fontWeight: 700, color: '#4f46e5', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <FaSpinner className="fa-spin" style={{ fontSize: '0.7rem' }} /> GNSS Active
+                    </span>
+                )}
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '8px', fontSize: '0.78rem' }}>
+                <div style={{ padding: '8px 10px', background: 'var(--bg-subtle, #f8fafc)', borderRadius: '10px' }}>
+                    <div style={{ color: '#64748b', fontSize: '0.7rem', fontWeight: 600 }}>Student Location</div>
+                    <div style={{ fontWeight: 750, color: 'var(--text-main, #0f172a)' }}>
+                        {currentStudentLocation ? `${currentStudentLocation.latitude.toFixed(4)}, ${currentStudentLocation.longitude.toFixed(4)}` : 'Acquiring satellite lock...'}
+                    </div>
+                    {currentStudentLocation && (
+                        <div style={{ fontSize: '0.68rem', color: '#10b981', fontWeight: 600 }}>Precision: ±{Math.round(currentStudentLocation.accuracy || 15)}m</div>
+                    )}
+                </div>
+
+                <div style={{ padding: '8px 10px', background: 'var(--bg-subtle, #f8fafc)', borderRadius: '10px' }}>
+                    <div style={{ color: '#64748b', fontSize: '0.7rem', fontWeight: 600 }}>Distance to Lecturer</div>
+                    <div style={{
+                        fontWeight: 800,
+                        fontSize: '0.88rem',
+                        color: (gpsTelemetry?.distance !== undefined && gpsTelemetry?.distance !== null)
+                            ? (gpsTelemetry.distance <= (gpsTelemetry.radius || 30) ? '#059669' : '#dc2626')
+                            : '#4338ca'
+                    }}>
+                        {gpsTelemetry?.distance !== undefined && gpsTelemetry?.distance !== null
+                            ? `${gpsTelemetry.distance} metres`
+                            : (gpsTelemetry?.locationAcquiring ? 'Measuring distance...' : 'Scan QR on screen')}
+                    </div>
+                    <div style={{ fontSize: '0.68rem', color: '#64748b' }}>
+                        {gpsTelemetry?.radius ? `Boundary: ≤ ${gpsTelemetry.radius}m` : 'Classroom Geofence'}
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+
     // =========================================================================
     // UI VIEW 0: iOS GUIDED ACCESS LOCK REQUIRED SCREEN
     // =========================================================================
@@ -2958,6 +3042,9 @@ function QrScannerApp() {
                     <span>{isQr2Released ? 'Phase 2 Live · Point camera at screen QR 2' : 'Phase 1 Complete · Waiting for QR 2'}</span>
                 </div>
 
+                {/* Live GPS & Lecturer Distance Telemetry */}
+                {renderGpsTelemetryCard()}
+
                 {!isQr2Released ? (
                     /* QR Scanning Blocked / Paused View */
                     <div className="st-scanner-waiting-box">
@@ -3053,6 +3140,9 @@ function QrScannerApp() {
                     <FaShieldAlt style={{ color: '#10b981' }} />
                     <span>Supervised Session Active · Keep in view</span>
                 </div>
+
+                {/* Live GPS & Lecturer Distance Telemetry */}
+                {renderGpsTelemetryCard()}
             </div>
 
             {/* Camera Viewport (Spacious, rounded card) */}

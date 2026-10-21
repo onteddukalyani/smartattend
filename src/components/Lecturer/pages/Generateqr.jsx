@@ -203,6 +203,53 @@ function GenerateQR() {
             .catch((err) => console.warn("Could not load courses for QR page:", err));
     }, []);
 
+    // Continuous Pre-Warming of Lecturer Host GPS on Mount
+    useEffect(() => {
+        if (typeof navigator === "undefined" || !navigator.geolocation) return;
+        let watchId = null;
+        const applyHostGps = (pos) => {
+            if (pos && pos.coords) {
+                const acc = Math.round(Number(pos.coords.accuracy) || 15);
+                const coords = {
+                    latitude: pos.coords.latitude,
+                    longitude: pos.coords.longitude,
+                    lat: pos.coords.latitude,
+                    lng: pos.coords.longitude,
+                    accuracy: acc,
+                    radius: geofenceRadius || 10
+                };
+                setClassroomCoords(coords);
+                setClassroomGpsStatus("ACTIVE");
+            }
+        };
+
+        try {
+            navigator.geolocation.getCurrentPosition(
+                applyHostGps,
+                () => {
+                    navigator.geolocation.getCurrentPosition(
+                        applyHostGps,
+                        (err) => console.warn("[Generateqr] Lecturer GPS pre-warm notice:", err?.message || err),
+                        { enableHighAccuracy: false, timeout: 6000, maximumAge: 30000 }
+                    );
+                },
+                { enableHighAccuracy: true, timeout: 6000, maximumAge: 10000 }
+            );
+
+            watchId = navigator.geolocation.watchPosition(
+                applyHostGps,
+                () => {},
+                { enableHighAccuracy: true, maximumAge: 5000 }
+            );
+        } catch (_) {}
+
+        return () => {
+            if (watchId !== null && typeof navigator !== "undefined" && navigator.geolocation) {
+                try { navigator.geolocation.clearWatch(watchId); } catch (_) {}
+            }
+        };
+    }, []);
+
     const myCourses = useMemo(() => {
         return availableCourses.filter((c) => isCourseAssignedToLecturer(c, user, profile));
     }, [availableCourses, user, profile]);
@@ -383,6 +430,40 @@ function GenerateQR() {
             const effectiveTotalSec = effectiveQr1Sec + effectiveQr2Sec;
             const effectiveDurationMinutes = Math.round((effectiveTotalSec / 60) * 10) / 10;
 
+            // Ensure Lecturer Host GPS is locked before initiating session document
+            let hostCoords = classroomCoords;
+            if (!hostCoords && geofenceRadius > 0 && typeof navigator !== "undefined" && navigator.geolocation) {
+                try {
+                    hostCoords = await new Promise((resolve) => {
+                        const timeout = setTimeout(() => resolve(null), 3000);
+                        navigator.geolocation.getCurrentPosition(
+                            (pos) => {
+                                clearTimeout(timeout);
+                                resolve({
+                                    latitude: pos.coords.latitude,
+                                    longitude: pos.coords.longitude,
+                                    lat: pos.coords.latitude,
+                                    lng: pos.coords.longitude,
+                                    accuracy: Math.round(Number(pos.coords.accuracy) || 15),
+                                    radius: geofenceRadius
+                                });
+                            },
+                            () => {
+                                clearTimeout(timeout);
+                                resolve(null);
+                            },
+                            { enableHighAccuracy: true, timeout: 2800, maximumAge: 15000 }
+                        );
+                    });
+                    if (hostCoords) {
+                        setClassroomCoords(hostCoords);
+                        setClassroomGpsStatus("ACTIVE");
+                    }
+                } catch (_) {}
+            }
+
+            const activeClassroomCoords = hostCoords || classroomCoords || null;
+
             const result = await createAttendanceSession(
                 finalClassCode,
                 courseCode.trim(),
@@ -395,7 +476,7 @@ function GenerateQR() {
                 {
                     qr1DurationSeconds: effectiveQr1Sec,
                     qr2DurationSeconds: effectiveQr2Sec,
-                    classroomLocation: classroomCoords || null,
+                    classroomLocation: activeClassroomCoords,
                     rotationIntervalSec: rotationIntervalSec
                 }
             );
@@ -424,6 +505,8 @@ function GenerateQR() {
                             const coords = {
                                 latitude: pos.coords.latitude,
                                 longitude: pos.coords.longitude,
+                                lat: pos.coords.latitude,
+                                lng: pos.coords.longitude,
                                 accuracy: acc,
                                 radius: geofenceRadius
                             };
@@ -1645,6 +1728,57 @@ function GenerateQR() {
                                     </button>
                                 ))}
                             </div>
+
+                            {/* Live Host GPS Telemetry Card */}
+                            {classroomCoords ? (
+                                <div style={{
+                                    marginTop: "10px",
+                                    padding: "8px 12px",
+                                    borderRadius: "8px",
+                                    background: "rgba(16, 185, 129, 0.08)",
+                                    border: "1px solid rgba(16, 185, 129, 0.25)",
+                                    fontSize: "0.78rem",
+                                    color: "#065f46",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "space-between",
+                                    gap: "6px"
+                                }}>
+                                    <span>📍 <strong>Host GPS Locked:</strong> {classroomCoords.latitude?.toFixed(5)}, {classroomCoords.longitude?.toFixed(5)} (±{Math.round(classroomCoords.accuracy || 15)}m)</span>
+                                    <span style={{ fontWeight: 800, color: "#059669" }}>✓ Ready</span>
+                                </div>
+                            ) : (
+                                <div style={{
+                                    marginTop: "10px",
+                                    padding: "8px 12px",
+                                    borderRadius: "8px",
+                                    background: "rgba(245, 158, 11, 0.08)",
+                                    border: "1px solid rgba(245, 158, 11, 0.25)",
+                                    fontSize: "0.78rem",
+                                    color: "#92400e",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "space-between",
+                                    gap: "6px"
+                                }}>
+                                    <span>📍 <strong>GPS:</strong> Acquiring classroom satellite coordinates...</span>
+                                    <button
+                                        type="button"
+                                        onClick={handleRecalibrateGps}
+                                        style={{
+                                            background: "transparent",
+                                            border: "none",
+                                            color: "#b45309",
+                                            fontWeight: 800,
+                                            textDecoration: "underline",
+                                            cursor: "pointer",
+                                            padding: 0
+                                        }}
+                                    >
+                                        Re-try Now
+                                    </button>
+                                </div>
+                            )}
                         </div>
 
                         <div className="qr-form-group">
@@ -2251,7 +2385,7 @@ function GenerateQR() {
                     }}>
                         <span>
                             {geofenceRadius > 0
-                                ? `📍 Geofence: ${classroomCoords?.radius || geofenceRadius}m Active`
+                                ? `📍 Geofence: ${classroomCoords?.radius || geofenceRadius}m Active${classroomCoords?.latitude ? ` (${classroomCoords.latitude.toFixed(4)}, ${classroomCoords.longitude.toFixed(4)})` : ""}`
                                 : "📍 Geofence: Disabled"}
                         </span>
                         <div style={{ display: "inline-flex", gap: "4px", alignItems: "center" }}>
@@ -2282,6 +2416,14 @@ function GenerateQR() {
                                 style={{ padding: "2px 7px", borderRadius: "5px", border: "1px solid #6366f1", background: "rgba(99, 102, 241, 0.12)", color: "#4f46e5", fontSize: "0.7rem", fontWeight: 750, cursor: "pointer" }}
                             >
                                 ✏️ Custom
+                            </button>
+                            <button
+                                type="button"
+                                onClick={handleRecalibrateGps}
+                                title="Recalibrate Classroom GPS Live"
+                                style={{ padding: "2px 7px", borderRadius: "5px", border: "1px solid #059669", background: "rgba(16, 185, 129, 0.12)", color: "#065f46", fontSize: "0.7rem", fontWeight: 750, cursor: "pointer" }}
+                            >
+                                🎯 GPS
                             </button>
                             {geofenceRadius > 0 ? (
                                 <button

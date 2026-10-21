@@ -43,7 +43,17 @@ export default function FaceEnrollPage() {
     const [showFaceTest, setShowFaceTest] = useState(false);
     const [faceTestResult, setFaceTestResult] = useState("");
     const [isReEnrolling, setIsReEnrolling] = useState(false);
-    const [hasHwRegistered, setHasHwRegistered] = useState(false);
+    const [hasHwRegistered, setHasHwRegistered] = useState(() => {
+        try {
+            return (
+                localStorage.getItem(`smartattend_hw_enrolled_${profile?.rollNo || ""}`) === "true" ||
+                localStorage.getItem("smartattend_hw_enrolled") === "true" ||
+                Boolean(profile?.hardwareBiometricEnrolled)
+            );
+        } catch (_) {
+            return false;
+        }
+    });
     const [faceSaving, setFaceSaving] = useState(false);
     const [faceSuccessMsg, setFaceSuccessMsg] = useState("");
 
@@ -83,6 +93,15 @@ export default function FaceEnrollPage() {
     // Live Snapshot for Real-Time Status Tracking
     useEffect(() => {
         if (!activeRollNo) return;
+        const localHwStatus = (
+            localStorage.getItem(`smartattend_hw_enrolled_${activeRollNo}`) === "true" ||
+            (user?.uid && localStorage.getItem(`smartattend_hw_enrolled_${user.uid}`) === "true") ||
+            localStorage.getItem("smartattend_hw_enrolled") === "true"
+        );
+        if (localHwStatus) {
+            setHasHwRegistered(true);
+        }
+
         const unsub = onSnapshot(doc(db, "students", activeRollNo), (snap) => {
             if (snap.exists()) {
                 const data = snap.data();
@@ -94,15 +113,26 @@ export default function FaceEnrollPage() {
 
                 setRegisteredDescriptor(validDescriptor);
                 setHasFaceRegistered(Boolean(validDescriptor));
-                setHasHwRegistered(Boolean(data.hardwareBiometricEnrolled));
+                const hwEnrolled = Boolean(data.hardwareBiometricEnrolled) || localHwStatus;
+                setHasHwRegistered(hwEnrolled);
+                if (data.hardwareBiometricEnrolled) {
+                    try {
+                        localStorage.setItem(`smartattend_hw_enrolled_${activeRollNo}`, "true");
+                        if (user?.uid) localStorage.setItem(`smartattend_hw_enrolled_${user.uid}`, "true");
+                        localStorage.setItem("smartattend_hw_enrolled", "true");
+                    } catch (_) {}
+                }
             } else {
                 setRegisteredDescriptor(null);
                 setHasFaceRegistered(false);
-                setHasHwRegistered(false);
+                setHasHwRegistered(localHwStatus);
             }
-        }, (err) => console.warn("Biometric status snap warning:", err));
+        }, (err) => {
+            console.warn("Biometric status snap warning:", err);
+            if (localHwStatus) setHasHwRegistered(true);
+        });
         return () => unsub();
-    }, [activeRollNo]);
+    }, [activeRollNo, user?.uid]);
 
     const handleFaceEnrolled = async (enrollData) => {
         if (!enrollData || !enrollData.faceDescriptor || !activeRollNo) return;
@@ -156,11 +186,15 @@ export default function FaceEnrollPage() {
                     faceRegistered: true,
                     biometricEnrolled: true,
                     hasFaceRegistered: true,
+                    studentUid: user?.uid || null,
                     faceRemovedAt: deleteField(),
                     enrolledAt: Date.now()
                 };
 
                 await setDoc(doc(db, "students", activeRollNo), updatePayload, { merge: true });
+                if (user?.uid) {
+                    await setDoc(doc(db, "users", user.uid), updatePayload, { merge: true }).catch(() => {});
+                }
                 await setDoc(doc(db, "users", activeRollNo), updatePayload, { merge: true }).catch(() => {});
             }
 
@@ -196,15 +230,45 @@ export default function FaceEnrollPage() {
 
             const res = await enrollHardwareBiometric(user?.uid || activeRollNo);
             if (res.success) {
-                // Save hardware biometric enrollment status to Firestore
+                // Save hardware biometric enrollment status to Firestore across students and users collections
                 const hwPayload = {
                     hardwareBiometricEnrolled: true,
                     hardwareBiometricPlatform: res.platform || platform,
                     hardwareBiometricEnrolledAt: Date.now(),
-                    biometricEnrolled: true
+                    biometricEnrolled: true,
+                    studentUid: user?.uid || null
                 };
-                await setDoc(doc(db, "students", activeRollNo), hwPayload, { merge: true });
-                await setDoc(doc(db, "users", activeRollNo), hwPayload, { merge: true }).catch(() => {});
+
+                // Link to canonical students/{activeRollNo}
+                if (activeRollNo) {
+                    await setDoc(doc(db, "students", activeRollNo), hwPayload, { merge: true }).catch((err) => {
+                        console.warn("Could not save to students/" + activeRollNo, err);
+                    });
+                }
+
+                // Link to users/{user.uid} (authenticated Firebase user doc)
+                if (user?.uid) {
+                    await setDoc(doc(db, "users", user.uid), hwPayload, { merge: true }).catch((err) => {
+                        console.warn("Could not save to users/" + user.uid, err);
+                    });
+                }
+
+                // Also try users/{activeRollNo} if distinct
+                if (activeRollNo && user?.uid !== activeRollNo) {
+                    await setDoc(doc(db, "users", activeRollNo), hwPayload, { merge: true }).catch(() => {});
+                }
+
+                // Link to students/{user.uid} if distinct
+                if (user?.uid && user.uid !== activeRollNo) {
+                    await setDoc(doc(db, "students", user.uid), hwPayload, { merge: true }).catch(() => {});
+                }
+
+                // Persist locally so it's instantly active across restarts and UI components
+                try {
+                    if (activeRollNo) localStorage.setItem(`smartattend_hw_enrolled_${activeRollNo}`, "true");
+                    if (user?.uid) localStorage.setItem(`smartattend_hw_enrolled_${user.uid}`, "true");
+                    localStorage.setItem("smartattend_hw_enrolled", "true");
+                } catch (_) {}
 
                 setHasHwRegistered(true);
                 setKeyExistsOnDevice(true);

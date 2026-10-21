@@ -788,6 +788,8 @@ export async function submitVerifiedAttendance(sessionId, qr2Token, biometricDat
     timestamp: now,
     deviceAuthMode: deviceAuthMode,
     isNative: Boolean(isNative),
+    studentLocation: qr2Payload?.studentLocation || authData?.studentLocation || null,
+    classroomDistance: (qr2Payload?.distance !== undefined && qr2Payload?.distance !== null) ? qr2Payload.distance : (authData?.distance !== undefined ? authData.distance : null),
     biometricVerification: {
       verified: true,
       confidence: biometricData?.confidence || 100,

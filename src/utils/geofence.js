@@ -108,12 +108,15 @@ export function evaluateGeofence(studentCoordsRaw, classroomCoordsRaw, retryCoun
     const canRetry = retryCount < MAX_RETRY_ATTEMPTS;
     return {
       status: "INCONCLUSIVE_RETRY",
-      distance: 999,
-      accuracy: 999,
+      distance: null,
+      effectiveDistance: null,
+      accuracy: null,
       radius: radius,
       retryCount,
       canRetry,
-      message: "⚠️ GPS coordinates unavailable. Please enable device location and retry."
+      locationAcquiring: true,
+      classroomCoords: { latitude: classroom.latitude, longitude: classroom.longitude, radius },
+      message: "📍 GPS coordinates acquiring. Please ensure device location is enabled and hold camera steady."
     };
   }
 
@@ -124,6 +127,8 @@ export function evaluateGeofence(studentCoordsRaw, classroomCoordsRaw, retryCoun
       distance: 999,
       accuracy: student.accuracy,
       radius: radius,
+      studentCoords: { latitude: student.latitude, longitude: student.longitude, accuracy: student.accuracy },
+      classroomCoords: { latitude: classroom.latitude, longitude: classroom.longitude, radius },
       message: "🚨 Mock / Fake GPS detected. Attendance rejected and flagged as anti-proxy violation."
     };
   }
@@ -148,6 +153,8 @@ export function evaluateGeofence(studentCoordsRaw, classroomCoordsRaw, retryCoun
       accuracy,
       radius,
       geofenceEnforced: false,
+      studentCoords: { latitude: student.latitude, longitude: student.longitude, accuracy },
+      classroomCoords: { latitude: classroom.latitude, longitude: classroom.longitude, radius },
       message: "Classroom GPS verification bypassed (coordinates invalid)."
     };
   }
@@ -166,16 +173,22 @@ export function evaluateGeofence(studentCoordsRaw, classroomCoordsRaw, retryCoun
   const uncertaintyAllowance = Math.min(maxAllowance, studentAllowance + hostAllowance);
   const effectiveDistance = Math.max(0, Math.round((distance - uncertaintyAllowance) * 10) / 10);
 
+  const telemetry = {
+    distance,
+    effectiveDistance,
+    accuracy,
+    radius,
+    studentCoords: { latitude: student.latitude, longitude: student.longitude, accuracy },
+    classroomCoords: { latitude: classroom.latitude, longitude: classroom.longitude, radius }
+  };
+
   // Case A: Student is verified inside classroom radius:
   // - Direct geometric presence (distance <= radius)
   // - Effective distance inside radius considering sensor confidence circles (effectiveDistance <= radius)
   if (distance <= radius || effectiveDistance <= radius) {
     return {
       status: "PASS",
-      distance,
-      effectiveDistance,
-      accuracy,
-      radius,
+      ...telemetry,
       geofenceEnforced: true,
       message: `✅ Geofence Verified: Inside classroom (${distance}m measured distance within ${radius}m boundary).`
     };
@@ -186,10 +199,7 @@ export function evaluateGeofence(studentCoordsRaw, classroomCoordsRaw, retryCoun
     const canRetry = retryCount < MAX_RETRY_ATTEMPTS;
     return {
       status: "INCONCLUSIVE_RETRY",
-      distance,
-      effectiveDistance,
-      accuracy,
-      radius,
+      ...telemetry,
       retryCount,
       canRetry,
       message: canRetry
@@ -201,10 +211,7 @@ export function evaluateGeofence(studentCoordsRaw, classroomCoordsRaw, retryCoun
   // Case C: Student is definitively outside classroom radius (e.g. remote / dorm / proxy)
   return {
     status: "REJECT",
-    distance,
-    effectiveDistance,
-    accuracy,
-    radius,
+    ...telemetry,
     geofenceEnforced: true,
     message: `❌ Geofence Violation: You are outside the classroom (${distance}m away > ${radius}m radius). Attendance rejected.`
   };

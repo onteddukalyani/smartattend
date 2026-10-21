@@ -317,7 +317,10 @@ export default function StudentDashboard() {
 
     const hasHwRegistered = Boolean(
         fetchedStudentData?.hardwareBiometricEnrolled ||
-        profile?.hardwareBiometricEnrolled
+        profile?.hardwareBiometricEnrolled ||
+        (activeRollNo && localStorage.getItem(`smartattend_hw_enrolled_${activeRollNo}`) === "true") ||
+        (user?.uid && localStorage.getItem(`smartattend_hw_enrolled_${user.uid}`) === "true") ||
+        localStorage.getItem("smartattend_hw_enrolled") === "true"
     );
     const isDualBioRegistered = hasFaceRegistered && hasHwRegistered;
 
