@@ -83,4 +83,54 @@ export function isDeviceMatching(registeredType, currentType) {
   if (reg === cur) return true;
   if ((reg === "ios" || reg === "iphone") && (cur === "ios" || cur === "iphone")) return true;
   return false;
+}
+
+/**
+ * Enforces browser camera authorization policy:
+ * - Native Mobile App (Capacitor APK): Camera is available.
+ * - Browser (!Capacitor.isNativePlatform()):
+ *   * Lecturer: Camera IS available.
+ *   * Admin: Camera IS available.
+ *   * iPhone / iOS Users: Camera IS available (Safari/PWA + Guided Access).
+ *   * Android / PC Web Students: Camera is NOT available in browser!
+ *     (Must use official SmartAttend Android App (.apk) with Lock Task Kiosk mode).
+ * 
+ * @param {Object} profile - User profile from authcontext
+ * @param {Object} user - Firebase auth user
+ * @returns {{ allowed: boolean, reason: string, message?: string }}
+ */
+export function isBrowserCameraAllowed(profile = {}, user = {}) {
+  // If running inside native mobile app (Capacitor APK), camera is always allowed
+  if (Capacitor.isNativePlatform()) {
+    return { allowed: true, reason: "native_app" };
+  }
+
+  // Lecturer: Camera is allowed in browser
+  const role = String(profile?.role || user?.role || "").trim().toLowerCase();
+  if (role === "lecturer" || role === "faculty" || role === "teacher") {
+    return { allowed: true, reason: "lecturer" };
+  }
+
+  // Admin: Camera is allowed in browser
+  if (role === "admin" || role === "administrator" || role === "superadmin") {
+    return { allowed: true, reason: "admin" };
+  }
+
+  // iPhone / iPad (iOS): Camera is allowed in browser (iOS uses Safari/PWA + Guided Access)
+  const isIOS =
+    detectDeviceType() === "ios" ||
+    (typeof navigator !== "undefined" && (/iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1))) ||
+    profile?.deviceType === "ios" ||
+    (typeof localStorage !== "undefined" && (localStorage.getItem("smartattend_student_device_type") === "ios" || localStorage.getItem("smartattend_device_type") === "ios"));
+
+  if (isIOS) {
+    return { allowed: true, reason: "iphone_user" };
+  }
+
+  // Android web browser or desktop student: Camera is NOT available in browser
+  return {
+    allowed: false,
+    reason: "android_web_student",
+    message: "Camera in browser is only available for Lecturers, Admins, and iPhone users. Android students must use the official SmartAttend Android App (.apk) with Lock Task Kiosk mode."
+  };
 }

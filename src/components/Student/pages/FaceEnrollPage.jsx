@@ -30,6 +30,8 @@ import {
     verifyHardwareBiometric,
     openBiometricSettings
 } from "../../../services/biometricService";
+import { isBrowserCameraAllowed } from "../../../utils/deviceDetection";
+import { getApkDownloadUrl } from "../../../utils/apkUrl";
 import "./FaceEnrollPage.css";
 
 export default function FaceEnrollPage() {
@@ -72,6 +74,8 @@ export default function FaceEnrollPage() {
     const cleanEmail = (user?.email || "").toLowerCase().trim();
     const isNative = Capacitor.isNativePlatform();
     const platform = Capacitor.getPlatform();
+    const browserCameraAuth = isBrowserCameraAllowed(profile, user);
+    const isCameraAllowed = browserCameraAuth.allowed;
 
     const refreshHwStatus = async () => {
         try {
@@ -466,19 +470,29 @@ export default function FaceEnrollPage() {
                                             Look directly into the camera. SmartAttend will match your live face against your registered profile.
                                         </p>
 
-                                        <FaceScanner
-                                            verifiedStudent={{
-                                                name: studentName,
-                                                rollNo: activeRollNo,
-                                                faceDescriptor: registeredDescriptor || profile?.faceDescriptor
-                                            }}
-                                            rollNo={activeRollNo}
-                                            onVerificationChange={(res) => {
-                                                if (res && res.verified) {
-                                                    setFaceTestResult(`✅ Face Verified! Match Confidence: ${res.confidence}% • Liveness Confirmed 🛡️`);
-                                                }
-                                            }}
-                                        />
+                                        {isCameraAllowed ? (
+                                            <FaceScanner
+                                                verifiedStudent={{
+                                                    name: studentName,
+                                                    rollNo: activeRollNo,
+                                                    faceDescriptor: registeredDescriptor || profile?.faceDescriptor
+                                                }}
+                                                rollNo={activeRollNo}
+                                                onVerificationChange={(res) => {
+                                                    if (res && res.verified) {
+                                                        setFaceTestResult(`✅ Face Verified! Match Confidence: ${res.confidence}% • Liveness Confirmed 🛡️`);
+                                                    }
+                                                }}
+                                            />
+                                        ) : (
+                                            <div style={{ textAlign: "center", padding: "16px", background: "#fee2e2", borderRadius: "12px", border: "1px solid #fecaca" }}>
+                                                <FaLock style={{ color: "#dc2626", fontSize: "24px", marginBottom: "8px" }} />
+                                                <div style={{ fontWeight: 800, color: "#991b1b", marginBottom: "6px" }}>Camera Blocked in Web Browser</div>
+                                                <div style={{ fontSize: "0.85rem", color: "#7f1d1d" }}>
+                                                    Camera in browser is only available for Lecturers, Admins, and iPhone users. Please use the SmartAttend Android App (.apk) to test face verification.
+                                                </div>
+                                            </div>
+                                        )}
 
                                         {faceTestResult && (
                                             <div style={{
@@ -516,6 +530,20 @@ export default function FaceEnrollPage() {
                                     <p>
                                         Roll Number: <strong style={{ color: "var(--accent, #6366f1)" }}>{activeRollNo}</strong> • Student: <strong>{studentName}</strong>
                                     </p>
+                                    {!isCameraAllowed && (
+                                        <div style={{
+                                            margin: "12px 0 6px",
+                                            padding: "12px 16px",
+                                            borderRadius: "12px",
+                                            background: "#fef2f2",
+                                            border: "1px solid #fecaca",
+                                            color: "#991b1b",
+                                            fontSize: "0.86rem",
+                                            textAlign: "center"
+                                        }}>
+                                            <strong>Android Web Browser:</strong> Camera is only available in browser for Lecturers, Admins, and iPhone users. Please use the official <strong>SmartAttend Android App (.apk)</strong> for facial biometrics registration.
+                                        </div>
+                                    )}
                                     {isReEnrolling && (
                                         <div style={{ marginTop: "8px" }}>
                                             <button

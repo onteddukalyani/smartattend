@@ -2,6 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import { createRequire } from "node:module";
+import { isBrowserCameraAllowed } from "../src/utils/deviceDetection.js";
+import { Capacitor } from "@capacitor/core";
 
 const require = createRequire(import.meta.url);
 const prodFns = require("../functions/index.js");
@@ -3027,4 +3029,52 @@ test("34. Anti-Proxy VPN & Mock GPS Check: Rejects mock location and active prox
     /Mock \/ Spoofed GPS detected/
   );
 });
+
+test("35. Browser Camera Authorization: Only lecturer, admin, and iPhone users can access camera in browser; Android web students blocked", () => {
+  // Case A: Lecturer in browser
+  const lecturerBrowser = isBrowserCameraAllowed({ role: "lecturer" }, { uid: "lec_1" });
+  assert.strictEqual(lecturerBrowser.allowed, true);
+  assert.strictEqual(lecturerBrowser.reason, "lecturer");
+
+  const facultyBrowser = isBrowserCameraAllowed({ role: "faculty" });
+  assert.strictEqual(facultyBrowser.allowed, true);
+  assert.strictEqual(facultyBrowser.reason, "lecturer");
+
+  // Case B: Admin in browser
+  const adminBrowser = isBrowserCameraAllowed({ role: "admin" }, { uid: "adm_1" });
+  assert.strictEqual(adminBrowser.allowed, true);
+  assert.strictEqual(adminBrowser.reason, "admin");
+
+  const superAdminBrowser = isBrowserCameraAllowed({ role: "superadmin" });
+  assert.strictEqual(superAdminBrowser.allowed, true);
+  assert.strictEqual(superAdminBrowser.reason, "admin");
+
+  // Case C: iPhone / iOS student in browser
+  const iosStudent = isBrowserCameraAllowed({ role: "student", deviceType: "ios" });
+  assert.strictEqual(iosStudent.allowed, true);
+  assert.strictEqual(iosStudent.reason, "iphone_user");
+
+  // Case D: Android web student in browser (Must be BLOCKED from browser camera)
+  const androidWebStudent = isBrowserCameraAllowed({ role: "student", deviceType: "android" });
+  assert.strictEqual(androidWebStudent.allowed, false);
+  assert.strictEqual(androidWebStudent.reason, "android_web_student");
+  assert.ok(androidWebStudent.message.includes("Camera in browser is only available for Lecturers, Admins, and iPhone users"));
+
+  // Desktop / PC browser student (Must also be BLOCKED)
+  const desktopWebStudent = isBrowserCameraAllowed({ role: "student", deviceType: "web" });
+  assert.strictEqual(desktopWebStudent.allowed, false);
+  assert.strictEqual(desktopWebStudent.reason, "android_web_student");
+
+  // Case E: Native Mobile App (Capacitor APK) - Always allowed for all users
+  const origIsNative = Capacitor.isNativePlatform;
+  try {
+    Capacitor.isNativePlatform = () => true;
+    const nativeStudent = isBrowserCameraAllowed({ role: "student", deviceType: "android" });
+    assert.strictEqual(nativeStudent.allowed, true);
+    assert.strictEqual(nativeStudent.reason, "native_app");
+  } finally {
+    Capacitor.isNativePlatform = origIsNative;
+  }
+});
+
 

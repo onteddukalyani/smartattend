@@ -45,7 +45,7 @@ import { isIOSDevice, isGuidedAccessEnabled, addAppSwitchListener, addScreenCapt
 import { getApkDownloadUrl } from '../../utils/apkUrl';
 import GuidedAccessRequired, { GuidedAccessExitNotice } from '../GuidedAccessRequired';
 import { isGenericName, normalizeDescriptor } from '../../utils/studentDataHelper';
-import { detectDeviceType, getClientIpAddress, getDeviceDisplayName, isDeviceMatching } from '../../utils/deviceDetection';
+import { detectDeviceType, getClientIpAddress, getDeviceDisplayName, isDeviceMatching, isBrowserCameraAllowed } from '../../utils/deviceDetection';
 import { sendFacultyNotification, sendStudentNotification, reportUserVerificationComplaint } from '../../services/notificationsService';
 import { validateRotatingQrPayload } from '../../utils/qrCrypto';
 import { evaluateGeofence, calculateHaversineDistance, DEFAULT_GEOFENCE_RADIUS_METRES } from '../../utils/geofence';
@@ -75,6 +75,8 @@ function QrScannerApp() {
 
     // Platform & App Detection
     const isNativeApp = Capacitor.isNativePlatform();
+    const browserCameraAuth = isBrowserCameraAllowed(profile, user);
+    const isCameraAllowed = browserCameraAuth.allowed;
     const [showAppBanner, setShowAppBanner] = useState(false);
     const [dismissedAppBanner, setDismissedAppBanner] = useState(false);
     const [deviceOwnerStatus, setDeviceOwnerStatus] = useState({ checked: false, isDeviceOwner: true, isWeb: false });
@@ -383,6 +385,7 @@ function QrScannerApp() {
     const acquireCameraLock = useCallback(async () => {
         // Already locked — don't open a second stream
         if (silentCameraLockRef.current) return;
+        if (!isCameraAllowed) return;
         try {
             console.log('[CameraLock] Acquiring silent rear camera lock...');
             const stream = await navigator.mediaDevices.getUserMedia({
@@ -396,7 +399,7 @@ function QrScannerApp() {
             // Camera already in use or permission not granted — non-fatal, kiosk still works
             console.warn('[CameraLock] Could not acquire silent camera lock:', err.message);
         }
-    }, []);
+    }, [isCameraAllowed]);
 
     /**
      * releaseCameraLock — Releases the silently held camera stream.
@@ -3168,13 +3171,23 @@ function QrScannerApp() {
                             ⚡ Phase 2 Live · Scan QR 2 on Screen
                         </div>
 
-                        <NativeQrScanner
-                            key={`waiting-${retryKey}-environment`}
-                            onScan={handleCameraScan}
-                            onError={handleCameraError}
-                            facingMode="environment"
-                            active={scanState === 'KIOSK_WAITING_QR2' && isQr2Released}
-                        />
+                        {isCameraAllowed ? (
+                            <NativeQrScanner
+                                key={`waiting-${retryKey}-environment`}
+                                onScan={handleCameraScan}
+                                onError={handleCameraError}
+                                facingMode="environment"
+                                active={scanState === 'KIOSK_WAITING_QR2' && isQr2Released}
+                            />
+                        ) : (
+                            <div className="st-browser-camera-blocked-card" style={{ padding: '24px', textAlign: 'center', background: '#ffffff', borderRadius: '16px' }}>
+                                <FaLock style={{ fontSize: '32px', color: '#dc2626', marginBottom: '10px' }} />
+                                <h4 style={{ color: '#991b1b', margin: '0 0 8px' }}>Camera Blocked in Web Browser</h4>
+                                <p style={{ fontSize: '0.88rem', color: '#64748b', margin: 0 }}>
+                                    Camera in browser is only available for Lecturers, Admins, and iPhone users. Please use the official SmartAttend Android App (.apk).
+                                </p>
+                            </div>
+                        )}
                     </div>
                 )}
 
@@ -3291,7 +3304,7 @@ function QrScannerApp() {
 
             {/* Camera Viewport (Spacious, rounded card) */}
             <div className="st-camera-viewport-card">
-                {scannerActive && (
+                {isCameraAllowed && scannerActive ? (
                     <NativeQrScanner
                         key={`${retryKey}-environment`}
                         onScan={handleCameraScan}
@@ -3299,49 +3312,73 @@ function QrScannerApp() {
                         facingMode="environment"
                         active={scannerActive}
                     />
-                )}
-            </div>
-
-            {/* Android Web Browser Native APK Download Notice */}
-            {!isNativeApp && !isIOSDevice() && (
-                <div style={{
-                    marginTop: '16px',
-                    padding: '16px',
-                    borderRadius: '16px',
-                    background: '#fef3c7',
-                    border: '1px solid #fde68a',
-                    color: '#92400e',
-                    fontSize: '0.9rem',
-                    textAlign: 'center'
-                }}>
-                    <div style={{ fontWeight: 800, marginBottom: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-                        <FaExclamationTriangle /> Android Web Browser Detected
-                    </div>
-                    <p style={{ margin: '0 0 12px 0', fontSize: '0.84rem', lineHeight: 1.45 }}>
-                        Attendance security requires OS-level Kiosk Lock Task mode. Please install the official SmartAttend Android app.
-                    </p>
-                    <a
-                        href={getApkDownloadUrl()}
-                        download="SmartAttend-release.apk"
-                        style={{
-                            display: 'inline-flex',
+                ) : !isCameraAllowed ? (
+                    <div className="st-browser-camera-blocked-card" style={{
+                        padding: '32px 24px',
+                        textAlign: 'center',
+                        background: '#ffffff',
+                        borderRadius: '20px',
+                        border: '2px solid #fecaca',
+                        boxShadow: '0 10px 25px -5px rgba(239, 68, 68, 0.1)'
+                    }}>
+                        <div style={{
+                            width: '68px',
+                            height: '68px',
+                            margin: '0 auto 16px',
+                            borderRadius: '50%',
+                            background: '#fee2e2',
+                            color: '#dc2626',
+                            display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'center',
-                            gap: '8px',
-                            padding: '10px 18px',
+                            fontSize: '30px'
+                        }}>
+                            <FaLock />
+                        </div>
+                        <h3 style={{ fontSize: '1.25rem', fontWeight: 800, color: '#991b1b', margin: '0 0 10px 0' }}>
+                            Camera Blocked in Web Browser
+                        </h3>
+                        <p style={{ fontSize: '0.92rem', color: '#475569', lineHeight: 1.55, margin: '0 0 16px 0' }}>
+                            Per college attendance security policy, camera access in the web browser is only available for <strong>Lecturers</strong>, <strong>Admins</strong>, and <strong>iPhone users</strong>.
+                        </p>
+                        <div style={{
+                            padding: '12px 16px',
                             borderRadius: '12px',
-                            background: '#15803d',
-                            color: '#ffffff',
-                            textDecoration: 'none',
+                            background: '#fef2f2',
+                            border: '1px solid #fecaca',
+                            color: '#b91c1c',
+                            fontSize: '0.85rem',
                             fontWeight: 700,
-                            fontSize: '0.88rem',
-                            boxShadow: '0 4px 12px rgba(21, 128, 61, 0.25)'
-                        }}
-                    >
-                        <FaDownload /> Download SmartAttend APK (.apk)
-                    </a>
-                </div>
-            )}
+                            marginBottom: '20px',
+                            textAlign: 'left',
+                            lineHeight: 1.45
+                        }}>
+                            🛡️ Android students must use the official <strong>SmartAttend Android App (.apk)</strong> to enforce OS-level Lock Task Kiosk Mode and prevent attendance proxying.
+                        </div>
+                        <a
+                            href={getApkDownloadUrl()}
+                            download="SmartAttend-release.apk"
+                            style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: '10px',
+                                width: '100%',
+                                padding: '14px 20px',
+                                borderRadius: '14px',
+                                background: 'linear-gradient(135deg, #16a34a, #15803d)',
+                                color: '#ffffff',
+                                textDecoration: 'none',
+                                fontWeight: 800,
+                                fontSize: '1rem',
+                                boxShadow: '0 4px 14px rgba(22, 163, 74, 0.35)'
+                            }}
+                        >
+                            <FaDownload /> Download SmartAttend Android App (.apk)
+                        </a>
+                    </div>
+                ) : null}
+            </div>
 
             {/* Loading or Error States */}
             {scanState === 'AUTHORIZING_QR1' && (
