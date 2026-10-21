@@ -28,7 +28,7 @@ import { db } from "../../../firebase";
 import { useAuth } from "../../authcontext";
 import { useTableSort, SortIcon } from "../../Common/useTableSort";
 import { LiveFaceEnrollment } from "../../Common/LiveFaceEnrollment";
-import { checkDuplicateFaceBiometrics } from "../../../utils/biometricManager";
+import { checkDuplicateFaceBiometrics, clearFaceProfilesCache } from "../../../utils/biometricManager";
 import { normalizeBranchName } from "../../../utils/studentDataHelper";
 import "./AddStudent.css";
 
@@ -232,6 +232,7 @@ const AddStudent = () => {
 
       // 4. Save strictly under a single master student document in Firestore
       await setDoc(doc(db, "students", cleanRollNo), studentPayload, { merge: true });
+      clearFaceProfilesCache();
 
       alert(`✅ Student "${form.name.trim()}" (${cleanRollNo}) registered successfully!`);
       navigate(studentsPath);

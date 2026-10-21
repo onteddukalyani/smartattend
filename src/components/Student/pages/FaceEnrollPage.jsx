@@ -22,7 +22,7 @@ import { db, functions } from "../../../firebase";
 import { useAuth } from "../../authcontext";
 import { LiveFaceEnrollment } from "../../Common/LiveFaceEnrollment";
 import FaceScanner from "../../Lecturer/pages/FaceScanner";
-import { checkDuplicateFaceBiometrics } from "../../../utils/biometricManager";
+import { checkDuplicateFaceBiometrics, clearFaceProfilesCache } from "../../../utils/biometricManager";
 import { Biometric } from "../../../plugins/biometric";
 import {
     isHardwareBiometricAvailable,
@@ -198,6 +198,7 @@ export default function FaceEnrollPage() {
                 await setDoc(doc(db, "users", activeRollNo), updatePayload, { merge: true }).catch(() => {});
             }
 
+            clearFaceProfilesCache();
             setHasFaceRegistered(true);
             setRegisteredDescriptor(cleanVector);
             setIsReEnrolling(false);

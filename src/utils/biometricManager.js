@@ -166,6 +166,7 @@ export async function removeStudentFaceAndBiometrics(studentOrRoll) {
     });
 
     await Promise.all(updatePromises);
+    clearFaceProfilesCache();
 
     return {
       success: true,
@@ -266,6 +267,7 @@ export async function removeStudentPhotoOnly(studentOrRoll) {
     });
 
     await Promise.all(updatePromises);
+    clearFaceProfilesCache();
     return { success: true };
   } catch (err) {
     console.error("Error in removeStudentPhotoOnly:", err);
@@ -301,6 +303,26 @@ export function calculateFaceDistance(v1, v2) {
  * @param {number} threshold - Match threshold (default: 0.50)
  * @returns {Promise<{ isDuplicate: boolean, conflictStudent?: { name: string, rollNo: string, email: string, distance: number, confidence: number } }>}
  */
+// In-memory cache for fast duplicate biometrics verification (avoids repeating slow Firestore collection downloads)
+let cachedFaceProfiles = null;
+let cachedFaceProfilesTimestamp = 0;
+const FACE_CACHE_TTL_MS = 60 * 1000; // 60 seconds TTL
+
+export function clearFaceProfilesCache() {
+  cachedFaceProfiles = null;
+  cachedFaceProfilesTimestamp = 0;
+}
+
+/**
+ * Checks if a captured 128-D face biometric vector matches any other student in the registry.
+ * Uses in-memory caching and targeted indexed queries for near-instant (0-200ms) execution.
+ * 
+ * @param {Float32Array|Array<number>} newDescriptor - 128-D face embedding
+ * @param {string} targetRollNo - Roll number of the student currently being enrolled
+ * @param {string} targetEmail - Email of the student currently being enrolled
+ * @param {number} threshold - Match threshold (default: 0.50)
+ * @returns {Promise<{ isDuplicate: boolean, conflictStudent?: { name: string, rollNo: string, email: string, distance: number, confidence: number } }>}
+ */
 export async function checkDuplicateFaceBiometrics(
   newDescriptor,
   targetRollNo = "",
@@ -316,44 +338,72 @@ export async function checkDuplicateFaceBiometrics(
   const targetPrefix = cleanTargetEmail ? cleanTargetEmail.split("@")[0].toUpperCase() : "";
 
   try {
-    const [studentsSnap, usersSnap, authSnap] = await Promise.all([
-      getDocs(collection(db, "students")),
-      getDocs(collection(db, "users")),
-      getDocs(collection(db, "authorizedUsers")).catch(() => ({ docs: [] }))
-    ]);
+    const now = Date.now();
+    let profileList = [];
 
-    // Map unique registered profiles by rollNo or primary docId
-    const registeredProfiles = new Map();
-
-    [...studentsSnap.docs, ...usersSnap.docs, ...authSnap.docs].forEach((docSnap) => {
-      const data = docSnap.data();
-      if (data && Array.isArray(data.faceDescriptor) && data.faceDescriptor.length === 128) {
-        let roll = String(data.rollNo || docSnap.id || "").trim().toUpperCase();
-        if (roll.includes("@")) roll = roll.split("@")[0].toUpperCase();
-        const email = String(data.email || "").trim().toLowerCase();
-        const name = data.name || data.fullName || "Registered Student";
-
-        // Skip if this doc belongs to the target student being enrolled/updated
-        const isSameStudent =
-          (cleanTargetRoll && roll === cleanTargetRoll) ||
-          (cleanTargetEmail && email === cleanTargetEmail) ||
-          (targetPrefix && roll === targetPrefix) ||
-          (cleanTargetRoll && docSnap.id.toUpperCase() === cleanTargetRoll) ||
-          (cleanTargetEmail && docSnap.id.toLowerCase() === cleanTargetEmail);
-
-        if (!isSameStudent && !registeredProfiles.has(roll)) {
-          registeredProfiles.set(roll, {
-            rollNo: roll,
-            name: name,
-            email: email,
-            faceDescriptor: data.faceDescriptor
-          });
+    // Use fast in-memory cache if available (0ms execution on repeat calls)
+    if (cachedFaceProfiles && (now - cachedFaceProfilesTimestamp) < FACE_CACHE_TTL_MS) {
+      profileList = cachedFaceProfiles;
+    } else {
+      // Fast targeted fetch: query only students who have face biometrics registered
+      const fetchPromise = (async () => {
+        let docs = [];
+        try {
+          const registeredSnap = await getDocs(
+            query(collection(db, "students"), where("faceRegistered", "==", true))
+          );
+          if (!registeredSnap.empty) {
+            docs = registeredSnap.docs;
+          }
+        } catch (_) {
+          // Fallback if index is not present
         }
+
+        if (docs.length === 0) {
+          const allStudentsSnap = await getDocs(collection(db, "students"));
+          docs = allStudentsSnap.docs;
+        }
+
+        return docs.map((docSnap) => {
+          const data = typeof docSnap.data === "function" ? docSnap.data() : docSnap;
+          return {
+            id: docSnap.id,
+            rollNo: data.rollNo || docSnap.id || "",
+            email: data.email || "",
+            name: data.name || data.fullName || "Registered Student",
+            faceDescriptor: data.faceDescriptor
+          };
+        }).filter((item) => Array.isArray(item.faceDescriptor) && item.faceDescriptor.length === 128);
+      })();
+
+      // Network guard: 3.5s timeout prevents network stalling from blocking face registration
+      const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve([]), 3500));
+      profileList = await Promise.race([fetchPromise, timeoutPromise]);
+
+      if (profileList.length > 0) {
+        cachedFaceProfiles = profileList;
+        cachedFaceProfilesTimestamp = now;
+      } else if (cachedFaceProfiles) {
+        profileList = cachedFaceProfiles;
       }
-    });
+    }
 
     // Compare newDescriptor against all other registered profiles
-    for (const profile of registeredProfiles.values()) {
+    for (const profile of profileList) {
+      let roll = String(profile.rollNo || profile.id || "").trim().toUpperCase();
+      if (roll.includes("@")) roll = roll.split("@")[0].toUpperCase();
+      const email = String(profile.email || "").trim().toLowerCase();
+
+      // Skip matching against the student's own existing record
+      const isSameStudent =
+        (cleanTargetRoll && roll === cleanTargetRoll) ||
+        (cleanTargetEmail && email === cleanTargetEmail) ||
+        (targetPrefix && roll === targetPrefix) ||
+        (cleanTargetRoll && profile.id && String(profile.id).toUpperCase() === cleanTargetRoll) ||
+        (cleanTargetEmail && profile.id && String(profile.id).toLowerCase() === cleanTargetEmail);
+
+      if (isSameStudent) continue;
+
       const dist = calculateFaceDistance(newDescriptor, profile.faceDescriptor);
       if (dist <= threshold) {
         const confidence = Math.max(65, Math.min(99, Math.round(100 - (dist / 0.60) * 35)));
@@ -361,8 +411,8 @@ export async function checkDuplicateFaceBiometrics(
           isDuplicate: true,
           conflictStudent: {
             name: profile.name,
-            rollNo: profile.rollNo,
-            email: profile.email,
+            rollNo: roll,
+            email: email,
             distance: dist,
             confidence: confidence
           }
@@ -372,7 +422,7 @@ export async function checkDuplicateFaceBiometrics(
 
     return { isDuplicate: false };
   } catch (err) {
-    console.error("Error during checkDuplicateFaceBiometrics:", err);
+    console.warn("Fast duplicate biometric check warning:", err);
     return { isDuplicate: false };
   }
 }

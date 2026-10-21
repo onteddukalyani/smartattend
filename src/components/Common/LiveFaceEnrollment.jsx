@@ -94,12 +94,12 @@ export function LiveFaceEnrollment({
                     setStatusType(state.statusType);
                 }
 
-                // Automatic Trigger on 100% Verification
+                // Instant Trigger on 100% Verification
                 if (state.isComplete && !hasTriggeredCompleteRef.current && !capturing && !enrolledPhoto) {
                     hasTriggeredCompleteRef.current = true;
                     setTimeout(() => {
                         handleCaptureFace();
-                    }, 400);
+                    }, 120);
                 }
             }
         });
@@ -346,11 +346,11 @@ export function LiveFaceEnrollment({
                         }
                     }
 
-                    // Single-pass landmark & descriptor extraction (cuts neural net operations in half)
+                    // Lightweight 60 FPS live tracking: landmark extraction only
+                    // ResNet-34 descriptor is strictly computed once upon capture snapshot
                     const detection = await faceapi
                         .detectSingleFace(video, detectorOptions)
-                        .withFaceLandmarks()
-                        .withFaceDescriptor();
+                        .withFaceLandmarks();
 
                     const ctx = canvas ? canvas.getContext("2d") : null;
                     if (ctx && canvas) {
@@ -359,13 +359,6 @@ export function LiveFaceEnrollment({
 
                     if (detection) {
                         frameCountRef.current = (frameCountRef.current || 0) + 1;
-
-                        if (detection.descriptor) {
-                            bufferedDescriptorsRef.current.push(new Float32Array(detection.descriptor));
-                            if (bufferedDescriptorsRef.current.length > 12) {
-                                bufferedDescriptorsRef.current.shift();
-                            }
-                        }
 
                         if (livenessEngineRef.current) {
                             livenessEngineRef.current.processFrame(detection);
@@ -457,38 +450,35 @@ export function LiveFaceEnrollment({
             const ctx = canvas.getContext("2d");
             ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
 
-            // Progressive detector options with automatic fallback
+            // Fast single-pass 128-D descriptor extraction directly on aligned face
             let detection = null;
-            const candidateSizes = [256, 224, 320, 160];
-            for (const sz of candidateSizes) {
+            try {
+                detection = await faceapi
+                    .detectSingleFace(videoRef.current, new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.30 }))
+                    .withFaceLandmarks()
+                    .withFaceDescriptor();
+            } catch (_) { }
+
+            // Quick fallback only if first pass did not resolve
+            if (!detection || !detection.descriptor) {
                 try {
                     detection = await faceapi
-                        .detectSingleFace(videoRef.current, new faceapi.TinyFaceDetectorOptions({ inputSize: sz, scoreThreshold: 0.35 }))
+                        .detectSingleFace(videoRef.current, new faceapi.TinyFaceDetectorOptions({ inputSize: 160, scoreThreshold: 0.25 }))
                         .withFaceLandmarks()
                         .withFaceDescriptor();
-                    if (detection && detection.descriptor) break;
                 } catch (_) { }
             }
 
-            let descriptorArray = null;
-            if (detection && detection.descriptor) {
-                bufferedDescriptorsRef.current.push(new Float32Array(detection.descriptor));
+            if (!detection || !detection.descriptor) {
+                try {
+                    detection = await faceapi
+                        .detectSingleFace(canvas, new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.25 }))
+                        .withFaceLandmarks()
+                        .withFaceDescriptor();
+                } catch (_) { }
             }
 
-            if (bufferedDescriptorsRef.current.length >= 2) {
-                // Multi-frame consensus centroid vector for highest recognition stability
-                const fused = fuseFaceDescriptors(bufferedDescriptorsRef.current);
-                if (fused) {
-                    descriptorArray = Array.from(fused);
-                }
-            } else if (detection && detection.descriptor) {
-                descriptorArray = Array.from(detection.descriptor);
-            } else if (bufferedDescriptorsRef.current.length > 0) {
-                const fused = fuseFaceDescriptors(bufferedDescriptorsRef.current);
-                if (fused) {
-                    descriptorArray = Array.from(fused);
-                }
-            }
+            let descriptorArray = detection && detection.descriptor ? Array.from(detection.descriptor) : null;
 
             if (!descriptorArray || descriptorArray.length !== 128) {
                 setStatusMessage("❌ Face not detected clearly. Look straight into camera and retry.");

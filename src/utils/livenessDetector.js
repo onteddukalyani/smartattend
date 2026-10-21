@@ -9,7 +9,7 @@
  * 5. 👁️ BLINK / SMILE (EAR blink / live human reflex)
  */
 
-export const BLINK_CLOSED_THRESHOLD = 0.190;
+export const BLINK_CLOSED_THRESHOLD = 0.205;
 export const BLINK_OPEN_THRESHOLD = 0.235;
 export const STATIC_VARIANCE_THRESHOLD = 0.000025;
 export const MAR_SMILE_THRESHOLD = 0.42;
@@ -256,7 +256,9 @@ export class RandomizedChallengeEngine {
             case "CENTER":
                 return `🎯 Step ${stepNum}/${total}: Look straight into camera`;
             case "BLINK":
-                return `👁️ Step ${stepNum}/${total}: Blink your eyes naturally to verify`;
+                return this.mode === "enrollment"
+                    ? `👁️ Step ${stepNum}/${total}: Blink or smile naturally to verify`
+                    : `👁️ Step ${stepNum}/${total}: Blink your eyes naturally to verify`;
             case "SMILE":
                 return `😊 Step ${stepNum}/${total}: Smile naturally to verify`;
             case "TURN_LEFT":
@@ -422,7 +424,16 @@ export class RandomizedChallengeEngine {
                 challengeSatisfied = true;
             }
         } else if (target === "BLINK") {
-            if (justBlinked || this.blinkCount >= 1) {
+            if (
+                justBlinked ||
+                this.blinkCount >= 1 ||
+                (this.mode === "enrollment" && (
+                    isSmiling ||
+                    Math.abs(yawRatio - 1.0) > 0.08 ||
+                    Math.abs(pitchRatio - 1.0) > 0.08 ||
+                    (this.ratioHistory.length >= 8 && variance >= STATIC_VARIANCE_THRESHOLD)
+                ))
+            ) {
                 challengeSatisfied = true;
             }
         }

@@ -43,7 +43,7 @@ import { downloadExcel } from "../../../DownloadExcel";
 import { useTableSort, SortIcon } from "../../Common/useTableSort";
 import { LiveFaceEnrollment } from "../../Common/LiveFaceEnrollment";
 import ProfilePhotoModal from "../../Common/ProfilePhotoModal";
-import { removeStudentPhotoOnly, checkDuplicateFaceBiometrics } from "../../../utils/biometricManager";
+import { removeStudentPhotoOnly, checkDuplicateFaceBiometrics, clearFaceProfilesCache } from "../../../utils/biometricManager";
 import { getCandidateRolls, computeStudentMetrics, parseTimestampMillis } from "../studentAttendanceHelper";
 import { isGenericName, normalizeBranchName } from "../../../utils/studentDataHelper";
 import DeviceOnboardingModal from "../DeviceOnboardingModal";
@@ -616,6 +616,7 @@ export default function StudentDashboard() {
                 // Append face biometrics strictly to the student's existing single Firestore document
                 await setDoc(doc(db, "students", targetDocId), updatePayload, { merge: true });
             }
+            clearFaceProfilesCache();
 
             setFetchedStudentData((prev) => ({
                 ...(prev || {}),

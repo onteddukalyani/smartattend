@@ -34,7 +34,7 @@ import { downloadExcel } from "../../DownloadExcel";
 import { useTableSort, SortIcon } from "./useTableSort";
 import { LiveFaceEnrollment } from "./LiveFaceEnrollment";
 import ProfilePhotoModal from "./ProfilePhotoModal";
-import { removeStudentFaceAndBiometrics, removeStudentPhotoOnly, checkDuplicateFaceBiometrics } from "../../utils/biometricManager";
+import { removeStudentFaceAndBiometrics, removeStudentPhotoOnly, checkDuplicateFaceBiometrics, clearFaceProfilesCache } from "../../utils/biometricManager";
 import { deleteStudentRecordCompletely, normalizeBranchName } from "../../utils/studentDataHelper";
 import { sendStudentNotification, sendFacultyNotification } from "../../services/notificationsService";
 import "./StudentDetailModal.css";
@@ -252,6 +252,7 @@ const StudentDetailModal = ({ student, onClose, onUpdate }) => {
       }
 
       await Promise.all(promises);
+      clearFaceProfilesCache();
 
       const updatedStudent = {
         ...currentStudent,
