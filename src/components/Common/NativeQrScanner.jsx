@@ -128,43 +128,21 @@ function NativeQrScanner({
         } catch (_) { }
 
         const progressiveConstraints = [
-            ...(rearDeviceId ? [{
-                video: {
-                    deviceId: { exact: rearDeviceId },
-                    width: { ideal: 1280 },
-                    height: { ideal: 720 }
-                },
-                audio: false
-            }] : []),
-            // Tier 1: Ideal HD rear camera (environment)
+            // Tier 1: Optimized HD/VGA rear camera with portrait-friendly ideal constraints
             {
                 video: {
-                    facingMode: { ideal: 'environment' },
-                    width: { ideal: 1280 },
-                    height: { ideal: 720 }
+                    facingMode: { ideal: facingMode || 'environment' },
+                    width: { ideal: 1280, min: 480 },
+                    height: { ideal: 720, min: 360 }
                 },
                 audio: false
             },
-            // Tier 2: Ideal 480p portrait friendly rear camera
+            // Tier 2: Direct facingMode fallback
             {
-                video: {
-                    facingMode: { ideal: 'environment' },
-                    width: { ideal: 640 },
-                    height: { ideal: 480 }
-                },
+                video: { facingMode: facingMode || 'environment' },
                 audio: false
             },
-            // Tier 3: Loose rear camera constraint
-            {
-                video: { facingMode: { ideal: 'environment' } },
-                audio: false
-            },
-            // Tier 4: Exact environment constraint (for multi-camera mobile devices)
-            {
-                video: { facingMode: 'environment' },
-                audio: false
-            },
-            // Tier 5: Generic video fallback for single-camera desktop/laptop without environment label
+            // Tier 3: Universal fallback
             {
                 video: true,
                 audio: false
@@ -182,9 +160,7 @@ function NativeQrScanner({
                 }
             } catch (err) {
                 lastErr = err;
-                console.warn('[NativeQrScanner] Constraint attempt notice:', constraints, err?.name, err?.message);
                 if (err?.name === 'NotAllowedError' || err?.name === 'PermissionDeniedError') {
-                    // User explicitly denied permission
                     break;
                 }
             }
@@ -244,9 +220,9 @@ function NativeQrScanner({
 
             const video = videoRef.current;
             const now = Date.now();
-            const minInterval = barcodeDetector ? 35 : 45;
+            const minInterval = barcodeDetector ? 30 : 40;
 
-            // Scan every 35-45ms for instant recognition without stutter
+            // Scan every 30-40ms for instant recognition without stutter
             if (video.readyState >= 2 && now - lastScanTimeRef.current >= minInterval) {
                 lastScanTimeRef.current = now;
                 frameCount++;
@@ -265,14 +241,14 @@ function NativeQrScanner({
                     } catch (_) { }
                 }
 
-                // 2. High-performance jsQR fallback
+                // 2. High-performance jsQR fallback (optimized 360px scan frame for ~18ms decode)
                 if (!detected && canvasRef.current) {
                     try {
                         const canvas = canvasRef.current;
                         const vW = video.videoWidth || 640;
                         const vH = video.videoHeight || 480;
-                        const targetW = Math.min(480, vW);
-                        const targetH = Math.round(targetW * (vH / vW)) || 360;
+                        const targetW = Math.min(360, vW);
+                        const targetH = Math.round(targetW * (vH / vW)) || 270;
 
                         // Only re-dimension canvas when aspect ratio or resolution genuinely changes
                         if (canvas.width !== targetW || canvas.height !== targetH) {
@@ -290,8 +266,8 @@ function NativeQrScanner({
                                 inversionAttempts: 'dontInvert'
                             });
 
-                            // Secondary pass: every 4th frame try inversion in case of dark mode inversion
-                            if (!code && frameCount % 4 === 0) {
+                            // Secondary pass: every 3rd frame try inversion in case of dark mode inversion
+                            if (!code && frameCount % 3 === 0) {
                                 code = jsQR(imgData.data, targetW, targetH, {
                                     inversionAttempts: 'attemptBoth'
                                 });

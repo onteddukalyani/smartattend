@@ -195,11 +195,11 @@ export default function FaceEnrollPage() {
                     enrolledAt: Date.now()
                 };
 
-                await setDoc(doc(db, "students", activeRollNo), updatePayload, { merge: true });
-                if (user?.uid) {
-                    await setDoc(doc(db, "users", user.uid), updatePayload, { merge: true }).catch(() => {});
-                }
-                await setDoc(doc(db, "users", activeRollNo), updatePayload, { merge: true }).catch(() => {});
+                await Promise.all([
+                    setDoc(doc(db, "students", activeRollNo), updatePayload, { merge: true }),
+                    user?.uid ? setDoc(doc(db, "users", user.uid), updatePayload, { merge: true }).catch(() => {}) : Promise.resolve(),
+                    setDoc(doc(db, "users", activeRollNo), updatePayload, { merge: true }).catch(() => {})
+                ]);
             }
 
             clearFaceProfilesCache();
@@ -252,29 +252,21 @@ export default function FaceEnrollPage() {
                     updatedAt: Date.now()
                 };
 
-                // Link to canonical students/{activeRollNo}
+                // Parallel Firestore sync across canonical student and user documents
+                const syncPromises = [];
                 if (activeRollNo) {
-                    await setDoc(doc(db, "students", activeRollNo), hwPayload, { merge: true }).catch((err) => {
-                        console.warn("Could not save to students/" + activeRollNo, err);
-                    });
+                    syncPromises.push(setDoc(doc(db, "students", activeRollNo), hwPayload, { merge: true }).catch(() => {}));
                 }
-
-                // Link to users/{user.uid} (authenticated Firebase user doc)
                 if (user?.uid) {
-                    await setDoc(doc(db, "users", user.uid), hwPayload, { merge: true }).catch((err) => {
-                        console.warn("Could not save to users/" + user.uid, err);
-                    });
+                    syncPromises.push(setDoc(doc(db, "users", user.uid), hwPayload, { merge: true }).catch(() => {}));
                 }
-
-                // Also try users/{activeRollNo} if distinct
                 if (activeRollNo && user?.uid !== activeRollNo) {
-                    await setDoc(doc(db, "users", activeRollNo), hwPayload, { merge: true }).catch(() => {});
+                    syncPromises.push(setDoc(doc(db, "users", activeRollNo), hwPayload, { merge: true }).catch(() => {}));
                 }
-
-                // Link to students/{user.uid} if distinct
                 if (user?.uid && user.uid !== activeRollNo) {
-                    await setDoc(doc(db, "students", user.uid), hwPayload, { merge: true }).catch(() => {});
+                    syncPromises.push(setDoc(doc(db, "students", user.uid), hwPayload, { merge: true }).catch(() => {}));
                 }
+                await Promise.all(syncPromises);
 
                 // Persist locally so it's instantly active across restarts and UI components
                 try {

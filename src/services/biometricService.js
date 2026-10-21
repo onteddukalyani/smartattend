@@ -60,6 +60,26 @@ function base64UrlToBuffer(base64url) {
   return bytes.buffer;
 }
 
+// In-memory pre-warmed challenge to ensure fingerprint sensor prompt opens in 0ms without network lag
+let prewarmedBiometricChallenge = null;
+let prewarmedChallengeTimestamp = 0;
+
+/**
+ * Pre-warms biometric challenge from Cloud Function in background during Kiosk waiting or QR2 scanning
+ */
+export async function prefetchBiometricChallenge(sessionId = "") {
+  try {
+    const issueFn = httpsCallable(functions, "issueBiometricChallenge");
+    const chalRes = await issueFn({ sessionId: sessionId ? String(sessionId).trim() : null, action: "ATTENDANCE_VERIFICATION" });
+    if (chalRes.data?.challengeText) {
+      prewarmedBiometricChallenge = chalRes.data;
+      prewarmedChallengeTimestamp = Date.now();
+      return chalRes.data;
+    }
+  } catch (_) {}
+  return null;
+}
+
 /**
  * Enrolls or registers an initial hardware biometric key for the student.
  * 
@@ -164,24 +184,10 @@ export async function enrollHardwareBiometric(studentUid) {
   }
 
   try {
-    // 1. Request single-use challenge from Cloud Function or fallback to cryptographic nonce
-    let challengeText = "";
-    try {
-      const issueFn = httpsCallable(functions, "issueBiometricChallenge");
-      const chalRes = await issueFn();
-      challengeText = chalRes.data?.challengeText || "";
-    } catch (chalErr) {
-      console.warn("[BiometricService] Server challenge fetch notice, generating secure local challenge:", chalErr);
-      const arr = new Uint8Array(32);
-      window.crypto.getRandomValues(arr);
-      challengeText = Array.from(arr).map(b => b.toString(16).padStart(2, "0")).join("");
-    }
-
-    if (!challengeText) {
-      const arr = new Uint8Array(32);
-      window.crypto.getRandomValues(arr);
-      challengeText = Array.from(arr).map(b => b.toString(16).padStart(2, "0")).join("");
-    }
+    // 1. Instant local 256-bit cryptographic nonce (0ms startup for biometric prompt)
+    const arr = new Uint8Array(32);
+    window.crypto.getRandomValues(arr);
+    const challengeText = Array.from(arr).map(b => b.toString(16).padStart(2, "0")).join("");
 
     // 2. Generate hardware-bound key and sign challenge
     const keyResult = await Biometric.createBiometricKey({
@@ -324,21 +330,31 @@ export async function verifyHardwareBiometric(studentUid, promptSubtitle = "Conf
       }
     }
 
-    // 3. Request fresh single-use challenge from server or fallback to local nonce
+    // 3. Obtain single-use challenge: use pre-warmed challenge (0ms) or fetch with fast 1200ms race
     let challengeId = "chal_" + Date.now();
     let challengeText = "";
-    try {
-      const issueFn = httpsCallable(functions, "issueBiometricChallenge");
-      const chalRes = await issueFn();
-      if (chalRes.data?.challengeText) {
-        challengeId = chalRes.data.challengeId || challengeId;
-        challengeText = chalRes.data.challengeText;
+
+    if (prewarmedBiometricChallenge && (Date.now() - prewarmedChallengeTimestamp) < 120000) {
+      challengeId = prewarmedBiometricChallenge.challengeId || challengeId;
+      challengeText = prewarmedBiometricChallenge.challengeText || "";
+      prewarmedBiometricChallenge = null; // consume
+    } else {
+      try {
+        const issueFn = httpsCallable(functions, "issueBiometricChallenge");
+        const chalRes = await Promise.race([
+          issueFn({ action: "ATTENDANCE_VERIFICATION" }),
+          new Promise((_, reject) => setTimeout(() => reject(new Error("challenge_timeout")), 1200))
+        ]);
+        if (chalRes.data?.challengeText) {
+          challengeId = chalRes.data.challengeId || challengeId;
+          challengeText = chalRes.data.challengeText;
+        }
+      } catch (chalErr) {
+        console.warn("[BiometricService] Server challenge fetch notice, using secure local challenge:", chalErr);
+        const arr = new Uint8Array(32);
+        window.crypto.getRandomValues(arr);
+        challengeText = Array.from(arr).map(b => b.toString(16).padStart(2, "0")).join("");
       }
-    } catch (chalErr) {
-      console.warn("[BiometricService] Server challenge fetch notice, using secure local challenge:", chalErr);
-      const arr = new Uint8Array(32);
-      window.crypto.getRandomValues(arr);
-      challengeText = Array.from(arr).map(b => b.toString(16).padStart(2, "0")).join("");
     }
 
     if (!challengeText) {
@@ -430,5 +446,6 @@ export default {
   isHardwareBiometricAvailable,
   enrollHardwareBiometric,
   verifyHardwareBiometric,
+  prefetchBiometricChallenge,
   openBiometricSettings
 };

@@ -50,7 +50,7 @@ import { sendFacultyNotification, sendStudentNotification, reportUserVerificatio
 import { validateRotatingQrPayload } from '../../utils/qrCrypto';
 import { evaluateGeofence, calculateHaversineDistance, DEFAULT_GEOFENCE_RADIUS_METRES } from '../../utils/geofence';
 import { checkVpnAndNetworkSecurity } from '../../utils/vpnDetection';
-import { verifyHardwareBiometric } from '../../services/biometricService';
+import { verifyHardwareBiometric, prefetchBiometricChallenge } from '../../services/biometricService';
 import { checkForAppUpdate, CURRENT_APP_VERSION, compareVersions } from '../../services/appUpdateService';
 import AppUpdateModal from './AppUpdateModal';
 import './Scanner.css';
@@ -244,6 +244,9 @@ function QrScannerApp() {
 
         // Pre-warm neural network models in background for instantaneous Phase 2 biometric startup
         loadFaceApiModels().catch(() => { });
+        // Pre-warm VPN security status and IP address in background for 0ms QR verification
+        checkVpnAndNetworkSecurity().catch(() => { });
+        getClientIpAddress().catch(() => { });
 
         return () => {
             if (watchId !== null && typeof navigator !== "undefined" && navigator.geolocation?.clearWatch) {
@@ -524,13 +527,44 @@ function QrScannerApp() {
         };
     }, [releaseCameraLock]);
 
-    // Student Database Record Lookup for Facial Biometrics
+    // Student Database Record Lookup for Facial Biometrics (Fast 0ms in-memory cache)
     const lookupStudentBiometrics = useCallback(async (roll) => {
         const targetRoll = (roll || loggedInRollNo || '').trim().toUpperCase();
         if (!targetRoll || targetRoll.length < 2) return;
 
+        // Fast-path 1: Check AuthContext profile (0ms execution in 99% of cases)
+        const authDesc = normalizeDescriptor(profile?.faceDescriptor);
+        if (authDesc && Array.isArray(authDesc) && authDesc.length === 128) {
+            setVerifiedStudent({
+                rollNo: targetRoll,
+                name: loggedInName || profile?.name || 'Student',
+                faceDescriptor: authDesc,
+                faceRegistered: true,
+                photoURL: profile?.photoURL || null
+            });
+            return;
+        }
+
         setLookingUpStudent(true);
         try {
+            // Fast-path 2: Direct lookup on canonical students/{targetRoll}
+            const sDocDirect = await getDoc(doc(db, 'students', targetRoll)).catch(() => null);
+            if (sDocDirect && sDocDirect.exists()) {
+                const sData = sDocDirect.data();
+                const desc = normalizeDescriptor(sData.faceDescriptor) || normalizeDescriptor(sData.descriptor);
+                if (desc && Array.isArray(desc) && desc.length === 128) {
+                    setVerifiedStudent({
+                        rollNo: targetRoll,
+                        name: sData.name || loggedInName || 'Student',
+                        faceDescriptor: desc,
+                        faceRegistered: true,
+                        photoURL: sData.photoURL || null
+                    });
+                    setLookingUpStudent(false);
+                    return;
+                }
+            }
+
             const possibleEmail = user?.email?.toLowerCase().trim() || `${targetRoll.toLowerCase()}@iiitdwd.ac.in`;
             const prefix = targetRoll.toLowerCase();
 
@@ -1318,6 +1352,9 @@ function QrScannerApp() {
                 }
             }
 
+            // Pre-warm biometric challenge for Phase 2 hardware verification
+            prefetchBiometricChallenge(sessionId).catch(() => { });
+
             // Move to Kiosk Supervised Waiting state (QR 1 is now permanently closed for this session)
             setScanState('KIOSK_WAITING_QR2');
         } catch (err) {
@@ -1403,6 +1440,9 @@ function QrScannerApp() {
             setActiveSessionId(targetSession);
             setActiveQr2Token(qr2Token);
             if (result.kioskEndsAt) setKioskEndsAt(result.kioskEndsAt);
+
+            // Pre-warm biometric challenge for immediate hardware fingerprint verification
+            prefetchBiometricChallenge(targetSession).catch(() => { });
 
             // Ensure biometrics are loaded
             await lookupStudentBiometrics(result.rollNo || loggedInRollNo);

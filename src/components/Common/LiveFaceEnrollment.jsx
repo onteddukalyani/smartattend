@@ -340,7 +340,7 @@ export function LiveFaceEnrollment({
         const isMobileDevice = typeof window !== "undefined" && (window.innerWidth <= 768 || /android|iphone|ipad|ipod|mobile/i.test(navigator.userAgent || ""));
         const detectorInputSize = isMobileDevice ? 160 : 224;
         const detectorOptions = new faceapi.TinyFaceDetectorOptions({ inputSize: detectorInputSize, scoreThreshold: 0.35 });
-        const scanInterval = isMobileDevice ? 140 : 110;
+        const scanInterval = isMobileDevice ? 45 : 35;
 
         const runLiveTracking = async (time) => {
             if (!isRunning) return;

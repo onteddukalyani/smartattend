@@ -18,31 +18,65 @@ export function detectDeviceType(environment = {}) {
   return null;
 }
 
+// Fast in-memory IP address cache (5 minutes TTL) to eliminate network lag during QR verification
+let cachedClientIp = null;
+let cachedClientIpTimestamp = 0;
+const IP_CACHE_TTL_MS = 5 * 60 * 1000;
+
 /**
- * Fetch client's public IP address with multiple fast fallbacks
+ * Fetch client's public IP address with multiple fast fallbacks and 0ms in-memory cache
  */
 export async function getClientIpAddress() {
+  const now = Date.now();
+  if (cachedClientIp && (now - cachedClientIpTimestamp) < IP_CACHE_TTL_MS) {
+    return cachedClientIp;
+  }
+
   const endpoints = [
     "https://api.ipify.org?format=json",
     "https://api64.ipify.org?format=json",
     "https://httpbin.org/ip"
   ];
 
-  for (const url of endpoints) {
-    try {
+  try {
+    const fetchSingle = async (url) => {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 3500);
-      const res = await fetch(url, { signal: controller.signal });
-      clearTimeout(timeoutId);
-      if (res.ok) {
-        const data = await res.json();
-        const ip = data.ip || (data.origin ? data.origin.split(",")[0].trim() : null);
-        if (ip && typeof ip === "string" && ip.length >= 7) {
-          return ip.trim();
+      const timeoutId = setTimeout(() => controller.abort(), 1200);
+      try {
+        const res = await fetch(url, { signal: controller.signal });
+        clearTimeout(timeoutId);
+        if (res.ok) {
+          const data = await res.json();
+          const ip = data.ip || (data.origin ? data.origin.split(",")[0].trim() : null);
+          if (ip && typeof ip === "string" && ip.length >= 7) {
+            return ip.trim();
+          }
         }
+      } catch (_) {
+        clearTimeout(timeoutId);
       }
-    } catch (_) {}
-  }
+      throw new Error("endpoint failed");
+    };
+
+    const resolvedIp = await Promise.any(endpoints.map(fetchSingle));
+    if (resolvedIp) {
+      cachedClientIp = resolvedIp;
+      cachedClientIpTimestamp = Date.now();
+      try {
+        if (typeof localStorage !== "undefined") {
+          localStorage.setItem("smartattend_device_ip", resolvedIp);
+        }
+      } catch (_) {}
+      return resolvedIp;
+    }
+  } catch (_) {}
+
+  // Local storage fallback if offline or timeout
+  try {
+    const stored = typeof localStorage !== "undefined" ? localStorage.getItem("smartattend_device_ip") : null;
+    if (stored && stored.length >= 7) return stored;
+  } catch (_) {}
+
   return "Unknown IP";
 }
 

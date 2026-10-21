@@ -12,17 +12,30 @@ import { Kiosk } from '../plugins/kiosk';
  * 2. WebRTC Virtual Interface / Local Candidate Subnet Analysis
  * 3. Network Interface Pattern Matching (tun*, tap*, ppp*, vpn*, ipsec*)
  */
+// In-memory VPN check cache (15 seconds TTL) to avoid repeating STUN/OS checks on each scan frame
+let cachedVpnStatus = null;
+let cachedVpnTimestamp = 0;
+const VPN_CACHE_TTL_MS = 15000;
+
 export async function checkVpnAndNetworkSecurity() {
+  const now = Date.now();
+  if (cachedVpnStatus && (now - cachedVpnTimestamp) < VPN_CACHE_TTL_MS) {
+    return cachedVpnStatus;
+  }
+
   // 1. Native Mobile Platform Check (authoritative via OS ConnectivityManager & interface scan)
   if (Capacitor.isNativePlatform()) {
     try {
       const nativeRes = await Kiosk.isVpnActive();
       if (nativeRes && nativeRes.isVpn) {
-        return {
+        const res = {
           isVpn: true,
           reason: `Active VPN tunnel detected on device (${nativeRes.details || 'OS_TRANSPORT_VPN'})`,
           details: nativeRes.details || 'NATIVE_VPN'
         };
+        cachedVpnStatus = res;
+        cachedVpnTimestamp = Date.now();
+        return res;
       }
     } catch (err) {
       console.warn('[VpnDetection] Native VPN check notice:', err);
@@ -33,17 +46,22 @@ export async function checkVpnAndNetworkSecurity() {
   try {
     const webRtcResult = await checkWebRtcVpnInterface();
     if (webRtcResult && webRtcResult.isVpn) {
+      cachedVpnStatus = webRtcResult;
+      cachedVpnTimestamp = Date.now();
       return webRtcResult;
     }
   } catch (err) {
     console.warn('[VpnDetection] WebRTC VPN check notice:', err);
   }
 
-  return {
+  const cleanResult = {
     isVpn: false,
     reason: 'No active VPN detected',
     details: 'CLEAN'
   };
+  cachedVpnStatus = cleanResult;
+  cachedVpnTimestamp = Date.now();
+  return cleanResult;
 }
 
 /**
@@ -76,7 +94,7 @@ function checkWebRtcVpnInterface() {
         cleanup();
         resolve({ isVpn: false, details: 'CLEAN_TIMEOUT' });
       }
-    }, 1200);
+    }, 450);
 
     try {
       pc = new RTCPeerConnection({

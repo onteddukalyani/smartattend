@@ -9,8 +9,8 @@
  * 5. 👁️ BLINK / SMILE (EAR blink / live human reflex)
  */
 
-export const BLINK_CLOSED_THRESHOLD = 0.205;
-export const BLINK_OPEN_THRESHOLD = 0.235;
+export const BLINK_CLOSED_THRESHOLD = 0.220;
+export const BLINK_OPEN_THRESHOLD = 0.245;
 export const STATIC_VARIANCE_THRESHOLD = 0.000025;
 export const MAR_SMILE_THRESHOLD = 0.42;
 export const MAR_OPEN_THRESHOLD = 0.55;
@@ -330,32 +330,35 @@ export class RandomizedChallengeEngine {
             if (this.collectedDescriptors.length > 12) this.collectedDescriptors.shift();
         }
 
-        // 1. EAR Blink Tracking
+        // 1. Natural EAR Blink Tracking (Ultra-Responsive & Robust)
         const leftEye = positions.slice(36, 42);
         const rightEye = positions.slice(42, 48);
         const leftEAR = computeEAR(leftEye);
         const rightEAR = computeEAR(rightEye);
         const avgEAR = (leftEAR + rightEAR) / 2.0;
 
-        if (avgEAR > 0.19 && avgEAR < 0.45) {
+        // Only track baseline when eye is open (avoids dragging baseline down during blinks)
+        if (avgEAR >= 0.22 && avgEAR <= 0.45) {
             this.earHistory.push(avgEAR);
-            if (this.earHistory.length > 25) this.earHistory.shift();
+            if (this.earHistory.length > 20) this.earHistory.shift();
             const sum = this.earHistory.reduce((a, b) => a + b, 0);
             this.baselineEAR = sum / this.earHistory.length;
         }
 
-        const closedCutoff = Math.min(BLINK_CLOSED_THRESHOLD, this.baselineEAR * 0.78);
+        const closedCutoff = Math.max(BLINK_CLOSED_THRESHOLD, this.baselineEAR * 0.82);
         const openCutoff = Math.max(BLINK_OPEN_THRESHOLD, this.baselineEAR * 0.88);
 
         let justBlinked = false;
-        if (avgEAR < closedCutoff || avgEAR < 0.185) {
+        if (avgEAR < closedCutoff || (this.baselineEAR - avgEAR) > 0.035 || avgEAR < 0.205) {
             this.eyeState = "closed";
-        } else if (avgEAR >= openCutoff || avgEAR >= 0.225) {
+            this.minBlinkEAR = Math.min(this.minBlinkEAR || 1.0, avgEAR);
+        } else if (avgEAR >= openCutoff || (this.eyeState === "closed" && (avgEAR - (this.minBlinkEAR || 0.20)) >= 0.025)) {
             if (this.eyeState === "closed") {
                 this.blinkCount += 1;
                 justBlinked = true;
             }
             this.eyeState = "open";
+            this.minBlinkEAR = 1.0;
         }
 
         // 2. MAR & Smile Tracking
