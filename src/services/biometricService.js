@@ -224,20 +224,19 @@ export async function enrollHardwareBiometric(studentUid) {
         platform: Capacitor.getPlatform(),
         keyAlias: DEFAULT_KEY_ALIAS
       });
+      if (regRes?.data?.success !== true) {
+        throw new Error("The server did not confirm biometric key registration.");
+      }
       if (regRes.data?.message) {
         serverMessage = regRes.data.message;
       }
     } catch (regErr) {
       console.warn("[BiometricService] Cloud function registration failed:", regErr);
-      if (
-        regErr.code === "already-exists" ||
-        regErr.message?.includes("already registered") ||
-        regErr.message?.includes("already-exists")
-      ) {
-        serverMessage = "Hardware biometric key is already registered. The server must confirm its active status before attendance.";
-      } else {
-        throw new Error("The biometric key was created on this device but could not be registered with the verification server. Enrollment was not completed.");
-      }
+      throw new Error(
+        regErr.code === "already-exists" || regErr.message?.includes("already registered")
+          ? "A biometric credential may already exist, but its active status was not confirmed. Ask an administrator to verify it before retrying."
+          : "The biometric key was created on this device but could not be registered with the verification server. Enrollment was not completed."
+      );
     }
 
     return {
