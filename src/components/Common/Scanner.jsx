@@ -39,7 +39,7 @@ import {
     requestAutoFailSafeUnlock
 } from '../../services/sessionAuthService';
 import { db } from '../../firebase';
-import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
+import { doc, getDoc, collection, query, where, getDocs, setDoc } from 'firebase/firestore';
 import FaceScanner, { releaseAllMediaTracks, loadFaceApiModels } from '../Lecturer/pages/FaceScanner';
 import { isIOSDevice, isGuidedAccessEnabled, addAppSwitchListener, addScreenCaptureListener } from '../../services/guidedAccessService';
 import { getApkDownloadUrl } from '../../utils/apkUrl';
@@ -138,6 +138,8 @@ function QrScannerApp() {
     const prewarmedLocationRef = useRef(null);
     const [gpsTelemetry, setGpsTelemetry] = useState(null);
     const [currentStudentLocation, setCurrentStudentLocation] = useState(null);
+    const [lecturerLocation, setLecturerLocation] = useState(null);
+    const lecturerLocationRef = useRef(null);
 
     // Heartbeat clock to evaluate phase transitions and countdowns in real-time
     useEffect(() => {
@@ -244,11 +246,13 @@ function QrScannerApp() {
         };
     }, []);
 
-    // Live continuous distance calculation between student device and lecturer device
+    // Live continuous distance calculation between student device and that particular lecturer's device
     useEffect(() => {
-        if (!currentStudentLocation || !sessionData?.classroomLocation) return;
-        const target = sessionData.classroomLocation;
-        if (target.latitude != null && target.longitude != null) {
+        const target = lecturerLocation || lecturerLocationRef.current || sessionData?.classroomLocation;
+        if (!currentStudentLocation || !target) return;
+        const targetLat = target.latitude ?? target.lat;
+        const targetLng = target.longitude ?? target.lng;
+        if (targetLat != null && targetLng != null) {
             try {
                 const evalResult = evaluateGeofence(currentStudentLocation, target, 0);
                 setGpsTelemetry((prev) => {
@@ -259,7 +263,7 @@ function QrScannerApp() {
                 });
             } catch (_) {}
         }
-    }, [currentStudentLocation, sessionData?.classroomLocation]);
+    }, [currentStudentLocation, sessionData?.classroomLocation, lecturerLocation]);
 
     // 5-Minute Fail-Safe Auto Release State
     const [attendanceSubmittedAt, setAttendanceSubmittedAt] = useState(0);
@@ -356,7 +360,8 @@ function QrScannerApp() {
         return () => { isMounted = false; };
     }, [user, profile?.rollNo]);
 
-    const loggedInRollNo = (dbStudent?.rollNo || (!profile?.rollNo?.includes('@') && !isGenericName(profile?.rollNo) ? profile?.rollNo : '')).trim().toUpperCase();
+    const rawRollNo = dbStudent?.rollNo || (!String(profile?.rollNo || '').includes('@') && !isGenericName(profile?.rollNo) ? profile?.rollNo : '') || '';
+    const loggedInRollNo = String(rawRollNo).trim().toUpperCase();
     const rawProfileName = dbStudent?.name || dbStudent?.fullName || (!isGenericName(profile?.name, loggedInRollNo, user?.email) ? profile?.name : (profile?.fullName || ''));
     const loggedInName = rawProfileName ? rawProfileName.trim() : (loggedInRollNo ? loggedInRollNo : 'Student');
 
@@ -1267,6 +1272,11 @@ function QrScannerApp() {
             const result = await authorizeStudentQR1(sessionId, qr1Token, studentProfileOverride, qrPayload);
 
             setActiveSessionId(sessionId);
+            if (qrPayload?.geo || qrPayload?.classroomLocation) {
+                const geo = qrPayload.geo || qrPayload.classroomLocation;
+                lecturerLocationRef.current = geo;
+                setLecturerLocation(geo);
+            }
             setSessionStartAt(result.sessionStartAt || Date.now());
             setKioskEndsAt(result.kioskEndsAt || (Date.now() + 180000));
 
@@ -1440,80 +1450,41 @@ function QrScannerApp() {
             return;
         }
 
-        // 2. Geofence Check (Enforces classroom boundary with indoor tolerance)
-        let studentCoords = null;
-        const classroomTarget = payload.geo || sessionData?.classroomLocation;
+        // 2. Dynamic Geofence & Lecturer Distance Telemetry
+        const classroomTarget = payload.geo || sessionData?.classroomLocation || lecturerLocationRef.current;
+        if (classroomTarget) {
+            lecturerLocationRef.current = classroomTarget;
+            setLecturerLocation(classroomTarget);
+        }
         const isGeofenceDisabled = sessionData?.geofenceRadius === 0 || classroomTarget?.radius === 0 || classroomTarget?.enabled === false;
-        if (classroomTarget && !isGeofenceDisabled) {
-            try {
-                const getCoords = async () => {
-                    const cached = prewarmedLocationRef.current;
-                    // If cached fix is fresh (under 180s) with acceptable accuracy (<= 85m), return immediately!
-                    if (cached && (Date.now() - cached.timestamp < 180000) && (cached.accuracy || 0) <= 85 && (cached.accuracy || 0) > 0) {
-                        return cached;
-                    }
-                    return new Promise((resolve) => {
-                        if (typeof navigator === "undefined" || !navigator.geolocation) {
-                            resolve(cached || null);
-                            return;
-                        }
 
-                        let resolved = false;
-                        const finish = (coords) => {
-                            if (resolved) return;
-                            resolved = true;
-                            if (coords) {
-                                prewarmedLocationRef.current = coords;
-                            }
-                            resolve(coords || cached || null);
+        // Instant 0ms location retrieval from continuous background GNSS pre-warmer
+        let studentCoords = prewarmedLocationRef.current || currentStudentLocation;
+
+        // If pre-warmed fix not yet acquired, trigger fast non-blocking background location sample
+        if (!studentCoords && typeof navigator !== "undefined" && navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(
+                (pos) => {
+                    if (pos && pos.coords) {
+                        const locObj = {
+                            latitude: pos.coords.latitude,
+                            longitude: pos.coords.longitude,
+                            lat: pos.coords.latitude,
+                            lng: pos.coords.longitude,
+                            accuracy: Number(pos.coords.accuracy) || 15,
+                            timestamp: Date.now()
                         };
+                        prewarmedLocationRef.current = locObj;
+                        setCurrentStudentLocation(locObj);
+                    }
+                },
+                () => {},
+                { enableHighAccuracy: true, timeout: 3000, maximumAge: 30000 }
+            );
+        }
 
-                        // Overall snappy safety timer: never block student attendance flow for >1.5s
-                        const safetyTimer = setTimeout(() => {
-                            finish(prewarmedLocationRef.current || cached || null);
-                        }, 1500);
-
-                        // Stage 1: Try high accuracy GPS / Wi-Fi with fast 1200ms timeout
-                        navigator.geolocation.getCurrentPosition(
-                            (pos) => {
-                                clearTimeout(safetyTimer);
-                                const rawAcc = Number(pos.coords.accuracy);
-                                finish({
-                                    latitude: pos.coords.latitude,
-                                    longitude: pos.coords.longitude,
-                                    lat: pos.coords.latitude,
-                                    lng: pos.coords.longitude,
-                                    accuracy: (Number.isFinite(rawAcc) && rawAcc > 0) ? rawAcc : 15,
-                                    timestamp: Date.now()
-                                });
-                            },
-                            () => {
-                                // Stage 2: Fallback to coarse positioning
-                                navigator.geolocation.getCurrentPosition(
-                                    (pos2) => {
-                                        clearTimeout(safetyTimer);
-                                        const rawAcc2 = Number(pos2.coords.accuracy);
-                                        finish({
-                                            latitude: pos2.coords.latitude,
-                                            longitude: pos2.coords.longitude,
-                                            lat: pos2.coords.latitude,
-                                            lng: pos2.coords.longitude,
-                                            accuracy: (Number.isFinite(rawAcc2) && rawAcc2 > 0) ? rawAcc2 : 25,
-                                            timestamp: Date.now()
-                                        });
-                                    },
-                                    () => {
-                                        clearTimeout(safetyTimer);
-                                        finish(prewarmedLocationRef.current || cached || null);
-                                    },
-                                    { enableHighAccuracy: false, timeout: 800, maximumAge: 60000 }
-                                );
-                            },
-                            { enableHighAccuracy: true, timeout: 1200, maximumAge: 30000 }
-                        );
-                    });
-                };
-                studentCoords = await getCoords();
+        if (classroomTarget && !isGeofenceDisabled && studentCoords) {
+            try {
                 const geoEval = evaluateGeofence(studentCoords, classroomTarget, geofenceRetriesRef.current);
                 setGpsTelemetry(geoEval);
 
@@ -1525,27 +1496,11 @@ function QrScannerApp() {
                     setErrorMessage(geoEval.message);
                     return;
                 }
+                // Strictly reject only if student is genuinely outside institutional boundary (proxy/dorm)
                 if (geoEval.status === "REJECT") {
                     console.error("[Geofence] Geofence rejected:", geoEval);
                     setErrorMessage(geoEval.message);
                     return;
-                }
-                if (geoEval.status === "INCONCLUSIVE_RETRY") {
-                    geofenceRetriesRef.current = (geofenceRetriesRef.current || 0) + 1;
-                    const maxAllowedBoundary = (classroomTarget.radius || 10) + 15;
-                    // If student is measured far from classroom (> 25m), enforce retry
-                    if (geoEval.canRetry && geoEval.distance !== null && geoEval.distance > maxAllowedBoundary) {
-                        setErrorMessage(geoEval.message);
-                        return;
-                    } else if (geoEval.locationAcquiring) {
-                        console.log("[Geofence] GPS acquiring...");
-                        setErrorMessage("📍 Locking GPS coordinates to measure distance to lecturer... Please hold camera steady.");
-                        return;
-                    } else {
-                        // Inconclusive GPS indoors near classroom or max retries reached: since student is scanning the 10-second rotating QR directly in front of the screen,
-                        // allow attendance to proceed with an indoor proximity notice rather than permanently blocking them
-                        console.warn("[Geofence] Indoor GPS inconclusive near classroom. Proceeding with classroom proximity audit flag.");
-                    }
                 }
             } catch (geoErr) {
                 console.warn("[Geofence] Check notice:", geoErr);

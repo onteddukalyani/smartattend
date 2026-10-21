@@ -1,6 +1,7 @@
 import { doc, getDoc, setDoc, onSnapshot, serverTimestamp } from "firebase/firestore";
 import { db } from "../firebase";
 import { Capacitor } from "@capacitor/core";
+import { App } from "@capacitor/app";
 import { getApkDownloadUrl, GITHUB_RELEASE_APK_URL, getApkMirrors } from "../utils/apkUrl";
 import { sendBroadcastNotification } from "./notificationsService";
 import { triggerRealAppNotification } from "./nativeNotificationService";
@@ -8,6 +9,36 @@ import { triggerRealAppNotification } from "./nativeNotificationService";
 export const CURRENT_APP_VERSION = "1.0.1";
 export const CURRENT_APP_VERSION_CODE = 2;
 export const APP_BUILD_DATE = "2026-10-21";
+
+let cachedRunningVersion = null;
+let cachedRunningVersionCode = null;
+
+/**
+ * Dynamically resolves the true running version of the app.
+ * On native Android APK, queries native package manager via @capacitor/app App.getInfo().
+ */
+export async function getRunningAppVersion() {
+  if (cachedRunningVersion) {
+    return { version: cachedRunningVersion, versionCode: cachedRunningVersionCode };
+  }
+  let v = CURRENT_APP_VERSION;
+  let code = CURRENT_APP_VERSION_CODE;
+  if (Capacitor.isNativePlatform()) {
+    try {
+      const info = await App.getInfo();
+      if (info && info.version) {
+        v = String(info.version).trim();
+      }
+      if (info && info.build) {
+        const parsed = parseInt(info.build, 10);
+        if (Number.isFinite(parsed) && parsed > 0) code = parsed;
+      }
+    } catch (_) {}
+  }
+  cachedRunningVersion = v;
+  cachedRunningVersionCode = code;
+  return { version: v, versionCode: code };
+}
 
 const GITHUB_VERSION_JSON_URL = "https://raw.githubusercontent.com/onteddukalyani/smartattend/main/version.json";
 
@@ -79,6 +110,7 @@ export async function computeSha256(data) {
  */
 export async function checkForAppUpdate() {
   const _isNative = Capacitor.isNativePlatform();
+  const running = await getRunningAppVersion();
 
   // 1. Immediate offline check
   if (typeof navigator !== "undefined" && !navigator.onLine) {
@@ -86,9 +118,9 @@ export async function checkForAppUpdate() {
       success: false,
       isOffline: true,
       hasUpdate: false,
-      currentVersion: CURRENT_APP_VERSION,
-      currentVersionCode: CURRENT_APP_VERSION_CODE,
-      latestVersion: CURRENT_APP_VERSION,
+      currentVersion: running.version,
+      currentVersionCode: running.versionCode,
+      latestVersion: running.version,
       message: "Device is offline. Connect to the internet to check for updates."
     };
   }
@@ -142,33 +174,35 @@ export async function checkForAppUpdate() {
     return {
       success: false,
       hasUpdate: false,
-      currentVersion: CURRENT_APP_VERSION,
-      currentVersionCode: CURRENT_APP_VERSION_CODE,
-      latestVersion: CURRENT_APP_VERSION,
+      currentVersion: running.version,
+      currentVersionCode: running.versionCode,
+      latestVersion: running.version,
       message: "Unable to reach update servers at this time."
     };
   }
 
-  return parseRemoteUpdateData(remoteData);
+  return parseRemoteUpdateData(remoteData, running.version, running.versionCode);
 }
 
 /**
  * Standardize and evaluate remote update data against current app build.
  */
-export function parseRemoteUpdateData(remoteData) {
+export function parseRemoteUpdateData(remoteData, activeVersion = null, activeVersionCode = null) {
   if (!remoteData) return null;
   const isNative = Capacitor.isNativePlatform();
-  const latestVersion = remoteData.version || CURRENT_APP_VERSION;
-  const latestVersionCode = remoteData.versionCode || CURRENT_APP_VERSION_CODE;
+  const currentVer = activeVersion || cachedRunningVersion || CURRENT_APP_VERSION;
+  const currentCode = activeVersionCode || cachedRunningVersionCode || CURRENT_APP_VERSION_CODE;
+  const latestVersion = remoteData.version || currentVer;
+  const latestVersionCode = remoteData.versionCode || currentCode;
   const minRequiredVersion = remoteData.minRequiredVersion || "1.0.0";
 
   const hasNewerVersion =
-    compareVersions(latestVersion, CURRENT_APP_VERSION) > 0 ||
-    (latestVersionCode > CURRENT_APP_VERSION_CODE && compareVersions(latestVersion, CURRENT_APP_VERSION) >= 0);
+    compareVersions(latestVersion, currentVer) > 0 ||
+    (latestVersionCode > currentCode && compareVersions(latestVersion, currentVer) >= 0);
 
   const isMandatory =
     Boolean(remoteData.isMandatory) ||
-    compareVersions(minRequiredVersion, CURRENT_APP_VERSION) > 0;
+    compareVersions(minRequiredVersion, currentVer) > 0;
 
   const apkUrl = remoteData.apkUrl || getApkDownloadUrl() || GITHUB_RELEASE_APK_URL;
 
@@ -176,8 +210,8 @@ export function parseRemoteUpdateData(remoteData) {
     success: true,
     hasUpdate: hasNewerVersion,
     isNative,
-    currentVersion: CURRENT_APP_VERSION,
-    currentVersionCode: CURRENT_APP_VERSION_CODE,
+    currentVersion: currentVer,
+    currentVersionCode: currentCode,
     latestVersion,
     latestVersionCode,
     minRequiredVersion,

@@ -11,14 +11,24 @@ service cloud.firestore {
     function isAdmin() {
       return isSignedIn() && (
         exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
-        (request.auth.token.email != null && exists(/databases/$(database)/documents/admins/$(request.auth.token.email)))
+        (request.auth.token.email != null && (
+          exists(/databases/$(database)/documents/admins/$(request.auth.token.email)) ||
+          exists(/databases/$(database)/documents/admins/$(request.auth.token.email.lower())) ||
+          exists(/databases/$(database)/documents/admins/$(request.auth.token.email.split('@')[0])) ||
+          exists(/databases/$(database)/documents/admins/$(request.auth.token.email.split('@')[0].lower()))
+        ))
       );
     }
 
     function isLecturer() {
       return isSignedIn() && (
         exists(/databases/$(database)/documents/lecturers/$(request.auth.uid)) ||
-        (request.auth.token.email != null && exists(/databases/$(database)/documents/lecturers/$(request.auth.token.email)))
+        (request.auth.token.email != null && (
+          exists(/databases/$(database)/documents/lecturers/$(request.auth.token.email)) ||
+          exists(/databases/$(database)/documents/lecturers/$(request.auth.token.email.lower())) ||
+          exists(/databases/$(database)/documents/lecturers/$(request.auth.token.email.split('@')[0])) ||
+          exists(/databases/$(database)/documents/lecturers/$(request.auth.token.email.split('@')[0].lower()))
+        ))
       );
     }
 
@@ -29,7 +39,17 @@ service cloud.firestore {
     // Admins collection: strictly protected against client tampering and privilege escalation
     match /admins/{adminId} {
       allow read: if isSignedIn();
-      allow write: if isAdmin();
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin() || (
+        isSignedIn() && (
+          request.auth.uid == adminId ||
+          (request.auth.token.email != null && (
+            adminId == request.auth.token.email ||
+            adminId == request.auth.token.email.split('@')[0] ||
+            (resource.data.email != null && resource.data.email.lower() == request.auth.token.email.lower())
+          ))
+        ) && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'status', 'approved', 'isAdmin'])
+      );
       match /{document=**} {
         allow read: if isSignedIn();
         allow write: if isAdmin();
@@ -72,6 +92,7 @@ service cloud.firestore {
           request.auth.uid == lecturerId ||
           (request.auth.token.email != null && (
             lecturerId == request.auth.token.email ||
+            lecturerId == request.auth.token.email.split('@')[0] ||
             (resource.data.email != null && resource.data.email.lower() == request.auth.token.email.lower())
           ))
         ) && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'department', 'designation', 'status', 'approved'])

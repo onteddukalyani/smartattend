@@ -23,7 +23,7 @@ import { useAuth } from '../authcontext';
 import { isGuidedAccessEnabled } from '../../services/guidedAccessService';
 import { detectDeviceType, getClientIpAddress, getDeviceDisplayName } from '../../utils/deviceDetection';
 import { sendFacultyNotification, sendStudentNotification } from '../../services/notificationsService';
-import { registerStudentDevice } from '../../services/deviceRegistrationService';
+import { registerUserDevice, registerStudentDevice } from '../../services/deviceRegistrationService';
 import { getApkDownloadUrl } from '../../utils/apkUrl';
 import './DeviceOnboardingModal.css';
 
@@ -31,7 +31,7 @@ const ANDROID_APK_URL = getApkDownloadUrl();
 
 /**
  * DeviceOnboardingModal
- * Asks student to select Android vs iPhone (iOS) device.
+ * Asks user (Student, Lecturer, Admin) to select Android vs iPhone (iOS) device.
  * - Auto-detects device hardware environment and IP address.
  * - Android: If browser, forces download/install of native APK (Lock Task Kiosk Mode).
  * - iPhone: Guides PWA Home Screen installation + iOS Guided Access setup.
@@ -40,6 +40,7 @@ const ANDROID_APK_URL = getApkDownloadUrl();
 export function DeviceOnboardingModal({ isOpen, onClose }) {
     const { user, profile } = useAuth();
     const isNativeApp = Capacitor.isNativePlatform();
+    const currentRole = String(profile?.role || 'student').trim().toLowerCase();
     const roll = (profile?.rollNo || user?.email?.split('@')[0] || '').trim().toUpperCase();
     const detectedDevice = detectDeviceType();
     const mismatchReportKey = `smartattend:device-mismatch-reported:${roll}`;
@@ -47,7 +48,7 @@ export function DeviceOnboardingModal({ isOpen, onClose }) {
     // Device Choice State: 'android' | 'ios' | null
     const [selectedDevice, setSelectedDevice] = useState(() => {
         try {
-            return localStorage.getItem('smartattend_student_device_type') || detectedDevice;
+            return localStorage.getItem(`smartattend_${currentRole}_device_type`) || localStorage.getItem('smartattend_student_device_type') || detectedDevice;
         } catch {
             return detectedDevice;
         }
@@ -79,8 +80,10 @@ export function DeviceOnboardingModal({ isOpen, onClose }) {
     // Auto-register and close immediately on native platform (Android APK is already native)
     useEffect(() => {
         if (isNativeApp) {
-            registerStudentDevice({
-                rollNo: roll,
+            registerUserDevice({
+                role: currentRole,
+                id: profile?.id || user?.uid || roll,
+                rollNo: currentRole === 'student' ? roll : null,
                 user,
                 profile,
                 platform: 'android',
@@ -88,7 +91,7 @@ export function DeviceOnboardingModal({ isOpen, onClose }) {
             }).catch((err) => console.warn('Native device registration notice:', err));
             if (onClose) onClose();
         }
-    }, [isNativeApp, roll, user, profile, currentIp, onClose]);
+    }, [isNativeApp, currentRole, roll, user, profile, currentIp, onClose]);
 
     if (!isOpen || isNativeApp) return null;
 
@@ -155,25 +158,27 @@ export function DeviceOnboardingModal({ isOpen, onClose }) {
             const ip = currentIp && currentIp !== "Detecting IP..." ? currentIp : await getClientIpAddress();
 
             // Authoritatively persist and link device directly to Firestore database collections
-            await registerStudentDevice({
-                rollNo: roll,
+            await registerUserDevice({
+                role: currentRole,
+                id: profile?.id || user?.uid || roll,
+                rollNo: currentRole === 'student' ? roll : null,
                 user,
                 profile,
                 platform: selectedDevice,
                 ip
             });
 
-            if (roll) {
-                const studentName = profile?.name || roll;
-                const deviceLabel = selectedDevice === 'android' ? 'Android APK' : 'iPhone (iOS Guided Access)';
+            const userName = profile?.name || roll || user?.email || 'User';
+            const deviceLabel = selectedDevice === 'android' ? 'Android APK' : 'iPhone (iOS Guided Access)';
 
+            if (currentRole === 'student' && roll) {
                 // Notify Faculty & Admin audit stream
                 await sendFacultyNotification(
                     'Device Type Selected & Locked',
-                    `Student ${studentName} (${roll}) registered and locked their device preference to ${deviceLabel} (IP: ${ip}, Detected: ${detectedDevice || 'Web'}).`,
+                    `Student ${userName} (${roll}) registered and locked their device preference to ${deviceLabel} (IP: ${ip}, Detected: ${detectedDevice || 'Web'}).`,
                     'DEVICE_LOCKED',
                     roll,
-                    studentName
+                    userName
                 ).catch(() => {});
 
                 // Send confirmation notification to Student's own audit log
@@ -183,6 +188,14 @@ export function DeviceOnboardingModal({ isOpen, onClose }) {
                     `Your account is now linked to your ${deviceLabel}. If you switch to a new phone in the future, your teacher can reset this for you.`,
                     'DEVICE_LOCKED',
                     'Device Setup'
+                ).catch(() => {});
+            } else {
+                await sendFacultyNotification(
+                    `${currentRole === 'admin' ? 'Administrator' : 'Faculty'} Device Registered`,
+                    `${currentRole === 'admin' ? 'Admin' : 'Faculty'} ${userName} bound their active device to ${deviceLabel} (IP: ${ip}).`,
+                    'DEVICE_LOCKED',
+                    roll || user?.uid,
+                    userName
                 ).catch(() => {});
             }
         } catch (e) {
@@ -222,9 +235,13 @@ export function DeviceOnboardingModal({ isOpen, onClose }) {
                     <div className="device-modal-badge">
                         <FaShieldAlt /> Device Verification & Security
                     </div>
-                    <h2 className="device-modal-title">Select Your Phone Type</h2>
+                    <h2 className="device-modal-title">
+                        {currentRole === 'admin' ? 'Administrator Device Setup' : currentRole === 'lecturer' ? 'Faculty Device Registration' : 'Select Your Phone Type'}
+                    </h2>
                     <p className="device-modal-subtitle">
-                        SmartAttend uses hardware security features (Android Kiosk / iOS Guided Access) to verify attendance.
+                        {currentRole === 'student'
+                            ? 'SmartAttend uses hardware security features (Android Kiosk / iOS Guided Access) to verify attendance.'
+                            : 'Link your authenticated device hardware environment to securely access institutional controls.'}
                     </p>
                     <div style={{
                         display: 'inline-flex',

@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useSearchParams, Link, useNavigate } from "react-router-dom";
 import { QRCodeCanvas } from "qrcode.react";
-import { collection, getDocs, onSnapshot, doc, updateDoc } from "firebase/firestore";
+import { collection, getDocs, onSnapshot, doc, updateDoc, getDoc } from "firebase/firestore";
 import { db } from "../../../firebase";
 import { createAttendanceSession } from "./CreateSession";
 import {
