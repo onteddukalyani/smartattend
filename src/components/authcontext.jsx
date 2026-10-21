@@ -40,25 +40,28 @@ export const AuthProvider = ({ children }) => {
   // LOOKUP REGISTERED USER IN FIRESTORE (PARALLELIZED READ-ONLY)
   // =========================================================
 
-  const lookupUserInSystem = async (email) => {
-    if (!email) return null;
-    const cleanEmail = email.toLowerCase().trim();
-    const prefix = cleanEmail.split("@")[0].toLowerCase().trim();
+  const lookupUserInSystem = async (email, uid = null) => {
+    if (!email && !uid) return null;
+    const cleanEmail = (email || "").toLowerCase().trim();
+    const prefix = cleanEmail ? cleanEmail.split("@")[0].toLowerCase().trim() : "";
     const rollFromEmail = prefix.toUpperCase();
+    const cleanUid = uid ? String(uid).trim() : "";
 
     try {
-      // 1. Check Admins & Lecturers first
+      // 1. Check Admins & Lecturers first (by prefix, email, and UID)
       const [
-        adminPrefixSnap, adminEmailSnap,
-        lectPrefixSnap, lectEmailSnap,
+        adminPrefixSnap, adminEmailSnap, adminUidSnap,
+        lectPrefixSnap, lectEmailSnap, lectUidSnap,
         adminQuerySnap, lectQuerySnap
       ] = await Promise.all([
-        getDoc(doc(db, "admins", prefix)).catch(() => ({ exists: () => false })),
-        getDoc(doc(db, "admins", cleanEmail)).catch(() => ({ exists: () => false })),
-        getDoc(doc(db, "lecturers", prefix)).catch(() => ({ exists: () => false })),
-        getDoc(doc(db, "lecturers", cleanEmail)).catch(() => ({ exists: () => false })),
-        getDocs(query(collection(db, "admins"), where("email", "==", cleanEmail))).catch(() => ({ empty: true, docs: [] })),
-        getDocs(query(collection(db, "lecturers"), where("email", "==", cleanEmail))).catch(() => ({ empty: true, docs: [] }))
+        prefix ? getDoc(doc(db, "admins", prefix)).catch(() => ({ exists: () => false })) : Promise.resolve({ exists: () => false }),
+        cleanEmail ? getDoc(doc(db, "admins", cleanEmail)).catch(() => ({ exists: () => false })) : Promise.resolve({ exists: () => false }),
+        cleanUid ? getDoc(doc(db, "admins", cleanUid)).catch(() => ({ exists: () => false })) : Promise.resolve({ exists: () => false }),
+        prefix ? getDoc(doc(db, "lecturers", prefix)).catch(() => ({ exists: () => false })) : Promise.resolve({ exists: () => false }),
+        cleanEmail ? getDoc(doc(db, "lecturers", cleanEmail)).catch(() => ({ exists: () => false })) : Promise.resolve({ exists: () => false }),
+        cleanUid ? getDoc(doc(db, "lecturers", cleanUid)).catch(() => ({ exists: () => false })) : Promise.resolve({ exists: () => false }),
+        cleanEmail ? getDocs(query(collection(db, "admins"), where("email", "==", cleanEmail))).catch(() => ({ empty: true, docs: [] })) : Promise.resolve({ empty: true, docs: [] }),
+        cleanEmail ? getDocs(query(collection(db, "lecturers"), where("email", "==", cleanEmail))).catch(() => ({ empty: true, docs: [] })) : Promise.resolve({ empty: true, docs: [] })
       ]);
 
       // Check Admin
@@ -69,6 +72,10 @@ export const AuthProvider = ({ children }) => {
       if (adminEmailSnap.exists()) {
         const d = adminEmailSnap.data();
         return { id: adminEmailSnap.id, ...d, email: cleanEmail, role: "admin" };
+      }
+      if (adminUidSnap?.exists()) {
+        const d = adminUidSnap.data();
+        return { id: adminUidSnap.id, ...d, email: d.email || cleanEmail, role: "admin" };
       }
       if (!adminQuerySnap.empty) {
         const d = adminQuerySnap.docs[0].data();
@@ -84,24 +91,31 @@ export const AuthProvider = ({ children }) => {
         const d = lectEmailSnap.data();
         return { id: lectEmailSnap.id, ...d, email: cleanEmail, role: "lecturer" };
       }
+      if (lectUidSnap?.exists()) {
+        const d = lectUidSnap.data();
+        return { id: lectUidSnap.id, ...d, email: d.email || cleanEmail, role: "lecturer" };
+      }
       if (!lectQuerySnap.empty) {
         const d = lectQuerySnap.docs[0].data();
         return { id: lectQuerySnap.docs[0].id, ...d, email: cleanEmail, role: "lecturer" };
       }
 
-      // 2. CHECK STUDENTS DATABASE COLLECTION BY LOGGED IN EMAIL ID
-      // If student email is in students collection in database, use those exact details!
+      // 2. CHECK STUDENTS DATABASE COLLECTION BY LOGGED IN EMAIL ID, ROLL, AND UID
       const [
         studentEmailQuerySnap,
         studentEmailDocSnap,
         studentRollSnap,
         studentPrefixSnap,
+        studentUidSnap,
+        studentUidQuerySnap,
         allStudentsSnap
       ] = await Promise.all([
-        getDocs(query(collection(db, "students"), where("email", "==", cleanEmail))).catch(() => ({ empty: true, docs: [] })),
-        getDoc(doc(db, "students", cleanEmail)).catch(() => ({ exists: () => false })),
-        getDoc(doc(db, "students", rollFromEmail)).catch(() => ({ exists: () => false })),
-        prefix !== rollFromEmail.toLowerCase() ? getDoc(doc(db, "students", prefix)).catch(() => ({ exists: () => false })) : Promise.resolve({ exists: () => false }),
+        cleanEmail ? getDocs(query(collection(db, "students"), where("email", "==", cleanEmail))).catch(() => ({ empty: true, docs: [] })) : Promise.resolve({ empty: true, docs: [] }),
+        cleanEmail ? getDoc(doc(db, "students", cleanEmail)).catch(() => ({ exists: () => false })) : Promise.resolve({ exists: () => false }),
+        rollFromEmail ? getDoc(doc(db, "students", rollFromEmail)).catch(() => ({ exists: () => false })) : Promise.resolve({ exists: () => false }),
+        (prefix && prefix !== rollFromEmail.toLowerCase()) ? getDoc(doc(db, "students", prefix)).catch(() => ({ exists: () => false })) : Promise.resolve({ exists: () => false }),
+        cleanUid ? getDoc(doc(db, "students", cleanUid)).catch(() => ({ exists: () => false })) : Promise.resolve({ exists: () => false }),
+        cleanUid ? getDocs(query(collection(db, "students"), where("uid", "==", cleanUid))).catch(() => ({ empty: true, docs: [] })) : Promise.resolve({ empty: true, docs: [] }),
         getDocs(collection(db, "students")).catch(() => ({ empty: true, docs: [] }))
       ]);
 
@@ -118,7 +132,16 @@ export const AuthProvider = ({ children }) => {
         matchedStudentDoc = studentEmailDocSnap.data();
         matchedStudentId = studentEmailDocSnap.id;
       }
-      // C. Case-insensitive scan across students collection
+      // C. Direct document lookup by UID or UID query
+      else if (studentUidSnap?.exists()) {
+        matchedStudentDoc = studentUidSnap.data();
+        matchedStudentId = studentUidSnap.id;
+      }
+      else if (!studentUidQuerySnap.empty && studentUidQuerySnap.docs?.[0]) {
+        matchedStudentDoc = studentUidQuerySnap.docs[0].data();
+        matchedStudentId = studentUidQuerySnap.docs[0].id;
+      }
+      // D. Case-insensitive scan across students collection
       else if (!allStudentsSnap.empty) {
         for (const d of allStudentsSnap.docs) {
           const data = d.data();
@@ -130,7 +153,7 @@ export const AuthProvider = ({ children }) => {
           }
         }
       }
-      // D. Roll number document lookup in students
+      // E. Roll number document lookup in students
       if (!matchedStudentDoc) {
         if (studentRollSnap.exists()) {
           matchedStudentDoc = studentRollSnap.data();
@@ -409,8 +432,8 @@ export const AuthProvider = ({ children }) => {
             }
           } catch (e) {}
 
-          // 2. Perform fresh parallel lookup in Firestore
-          const registeredUser = await lookupUserInSystem(currentUser.email);
+          // 2. Perform fresh parallel lookup in Firestore (by email and UID)
+          const registeredUser = await lookupUserInSystem(currentUser.email, currentUser.uid);
 
           if (!isMounted) return;
 
@@ -562,7 +585,7 @@ export const AuthProvider = ({ children }) => {
     // -------------------------------------------------------
     // STRICT VERIFICATION: MUST EXIST IN DATABASE
     // -------------------------------------------------------
-    const registeredUser = await lookupUserInSystem(cleanEmail);
+    const registeredUser = await lookupUserInSystem(cleanEmail, currentUser.uid);
 
     if (!registeredUser) {
       // User is completely unregistered - report complaint to Admin & Lecturer and kick out immediately
