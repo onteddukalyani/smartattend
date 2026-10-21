@@ -5,9 +5,9 @@ import { getApkDownloadUrl, GITHUB_RELEASE_APK_URL, getApkMirrors } from "../uti
 import { sendBroadcastNotification } from "./notificationsService";
 import { triggerRealAppNotification } from "./nativeNotificationService";
 
-export const CURRENT_APP_VERSION = "1.0.0";
-export const CURRENT_APP_VERSION_CODE = 1;
-export const APP_BUILD_DATE = "2026-10-01";
+export const CURRENT_APP_VERSION = "1.0.1";
+export const CURRENT_APP_VERSION_CODE = 2;
+export const APP_BUILD_DATE = "2026-10-21";
 
 const GITHUB_VERSION_JSON_URL = "https://raw.githubusercontent.com/onteddukalyani/smartattend/main/version.json";
 
@@ -135,7 +135,7 @@ export async function checkForAppUpdate() {
       if (res.ok) {
         remoteData = await res.json();
       }
-    } catch (_) {}
+    } catch (_) { }
   }
 
   if (!remoteData) {
@@ -407,7 +407,7 @@ export async function downloadApkWithStream({ url, expectedChecksum, onProgress,
  * @returns {function} Unsubscribe cleanup function.
  */
 export function subscribeToAppUpdates(onUpdateDetected) {
-  if (typeof onUpdateDetected !== "function") return () => {};
+  if (typeof onUpdateDetected !== "function") return () => { };
 
   let isMounted = true;
   let lastReportedVersion = null;
@@ -421,7 +421,7 @@ export function subscribeToAppUpdates(onUpdateDetected) {
   };
 
   // 1. Live Firestore onSnapshot (instant real-time push to all active users)
-  let unsubFirestore = () => {};
+  let unsubFirestore = () => { };
   try {
     const updateDocRef = doc(db, "app_updates", "latest");
     unsubFirestore = onSnapshot(
@@ -448,7 +448,7 @@ export function subscribeToAppUpdates(onUpdateDetected) {
     if (isMounted && info && info.hasUpdate) {
       notifyIfNew(info);
     }
-  }).catch(() => {});
+  }).catch(() => { });
 
   // 3. Heartbeat polling (every 60 seconds) to catch CDN / version.json updates
   const pollInterval = setInterval(() => {
@@ -457,12 +457,12 @@ export function subscribeToAppUpdates(onUpdateDetected) {
       if (isMounted && info && info.hasUpdate) {
         notifyIfNew(info);
       }
-    }).catch(() => {});
+    }).catch(() => { });
   }, 60000);
 
   return () => {
     isMounted = false;
-    try { unsubFirestore(); } catch (_) {}
+    try { unsubFirestore(); } catch (_) { }
     clearInterval(pollInterval);
   };
 }
@@ -493,8 +493,8 @@ export async function publishAppUpdate({
   const notesArray = Array.isArray(releaseNotes)
     ? releaseNotes.filter(Boolean)
     : (typeof releaseNotes === "string"
-        ? releaseNotes.split("\n").map(s => s.trim()).filter(Boolean)
-        : ["Performance improvements and general bug fixes."]);
+      ? releaseNotes.split("\n").map(s => s.trim()).filter(Boolean)
+      : ["Performance improvements and general bug fixes."]);
 
   const targetApkUrl = apkUrl || getApkDownloadUrl() || GITHUB_RELEASE_APK_URL;
 
@@ -548,7 +548,7 @@ export async function publishAppUpdate({
       type: "APP_UPDATE",
       timestamp: Date.now()
     });
-  } catch (_) {}
+  } catch (_) { }
 
   return { success: true, version: cleanVersion };
 }

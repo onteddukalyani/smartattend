@@ -224,6 +224,7 @@ export async function authorizeStudentQR1(sessionId, qr1Token, studentProfileOve
   // Resolve Student Details strictly from Database (Firestore 'students' collection)
   let rollNo = (studentProfileOverride?.rollNo || "").toUpperCase().trim();
   let studentName = (studentProfileOverride?.name || studentProfileOverride?.fullName || "").trim();
+  let dbDeviceType = null;
 
   if (studentEmail) {
     try {
@@ -243,6 +244,7 @@ export async function authorizeStudentQR1(sessionId, qr1Token, studentProfileOve
       if (dbStudentData) {
         rollNo = String(dbStudentData.rollNo || (!dbStudentId.includes("@") ? dbStudentId : rollNo)).trim().toUpperCase();
         studentName = String(dbStudentData.name || dbStudentData.fullName || studentName).trim();
+        dbDeviceType = dbStudentData.deviceType || dbStudentData.registeredPlatform || dbStudentData.registeredDeviceType || null;
       }
     } catch (dbErr) {
       console.warn("Notice querying student in authorizeStudentQR1:", dbErr);
@@ -254,6 +256,22 @@ export async function authorizeStudentQR1(sessionId, qr1Token, studentProfileOve
   }
   if (!studentName || isGenericName(studentName, rollNo, studentEmail)) {
     studentName = studentProfileOverride?.name || studentProfileOverride?.fullName || rollNo;
+  }
+
+  // Also query students collection by rollNo if dbDeviceType was not found by email
+  if (!dbDeviceType && rollNo && !rollNo.includes("@")) {
+    try {
+      const rollSnap = await getDoc(doc(db, "students", rollNo)).catch(() => ({ exists: () => false }));
+      if (rollSnap.exists()) {
+        const rData = rollSnap.data();
+        if (rData) {
+          if (!studentName || isGenericName(studentName, rollNo, studentEmail)) {
+            studentName = String(rData.name || rData.fullName || studentName).trim();
+          }
+          dbDeviceType = rData.deviceType || rData.registeredPlatform || rData.registeredDeviceType || null;
+        }
+      }
+    } catch (_) {}
   }
 
   const sessionRef = doc(db, "attendance_sessions", sessionId);
@@ -286,7 +304,7 @@ export async function authorizeStudentQR1(sessionId, qr1Token, studentProfileOve
   }
 
   // Device Mismatch Protection Check
-  const registeredType = studentProfileOverride?.deviceType || (typeof window !== "undefined" ? localStorage.getItem("smartattend_student_device_type") : null);
+  const registeredType = studentProfileOverride?.deviceType || dbDeviceType || (typeof window !== "undefined" ? localStorage.getItem("smartattend_student_device_type") : null);
   if (registeredType && !isDeviceMatching(registeredType, detectedType)) {
     const regLabel = getDeviceDisplayName(registeredType);
     const curLabel = getDeviceDisplayName(detectedType);
@@ -788,8 +806,8 @@ export async function submitVerifiedAttendance(sessionId, qr2Token, biometricDat
     timestamp: now,
     deviceAuthMode: deviceAuthMode,
     isNative: Boolean(isNative),
-    studentLocation: qr2Payload?.studentLocation || authData?.studentLocation || null,
-    classroomDistance: (qr2Payload?.distance !== undefined && qr2Payload?.distance !== null) ? qr2Payload.distance : (authData?.distance !== undefined ? authData.distance : null),
+    studentLocation: qrPayload?.studentLocation || authData?.studentLocation || null,
+    classroomDistance: (qrPayload?.distance !== undefined && qrPayload?.distance !== null) ? qrPayload.distance : (authData?.distance !== undefined ? authData.distance : null),
     biometricVerification: {
       verified: true,
       confidence: biometricData?.confidence || 100,

@@ -102,12 +102,19 @@ service cloud.firestore {
         (
           request.auth.uid == studentId ||
           (resource.data.studentUid != null && resource.data.studentUid == request.auth.uid) ||
-          (request.auth.token.email != null && resource.data.email != null && (resource.data.email == request.auth.token.email || resource.data.email.lower() == request.auth.token.email.lower()))
+          (request.auth.token.email != null && resource.data.email != null && (resource.data.email == request.auth.token.email || resource.data.email.lower() == request.auth.token.email.lower())) ||
+          (request.auth.token.email != null && request.auth.token.email.split('@')[0].lower() == studentId.lower()) ||
+          (resource.data.rollNo != null && request.auth.token.email != null && resource.data.rollNo.lower() == request.auth.token.email.split('@')[0].lower()) ||
+          (!('studentUid' in resource.data) || resource.data.studentUid == null || resource.data.studentUid == "")
         ) &&
         !request.resource.data.diff(resource.data).affectedKeys().hasAny([
-          'rollNo', 'rollNumber', 'status', 'disqualified', 'academicYear', 'department', 'batch', 'role',
-          'deviceTypeLocked'
-        ])
+          'rollNo', 'rollNumber', 'status', 'disqualified', 'academicYear', 'department', 'batch', 'role'
+        ]) &&
+        // Prevent unlocking an already locked device from client side
+        (
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny(['deviceTypeLocked']) ||
+          (resource.data.deviceTypeLocked != true && request.resource.data.deviceTypeLocked == true)
+        )
       );
       match /{document=**} {
         allow read: if isSignedIn();
@@ -134,7 +141,8 @@ service cloud.firestore {
           (
             request.auth.uid == userId ||
             (resource.data.studentUid != null && resource.data.studentUid == request.auth.uid) ||
-            (request.auth.token.email != null && resource.data.email != null && (resource.data.email == request.auth.token.email || resource.data.email.lower() == request.auth.token.email.lower()))
+            (request.auth.token.email != null && resource.data.email != null && (resource.data.email == request.auth.token.email || resource.data.email.lower() == request.auth.token.email.lower())) ||
+            (request.auth.token.email != null && userId.lower() == request.auth.token.email.split('@')[0].lower())
           ) &&
           !request.resource.data.diff(resource.data).affectedKeys().hasAny([
             'role', 'isAdmin', 'isLecturer', 'status', 'disqualified', 'department', 'batch'

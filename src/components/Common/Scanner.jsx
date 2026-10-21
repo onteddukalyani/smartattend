@@ -3096,8 +3096,69 @@ function QrScannerApp() {
                 )}
 
                 {errorMessage && (
-                    <div className="st-scanner-error-banner">
-                        {errorMessage}
+                    <div className="st-scanner-error-banner" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '8px' }}>
+                            <div>{errorMessage}</div>
+                            <button
+                                type="button"
+                                onClick={() => setErrorMessage('')}
+                                style={{
+                                    background: 'transparent',
+                                    border: 'none',
+                                    color: '#b91c1c',
+                                    cursor: 'pointer',
+                                    fontSize: '1rem',
+                                    padding: '0 4px',
+                                    flexShrink: 0
+                                }}
+                                title="Dismiss"
+                            >
+                                ✕
+                            </button>
+                        </div>
+                        {(errorMessage.includes('Geofence') || errorMessage.includes('GPS') || errorMessage.includes('outside')) && (
+                            <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setErrorMessage('📍 Recalibrating high-precision GPS lock...');
+                                        if (typeof navigator !== "undefined" && navigator.geolocation) {
+                                            navigator.geolocation.getCurrentPosition(
+                                                (pos) => {
+                                                    const locObj = {
+                                                        latitude: pos.coords.latitude,
+                                                        longitude: pos.coords.longitude,
+                                                        lat: pos.coords.latitude,
+                                                        lng: pos.coords.longitude,
+                                                        accuracy: pos.coords.accuracy || 15,
+                                                        timestamp: Date.now()
+                                                    };
+                                                    prewarmedLocationRef.current = locObj;
+                                                    setCurrentStudentLocation(locObj);
+                                                    setErrorMessage('');
+                                                },
+                                                (err) => {
+                                                    setErrorMessage(`⚠️ GPS refresh failed: ${err?.message || 'Unable to acquire satellite fix'}`);
+                                                },
+                                                { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
+                                            );
+                                        }
+                                    }}
+                                    style={{
+                                        padding: '6px 12px',
+                                        borderRadius: '8px',
+                                        background: '#b91c1c',
+                                        color: '#ffffff',
+                                        border: 'none',
+                                        fontSize: '0.78rem',
+                                        fontWeight: 800,
+                                        cursor: 'pointer'
+                                    }}
+                                >
+                                    🔄 Recalibrate &amp; Refresh GPS
+                                </button>
+                            </div>
+                        )}
                     </div>
                 )}
             </div>
@@ -3222,15 +3283,77 @@ function QrScannerApp() {
                 <div style={{
                     marginTop: '14px',
                     padding: '12px 14px',
-                    borderRadius: '10px',
+                    borderRadius: '12px',
                     background: '#fee2e2',
                     border: '1px solid #fca5a5',
                     color: '#b91c1c',
                     fontSize: '0.86rem',
                     fontWeight: 700,
-                    textAlign: 'left'
+                    textAlign: 'left',
+                    boxShadow: '0 4px 12px rgba(239, 68, 68, 0.15)'
                 }}>
-                    {errorMessage}
+                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '8px' }}>
+                        <div>{errorMessage}</div>
+                        <button
+                            type="button"
+                            onClick={() => setErrorMessage('')}
+                            style={{
+                                background: 'transparent',
+                                border: 'none',
+                                color: '#b91c1c',
+                                cursor: 'pointer',
+                                fontSize: '1rem',
+                                padding: '0 4px',
+                                flexShrink: 0
+                            }}
+                            title="Dismiss"
+                        >
+                            ✕
+                        </button>
+                    </div>
+                    {(errorMessage.includes('Geofence') || errorMessage.includes('GPS') || errorMessage.includes('outside')) && (
+                        <div style={{ marginTop: '10px', display: 'flex', gap: '8px' }}>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setErrorMessage('📍 Recalibrating high-precision GPS lock...');
+                                    if (typeof navigator !== "undefined" && navigator.geolocation) {
+                                        navigator.geolocation.getCurrentPosition(
+                                            (pos) => {
+                                                const locObj = {
+                                                    latitude: pos.coords.latitude,
+                                                    longitude: pos.coords.longitude,
+                                                    lat: pos.coords.latitude,
+                                                    lng: pos.coords.longitude,
+                                                    accuracy: pos.coords.accuracy || 15,
+                                                    timestamp: Date.now()
+                                                };
+                                                prewarmedLocationRef.current = locObj;
+                                                setCurrentStudentLocation(locObj);
+                                                setErrorMessage('');
+                                            },
+                                            (err) => {
+                                                setErrorMessage(`⚠️ GPS refresh failed: ${err?.message || 'Unable to acquire satellite fix'}`);
+                                            },
+                                            { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
+                                        );
+                                    }
+                                }}
+                                style={{
+                                    padding: '6px 14px',
+                                    borderRadius: '8px',
+                                    background: '#b91c1c',
+                                    color: '#ffffff',
+                                    border: 'none',
+                                    fontSize: '0.8rem',
+                                    fontWeight: 800,
+                                    cursor: 'pointer'
+                                }}
+                            >
+                                🔄 Recalibrate &amp; Refresh GPS
+                            </button>
+                        </div>
+                    )}
                 </div>
             )}
 

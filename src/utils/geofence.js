@@ -161,16 +161,17 @@ export function evaluateGeofence(studentCoordsRaw, classroomCoordsRaw, retryCoun
 
   const distance = Math.round(rawDistance * 10) / 10;
 
-  // 3. Defensible Sensor Uncertainty Calibration for Real-World Mobile Hardware:
+  // 3. Defensible Sensor Uncertainty Calibration for Real-World Mobile Hardware & Host Laptops:
   // Civilian smartphone GPS receivers indoors experience horizontal dilution of precision (HDOP)
-  // and building roof/wall attenuation, yielding typical indoor precision between ±10m and ±35m.
-  // Combines student device accuracy and classroom host accuracy to prevent false rejections
-  // of students physically sitting in the classroom, while strictly catching proxy students outside (> 25m).
-  const hostAccuracy = Math.max(0, Math.round(Number(classroom.accuracy) || 0));
-  const maxAllowance = Math.max(14, Math.min(30, radius * 0.8));
-  const studentAllowance = accuracy > 0 ? Math.min(accuracy * 0.65, maxAllowance) : 0;
-  const hostAllowance = hostAccuracy > 0 ? Math.min(hostAccuracy * 0.35, 10) : 0;
-  const uncertaintyAllowance = Math.min(maxAllowance, studentAllowance + hostAllowance);
+  // and building roof/wall attenuation (±15m to ±40m).
+  // Additionally, classroom host machines (lecturer laptops / desktops) obtain location from Wi-Fi BSSID or ISP IP,
+  // which frequently places the host coordinate at the campus router/server room 50m - 100m away from the classroom.
+  // We combine the student receiver uncertainty and classroom host uncertainty using root-sum-square plus indoor allowance.
+  const hostAccuracy = rawHostAccuracy > 0 ? rawHostAccuracy : 75; // Standard indoor laptop Wi-Fi location uncertainty
+  const studentAllowance = accuracy > 0 ? accuracy : 20;
+  const combinedSensorUncertainty = Math.sqrt(Math.pow(studentAllowance, 2) + Math.pow(hostAccuracy, 2));
+  // Total indoor tolerance accommodates combined sensor uncertainty up to a safe institutional boundary (120m)
+  const uncertaintyAllowance = Math.min(120, Math.max(20, Math.round(combinedSensorUncertainty)));
   const effectiveDistance = Math.max(0, Math.round((distance - uncertaintyAllowance) * 10) / 10);
 
   const telemetry = {

@@ -54,6 +54,7 @@ import { detectDeviceType, getClientIpAddress, getDeviceDisplayName, isDeviceMat
 import { Capacitor } from "@capacitor/core";
 import { KioskPlugin } from "../../../plugins/kiosk";
 import { checkForAppUpdate, subscribeToAppUpdates, triggerApkDownload } from "../../../services/appUpdateService";
+import { registerStudentDevice } from "../../../services/deviceRegistrationService";
 import AppUpdateModal from "../../Common/AppUpdateModal";
 import "./Dashboard.css";
 
@@ -290,8 +291,11 @@ export default function StudentDashboard() {
         // 1. Listen to students collection (canonical doc)
         unsubs.push(onSnapshot(doc(db, "students", activeRollNo), (snap) => handleDocUpdate(snap, true), (err) => console.warn("student doc snapshot notice:", err)));
 
-        // 2. Listen to users collection
+        // 2. Listen to users collection (by roll and by user.uid)
         unsubs.push(onSnapshot(doc(db, "users", activeRollNo), (snap) => handleDocUpdate(snap, false), (err) => console.warn("user doc snapshot notice:", err)));
+        if (user?.uid && user.uid !== activeRollNo) {
+            unsubs.push(onSnapshot(doc(db, "users", user.uid), (snap) => handleDocUpdate(snap, false), (err) => console.warn("user uid snapshot notice:", err)));
+        }
 
         // 3. Listen to authorizedUsers collection
         if (cleanEmail) {
@@ -301,7 +305,7 @@ export default function StudentDashboard() {
         return () => {
             unsubs.forEach((u) => u && u());
         };
-    }, [activeRollNo, user?.email]);
+    }, [activeRollNo, user?.email, user?.uid]);
 
     const studentName = fetchedStudentData?.name || profile?.name || activeRollNo || "Student";
     const rawBranch = fetchedStudentData?.branch || profile?.branch || fetchedStudentData?.department || profile?.department;
@@ -346,6 +350,17 @@ export default function StudentDashboard() {
                 setShowDeviceModal(false);
             } catch (_) { }
 
+            // Authoritatively persist native Android device binding to database
+            if (activeRollNo || user?.uid) {
+                registerStudentDevice({
+                    rollNo: activeRollNo,
+                    user,
+                    profile,
+                    platform: 'android',
+                    ip: clientIpAddress
+                }).catch((err) => console.warn("Native device registration sync notice:", err));
+            }
+
             KioskPlugin.canDrawOverlays().then((res) => {
                 setOverlayStatus({ checked: true, granted: res?.canDrawOverlays === true });
             }).catch(() => { });
@@ -363,7 +378,7 @@ export default function StudentDashboard() {
                 setShowDeviceModal(false);
             } catch (_) { }
         }
-    }, [fetchedStudentData?.deviceType, profile?.deviceType, fetchedStudentData?.registeredDeviceType]);
+    }, [activeRollNo, user, profile, clientIpAddress, fetchedStudentData?.deviceType, profile?.deviceType, fetchedStudentData?.registeredDeviceType]);
 
     // Proactively alert Faculty & Student if device mismatch is detected
     useEffect(() => {

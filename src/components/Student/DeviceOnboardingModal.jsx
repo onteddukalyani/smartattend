@@ -23,6 +23,7 @@ import { useAuth } from '../authcontext';
 import { isGuidedAccessEnabled } from '../../services/guidedAccessService';
 import { detectDeviceType, getClientIpAddress, getDeviceDisplayName } from '../../utils/deviceDetection';
 import { sendFacultyNotification, sendStudentNotification } from '../../services/notificationsService';
+import { registerStudentDevice } from '../../services/deviceRegistrationService';
 import { getApkDownloadUrl } from '../../utils/apkUrl';
 import './DeviceOnboardingModal.css';
 
@@ -75,16 +76,19 @@ export function DeviceOnboardingModal({ isOpen, onClose }) {
         return () => { isMounted = false; };
     }, []);
 
-    // Auto-close immediately on native platform (Android APK is already native)
+    // Auto-register and close immediately on native platform (Android APK is already native)
     useEffect(() => {
         if (isNativeApp) {
-            try {
-                localStorage.setItem('smartattend_student_device_type', 'android');
-                localStorage.setItem('smartattend_student_device_locked', 'true');
-            } catch (_) {}
-            onClose();
+            registerStudentDevice({
+                rollNo: roll,
+                user,
+                profile,
+                platform: 'android',
+                ip: currentIp
+            }).catch((err) => console.warn('Native device registration notice:', err));
+            if (onClose) onClose();
         }
-    }, [isNativeApp, onClose]);
+    }, [isNativeApp, roll, user, profile, currentIp, onClose]);
 
     if (!isOpen || isNativeApp) return null;
 
@@ -149,26 +153,17 @@ export function DeviceOnboardingModal({ isOpen, onClose }) {
                 await handleReportDeviceMismatch();
             }
             const ip = currentIp && currentIp !== "Detecting IP..." ? currentIp : await getClientIpAddress();
-            localStorage.setItem('smartattend_student_device_type', selectedDevice);
-            localStorage.setItem('smartattend_student_device_locked', 'true');
-            if (ip && ip !== "Unknown IP") {
-                localStorage.setItem('smartattend_device_ip', ip);
-            }
+
+            // Authoritatively persist and link device directly to Firestore database collections
+            await registerStudentDevice({
+                rollNo: roll,
+                user,
+                profile,
+                platform: selectedDevice,
+                ip
+            });
 
             if (roll) {
-                // Authoritative Cloud Function binding: atomically assigns and locks platform in Firestore
-                try {
-                    const bindFn = httpsCallable(functions, "bindStudentDevicePlatform");
-                    await bindFn({ platform: selectedDevice });
-                } catch (bindErr) {
-                    const bindMsg = bindErr?.message || "";
-                    if (bindMsg.includes("already-exists") || bindMsg.includes("already bound")) {
-                        console.info("Device platform is already bound for account:", roll);
-                    } else {
-                        throw bindErr;
-                    }
-                }
-
                 const studentName = profile?.name || roll;
                 const deviceLabel = selectedDevice === 'android' ? 'Android APK' : 'iPhone (iOS Guided Access)';
 
@@ -179,7 +174,7 @@ export function DeviceOnboardingModal({ isOpen, onClose }) {
                     'DEVICE_LOCKED',
                     roll,
                     studentName
-                );
+                ).catch(() => {});
 
                 // Send confirmation notification to Student's own audit log
                 await sendStudentNotification(
@@ -188,7 +183,7 @@ export function DeviceOnboardingModal({ isOpen, onClose }) {
                     `Your account is now linked to your ${deviceLabel}. If you switch to a new phone in the future, your teacher can reset this for you.`,
                     'DEVICE_LOCKED',
                     'Device Setup'
-                );
+                ).catch(() => {});
             }
         } catch (e) {
             console.warn('Error saving device preference:', e);

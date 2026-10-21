@@ -230,13 +230,21 @@ export default function FaceEnrollPage() {
 
             const res = await enrollHardwareBiometric(user?.uid || activeRollNo);
             if (res.success) {
-                // Save hardware biometric enrollment status to Firestore across students and users collections
+                // Save hardware biometric enrollment and device registration status to Firestore
+                const regPlatform = res.platform || platform || (isNative ? "android" : "web");
                 const hwPayload = {
                     hardwareBiometricEnrolled: true,
-                    hardwareBiometricPlatform: res.platform || platform,
+                    hardwareBiometricPlatform: regPlatform,
                     hardwareBiometricEnrolledAt: Date.now(),
                     biometricEnrolled: true,
-                    studentUid: user?.uid || null
+                    studentUid: user?.uid || null,
+                    isDeviceRegistered: true,
+                    deviceType: regPlatform,
+                    registeredPlatform: regPlatform,
+                    registeredDeviceType: regPlatform,
+                    deviceTypeLocked: true,
+                    deviceSelectedAt: Date.now(),
+                    updatedAt: Date.now()
                 };
 
                 // Link to canonical students/{activeRollNo}
@@ -268,6 +276,9 @@ export default function FaceEnrollPage() {
                     if (activeRollNo) localStorage.setItem(`smartattend_hw_enrolled_${activeRollNo}`, "true");
                     if (user?.uid) localStorage.setItem(`smartattend_hw_enrolled_${user.uid}`, "true");
                     localStorage.setItem("smartattend_hw_enrolled", "true");
+                    localStorage.setItem("smartattend_student_device_type", regPlatform);
+                    localStorage.setItem("smartattend_student_device_locked", "true");
+                    localStorage.setItem("smartattend_device_registered", "true");
                 } catch (_) {}
 
                 setHasHwRegistered(true);
