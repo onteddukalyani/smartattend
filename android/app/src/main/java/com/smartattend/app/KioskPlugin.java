@@ -6,6 +6,9 @@ import android.app.admin.DevicePolicyManager;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
+import android.net.ConnectivityManager;
+import android.net.Network;
+import android.net.NetworkCapabilities;
 import android.net.Uri;
 import android.os.Build;
 import android.os.UserManager;
@@ -23,6 +26,8 @@ import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
+import java.net.NetworkInterface;
+import java.util.Enumeration;
 
 /**
  * Enterprise & Supervised Kiosk / Lock Task Plugin for SmartAttend.
@@ -88,6 +93,57 @@ public class KioskPlugin extends Plugin {
         ret.put("manufacturer", Build.MANUFACTURER);
         ret.put("sdkVersion", Build.VERSION.SDK_INT);
         ret.put("isDeviceOwner", isOwner);
+        call.resolve(ret);
+    }
+
+    @PluginMethod
+    public void isVpnActive(PluginCall call) {
+        Activity activity = getActivity();
+        if (activity == null) {
+            JSObject ret = new JSObject();
+            ret.put("isVpn", false);
+            ret.put("details", "NO_ACTIVITY");
+            call.resolve(ret);
+            return;
+        }
+
+        boolean isVpn = false;
+        String details = "NONE";
+        try {
+            ConnectivityManager cm = (ConnectivityManager) activity.getSystemService(Context.CONNECTIVITY_SERVICE);
+            if (cm != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                Network activeNetwork = cm.getActiveNetwork();
+                if (activeNetwork != null) {
+                    NetworkCapabilities caps = cm.getNetworkCapabilities(activeNetwork);
+                    if (caps != null && caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) {
+                        isVpn = true;
+                        details = "TRANSPORT_VPN";
+                    }
+                }
+            }
+            if (!isVpn) {
+                Enumeration<NetworkInterface> interfaces = NetworkInterface.getNetworkInterfaces();
+                if (interfaces != null) {
+                    while (interfaces.hasMoreElements()) {
+                        NetworkInterface i = interfaces.nextElement();
+                        if (i.isUp()) {
+                            String name = i.getName().toLowerCase();
+                            if (name.contains("tun") || name.contains("ppp") || name.contains("tap") || name.contains("vpn") || name.contains("ipsec")) {
+                                isVpn = true;
+                                details = "INTERFACE_" + i.getName();
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "VPN check notice: " + e.getMessage());
+        }
+
+        JSObject ret = new JSObject();
+        ret.put("isVpn", isVpn);
+        ret.put("details", details);
         call.resolve(ret);
     }
 

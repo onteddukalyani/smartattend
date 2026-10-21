@@ -48,7 +48,8 @@ import { isGenericName, normalizeDescriptor } from '../../utils/studentDataHelpe
 import { detectDeviceType, getClientIpAddress, getDeviceDisplayName, isDeviceMatching } from '../../utils/deviceDetection';
 import { sendFacultyNotification, sendStudentNotification, reportUserVerificationComplaint } from '../../services/notificationsService';
 import { validateRotatingQrPayload } from '../../utils/qrCrypto';
-import { evaluateGeofence } from '../../utils/geofence';
+import { evaluateGeofence, calculateHaversineDistance, DEFAULT_GEOFENCE_RADIUS_METRES } from '../../utils/geofence';
+import { checkVpnAndNetworkSecurity } from '../../utils/vpnDetection';
 import { verifyHardwareBiometric } from '../../services/biometricService';
 import { checkForAppUpdate, CURRENT_APP_VERSION, compareVersions } from '../../services/appUpdateService';
 import AppUpdateModal from './AppUpdateModal';
@@ -135,6 +136,9 @@ function QrScannerApp() {
     const [errorMessage, setErrorMessage] = useState('');
     const [nowTick, setNowTick] = useState(Date.now());
     const geofenceRetriesRef = useRef(0);
+    const geofenceAttemptsRef = useRef(0);
+    const [geofenceAttempts, setGeofenceAttempts] = useState(0);
+    const [scannedStudentLocation, setScannedStudentLocation] = useState(null);
     const prewarmedLocationRef = useRef(null);
     const [gpsTelemetry, setGpsTelemetry] = useState(null);
     const [currentStudentLocation, setCurrentStudentLocation] = useState(null);
@@ -1265,7 +1269,9 @@ function QrScannerApp() {
                 studentLocation: coords ? {
                     latitude: coords.latitude,
                     longitude: coords.longitude,
-                    accuracy: coords.accuracy
+                    accuracy: coords.accuracy,
+                    timestamp: coords.timestamp || Date.now(),
+                    distanceToLecturer: qrPayload?.distance ?? null
                 } : null
             };
 
@@ -1450,60 +1456,63 @@ function QrScannerApp() {
             return;
         }
 
-        // 2. Dynamic Geofence & Lecturer Distance Telemetry
+        // 2. Dynamic Geofence, Lecturer Distance Calculation & VPN Verification
         const classroomTarget = payload.geo || sessionData?.classroomLocation || lecturerLocationRef.current;
         if (classroomTarget) {
             lecturerLocationRef.current = classroomTarget;
             setLecturerLocation(classroomTarget);
         }
-        const isGeofenceDisabled = sessionData?.geofenceRadius === 0 || classroomTarget?.radius === 0 || classroomTarget?.enabled === false;
+        const selectedGeofence = Number(classroomTarget?.radius ?? classroomTarget?.r ?? sessionData?.geofenceRadius ?? DEFAULT_GEOFENCE_RADIUS_METRES);
+        const isGeofenceDisabled = selectedGeofence === 0 || classroomTarget?.enabled === false || sessionData?.geofenceRadius === 0;
 
-        // Instant 0ms location retrieval from continuous background GNSS pre-warmer
+        // Retrieve student's device location (instant pre-warmer or fast GPS fix)
         let studentCoords = prewarmedLocationRef.current || currentStudentLocation;
-
-        // If pre-warmed fix not yet acquired, trigger fast non-blocking background location sample
         if (!studentCoords && typeof navigator !== "undefined" && navigator.geolocation) {
-            navigator.geolocation.getCurrentPosition(
-                (pos) => {
-                    if (pos && pos.coords) {
-                        const locObj = {
-                            latitude: pos.coords.latitude,
-                            longitude: pos.coords.longitude,
-                            lat: pos.coords.latitude,
-                            lng: pos.coords.longitude,
-                            accuracy: Number(pos.coords.accuracy) || 15,
-                            timestamp: Date.now()
-                        };
-                        prewarmedLocationRef.current = locObj;
-                        setCurrentStudentLocation(locObj);
-                    }
-                },
-                () => {},
-                { enableHighAccuracy: true, timeout: 3000, maximumAge: 30000 }
-            );
+            try {
+                studentCoords = await new Promise((resolve) => {
+                    navigator.geolocation.getCurrentPosition(
+                        (pos) => {
+                            if (pos?.coords) {
+                                const locObj = {
+                                    latitude: pos.coords.latitude,
+                                    longitude: pos.coords.longitude,
+                                    lat: pos.coords.latitude,
+                                    lng: pos.coords.longitude,
+                                    accuracy: Number(pos.coords.accuracy) || 15,
+                                    timestamp: Date.now()
+                                };
+                                prewarmedLocationRef.current = locObj;
+                                setCurrentStudentLocation(locObj);
+                                resolve(locObj);
+                            } else {
+                                resolve(null);
+                            }
+                        },
+                        () => resolve(null),
+                        { enableHighAccuracy: true, timeout: 3500, maximumAge: 30000 }
+                    );
+                });
+            } catch (_) {}
         }
 
-        if (classroomTarget && !isGeofenceDisabled && studentCoords) {
+        // Store student's scanned location in state and persistent storage
+        if (studentCoords) {
+            setScannedStudentLocation(studentCoords);
             try {
-                const geoEval = evaluateGeofence(studentCoords, classroomTarget, geofenceRetriesRef.current);
-                setGpsTelemetry(geoEval);
+                localStorage.setItem('smartattend_student_location', JSON.stringify(studentCoords));
+                localStorage.setItem('smartattend_scanned_location', JSON.stringify(studentCoords));
+            } catch (_) {}
+        }
 
-                if (geoEval.status === "MOCK_DETECTED") {
-                    console.error("[Geofence] Mock location detected!");
-                    if (activeSessionId || payload.sessionId) {
-                        recordSessionViolation(activeSessionId || payload.sessionId, user?.uid, loggedInRollNo, "MOCK_LOCATION_DETECTED");
-                    }
-                    setErrorMessage(geoEval.message);
-                    return;
-                }
-                // Strictly reject only if student is genuinely outside institutional boundary (proxy/dorm)
-                if (geoEval.status === "REJECT") {
-                    console.error("[Geofence] Geofence rejected:", geoEval);
-                    setErrorMessage(geoEval.message);
-                    return;
-                }
-            } catch (geoErr) {
-                console.warn("[Geofence] Check notice:", geoErr);
+        // Calculate distance between student device and the specific lecturer who created the session
+        let calculatedDistance = null;
+        if (studentCoords && classroomTarget) {
+            const sLat = Number(studentCoords.latitude ?? studentCoords.lat);
+            const sLng = Number(studentCoords.longitude ?? studentCoords.lng ?? studentCoords.lon);
+            const lLat = Number(classroomTarget.latitude ?? classroomTarget.lat);
+            const lLng = Number(classroomTarget.longitude ?? classroomTarget.lng ?? classroomTarget.lon);
+            if (Number.isFinite(sLat) && Number.isFinite(sLng) && Number.isFinite(lLat) && Number.isFinite(lLng)) {
+                calculatedDistance = Math.round(calculateHaversineDistance(sLat, sLng, lLat, lLng) * 10) / 10;
             }
         }
 
@@ -1516,8 +1525,14 @@ function QrScannerApp() {
 
         const enhancedPayload = {
             ...payload,
-            studentLocation: studentCoords,
-            distance: gpsTelemetry?.distance ?? null
+            studentLocation: studentCoords ? {
+                latitude: studentCoords.latitude,
+                longitude: studentCoords.longitude,
+                accuracy: studentCoords.accuracy,
+                timestamp: studentCoords.timestamp || Date.now(),
+                distanceToLecturer: calculatedDistance
+            } : null,
+            distance: calculatedDistance
         };
 
         // 3. If student is already checked in (in Kiosk Mode waiting for QR 2):
@@ -1545,7 +1560,78 @@ function QrScannerApp() {
             return;
         }
 
-        // 4. Initial state (student has not scanned QR 1 yet):
+        // 4. Initial Phase 1: Security (VPN & Mock) + Geofence Enforcement (Max Attempts = 3)
+
+        // 4A. VPN Check: Verify client device is not using an active VPN or proxy tunnel
+        const vpnStatus = await checkVpnAndNetworkSecurity();
+        if (vpnStatus.isVpn) {
+            geofenceAttemptsRef.current += 1;
+            const currentAttempts = geofenceAttemptsRef.current;
+            setGeofenceAttempts(currentAttempts);
+            if (currentAttempts >= 3) {
+                setErrorMessage('❌ Attendance Rejected: Maximum security attempts (3/3) exceeded. Active VPN detected on device. Attendance forfeited.');
+                setScanState('DISQUALIFIED');
+                setSupervisionViolation(true);
+                if (activeSessionId || payload.sessionId) {
+                    recordSessionViolation(activeSessionId || payload.sessionId, user?.uid, loggedInRollNo, 'VPN_DETECTED');
+                }
+            } else {
+                setErrorMessage(`❌ VPN Detected: VPNs and network proxies are strictly prohibited during attendance. Please disconnect your VPN (Attempt ${currentAttempts}/3).`);
+            }
+            return;
+        }
+
+        // 4B. Mock GPS Check: Reject spoofed / fake location
+        if (studentCoords?.isMock || studentCoords?.mocked || studentCoords?.isMockLocation) {
+            geofenceAttemptsRef.current += 1;
+            const currentAttempts = geofenceAttemptsRef.current;
+            setGeofenceAttempts(currentAttempts);
+            if (currentAttempts >= 3) {
+                setErrorMessage('❌ Attendance Rejected: Maximum attempts (3/3) exceeded. Mock GPS / Fake location detected. Attendance forfeited.');
+                setScanState('DISQUALIFIED');
+                setSupervisionViolation(true);
+                if (activeSessionId || payload.sessionId) {
+                    recordSessionViolation(activeSessionId || payload.sessionId, user?.uid, loggedInRollNo, 'MOCK_LOCATION_DETECTED');
+                }
+            } else {
+                setErrorMessage(`🚨 Mock GPS Detected: Spoofed location detected. Please disable mock location apps (Attempt ${currentAttempts}/3).`);
+            }
+            return;
+        }
+
+        // 4C. Geofence Distance Check: Calculate distance to creating lecturer; if distance <= selected geofence -> accept to next layer; else reject (max attempts = 3)
+        if (!isGeofenceDisabled && classroomTarget && calculatedDistance !== null) {
+            const geoEval = evaluateGeofence(studentCoords, classroomTarget, geofenceAttemptsRef.current);
+            setGpsTelemetry(geoEval);
+
+            const isWithinGeofence = geoEval.status === "PASS" || (calculatedDistance <= selectedGeofence);
+
+            if (!isWithinGeofence) {
+                geofenceAttemptsRef.current += 1;
+                const currentAttempts = geofenceAttemptsRef.current;
+                setGeofenceAttempts(currentAttempts);
+
+                if (currentAttempts >= 3) {
+                    console.error(`[Geofence] Max attempts (3/3) exceeded. Distance: ${calculatedDistance}m > ${selectedGeofence}m.`);
+                    setErrorMessage(`❌ Attendance Rejected: Maximum attempts (3/3) exceeded. You are ${calculatedDistance}m away from the lecturer (allowed: ≤ ${selectedGeofence}m). Attendance forfeited.`);
+                    setScanState('DISQUALIFIED');
+                    setSupervisionViolation(true);
+                    if (activeSessionId || payload.sessionId) {
+                        recordSessionViolation(activeSessionId || payload.sessionId, user?.uid, loggedInRollNo, 'GEOFENCE_EXCEEDED_MAX_ATTEMPTS');
+                    }
+                    return;
+                } else {
+                    console.warn(`[Geofence] Attempt ${currentAttempts}/3 rejected. Distance: ${calculatedDistance}m > ${selectedGeofence}m.`);
+                    setErrorMessage(`❌ Geofence Rejection: You are ${calculatedDistance}m away from the lecturer (allowed: ≤ ${selectedGeofence}m). Attempt ${currentAttempts}/3. Please move closer to the lecturer and scan again.`);
+                    return;
+                }
+            }
+        }
+
+        // 4D. Accepted to next layer! Reset attempt counter and enter Kiosk mode
+        geofenceAttemptsRef.current = 0;
+        setGeofenceAttempts(0);
+
         if (payload.qr1Token || payload.phase === '1' || payload.phase === 'PHASE_1') {
             handleProcessQR1(payload.sessionId, payload.qr1Token, studentCoords, enhancedPayload);
         } else if (payload.qr2Token || payload.phase === '2' || payload.phase === 'PHASE_2') {
@@ -2315,12 +2401,18 @@ function QrScannerApp() {
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '8px', fontSize: '0.78rem' }}>
                 <div style={{ padding: '8px 10px', background: 'var(--bg-subtle, #f8fafc)', borderRadius: '10px' }}>
-                    <div style={{ color: '#64748b', fontSize: '0.7rem', fontWeight: 600 }}>Student Location</div>
-                    <div style={{ fontWeight: 750, color: 'var(--text-main, #0f172a)' }}>
-                        {currentStudentLocation ? `${currentStudentLocation.latitude.toFixed(4)}, ${currentStudentLocation.longitude.toFixed(4)}` : 'Acquiring satellite lock...'}
+                    <div style={{ color: '#64748b', fontSize: '0.7rem', fontWeight: 600 }}>
+                        {scannedStudentLocation ? '📍 Scanned Device Location' : 'Student Location'}
                     </div>
-                    {currentStudentLocation && (
-                        <div style={{ fontSize: '0.68rem', color: '#10b981', fontWeight: 600 }}>Precision: ±{Math.round(currentStudentLocation.accuracy || 15)}m</div>
+                    <div style={{ fontWeight: 750, color: 'var(--text-main, #0f172a)' }}>
+                        {(scannedStudentLocation || currentStudentLocation)
+                            ? `${(scannedStudentLocation || currentStudentLocation).latitude.toFixed(4)}, ${(scannedStudentLocation || currentStudentLocation).longitude.toFixed(4)}`
+                            : 'Acquiring satellite lock...'}
+                    </div>
+                    {(scannedStudentLocation || currentStudentLocation) && (
+                        <div style={{ fontSize: '0.68rem', color: '#10b981', fontWeight: 600 }}>
+                            Precision: ±{Math.round((scannedStudentLocation || currentStudentLocation).accuracy || 15)}m
+                        </div>
                     )}
                 </div>
 
@@ -2342,6 +2434,25 @@ function QrScannerApp() {
                     </div>
                 </div>
             </div>
+
+            {geofenceAttempts > 0 && (
+                <div style={{
+                    marginTop: '8px',
+                    padding: '6px 10px',
+                    borderRadius: '8px',
+                    background: '#fef2f2',
+                    border: '1px solid #fecaca',
+                    fontSize: '0.74rem',
+                    color: '#b91c1c',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    fontWeight: 700
+                }}>
+                    <span>⚠️ Geofence Attempt: {geofenceAttempts}/3</span>
+                    <span>{Math.max(0, 3 - geofenceAttempts)} attempt{3 - geofenceAttempts === 1 ? '' : 's'} remaining</span>
+                </div>
+            )}
         </div>
     );
 

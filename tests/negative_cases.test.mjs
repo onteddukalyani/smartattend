@@ -2909,3 +2909,122 @@ test("32. Kiosk wait violation enforcement: student scans QR1, triggers kiosk es
   );
 });
 
+test("33. Dynamic Geofence Distance: distance > selected geofence rejects attempt (max attempts = 3); distance <= geofence accepts to next layer", () => {
+  mockDb.reset();
+  const lecturerUid = "lecturer_geofence_host";
+  const studentUid = "student_geofence_sub";
+  const rollNo = "GEO001";
+  const sessionId = "session_geofence_test";
+  const now = Date.now();
+
+  // Lecturer sets selected geofence radius to 15 metres
+  const selectedRadius = 15;
+  const lecturerCoords = { latitude: 12.97160, longitude: 77.59460, radius: selectedRadius };
+
+  mockDb.sessions.set(sessionId, {
+    sessionId,
+    lecturerId: lecturerUid,
+    active: true,
+    phase: "PHASE_1",
+    geofenceRadius: selectedRadius,
+    classroomLocation: lecturerCoords
+  });
+
+  mockDb.security.set(sessionId, {
+    sessionId,
+    sessionStartAt: now,
+    qr1ExpiresAtMs: now + 60000,
+    qr1Token: "qr1_valid_token",
+    qr1TokenHash: hashToken("qr1_valid_token"),
+    qr2Token: "qr2_valid_token",
+    qr2TokenHash: hashToken("qr2_valid_token")
+  });
+
+  mockDb.users.set(studentUid, { uid: studentUid, role: "student", registeredPlatform: "android" });
+  mockDb.students.set(rollNo, { uid: studentUid, rollNo, registeredPlatform: "android" });
+
+  // Student device is 120m away from the creating lecturer
+  // (latitude 12.97268 is ~120m north)
+  const outsideCoords = { latitude: 12.97268, longitude: 77.59460, accuracy: 5 };
+  const distOutside = calculateHaversineDistance(outsideCoords.latitude, outsideCoords.longitude, lecturerCoords.latitude, lecturerCoords.longitude);
+  assert.ok(distOutside > selectedRadius, `Distance ${distOutside}m must exceed ${selectedRadius}m`);
+
+  // Attempt 1: Rejection
+  assert.throws(
+    () => serverAuthorizeQR1({
+      auth: { uid: studentUid, rollNo },
+      data: { sessionId, qr1Token: "qr1_valid_token", studentLocation: outsideCoords }
+    }, now),
+    /Geofence Violation/
+  );
+
+  // Attempt 2: Rejection
+  assert.throws(
+    () => serverAuthorizeQR1({
+      auth: { uid: studentUid, rollNo },
+      data: { sessionId, qr1Token: "qr1_valid_token", studentLocation: outsideCoords }
+    }, now + 1000),
+    /Geofence Violation/
+  );
+
+  // Attempt 3: Max attempts reached -> Disqualified
+  assert.throws(
+    () => serverAuthorizeQR1({
+      auth: { uid: studentUid, rollNo },
+      data: { sessionId, qr1Token: "qr1_valid_token", studentLocation: outsideCoords }
+    }, now + 2000),
+    /Geofence Violation/
+  );
+
+  // When student moves within selected geofence (e.g. 8m away <= 15m selected radius):
+  const insideCoords = { latitude: 12.97165, longitude: 77.59460, accuracy: 5 };
+  const distInside = calculateHaversineDistance(insideCoords.latitude, insideCoords.longitude, lecturerCoords.latitude, lecturerCoords.longitude);
+  assert.ok(distInside <= selectedRadius, `Distance ${distInside}m must be within ${selectedRadius}m`);
+
+  const authSuccess = serverAuthorizeQR1({
+    auth: { uid: studentUid, rollNo },
+    data: { sessionId, qr1Token: "qr1_valid_token", studentLocation: insideCoords }
+  }, now + 3000);
+  assert.strictEqual(authSuccess.success, true);
+  assert.strictEqual(authSuccess.status, "QR1_VERIFIED");
+});
+
+test("34. Anti-Proxy VPN & Mock GPS Check: Rejects mock location and active proxy attempts", () => {
+  mockDb.reset();
+  const lecturerUid = "lecturer_vpn_host";
+  const studentUid = "student_vpn_sub";
+  const rollNo = "VPN001";
+  const sessionId = "session_vpn_test";
+  const now = Date.now();
+
+  mockDb.sessions.set(sessionId, {
+    sessionId,
+    lecturerId: lecturerUid,
+    active: true,
+    phase: "PHASE_1",
+    geofenceRadius: 20,
+    classroomLocation: { latitude: 12.9716, longitude: 77.5946, radius: 20 }
+  });
+
+  mockDb.security.set(sessionId, {
+    sessionId,
+    sessionStartAt: now,
+    qr1ExpiresAtMs: now + 60000,
+    qr1Token: "qr1_valid_token",
+    qr1TokenHash: hashToken("qr1_valid_token")
+  });
+
+  mockDb.users.set(studentUid, { uid: studentUid, role: "student", registeredPlatform: "android" });
+  mockDb.students.set(rollNo, { uid: studentUid, rollNo, registeredPlatform: "android" });
+
+  // Mock / Spoofed GPS attempt: MUST FAIL
+  const mockCoords = { latitude: 12.9716, longitude: 77.5946, accuracy: 5, isMock: true };
+  assert.throws(
+    () => serverAuthorizeQR1({
+      auth: { uid: studentUid, rollNo },
+      data: { sessionId, qr1Token: "qr1_valid_token", studentLocation: mockCoords }
+    }, now),
+    /Mock \/ Spoofed GPS detected/
+  );
+});
+

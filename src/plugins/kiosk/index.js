@@ -93,6 +93,9 @@ const NativeKioskPlugin = registerPlugin('KioskPlugin', {
     isKioskActive: async () => {
       const isFs = typeof document !== 'undefined' && Boolean(document.fullscreenElement);
       return { active: isFs || Boolean(webWakeLock), isWebFallback: true };
+    },
+    isVpnActive: async () => {
+      return { isVpn: false, details: 'WEB_FALLBACK', isWebFallback: true };
     }
   }
 });
@@ -302,6 +305,21 @@ export const Kiosk = {
       return await NativeKioskPlugin.getSecurityDiagnostics();
     } catch (err) {
       return { isDeviceOwner: false, error: err.message };
+    }
+  },
+
+  /**
+   * Check if active VPN / Proxy tunnel is present on the device
+   */
+  async isVpnActive() {
+    try {
+      if (Capacitor.isNativePlatform()) {
+        return await NativeKioskPlugin.isVpnActive();
+      }
+      return { isVpn: false, details: 'WEB_FALLBACK' };
+    } catch (err) {
+      console.warn('[Kiosk] isVpnActive notice:', err);
+      return { isVpn: false, error: err.message };
     }
   },
 
