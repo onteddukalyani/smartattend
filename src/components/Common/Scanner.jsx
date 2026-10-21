@@ -22,7 +22,9 @@ import {
     FaDownload,
     FaFingerprint,
     FaMapMarkerAlt,
-    FaUnlock
+    FaUnlock,
+    FaHourglassHalf,
+    FaBolt
 } from 'react-icons/fa';
 import { MdQrCodeScanner } from 'react-icons/md';
 import { useAuth } from '../authcontext';
@@ -133,6 +135,8 @@ function QrScannerApp() {
     const [sessionData, setSessionData] = useState(null);
     const [sessionStartAt, setSessionStartAt] = useState(0);
     const [kioskEndsAt, setKioskEndsAt] = useState(0);
+    const [authQr2StartsAt, setAuthQr2StartsAt] = useState(0);
+    const [authQr1DurationSec, setAuthQr1DurationSec] = useState(60);
     const [elapsedSeconds, setElapsedSeconds] = useState(0);
     const [sessionRemaining, setSessionRemaining] = useState(180);
     const [errorMessage, setErrorMessage] = useState('');
@@ -155,34 +159,42 @@ function QrScannerApp() {
         return () => clearInterval(interval);
     }, []);
 
-    // Helper to evaluate if Lecturer has officially released Phase 2 (QR 2)
-    const isQr2Released = Boolean(
-        sessionData && (
-            sessionData.phase === 'PHASE_2' ||
-            sessionData.phase === '2' ||
-            sessionData.qr2Released === true ||
-            (sessionData.qr2StartsAt && (
-                typeof sessionData.qr2StartsAt.toMillis === 'function'
-                    ? sessionData.qr2StartsAt.toMillis()
-                    : Number(sessionData.qr2StartsAt)
-            ) <= nowTick) ||
-            (sessionData.qr1ExpiresAt && (
-                typeof sessionData.qr1ExpiresAt.toMillis === 'function'
-                    ? sessionData.qr1ExpiresAt.toMillis()
-                    : Number(sessionData.qr1ExpiresAt)
-            ) <= nowTick)
-        )
-    );
-
-    const qr2TargetMs = sessionData?.qr2StartsAt
+    // Authoritative target time for Phase 2 QR unlock (immediate from auth response + real-time Firestore sync)
+    const effectiveQr2TargetMs = (sessionData?.qr2StartsAt
         ? (typeof sessionData.qr2StartsAt.toMillis === 'function' ? sessionData.qr2StartsAt.toMillis() : Number(sessionData.qr2StartsAt))
         : (sessionData?.qr1ExpiresAt
             ? (typeof sessionData.qr1ExpiresAt.toMillis === 'function' ? sessionData.qr1ExpiresAt.toMillis() : Number(sessionData.qr1ExpiresAt))
-            : 0);
+            : authQr2StartsAt)) || 0;
 
-    const secondsUntilQr2 = (qr2TargetMs > 0 && !isQr2Released)
-        ? Math.max(0, Math.ceil((qr2TargetMs - nowTick) / 1000))
+    // Helper to evaluate if Lecturer has officially released Phase 2 (QR 2) or time has arrived
+    const isQr2Released = Boolean(
+        (sessionData && (
+            sessionData.phase === 'PHASE_2' ||
+            sessionData.phase === '2' ||
+            sessionData.qr2Released === true ||
+            (effectiveQr2TargetMs > 0 && effectiveQr2TargetMs <= nowTick)
+        )) ||
+        (authQr2StartsAt > 0 && authQr2StartsAt <= nowTick)
+    );
+
+    const qr2TargetMs = effectiveQr2TargetMs;
+
+    const secondsUntilQr2 = (effectiveQr2TargetMs > 0 && !isQr2Released)
+        ? Math.max(0, Math.ceil((effectiveQr2TargetMs - nowTick) / 1000))
         : null;
+
+    // Haptic vibration feedback trigger when Phase 2 unlocks
+    const wasQr2ReleasedRef = useRef(false);
+    useEffect(() => {
+        if (isQr2Released && !wasQr2ReleasedRef.current && scanState === 'KIOSK_WAITING_QR2') {
+            wasQr2ReleasedRef.current = true;
+            if (typeof navigator !== 'undefined' && navigator.vibrate) {
+                try { navigator.vibrate([60, 80, 60]); } catch (_) { }
+            }
+        } else if (!isQr2Released) {
+            wasQr2ReleasedRef.current = false;
+        }
+    }, [isQr2Released, scanState]);
 
     // Continuous GPS Pre-Warming (Dual-stage coarse prime + high-accuracy refinement) & Model Pre-Loading
     useEffect(() => {
@@ -744,6 +756,8 @@ function QrScannerApp() {
                     sessionId: activeSessionId,
                     sessionStartAt,
                     kioskEndsAt,
+                    authQr2StartsAt,
+                    authQr1DurationSec,
                     attendanceSubmittedAt,
                     autoReleaseAt,
                     scanState,
@@ -759,7 +773,7 @@ function QrScannerApp() {
                 localStorage.removeItem('smartattend_kiosk_session_state');
             } catch (_) { }
         }
-    }, [activeSessionId, sessionStartAt, kioskEndsAt, attendanceSubmittedAt, autoReleaseAt, scanState, activeQr2Token, submissionDetails, loggedInRollNo]);
+    }, [activeSessionId, sessionStartAt, kioskEndsAt, authQr2StartsAt, authQr1DurationSec, attendanceSubmittedAt, autoReleaseAt, scanState, activeQr2Token, submissionDetails, loggedInRollNo]);
 
     // Resume session on mount if app was closed/restarted during active session
     useEffect(() => {
@@ -773,6 +787,8 @@ function QrScannerApp() {
                     setActiveSessionId(parsed.sessionId);
                     setSessionStartAt(parsed.sessionStartAt);
                     setKioskEndsAt(parsed.kioskEndsAt);
+                    if (parsed.authQr2StartsAt) setAuthQr2StartsAt(parsed.authQr2StartsAt);
+                    if (parsed.authQr1DurationSec) setAuthQr1DurationSec(parsed.authQr1DurationSec);
                     if (parsed.attendanceSubmittedAt) setAttendanceSubmittedAt(parsed.attendanceSubmittedAt);
                     if (parsed.autoReleaseAt) {
                         setAutoReleaseAt(parsed.autoReleaseAt);
@@ -1323,6 +1339,16 @@ function QrScannerApp() {
             setSessionStartAt(result.sessionStartAt || Date.now());
             setKioskEndsAt(result.kioskEndsAt || (Date.now() + 180000));
 
+            // Instant authoritative target calculation for QR2 countdown
+            const calculatedQr2Target = result.qr2StartsAt || result.qr1ExpiresAt || (Date.now() + 60000);
+            setAuthQr2StartsAt(calculatedQr2Target);
+            const totalWaitSec = result.qr1DurationSeconds || Math.max(15, Math.round((calculatedQr2Target - (result.sessionStartAt || Date.now())) / 1000)) || 60;
+            setAuthQr1DurationSec(totalWaitSec);
+
+            // Turn off camera tracks completely while waiting for QR 2 (strictly no scanning, saves battery)
+            releaseAllMediaTracks();
+            releaseCameraLock();
+
             // Start Android Lock Task Mode, Web Supervision & Device Policy Restrictions
             try {
                 console.log('[Kiosk] Activating Native Android Lock Task / Dedicated Kiosk mode for Student...');
@@ -1599,7 +1625,7 @@ function QrScannerApp() {
 
             if (!isQr2Released) {
                 console.log('[Scanner] QR scan blocked: Phase 2 has not been released yet.');
-                setErrorMessage('QR 2 is not yet released. Scanning is paused until your lecturer begins Phase 2.');
+                setErrorMessage('🔒 Scanning is locked. Please wait for the countdown to finish before scanning QR 2.');
                 return;
             }
 
@@ -3102,6 +3128,12 @@ function QrScannerApp() {
     // UI VIEW 3: KIOSK WAITING SCREEN (Phase 1 Complete, Waiting for Phase 2 QR)
     // =========================================================================
     if (scanState === 'KIOSK_WAITING_QR2') {
+        const totalDuration = authQr1DurationSec || 60;
+        const remainingSec = secondsUntilQr2 !== null ? secondsUntilQr2 : 0;
+        const progressFraction = Math.max(0, Math.min(1, remainingSec / totalDuration));
+        const CIRCUMFERENCE = 465;
+        const strokeOffset = CIRCUMFERENCE * (1 - progressFraction);
+
         return (
             <div className="st-scanner-container">
                 {renderLecturerPinModal()}
@@ -3177,70 +3209,127 @@ function QrScannerApp() {
 
                 {/* Instruction / Status Badge */}
                 <div className="st-scanner-waiting-pill">
-                    {isQr2Released ? <FaCheckCircle style={{ color: '#059669' }} /> : <FaClock />}
-                    <span>{isQr2Released ? 'Phase 2 Live · Point camera at screen QR 2' : 'Phase 1 Complete · Waiting for QR 2'}</span>
+                    {isQr2Released ? <FaBolt style={{ color: '#10b981' }} /> : <FaClock style={{ color: '#6366f1' }} />}
+                    <span>{isQr2Released ? 'Phase 2 Live · Point Camera at Screen QR 2' : 'Phase 1 Complete · Waiting for QR 2'}</span>
                 </div>
 
                 {/* Live GPS & Lecturer Distance Telemetry */}
                 {renderGpsTelemetryCard()}
 
                 {!isQr2Released ? (
-                    /* QR Scanning Blocked / Paused View */
-                    <div className="st-scanner-waiting-box">
-                        <p>
-                            Scanning paused to save battery. Camera unlocks automatically when QR 2 appears.
-                        </p>
+                    /* Hero Supervised Waiting & Countdown Card (Strictly No Scanning) */
+                    <div className="st-kiosk-hero-card">
+                        <div className="st-kiosk-glow-orb" />
 
-                        {secondsUntilQr2 !== null && secondsUntilQr2 > 0 ? (
-                            <div className="st-countdown-display">
-                                <div className="st-countdown-label">
-                                    Estimated QR 2 In
-                                </div>
-                                <div className="st-countdown-time">
-                                    {Math.floor(secondsUntilQr2 / 60)}:{String(secondsUntilQr2 % 60).padStart(2, '0')}
-                                </div>
-                            </div>
-                        ) : (
-                            <div style={{
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: '10px',
-                                padding: '12px 22px',
-                                borderRadius: '12px',
-                                background: '#ffffff',
-                                border: '1.5px solid #e2e8f0',
-                                fontSize: '0.92rem',
-                                color: '#475569',
-                                fontWeight: 700
-                            }}>
-                                <FaSpinner className="fa-spin" style={{ color: '#6366f1' }} /> Listening for lecturer to release QR 2...
-                            </div>
-                        )}
-                    </div>
-                ) : (
-                    /* Live Scanner Frame (Only active when QR 2 is released) */
-                    <div className="st-camera-viewport-card active-phase2">
-                        <div className="st-camera-badge-floating">
-                            ⚡ Phase 2 Live · Scan QR 2 on Screen
+                        {/* Phase 1 Recorded Badge */}
+                        <div className="st-phase1-success-badge">
+                            <FaCheckCircle className="st-success-check-icon" />
+                            <span>Phase 1 Check-In Recorded</span>
                         </div>
 
-                        {isCameraAllowed ? (
-                            <NativeQrScanner
-                                key={`waiting-${retryKey}-environment`}
-                                onScan={handleCameraScan}
-                                onError={handleCameraError}
-                                facingMode="environment"
-                                active={scanState === 'KIOSK_WAITING_QR2' && isQr2Released}
-                            />
-                        ) : (
-                            <div className="st-browser-camera-blocked-card" style={{ padding: '24px', textAlign: 'center', background: '#ffffff', borderRadius: '16px' }}>
-                                <FaLock style={{ fontSize: '32px', color: '#dc2626', marginBottom: '10px' }} />
-                                <h4 style={{ color: '#991b1b', margin: '0 0 8px' }}>Camera Blocked in Web Browser</h4>
-                                <p style={{ fontSize: '0.88rem', color: '#64748b', margin: 0 }}>
-                                    Camera in browser is only available for Lecturers, Admins, and iPhone users. Please use the official SmartAttend Android App (.apk).
-                                </p>
+                        <div className="st-kiosk-session-title">
+                            {sessionData?.courseCode || 'Classroom Attendance'}
+                        </div>
+                        <div className="st-kiosk-session-sub">
+                            {sessionData?.lecturerName ? `Lecturer: ${sessionData.lecturerName}` : 'Session Active'} · {sessionData?.roomNo ? `Room ${sessionData.roomNo}` : loggedInRollNo}
+                        </div>
+
+                        {/* Circular SVG Animated Countdown Ring */}
+                        <div className="st-timer-ring-container">
+                            <svg className="st-timer-svg" viewBox="0 0 180 180">
+                                <defs>
+                                    <linearGradient id="stTimerGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                                        <stop offset="0%" stopColor="#38bdf8" />
+                                        <stop offset="50%" stopColor="#818cf8" />
+                                        <stop offset="100%" stopColor="#c084fc" />
+                                    </linearGradient>
+                                </defs>
+                                <circle
+                                    className="st-timer-bg-circle"
+                                    cx="90"
+                                    cy="90"
+                                    r="74"
+                                />
+                                <circle
+                                    className="st-timer-progress-circle"
+                                    cx="90"
+                                    cy="90"
+                                    r="74"
+                                    strokeDasharray={CIRCUMFERENCE}
+                                    strokeDashoffset={strokeOffset}
+                                />
+                            </svg>
+
+                            <div className="st-timer-center-content">
+                                <div className="st-timer-icon-wrap">
+                                    <FaHourglassHalf className="st-timer-spin-icon" />
+                                </div>
+                                <div className="st-timer-digital">
+                                    {secondsUntilQr2 !== null && secondsUntilQr2 > 0 ? (
+                                        <>
+                                            {String(Math.floor(secondsUntilQr2 / 60)).padStart(2, '0')}:
+                                            {String(secondsUntilQr2 % 60).padStart(2, '0')}
+                                        </>
+                                    ) : (
+                                        '00:00'
+                                    )}
+                                </div>
+                                <div className="st-timer-subtext">
+                                    UNTIL QR 2 UNLOCKS
+                                </div>
                             </div>
-                        )}
+                        </div>
+
+                        {/* Strict Camera Paused / Locked Indicator */}
+                        <div className="st-camera-paused-card">
+                            <div className="st-paused-header">
+                                <span className="st-paused-lock-pill">
+                                    <FaLock /> Camera Paused &amp; Scanning Locked
+                                </span>
+                            </div>
+                            <p className="st-paused-desc">
+                                All scanning is paused to conserve battery and enforce integrity. Please attend to your lecture. Your camera will automatically reactivate the moment Phase 2 begins.
+                            </p>
+                        </div>
+
+                        {/* Live Sync Status */}
+                        <div className="st-live-sync-indicator">
+                            <span className="st-sync-dot"></span>
+                            <span>Connected to Lecturer's Session · Listening for QR 2 broadcast</span>
+                        </div>
+                    </div>
+                ) : (
+                    /* Phase 2 Live View (Camera view smoothly morphs in) */
+                    <div className="st-phase2-active-card">
+                        <div className="st-phase2-floating-banner">
+                            <span className="st-sync-dot" style={{ background: '#ffffff', boxShadow: '0 0 10px #ffffff' }}></span>
+                            <FaBolt />
+                            <span>⚡ Phase 2 Live · Scan QR 2 on Screen Now</span>
+                        </div>
+
+                        <div className="st-camera-viewport-card active-phase2">
+                            {isCameraAllowed ? (
+                                <NativeQrScanner
+                                    key={`waiting-${retryKey}-environment`}
+                                    onScan={handleCameraScan}
+                                    onError={handleCameraError}
+                                    facingMode="environment"
+                                    active={scanState === 'KIOSK_WAITING_QR2' && isQr2Released}
+                                />
+                            ) : (
+                                <div className="st-browser-camera-blocked-card" style={{ padding: '24px', textAlign: 'center', background: '#ffffff', borderRadius: '16px' }}>
+                                    <FaLock style={{ fontSize: '32px', color: '#dc2626', marginBottom: '10px' }} />
+                                    <h4 style={{ color: '#991b1b', margin: '0 0 8px' }}>Camera Blocked in Web Browser</h4>
+                                    <p style={{ fontSize: '0.88rem', color: '#64748b', margin: 0 }}>
+                                        Camera in browser is only available for Lecturers, Admins, and iPhone users. Please use the official SmartAttend Android App (.apk).
+                                    </p>
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="st-phase2-instruction">
+                            Point your device's camera at the Phase 2 QR code displayed on the classroom screen.
+                        </div>
                     </div>
                 )}
 

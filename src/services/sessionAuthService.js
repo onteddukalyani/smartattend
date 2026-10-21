@@ -220,6 +220,9 @@ export async function authorizeStudentQR1(sessionId, qr1Token, studentProfileOve
           status: "QR1_VERIFIED",
           kioskEndsAt: result.data.kioskEndsAt || 0,
           sessionStartAt: result.data.sessionStartAt || Date.now(),
+          qr1ExpiresAt: result.data.qr1ExpiresAt || 0,
+          qr2StartsAt: result.data.qr2StartsAt || result.data.qr1ExpiresAt || 0,
+          qr1DurationSeconds: result.data.qr1DurationSeconds || 60,
           verifiedAt: Date.now()
         };
         try {
@@ -275,7 +278,10 @@ export async function authorizeStudentQR1(sessionId, qr1Token, studentProfileOve
             rollNo: serverData.rollNo || studentProfileOverride?.rollNo || "",
             studentName: serverData.studentName || studentProfileOverride?.name || "",
             kioskEndsAt: serverData.kioskEndsAt || 0,
-            sessionStartAt: serverData.sessionStartAt || Date.now()
+            sessionStartAt: serverData.sessionStartAt || Date.now(),
+            qr1ExpiresAt: serverData.qr1ExpiresAt || 0,
+            qr2StartsAt: serverData.qr2StartsAt || serverData.qr1ExpiresAt || 0,
+            qr1DurationSeconds: serverData.qr1DurationSeconds || 60
           };
           try {
             if (typeof sessionStorage !== "undefined") sessionStorage.setItem(`smartattend_qr1_auth_${sessionId}`, JSON.stringify(confirmedRecord));

@@ -1390,6 +1390,7 @@ exports.authorizeQR1 = onCall(async (request) => {
       studentName: data.studentName,
       sessionStartAt: security.sessionStartAt.toMillis(),
       qr1ExpiresAt: qr1ExpiresAtMs,
+      qr2StartsAt: security.qr2StartsAt ? security.qr2StartsAt.toMillis() : qr1ExpiresAtMs,
       kioskEndsAt: kioskEndsAtMs,
       message: "Already authorized for this session."
     };
