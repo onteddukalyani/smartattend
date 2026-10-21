@@ -203,6 +203,17 @@ export function parseRemoteUpdateData(remoteData) {
 export function triggerApkDownload(downloadUrl) {
   const url = downloadUrl || getApkDownloadUrl();
   if (typeof window !== "undefined") {
+    // If Capacitor native Android, open URL in system browser/DownloadManager
+    if (Capacitor.isNativePlatform()) {
+      try {
+        window.open(url, "_system");
+        return;
+      } catch (_) {
+        window.location.href = url;
+        return;
+      }
+    }
+
     const link = document.createElement("a");
     link.href = url;
     link.setAttribute("download", "SmartAttend-release.apk");
@@ -359,6 +370,11 @@ export async function downloadApkWithStream({ url, expectedChecksum, onProgress,
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+
+    // On native Android, also trigger system browser/DownloadManager for direct package installer prompt
+    if (Capacitor.isNativePlatform()) {
+      triggerApkDownload(targetUrl);
+    }
 
     setTimeout(() => {
       URL.revokeObjectURL(blobUrl);
