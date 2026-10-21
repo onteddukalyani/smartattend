@@ -63,10 +63,19 @@ service cloud.firestore {
       }
     }
 
-    // Lecturers collection: only admins can create, update, or delete lecturer accounts
+    // Lecturers collection: managed by admins; lecturers can update own device and profile settings
     match /lecturers/{lecturerId} {
       allow read: if isSignedIn();
-      allow write: if isAdmin();
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin() || (
+        isSignedIn() && (
+          request.auth.uid == lecturerId ||
+          (request.auth.token.email != null && (
+            lecturerId == request.auth.token.email ||
+            (resource.data.email != null && resource.data.email.lower() == request.auth.token.email.lower())
+          ))
+        ) && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'department', 'designation', 'status', 'approved'])
+      );
       match /{document=**} {
         allow read: if isSignedIn();
         allow write: if isAdmin();

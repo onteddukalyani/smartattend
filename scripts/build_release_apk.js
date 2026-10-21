@@ -1,6 +1,7 @@
 import { execSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -116,11 +117,34 @@ try {
       fs.copyFileSync(srcApk, path.join(publicDir, 'SmartAttend-debug.apk'));
     }
 
+    const apkBuffer = fs.readFileSync(destApk);
+    const hash = crypto.createHash('sha256').update(apkBuffer).digest('hex');
     const stats = fs.statSync(destApk);
     const sizeMb = (stats.size / (1024 * 1024)).toFixed(2);
+
+    // Automatically update version.json with the exact SHA-256 and byte length
+    const versionFiles = [
+      path.join(rootDir, 'version.json'),
+      path.join(rootDir, 'public', 'version.json'),
+      path.join(rootDir, 'dist', 'version.json'),
+      path.join(androidDir, 'app', 'src', 'main', 'assets', 'public', 'version.json')
+    ];
+
+    for (const vPath of versionFiles) {
+      if (fs.existsSync(vPath)) {
+        try {
+          const vData = JSON.parse(fs.readFileSync(vPath, 'utf8'));
+          vData.sha256Checksum = hash;
+          vData.fileSizeBytes = stats.size;
+          fs.writeFileSync(vPath, JSON.stringify(vData, null, 2), 'utf8');
+        } catch (_) {}
+      }
+    }
+
     console.log(`\n======================================================`);
     console.log(`✅ Signed Release APK Created Successfully!`);
     console.log(`📁 File: SmartAttend-release.apk (${sizeMb} MB)`);
+    console.log(`🔒 SHA-256: ${hash}`);
     console.log(`📲 Lightweight, clean release APK ready for mobile distribution!`);
     console.log(`======================================================\n`);
   } else {

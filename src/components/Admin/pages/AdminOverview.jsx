@@ -12,15 +12,19 @@ import {
   FaSyncAlt,
   FaAndroid,
   FaDownload,
-  FaQrcode
+  FaQrcode,
+  FaMobileAlt
 } from "react-icons/fa";
+import { Capacitor } from "@capacitor/core";
 import { collection, getDocs, query, where, onSnapshot } from "firebase/firestore";
 import { db } from "../../../firebase";
+import { useAuth } from "../../authcontext";
 import { getApkDownloadUrl } from "../../../utils/apkUrl";
 import "./AdminOverview.css";
 
 const AdminOverview = () => {
   const navigate = useNavigate();
+  const { profile } = useAuth();
   const [stats, setStats] = useState({
     studentsCount: 0,
     lecturersCount: 0,
@@ -265,6 +269,21 @@ const AdminOverview = () => {
           >
             <FaQrcode /> Generate QR
           </button>
+
+          <span style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "0.45rem",
+            padding: "0.6rem 1rem",
+            borderRadius: "8px",
+            background: "rgba(16, 185, 129, 0.12)",
+            color: "#059669",
+            border: "1px solid rgba(16, 185, 129, 0.28)",
+            fontSize: "0.85rem",
+            fontWeight: "700"
+          }}>
+            <FaMobileAlt /> Device: {(profile?.deviceType || localStorage.getItem("smartattend_admin_device_type") || (Capacitor.isNativePlatform() ? "Android" : "Web")).toUpperCase()} (Registered ✅)
+          </span>
 
           <a
             href={getApkDownloadUrl()}

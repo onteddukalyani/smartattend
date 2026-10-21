@@ -244,6 +244,23 @@ function QrScannerApp() {
         };
     }, []);
 
+    // Live continuous distance calculation between student device and lecturer device
+    useEffect(() => {
+        if (!currentStudentLocation || !sessionData?.classroomLocation) return;
+        const target = sessionData.classroomLocation;
+        if (target.latitude != null && target.longitude != null) {
+            try {
+                const evalResult = evaluateGeofence(currentStudentLocation, target, 0);
+                setGpsTelemetry((prev) => {
+                    if (!prev || prev.distance !== evalResult.distance || prev.status !== evalResult.status) {
+                        return evalResult;
+                    }
+                    return prev;
+                });
+            } catch (_) {}
+        }
+    }, [currentStudentLocation, sessionData?.classroomLocation]);
+
     // 5-Minute Fail-Safe Auto Release State
     const [attendanceSubmittedAt, setAttendanceSubmittedAt] = useState(0);
     const [autoReleaseAt, setAutoReleaseAt] = useState(0);
@@ -1431,8 +1448,8 @@ function QrScannerApp() {
             try {
                 const getCoords = async () => {
                     const cached = prewarmedLocationRef.current;
-                    // If cached fix is fresh (under 45s) with acceptable accuracy (<= 65m), return immediately!
-                    if (cached && (Date.now() - cached.timestamp < 45000) && (cached.accuracy || 0) <= 65 && (cached.accuracy || 0) > 0) {
+                    // If cached fix is fresh (under 180s) with acceptable accuracy (<= 85m), return immediately!
+                    if (cached && (Date.now() - cached.timestamp < 180000) && (cached.accuracy || 0) <= 85 && (cached.accuracy || 0) > 0) {
                         return cached;
                     }
                     return new Promise((resolve) => {
@@ -1451,12 +1468,12 @@ function QrScannerApp() {
                             resolve(coords || cached || null);
                         };
 
-                        // Overall safety timer: never block student attendance flow for >6.0s
+                        // Overall snappy safety timer: never block student attendance flow for >1.5s
                         const safetyTimer = setTimeout(() => {
                             finish(prewarmedLocationRef.current || cached || null);
-                        }, 6000);
+                        }, 1500);
 
-                        // Stage 1: Try high accuracy (GPS / GNSS satellites)
+                        // Stage 1: Try high accuracy GPS / Wi-Fi with fast 1200ms timeout
                         navigator.geolocation.getCurrentPosition(
                             (pos) => {
                                 clearTimeout(safetyTimer);
@@ -1471,7 +1488,7 @@ function QrScannerApp() {
                                 });
                             },
                             () => {
-                                // Stage 2: Fallback to Wi-Fi / Cell tower coarse positioning (fast indoor response)
+                                // Stage 2: Fallback to coarse positioning
                                 navigator.geolocation.getCurrentPosition(
                                     (pos2) => {
                                         clearTimeout(safetyTimer);
@@ -1489,10 +1506,10 @@ function QrScannerApp() {
                                         clearTimeout(safetyTimer);
                                         finish(prewarmedLocationRef.current || cached || null);
                                     },
-                                    { enableHighAccuracy: false, timeout: 3000, maximumAge: 30000 }
+                                    { enableHighAccuracy: false, timeout: 800, maximumAge: 60000 }
                                 );
                             },
-                            { enableHighAccuracy: true, timeout: 4500, maximumAge: 15000 }
+                            { enableHighAccuracy: true, timeout: 1200, maximumAge: 30000 }
                         );
                     });
                 };

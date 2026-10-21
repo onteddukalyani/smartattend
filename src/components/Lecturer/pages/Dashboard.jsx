@@ -1,6 +1,7 @@
 import "./Dashboard.css";
 import { useEffect, useState } from "react";
-import { FaUser, FaCamera, FaTrashAlt, FaSpinner, FaCheck, FaTimes, FaChalkboardTeacher, FaUniversity, FaEnvelope, FaExclamationTriangle, FaShieldAlt, FaAndroid, FaDownload } from "react-icons/fa";
+import { FaUser, FaCamera, FaTrashAlt, FaSpinner, FaCheck, FaTimes, FaChalkboardTeacher, FaUniversity, FaEnvelope, FaExclamationTriangle, FaShieldAlt, FaAndroid, FaDownload, FaMobileAlt } from "react-icons/fa";
+import { Capacitor } from "@capacitor/core";
 import { SiGoogleclassroom } from "react-icons/si";
 import { IoQrCodeOutline, IoAddCircleOutline } from "react-icons/io5";
 import { GoPeople } from "react-icons/go";
@@ -379,6 +380,9 @@ function Dashboard() {
                                 </span>
                                 <span className="lecturer-badge pill-email">
                                     <FaEnvelope /> {user?.email || "Faculty Account"}
+                                </span>
+                                <span className="lecturer-badge" style={{ background: "rgba(16, 185, 129, 0.12)", color: "#059669", border: "1px solid rgba(16, 185, 129, 0.3)" }}>
+                                    <FaMobileAlt /> Device: {(profile?.deviceType || localStorage.getItem("smartattend_lecturer_device_type") || (Capacitor.isNativePlatform() ? "Android" : "Web")).toUpperCase()} (Registered ✅)
                                 </span>
                                 <a
                                     href={getApkDownloadUrl()}

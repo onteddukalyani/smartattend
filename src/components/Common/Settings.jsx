@@ -641,29 +641,25 @@ function Settings() {
                                 <div className="st-feature-text">
                                     <div className="st-feature-title-row">
                                         <span className="st-feature-title">Device Security &amp; Setup</span>
-                                        {rawRole === "student" && (
-                                            <span className="st-device-status-badge">
-                                                {(localStorage.getItem("smartattend_student_device_type") || profile?.deviceType || "NOT SET").toUpperCase()}
-                                            </span>
-                                        )}
+                                        <span className="st-device-status-badge" style={{ background: "rgba(16, 185, 129, 0.12)", color: "#059669", border: "1px solid rgba(16, 185, 129, 0.3)" }}>
+                                            {(profile?.deviceType || localStorage.getItem(`smartattend_${rawRole}_device_type`) || localStorage.getItem("smartattend_student_device_type") || (Capacitor.isNativePlatform() ? "ANDROID (NATIVE)" : "WEB / DESKTOP")).toUpperCase()} • REGISTERED ✅
+                                        </span>
                                     </div>
-                                    <p className="st-feature-desc">Android installation &amp; iPhone Guided Access configuration</p>
+                                    <p className="st-feature-desc">Active device hardware binding, Android installation &amp; iPhone Guided Access configuration</p>
                                 </div>
                             </div>
                             <div className="st-feature-actions">
                                 <Link to={deviceSetupPath} className="st-btn-feature-outline" title="Read Android and iPhone setup instructions">
                                     <FaMobileAlt /> <span>View Instructions</span>
                                 </Link>
-                                {rawRole === "student" && (
-                                    <button
-                                        type="button"
-                                        className="st-btn-feature-filled"
-                                        onClick={() => setShowDeviceModal(true)}
-                                        title="Change device selection"
-                                    >
-                                        <FaEdit /> <span>Configure</span>
-                                    </button>
-                                )}
+                                <button
+                                    type="button"
+                                    className="st-btn-feature-filled"
+                                    onClick={() => setShowDeviceModal(true)}
+                                    title="View or update device registration"
+                                >
+                                    <FaEdit /> <span>Configure</span>
+                                </button>
                             </div>
                         </div>
 

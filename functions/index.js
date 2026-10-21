@@ -87,6 +87,7 @@ function evaluateServerGeofence(studentCoords, classroomCoords, radiusMetres) {
   }
 
   const accuracy = Math.max(0, Math.round(Number(studentCoords.accuracy) || 0));
+  const rawHostAccuracy = Math.round(Number(classroomCoords.accuracy) || 0);
 
   // Reject if GPS accuracy is excessively degraded (> 45m). Cannot verify 10m classroom presence with degraded satellite fix.
   if (accuracy > 45) {

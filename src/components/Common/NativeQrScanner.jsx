@@ -238,17 +238,20 @@ function NativeQrScanner({
             }
         }
 
+        let frameCount = 0;
         const scanFrame = async () => {
             if (!isScanningRef.current || !videoRef.current) return;
 
             const video = videoRef.current;
             const now = Date.now();
+            const minInterval = barcodeDetector ? 35 : 45;
 
-            // Scan every 60ms to balance responsive detection and CPU/battery consumption
-            if (video.readyState >= 2 && now - lastScanTimeRef.current >= 60) {
+            // Scan every 35-45ms for instant recognition without stutter
+            if (video.readyState >= 2 && now - lastScanTimeRef.current >= minInterval) {
                 lastScanTimeRef.current = now;
+                frameCount++;
 
-                // 1. Fast Native BarcodeDetector (hardware accelerated)
+                // 1. Fast Native BarcodeDetector (hardware accelerated GPU pipeline)
                 let detected = false;
                 if (barcodeDetector) {
                     try {
@@ -262,24 +265,38 @@ function NativeQrScanner({
                     } catch (_) { }
                 }
 
-                // 2. Pure offline jsQR fallback (100% reliable everywhere)
+                // 2. High-performance jsQR fallback
                 if (!detected && canvasRef.current) {
                     try {
                         const canvas = canvasRef.current;
                         const vW = video.videoWidth || 640;
                         const vH = video.videoHeight || 480;
-                        const targetW = Math.min(640, vW);
-                        const targetH = Math.round(targetW * (vH / vW)) || 480;
+                        const targetW = Math.min(480, vW);
+                        const targetH = Math.round(targetW * (vH / vW)) || 360;
 
-                        canvas.width = targetW;
-                        canvas.height = targetH;
+                        // Only re-dimension canvas when aspect ratio or resolution genuinely changes
+                        if (canvas.width !== targetW || canvas.height !== targetH) {
+                            canvas.width = targetW;
+                            canvas.height = targetH;
+                        }
+
                         const ctx = canvas.getContext('2d', { willReadFrequently: true });
                         if (ctx) {
                             ctx.drawImage(video, 0, 0, targetW, targetH);
                             const imgData = ctx.getImageData(0, 0, targetW, targetH);
-                            const code = jsQR(imgData.data, targetW, targetH, {
-                                inversionAttempts: 'attemptBoth'
+
+                            // Primary scan: normal contrast (3x faster than attemptBoth)
+                            let code = jsQR(imgData.data, targetW, targetH, {
+                                inversionAttempts: 'dontInvert'
                             });
+
+                            // Secondary pass: every 4th frame try inversion in case of dark mode inversion
+                            if (!code && frameCount % 4 === 0) {
+                                code = jsQR(imgData.data, targetW, targetH, {
+                                    inversionAttempts: 'attemptBoth'
+                                });
+                            }
+
                             if (code && code.data) {
                                 isScanningRef.current = false;
                                 if (onScanRef.current) onScanRef.current(code.data);

@@ -4,19 +4,28 @@ import { db, functions } from "../firebase";
 import { detectDeviceType, getClientIpAddress } from "../utils/deviceDetection";
 
 /**
- * Authoritatively register and lock student device directly into Firestore database.
- * Writes to:
- * - students/{rollNo}
- * - users/{uid}
- * - users/{rollNo}
- * - students/{uid}
- * - localStorage
- * Also attempts Cloud Function bindStudentDevicePlatform as optional enhancement without throwing.
+ * Authoritatively register and lock device for ANY user role (Student, Lecturer, Admin)
+ * directly into Firestore database.
+ * 
+ * Target collections:
+ * - Student: students/{rollNo}, users/{uid}, students/{uid}
+ * - Lecturer: lecturers/{lecturerId}, users/{uid}, lecturers/{uid}
+ * - Admin: admins/{adminId}, users/{uid}, admins/{uid}
  */
-export async function registerStudentDevice({ rollNo, user, profile, platform = null, ip = null }) {
-  const cleanRoll = String(rollNo || profile?.rollNo || user?.email?.split("@")[0] || "").trim().toUpperCase();
-  const uid = user?.uid || null;
+export async function registerUserDevice({
+  role = "student",
+  id = null,
+  rollNo = null,
+  user = null,
+  profile = null,
+  platform = null,
+  ip = null
+}) {
+  const normRole = String(role || profile?.role || "student").trim().toLowerCase();
+  const uid = user?.uid || profile?.uid || null;
   const cleanEmail = (user?.email || profile?.email || "").trim().toLowerCase();
+  const cleanId = String(id || rollNo || profile?.rollNo || profile?.id || cleanEmail.split("@")[0] || uid || "").trim().toUpperCase();
+
   const detectedPlatform = detectDeviceType();
   const cleanPlatform = String(platform || detectedPlatform || "android").trim().toLowerCase();
 
@@ -32,7 +41,10 @@ export async function registerStudentDevice({ rollNo, user, profile, platform = 
 
   // Persist locally immediately for offline and instant UI responsiveness
   try {
+    localStorage.setItem(`smartattend_${normRole}_device_type`, cleanPlatform);
     localStorage.setItem("smartattend_student_device_type", cleanPlatform);
+    localStorage.setItem("smartattend_device_type", cleanPlatform);
+    localStorage.setItem("smartattend_device_locked", "true");
     localStorage.setItem("smartattend_student_device_locked", "true");
     localStorage.setItem("smartattend_device_registered", "true");
     if (clientIp && clientIp !== "Unknown IP") {
@@ -56,6 +68,7 @@ export async function registerStudentDevice({ rollNo, user, profile, platform = 
   };
 
   if (uid) {
+    devicePayload.deviceBoundUid = uid;
     devicePayload.studentUid = uid;
     devicePayload.platformBoundBy = uid;
   }
@@ -65,57 +78,95 @@ export async function registerStudentDevice({ rollNo, user, profile, platform = 
 
   const writePromises = [];
 
-  // 1. Write to students/{cleanRoll} (canonical student profile)
-  if (cleanRoll) {
-    writePromises.push(
-      setDoc(doc(db, "students", cleanRoll), devicePayload, { merge: true })
-        .catch((err) => console.warn("Failed to register device on students/" + cleanRoll, err))
-    );
+  // 1. Role-specific collection write
+  if (normRole === "lecturer" || normRole === "faculty") {
+    const targetDocId = cleanEmail || uid || cleanId;
+    if (targetDocId) {
+      writePromises.push(
+        setDoc(doc(db, "lecturers", targetDocId), devicePayload, { merge: true })
+          .catch((err) => console.warn("Lecturer device registration notice:", err.message))
+      );
+    }
+    if (uid && targetDocId !== uid) {
+      writePromises.push(
+        setDoc(doc(db, "lecturers", uid), devicePayload, { merge: true })
+          .catch(() => {})
+      );
+    }
+  } else if (normRole === "admin" || normRole === "superadmin") {
+    const targetDocId = cleanEmail || uid || cleanId;
+    if (targetDocId) {
+      writePromises.push(
+        setDoc(doc(db, "admins", targetDocId), devicePayload, { merge: true })
+          .catch((err) => console.warn("Admin device registration notice:", err.message))
+      );
+    }
+    if (uid && targetDocId !== uid) {
+      writePromises.push(
+        setDoc(doc(db, "admins", uid), devicePayload, { merge: true })
+          .catch(() => {})
+      );
+    }
+  } else {
+    // Student collection write
+    if (cleanId) {
+      writePromises.push(
+        setDoc(doc(db, "students", cleanId), devicePayload, { merge: true })
+          .catch((err) => console.warn("Student device registration notice:", err.message))
+      );
+    }
+    if (uid && cleanId !== uid) {
+      writePromises.push(
+        setDoc(doc(db, "students", uid), devicePayload, { merge: true })
+          .catch(() => {})
+      );
+    }
   }
 
-  // 2. Write to users/{uid} (authenticated user profile)
+  // 2. Generic users collection write for all authenticated accounts
   if (uid) {
+    const userPayload = { ...devicePayload };
+    if (normRole === "student" && cleanId && !cleanId.includes("@")) {
+      userPayload.rollNo = cleanId;
+    }
     writePromises.push(
-      setDoc(doc(db, "users", uid), {
-        ...devicePayload,
-        rollNo: cleanRoll || undefined
-      }, { merge: true })
-        .catch((err) => console.warn("Failed to register device on users/" + uid, err))
+      setDoc(doc(db, "users", uid), userPayload, { merge: true }).catch(() => {})
     );
   }
 
-  // 3. Write to users/{cleanRoll} if distinct
-  if (cleanRoll && uid !== cleanRoll) {
+  if (cleanEmail && cleanEmail !== uid) {
     writePromises.push(
-      setDoc(doc(db, "users", cleanRoll), devicePayload, { merge: true })
-        .catch(() => {})
-    );
-  }
-
-  // 4. Write to students/{uid} if distinct
-  if (uid && uid !== cleanRoll) {
-    writePromises.push(
-      setDoc(doc(db, "students", uid), devicePayload, { merge: true })
-        .catch(() => {})
+      setDoc(doc(db, "users", cleanEmail), devicePayload, { merge: true }).catch(() => {})
     );
   }
 
   await Promise.allSettled(writePromises);
 
-  // 5. Also attempt Cloud Function binding in background (non-blocking)
-  try {
-    if (functions) {
-      const bindFn = httpsCallable(functions, "bindStudentDevicePlatform");
-      bindFn({ platform: cleanPlatform }).catch((e) => {
-        console.info("Cloud Function bind notice:", e?.message);
-      });
-    }
-  } catch (_) {}
+  // 3. Optional Cloud Function platform binding for students
+  if (normRole === "student") {
+    try {
+      if (functions) {
+        const bindFn = httpsCallable(functions, "bindStudentDevicePlatform");
+        bindFn({ platform: cleanPlatform }).catch(() => {});
+      }
+    } catch (_) {}
+  }
 
   return {
     success: true,
+    role: normRole,
     platform: cleanPlatform,
-    rollNo: cleanRoll,
+    id: cleanId,
     ip: clientIp
   };
+}
+
+/**
+ * Backward compatibility alias for registerStudentDevice
+ */
+export async function registerStudentDevice(params) {
+  return registerUserDevice({
+    ...params,
+    role: "student"
+  });
 }

@@ -26,6 +26,7 @@ import {
 } from "../firebase";
 import { isGenericName } from "../utils/studentDataHelper";
 import { reportUserVerificationComplaint } from "../services/notificationsService";
+import { registerUserDevice } from "../services/deviceRegistrationService";
 
 const AuthContext = createContext(null);
 
@@ -358,7 +359,10 @@ export const AuthProvider = ({ children }) => {
       hasFaceRegistered: hasValidFace,
       faceRemovedAt: registeredUser.faceRemovedAt || (hasFaceRemoval ? Date.now() : null),
       approved: registeredUser.approved !== false,
-      status: registeredUser.status || "active"
+      status: registeredUser.status || "active",
+      deviceType: registeredUser.deviceType || registeredUser.registeredPlatform || (typeof window !== "undefined" ? (localStorage.getItem(`smartattend_${databaseRole}_device_type`) || localStorage.getItem("smartattend_student_device_type") || localStorage.getItem("smartattend_device_type")) : null) || null,
+      registeredPlatform: registeredUser.registeredPlatform || registeredUser.deviceType || null,
+      isDeviceRegistered: Boolean(registeredUser.isDeviceRegistered || registeredUser.deviceType || (typeof window !== "undefined" && (localStorage.getItem("smartattend_device_registered") === "true" || localStorage.getItem(`smartattend_${databaseRole}_device_type`))))
     };
   };
 
@@ -441,6 +445,15 @@ export const AuthProvider = ({ children }) => {
           if (isMounted) {
             setUser(currentUser);
             setProfile(enrichedProfile);
+
+            // Auto-bind device for all roles (Student, Lecturer, Admin) so it shows registered everywhere
+            registerUserDevice({
+              role: enrichedProfile.role,
+              id: enrichedProfile.id,
+              rollNo: enrichedProfile.rollNo,
+              user: currentUser,
+              profile: enrichedProfile
+            }).catch(() => {});
           }
 
         } catch (error) {
