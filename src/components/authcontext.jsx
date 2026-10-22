@@ -166,15 +166,15 @@ export const AuthProvider = ({ children }) => {
           matchedStudentDoc.faceRemovedAt ||
           matchedStudentDoc.faceRegistered === false ||
           matchedStudentDoc.biometricEnrolled === false ||
-          matchedStudentDoc.hasFaceRegistered === false ||
-          !matchedStudentDoc.faceDescriptor ||
-          (Array.isArray(matchedStudentDoc.faceDescriptor) && matchedStudentDoc.faceDescriptor.length !== 128)
+          matchedStudentDoc.hasFaceRegistered === false
         );
 
         const hasValidFace = Boolean(
           !hasFaceRemoval &&
-          Array.isArray(matchedStudentDoc.faceDescriptor) &&
-          matchedStudentDoc.faceDescriptor.length === 128
+          (matchedStudentDoc.faceRegistered === true ||
+            matchedStudentDoc.biometricEnrolled === true ||
+            matchedStudentDoc.hasFaceRegistered === true ||
+            (Array.isArray(matchedStudentDoc.faceDescriptor) && matchedStudentDoc.faceDescriptor.length === 128))
         );
 
         return {
@@ -191,7 +191,7 @@ export const AuthProvider = ({ children }) => {
           role: "student",
           status: matchedStudentDoc.status || "active",
           approved: matchedStudentDoc.approved !== false,
-          faceDescriptor: hasValidFace ? matchedStudentDoc.faceDescriptor : null,
+          faceDescriptor: null,
           faceRegistered: hasValidFace,
           biometricEnrolled: hasValidFace,
           hasFaceRegistered: hasValidFace,
@@ -252,7 +252,14 @@ export const AuthProvider = ({ children }) => {
           merged = {
             ...merged,
             ...c,
-            faceDescriptor: c.faceDescriptor || merged.faceDescriptor,
+            faceRegistered: Boolean(
+              c.faceRegistered ||
+              c.biometricEnrolled ||
+              c.hasFaceRegistered ||
+              (Array.isArray(c.faceDescriptor) && c.faceDescriptor.length === 128) ||
+              merged.faceRegistered
+            ),
+            faceDescriptor: null,
             photoURL: c.photoURL || c.photo || c.image || merged.photoURL || "",
             branch: authoritativeBranch || (c.branch && String(c.branch).toLowerCase() !== "general" ? c.branch : (merged.branch || "CSE")),
             semester: authoritativeSemester || c.semester || merged.semester || "1",
@@ -262,12 +269,13 @@ export const AuthProvider = ({ children }) => {
         }
 
         if (isExplicitlyFaceRemoved) {
-          merged.faceDescriptor = null;
           merged.faceRegistered = false;
           merged.biometricEnrolled = false;
           merged.hasFaceRegistered = false;
           merged.faceRemovedAt = mostRecentRemovalTime || Date.now();
         }
+        merged.faceDescriptor = null;
+        merged.hasFaceRegistered = Boolean(merged.faceRegistered);
 
         const finalRollNo = authoritativeRollNo || merged.rollNo || "";
         const finalName = authoritativeName || merged.name || merged.fullName || finalRollNo || "";
@@ -336,15 +344,15 @@ export const AuthProvider = ({ children }) => {
       registeredUser.faceRemovedAt ||
       registeredUser.faceRegistered === false ||
       registeredUser.biometricEnrolled === false ||
-      registeredUser.hasFaceRegistered === false ||
-      !registeredUser.faceDescriptor ||
-      (Array.isArray(registeredUser.faceDescriptor) && registeredUser.faceDescriptor.length !== 128)
+      registeredUser.hasFaceRegistered === false
     );
 
     const hasValidFace = Boolean(
       !hasFaceRemoval &&
-      Array.isArray(registeredUser.faceDescriptor) &&
-      registeredUser.faceDescriptor.length === 128
+      (registeredUser.faceRegistered === true ||
+        registeredUser.biometricEnrolled === true ||
+        registeredUser.hasFaceRegistered === true ||
+        (Array.isArray(registeredUser.faceDescriptor) && registeredUser.faceDescriptor.length === 128))
     );
 
     return {
@@ -361,7 +369,7 @@ export const AuthProvider = ({ children }) => {
       photoURL: resolvedPhoto,
       photo: resolvedPhoto,
       image: resolvedPhoto,
-      faceDescriptor: hasValidFace ? registeredUser.faceDescriptor : null,
+      faceDescriptor: null,
       faceRegistered: hasValidFace,
       biometricEnrolled: hasValidFace,
       hasFaceRegistered: hasValidFace,
@@ -672,16 +680,27 @@ export const AuthProvider = ({ children }) => {
       photoURL: resolvedPhoto,
       photo: resolvedPhoto,
       image: resolvedPhoto,
-      faceDescriptor: (Array.isArray(registeredUser.faceDescriptor) && registeredUser.faceDescriptor.length === 128 && !registeredUser.faceRemovedAt) ? registeredUser.faceDescriptor : null,
+      faceDescriptor: null,
       faceRegistered: Boolean(
         !registeredUser.faceRemovedAt &&
-        Array.isArray(registeredUser.faceDescriptor) &&
-        registeredUser.faceDescriptor.length === 128
+        (registeredUser.faceRegistered === true ||
+          registeredUser.biometricEnrolled === true ||
+          registeredUser.hasFaceRegistered === true ||
+          (Array.isArray(registeredUser.faceDescriptor) && registeredUser.faceDescriptor.length === 128))
       ),
       biometricEnrolled: Boolean(
         !registeredUser.faceRemovedAt &&
-        Array.isArray(registeredUser.faceDescriptor) &&
-        registeredUser.faceDescriptor.length === 128
+        (registeredUser.faceRegistered === true ||
+          registeredUser.biometricEnrolled === true ||
+          registeredUser.hasFaceRegistered === true ||
+          (Array.isArray(registeredUser.faceDescriptor) && registeredUser.faceDescriptor.length === 128))
+      ),
+      hasFaceRegistered: Boolean(
+        !registeredUser.faceRemovedAt &&
+        (registeredUser.faceRegistered === true ||
+          registeredUser.biometricEnrolled === true ||
+          registeredUser.hasFaceRegistered === true ||
+          (Array.isArray(registeredUser.faceDescriptor) && registeredUser.faceDescriptor.length === 128))
       ),
       approved: registeredUser.approved !== false,
       status: registeredUser.status || "active"

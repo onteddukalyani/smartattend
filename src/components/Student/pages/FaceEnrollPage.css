@@ -725,4 +725,227 @@
 [data-theme="midnight"] .fp-rebind-warning-box {
     background: rgba(245, 158, 11, 0.1);
     border-color: rgba(245, 158, 11, 0.3);
-}
+}
+
+.face-enroll-page {
+    box-sizing: border-box;
+    max-width: 760px;
+    padding-inline: clamp(8px, 2vw, 16px);
+    padding-bottom: max(12px, env(safe-area-inset-bottom));
+}
+
+.face-enroll-page *,
+.face-enroll-page *::before,
+.face-enroll-page *::after {
+    box-sizing: border-box;
+}
+
+.face-enroll-top-bar .top-badge {
+    min-width: 0;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+}
+
+.bio-tab-btn {
+    min-width: 0;
+    min-height: 44px;
+    flex-wrap: wrap;
+    line-height: 1.25;
+}
+
+.bio-locked-state-card,
+.bio-tab-content,
+.face-enroll-camera-wrap {
+    min-width: 0;
+}
+
+@media (max-width: 640px) {
+    .face-enroll-page {
+        padding: 8px 8px max(12px, env(safe-area-inset-bottom));
+    }
+
+    .face-enroll-top-bar {
+        align-items: stretch;
+        flex-direction: column;
+        gap: 8px;
+        margin-bottom: 10px;
+    }
+
+    .face-enroll-top-bar .back-btn {
+        min-height: 44px;
+        align-self: flex-start;
+    }
+
+    .face-enroll-top-bar .top-badge {
+        width: 100%;
+        justify-content: flex-start;
+        flex-wrap: wrap;
+        border-radius: 12px;
+        padding: 8px 10px;
+        line-height: 1.35;
+    }
+
+    .face-enroll-card {
+        padding: 10px;
+        border-radius: 14px;
+    }
+
+    .bio-tabs-switcher {
+        gap: 6px;
+        padding: 4px;
+    }
+
+    .bio-tab-btn {
+        gap: 5px;
+        padding: 10px 6px;
+        font-size: 0.78rem;
+    }
+
+    .bio-locked-state-card {
+        padding: 16px 4px;
+    }
+
+    .bio-locked-alert-box,
+    .fp-settings-guidance-card,
+    .fp-rebind-warning-box {
+        padding: 12px;
+    }
+
+    .face-enroll-status-saving,
+    .face-enroll-status-success {
+        align-items: flex-start;
+        font-size: 0.86rem;
+        line-height: 1.4;
+        overflow-wrap: anywhere;
+    }
+}
+
+/* Re-registration Permission Styles */
+.bio-status-ribbon {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
+    padding: 10px 16px;
+    margin-bottom: 18px;
+    border-radius: 12px;
+    font-size: 0.85rem;
+    font-weight: 700;
+}
+
+.bio-status-ribbon.status-registered {
+    background: rgba(16, 185, 129, 0.1);
+    color: #065f46;
+    border: 1px solid rgba(16, 185, 129, 0.25);
+}
+
+.bio-status-ribbon.status-permission-granted {
+    background: linear-gradient(135deg, rgba(99, 102, 241, 0.12), rgba(16, 185, 129, 0.12));
+    color: #3730a3;
+    border: 1.5px solid #818cf8;
+}
+
+.bio-status-ribbon.status-pending {
+    background: rgba(245, 158, 11, 0.1);
+    color: #92400e;
+    border: 1px solid rgba(245, 158, 11, 0.25);
+}
+
+.bio-permission-alert-box {
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+    padding: 16px 18px;
+    border-radius: 14px;
+    background: linear-gradient(135deg, #ecfdf5 0%, #f0fdf4 100%);
+    border: 1.5px solid #6ee7b7;
+    text-align: left;
+    color: #065f46;
+    margin-bottom: 20px;
+    box-shadow: 0 4px 14px rgba(16, 185, 129, 0.1);
+}
+
+.bio-permission-alert-box .perm-icon {
+    font-size: 1.5rem;
+    color: #059669;
+    margin-top: 2px;
+    flex-shrink: 0;
+}
+
+.bio-permission-alert-box strong {
+    display: block;
+    font-size: 0.95rem;
+    color: #047857;
+    margin-bottom: 4px;
+}
+
+.bio-permission-alert-box p {
+    margin: 0 0 8px;
+    font-size: 0.84rem;
+    line-height: 1.5;
+    color: #064e3b;
+}
+
+.bio-permission-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 6px;
+}
+
+.bio-perm-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 8px;
+    border-radius: 6px;
+    font-size: 0.74rem;
+    font-weight: 700;
+    background: rgba(5, 150, 105, 0.15);
+    color: #047857;
+}
+
+.bio-locked-disabled-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 18px;
+    border-radius: 10px;
+    background: #f1f5f9;
+    color: #94a3b8;
+    border: 1.5px solid #cbd5e1;
+    font-weight: 700;
+    font-size: 0.88rem;
+    cursor: not-allowed;
+    opacity: 0.85;
+}
+
+@media (max-width: 640px) {
+    .bio-status-ribbon {
+        flex-direction: column;
+        align-items: stretch;
+        text-align: center;
+        gap: 6px;
+        padding: 10px 12px;
+        font-size: 0.8rem;
+    }
+
+    .bio-permission-alert-box {
+        padding: 12px 14px;
+        gap: 10px;
+        border-radius: 12px;
+    }
+
+    .bio-permission-alert-box .perm-icon {
+        font-size: 1.25rem;
+    }
+
+    .bio-locked-disabled-btn {
+        width: 100%;
+        justify-content: center;
+        min-height: 44px;
+        padding: 10px 14px;
+    }
+}
+

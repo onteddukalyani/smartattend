@@ -149,6 +149,8 @@ code {
 .admins-table-wrapper,
 .stats-table-wrapper,
 .parsed-table-wrap,
+.table-responsive,
+.matrix-table-wrapper,
 .overflow-x-auto {
   width: 100%;
   overflow-x: auto;
@@ -179,7 +181,11 @@ code {
   .st-settings-page,
   .add-student-page,
   .add-admin,
-  .add-lecturer-page {
+  .add-lecturer-page,
+  .manage-rereg-page,
+  .identify-page,
+  .face-enroll-page,
+  .matrix-container {
     padding-bottom: calc(88px + env(safe-area-inset-bottom, 0px)) !important;
   }
 }

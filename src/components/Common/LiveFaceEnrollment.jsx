@@ -19,7 +19,6 @@ import {
     FaDownload
 } from "react-icons/fa";
 import { useAuth } from "../authcontext";
-import { checkDuplicateFaceBiometrics } from "../../utils/biometricManager";
 import { BiometricLivenessEngine, fuseFaceDescriptors } from "../../utils/livenessDetector";
 import { isBrowserCameraAllowed } from "../../utils/deviceDetection";
 import { getApkDownloadUrl } from "../../utils/apkUrl";
@@ -31,8 +30,6 @@ export function LiveFaceEnrollment({
     onFaceEnrolled,
     initialPhoto = null,
     hideHeader = false,
-    targetRollNo = "",
-    targetEmail = "",
     targetName = ""
 }) {
     const { user, profile } = useAuth();
@@ -61,7 +58,6 @@ export function LiveFaceEnrollment({
     const [enrolledPhoto, setEnrolledPhoto] = useState(initialPhoto);
     const [capturedVector, setCapturedVector] = useState(null);
     const [flashEffect, setFlashEffect] = useState(false);
-    const [duplicateError, setDuplicateError] = useState("");
     // 3D Liveness Interactive State
     const DEFAULT_CHECKPOINTS = {
         CENTER: false,
@@ -195,7 +191,6 @@ export function LiveFaceEnrollment({
     // 3. Start Camera Stream
     const startCameraStream = async () => {
         setCameraError("");
-        setDuplicateError("");
         setCameraLoading(true);
         setStatusMessage("Connecting camera...");
         setStatusType("ready");
@@ -502,25 +497,10 @@ export function LiveFaceEnrollment({
                 return;
             }
 
-            // DUPLICATE BIOMETRICS SECURITY CHECK
-            setStatusMessage("🔍 Verifying biometric uniqueness across registry...");
-            const duplicateCheck = await checkDuplicateFaceBiometrics(descriptorArray, targetRollNo, targetEmail);
-
-            if (duplicateCheck.isDuplicate && duplicateCheck.conflictStudent) {
-                const cs = duplicateCheck.conflictStudent;
-                const errText = `⛔ Duplicate Face Detected! This biometric profile matches "${cs.name}" (Roll No: ${cs.rollNo}). Multiple students cannot share identical face templates.`;
-                setDuplicateError(errText);
-                setStatusMessage(errText);
-                setStatusType("warning");
-                setCapturing(false);
-                hasTriggeredCompleteRef.current = false;
-                return;
-            }
-
             const photoDataUrl = canvas.toDataURL("image/jpeg", 0.90);
             setEnrolledPhoto(photoDataUrl);
             setCapturedVector(descriptorArray);
-            setStatusMessage("✅ 3D Facial Biometrics Enrolled & Verified Unique!");
+            setStatusMessage("Face capture complete. The server will verify uniqueness when you save.");
             setStatusType("success");
 
             if (streamRef.current) {
@@ -553,7 +533,6 @@ export function LiveFaceEnrollment({
     const handleRetake = () => {
         setEnrolledPhoto(null);
         setCapturedVector(null);
-        setDuplicateError("");
         setIsBiometricVerified(false);
         setProgress(0);
         bufferedDescriptorsRef.current = [];
@@ -778,16 +757,6 @@ export function LiveFaceEnrollment({
                     </span>
                 )}
             </div>
-
-            {/* Duplicate Error Alert */}
-            {duplicateError && (
-                <div className="lfe-duplicate-alert">
-                    <div style={{ display: "flex", alignItems: "center", gap: "8px", fontWeight: 800, fontSize: "0.95rem", marginBottom: "4px" }}>
-                        <FaUserTimes style={{ color: "#ef4444" }} /> Duplicate Face Rejected
-                    </div>
-                    {duplicateError}
-                </div>
-            )}
 
             {/* Action Buttons */}
             <div className="lfe-actions">

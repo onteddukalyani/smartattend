@@ -220,16 +220,21 @@ export async function enrollHardwareBiometric(studentUid) {
         serverMessage = regRes.data.message;
       }
     } catch (regErr) {
-      if (
+      console.error("[BiometricService] Cloud function registration failed:", regErr);
+      const isAlreadyExists =
         regErr.code === "already-exists" ||
         regErr.message?.includes("already registered") ||
-        regErr.message?.includes("already-exists")
-      ) {
-        serverMessage = "Hardware biometric key confirmed active on this device.";
-      } else {
-        console.error("[BiometricService] Cloud function registration failed:", regErr);
-        throw new Error(regErr.message || "Failed to register biometric key with server.");
+        regErr.message?.includes("already-exists");
+
+      if (isAlreadyExists) {
+        return {
+          success: false,
+          code: "ALREADY_REGISTERED",
+          platform: Capacitor.getPlatform(),
+          message: regErr.message || "An active biometric credential is already registered for this account. Re-registration requires authorization from your Course Lecturer or Administrator."
+        };
       }
+      throw new Error(regErr.message || "Failed to register biometric key with server.");
     }
 
     return {
@@ -242,12 +247,14 @@ export async function enrollHardwareBiometric(studentUid) {
     if (
       err.message?.includes("already registered") ||
       err.message?.includes("already-exists") ||
-      err.code === "already-exists"
+      err.code === "already-exists" ||
+      err.code === "ALREADY_REGISTERED"
     ) {
       return {
-        success: true,
+        success: false,
+        code: "ALREADY_REGISTERED",
         platform: Capacitor.getPlatform(),
-        message: "Hardware biometric key is already active on this device."
+        message: err.message || "Hardware biometric is already registered and locked."
       };
     }
     const isNoneEnrolled =

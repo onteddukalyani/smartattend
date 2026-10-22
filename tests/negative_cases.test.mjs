@@ -7,7 +7,13 @@ import { Capacitor } from "@capacitor/core";
 
 const require = createRequire(import.meta.url);
 const prodFns = require("../functions/index.js");
-const { evaluateServerGeofence, generateDynamicQrToken, verifyDynamicQrToken } = prodFns;
+const {
+  evaluateServerGeofence,
+  generateDynamicQrToken,
+  verifyDynamicQrToken,
+  evaluateFaceUniqueness,
+  faceVectorDistance
+} = prodFns;
 
 // ============================================================================
 // CORE CRYPTOGRAPHIC & BUSINESS LOGIC IMPLEMENTATIONS TEST SUITE
@@ -3930,5 +3936,155 @@ test("47. Priority 4 — Firestore security rules & Lecturer scope isolation on 
   assert.equal(evaluateSecurityTokensRead(null, sessionAlice), false);
 });
 
+test("48. Server face uniqueness compares embeddings, excludes profile aliases, and holds uncertain matches", () => {
+  const enrolledFace = Array.from({ length: 128 }, (_, index) => Math.sin(index * 0.2) * 0.3);
+  const anotherCaptureOfSameFace = enrolledFace.map((value, index) => value + Math.cos(index) * 0.002);
+  const uncertainCapture = enrolledFace.map((value) => value + 0.05);
+  const differentFace = enrolledFace.map((value) => value + 0.8);
+  const existingStudent = {
+    rollNo: "STUDENT-B",
+    studentUid: "uid-b",
+    faceRegistered: true,
+    faceDescriptor: enrolledFace
+  };
+  const targetIdentity = { rollNo: "STUDENT-A", studentUid: "uid-a" };
 
+  assert.ok(faceVectorDistance(enrolledFace, anotherCaptureOfSameFace) < 0.44);
+  assert.equal(
+    evaluateFaceUniqueness(anotherCaptureOfSameFace, [existingStudent], targetIdentity).decision,
+    "duplicate",
+    "A different capture/identifier must not bypass embedding-based duplicate detection"
+  );
+  assert.equal(
+    evaluateFaceUniqueness(uncertainCapture, [existingStudent], targetIdentity).decision,
+    "review",
+    "Uncertain similarity must be held for staff review rather than approved or rejected automatically"
+  );
+  assert.equal(
+    evaluateFaceUniqueness(differentFace, [
+      existingStudent,
+      { rollNo: existingStudent.rollNo, faceRegistered: true }
+    ], targetIdentity).decision,
+    "unique"
+  );
+  assert.equal(
+    evaluateFaceUniqueness(anotherCaptureOfSameFace, [existingStudent], {
+      rollNo: existingStudent.rollNo,
+      studentUid: existingStudent.studentUid
+    }).decision,
+    "unique",
+    "A student's own existing identity is excluded from global duplicate conflicts"
+  );
+  assert.equal(
+    evaluateFaceUniqueness(enrolledFace, [{
+      rollNo: "STUDENT-C",
+      faceRegistered: true
+    }], targetIdentity).decision,
+    "review",
+    "An enrolled record without a readable/valid template must fail conservatively"
+  );
+  assert.deepEqual(existingStudent.faceDescriptor, enrolledFace, "Checks must not mutate existing enrollments");
+});
 
+test("49. Face enrollment transactions serialize duplicates and preserve existing enrollments", {
+  skip: !process.env.FIRESTORE_EMULATOR_HOST
+}, async () => {
+  const functionsRequire = createRequire(new URL("../functions/index.js", import.meta.url));
+  const admin = functionsRequire("firebase-admin");
+  const db = admin.firestore();
+  const suffix = crypto.randomUUID().slice(0, 8).toUpperCase();
+  const [rollA, rollB, protectedRoll, selfRoll] = [
+    `TEST-FACE-A-${suffix}`,
+    `TEST-FACE-B-${suffix}`,
+    `TEST-FACE-P-${suffix}`,
+    `TEST-FACE-S-${suffix}`
+  ];
+  const face = Array.from({ length: 128 }, (_, index) => Math.sin(index * 0.2) * 0.3);
+  const anotherCapture = face.map((value, index) => value + Math.cos(index) * 0.001);
+  const differentFace = face.map((value) => value + 0.8);
+  const selfFace = face.map((value) => value - 0.8);
+  const adminRequest = (rollNo, faceDescriptor) => prodFns.registerStudentFace.run({
+    data: { rollNo, faceDescriptor },
+    auth: {
+      uid: `test-admin-${suffix}`,
+      token: { admin: true, email: `test-admin-${suffix}@example.invalid` }
+    }
+  });
+
+  try {
+    await Promise.all([rollA, rollB].map((rollNo) =>
+      db.collection("students").doc(rollNo).set({ rollNo, name: rollNo })
+    ));
+
+    const concurrentResults = await Promise.allSettled([
+      adminRequest(rollA, face),
+      adminRequest(rollB, anotherCapture)
+    ]);
+    const accepted = concurrentResults.filter((result) => result.status === "fulfilled");
+    const rejected = concurrentResults.filter((result) => result.status === "rejected");
+    assert.equal(accepted.length, 1, "Only one simultaneous enrollment may claim a face");
+    assert.equal(rejected.length, 1);
+    assert.equal(rejected[0].reason.code, "already-exists", "Staff authorization must not bypass uniqueness");
+
+    const winnerRoll = accepted[0].value.rollNo;
+    const loserRoll = winnerRoll === rollA ? rollB : rollA;
+    const winnerRef = db.collection("face_enrollments").doc(winnerRoll);
+    const winnerBefore = await winnerRef.get();
+    assert.equal(winnerBefore.data()?.status, "ACTIVE");
+
+    await adminRequest(winnerRoll, anotherCapture);
+    const winnerAfterReregistration = await winnerRef.get();
+    assert.deepEqual(
+      winnerAfterReregistration.data()?.faceDescriptor,
+      anotherCapture,
+      "Staff may re-register the same student's verified identity"
+    );
+    assert.equal((await db.collection("face_enrollments").doc(loserRoll).get()).exists, false);
+
+    await db.collection("students").doc(protectedRoll).set({
+      rollNo: protectedRoll,
+      name: protectedRoll
+    });
+    await adminRequest(protectedRoll, differentFace);
+    const protectedRef = db.collection("face_enrollments").doc(protectedRoll);
+    const protectedBefore = await protectedRef.get();
+    await assert.rejects(
+      adminRequest(protectedRoll, face),
+      (error) => error.code === "already-exists"
+    );
+    assert.deepEqual(
+      (await protectedRef.get()).data()?.faceDescriptor,
+      protectedBefore.data()?.faceDescriptor,
+      "A failed duplicate check must preserve the target student's previous valid enrollment"
+    );
+
+    const selfUid = `test-student-${suffix}`;
+    await db.collection("students").doc(selfRoll).set({
+      rollNo: selfRoll,
+      name: selfRoll,
+      studentUid: selfUid,
+      email: `${selfUid}@example.invalid`
+    });
+    const studentRequest = () => prodFns.registerStudentFace.run({
+      data: { rollNo: selfRoll, faceDescriptor: selfFace },
+      auth: {
+        uid: selfUid,
+        token: { email: `${selfUid}@example.invalid` }
+      }
+    });
+    assert.equal((await studentRequest()).status, "ENROLLED");
+    await assert.rejects(studentRequest, (error) => error.code === "failed-precondition");
+  } finally {
+    const rolls = [rollA, rollB, protectedRoll, selfRoll];
+    const reviewSnapshots = await Promise.all(rolls.map((rollNo) =>
+      db.collection("face_enrollment_reviews").where("rollNo", "==", rollNo).get()
+    ));
+    await Promise.all([
+      ...reviewSnapshots.flatMap((snapshot) => snapshot.docs.map((docSnap) => docSnap.ref.delete())),
+      ...rolls.flatMap((rollNo) => [
+      db.collection("students").doc(rollNo).delete(),
+      db.collection("face_enrollments").doc(rollNo).delete()
+      ])
+    ]);
+  }
+});

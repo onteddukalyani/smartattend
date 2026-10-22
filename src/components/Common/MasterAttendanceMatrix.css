@@ -543,3 +543,64 @@
   font-size: 2.5rem;
   margin-bottom: 8px;
 }
+
+/* =========================================================
+   RESPONSIVE DESIGN (MOBILE & TABLET VIEWPORTS)
+   ========================================================= */
+@media (max-width: 900px) {
+  .matrix-stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 768px) {
+  .matrix-header-bar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 14px;
+    margin-bottom: 1.2rem;
+  }
+
+  .matrix-header-title {
+    font-size: 1.25rem;
+  }
+
+  .matrix-actions-group {
+    width: 100%;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .matrix-btn-export {
+    width: 100%;
+    justify-content: center;
+    min-height: 44px;
+  }
+
+  .matrix-table-wrapper {
+    border-radius: 12px;
+    margin: 0 -4px;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .matrix-table {
+    min-width: 760px;
+  }
+}
+
+@media (max-width: 480px) {
+  .matrix-stats-grid {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .matrix-stat-card {
+    padding: 12px 14px;
+    border-radius: 12px;
+  }
+
+  .matrix-header-title {
+    font-size: 1.15rem;
+  }
+}

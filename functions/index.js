@@ -15,7 +15,7 @@ if (!admin.apps.length) {
 const db = admin.firestore();
 const { FieldValue, Timestamp } = admin.firestore;
 
-setGlobalOptions({ cors: true, maxInstances: 10, region: "us-central1" });
+setGlobalOptions({ maxInstances: 10, region: "us-central1" });
 
 /**
  * Utility: Compute SHA-256 hash of a string.
@@ -731,6 +731,174 @@ function validateFaceVectorDescriptor(descriptor, fieldName = "Face descriptor")
   return true;
 }
 
+const FACE_DUPLICATE_DISTANCE = 0.44;
+const FACE_REVIEW_DISTANCE = 0.60;
+const FACE_MATCH_DISTANCE = 0.52;
+
+function normalizeFaceVector(descriptor, fieldName = "Face descriptor") {
+  let vector = descriptor;
+  if (!Array.isArray(vector) && typeof vector === "object" && vector !== null) {
+    const values = Object.values(vector);
+    if (values.length === 128) vector = values;
+  }
+
+  validateFaceVectorDescriptor(vector, fieldName);
+  return vector.map(Number);
+}
+
+function faceVectorDistance(first, second) {
+  if (!Array.isArray(first) || !Array.isArray(second) || first.length !== 128 || second.length !== 128) {
+    return Number.POSITIVE_INFINITY;
+  }
+
+  let sumSquares = 0;
+  for (let index = 0; index < 128; index++) {
+    const difference = Number(first[index]) - Number(second[index]);
+    sumSquares += difference * difference;
+  }
+  return Math.sqrt(sumSquares);
+}
+
+function cleanFaceIdentity(value = {}) {
+  return {
+    rollNo: String(value.rollNo || value.studentRollNo || "").trim().toUpperCase(),
+    studentUid: String(value.studentUid || value.uid || value.userUid || "").trim()
+  };
+}
+
+function sameFaceIdentity(candidate, target) {
+  const candidateIdentity = cleanFaceIdentity(candidate);
+  const targetIdentity = cleanFaceIdentity(target);
+  return Boolean(
+    (targetIdentity.rollNo && candidateIdentity.rollNo === targetIdentity.rollNo) ||
+    (targetIdentity.studentUid && candidateIdentity.studentUid === targetIdentity.studentUid)
+  );
+}
+
+function faceIdentityKeys(value) {
+  const identity = cleanFaceIdentity(value);
+  return [
+    identity.rollNo ? `roll:${identity.rollNo}` : "",
+    identity.studentUid ? `uid:${identity.studentUid}` : ""
+  ].filter(Boolean);
+}
+
+function evaluateFaceUniqueness(newVector, candidates, targetIdentity) {
+  const matches = [];
+  let unreadableCandidate = false;
+  const readableCandidateVectors = new Map();
+  const readableIdentityKeys = new Set();
+
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+
+    const rawDescriptor = candidate.faceDescriptor || candidate.descriptor || candidate.faceVector || candidate.embedding;
+    if (!rawDescriptor) continue;
+
+    let candidateVector;
+    try {
+      candidateVector = normalizeFaceVector(rawDescriptor, "Stored face descriptor");
+    } catch (_) {
+      continue;
+    }
+
+    readableCandidateVectors.set(candidate, candidateVector);
+    faceIdentityKeys(candidate).forEach((key) => readableIdentityKeys.add(key));
+  }
+
+  for (const candidate of candidates) {
+    if (!candidate || sameFaceIdentity(candidate, targetIdentity)) continue;
+
+    const rawDescriptor = candidate.faceDescriptor || candidate.descriptor || candidate.faceVector || candidate.embedding;
+    if (!rawDescriptor) {
+      const identityKeys = faceIdentityKeys(candidate);
+      if (
+        (candidate.faceRegistered === true || candidate.status === "PENDING") &&
+        !identityKeys.some((key) => readableIdentityKeys.has(key))
+      ) {
+        unreadableCandidate = true;
+      }
+      continue;
+    }
+
+    const candidateVector = readableCandidateVectors.get(candidate);
+    if (!candidateVector) {
+      const identityKeys = faceIdentityKeys(candidate);
+      if (!identityKeys.some((key) => readableIdentityKeys.has(key))) unreadableCandidate = true;
+      continue;
+    }
+
+    matches.push({
+      candidate,
+      distance: faceVectorDistance(newVector, candidateVector)
+    });
+  }
+
+  matches.sort((left, right) => left.distance - right.distance);
+  if (matches.some((match) => match.distance <= FACE_DUPLICATE_DISTANCE)) {
+    return { decision: "duplicate", match: matches[0] };
+  }
+  if (unreadableCandidate || matches.some((match) => match.distance <= FACE_REVIEW_DISTANCE)) {
+    return {
+      decision: "review",
+      match: matches.find((item) => item.distance <= FACE_REVIEW_DISTANCE) || null
+    };
+  }
+  return { decision: "unique", match: null };
+}
+
+async function isFaceEnrollmentStaff(request) {
+  if (request.auth?.token?.admin === true) return true;
+  try {
+    await assertAdmin(request);
+    return true;
+  } catch (error) {
+    if (error?.code !== "permission-denied") throw error;
+  }
+
+  const uid = request.auth?.uid;
+  if (!uid) throw new HttpsError("unauthenticated", "Authentication required.");
+  const email = String(request.auth.token.email || "").trim().toLowerCase();
+  const prefix = email ? email.split("@")[0] : "";
+  const authCandidates = [
+    db.collection("users").doc(uid),
+    ...(email ? [db.collection("authorizedUsers").doc(email)] : []),
+    ...(prefix ? [db.collection("authorizedUsers").doc(prefix)] : [])
+  ];
+  const authDocs = await Promise.all(authCandidates.map((ref) => ref.get()));
+  const staffRoles = new Set(["lecturer", "faculty", "professor", "admin", "administrator", "superadmin"]);
+  if (authDocs.some((docSnap) => {
+    if (!docSnap.exists) return false;
+    const data = docSnap.data() || {};
+    return staffRoles.has(String(data.role || "").toLowerCase()) ||
+      data.isAdmin === true;
+  })) return true;
+
+  try {
+    await assertLecturer(request);
+    return true;
+  } catch (error) {
+    if (error?.code === "permission-denied") return false;
+    throw error;
+  }
+}
+
+function faceCandidateFromDoc(docSnap, collectionName) {
+  const data = docSnap.data() || {};
+  const inferredRollNo = data.rollNo ||
+    (String(docSnap.id).includes("@") ? String(docSnap.id).split("@")[0] : docSnap.id);
+  const identity = cleanFaceIdentity({ ...data, rollNo: inferredRollNo });
+  return {
+    ...identity,
+    faceDescriptor: data.faceDescriptor || data.descriptor || data.faceVector || data.embedding || null,
+    faceRegistered: data.faceRegistered === true,
+    status: data.status,
+    name: data.name || data.fullName || "",
+    collectionName,
+    docId: docSnap.id
+  };
+}
+
 /**
  * Verifies hardware biometric signature against registered public key.
  * Strictly verifies signatures in Cloud Functions memory.
@@ -1102,6 +1270,123 @@ async function assertLecturerCourseScope(lecturerUid, lecturerEmail, courseCode)
 
   return courseData;
 }
+
+/**
+ * Returns a Set of student roll numbers enrolled in courses taught by the given lecturer.
+ * Checks direct lecturer assignment, assignedLecturers list, and cohort rosters.
+ */
+async function getAuthorizedStudentRollsForLecturer(lecturerUid, lecturerEmail) {
+  const cleanEmail = String(lecturerEmail || "").toLowerCase().trim();
+  const cleanUid = String(lecturerUid || "").trim();
+  const prefix = cleanEmail ? cleanEmail.split("@")[0] : "";
+  const coursesSnap = await db.collection("courses").get();
+  const authorizedRolls = new Set();
+
+  for (const doc of coursesSnap.docs) {
+    const c = doc.data() || {};
+    let isAssigned = false;
+    if (c.lecturerEmail && String(c.lecturerEmail).toLowerCase().trim() === cleanEmail) isAssigned = true;
+    if (c.lecturerId && (c.lecturerId === cleanUid || String(c.lecturerId).toLowerCase().trim() === cleanEmail)) isAssigned = true;
+    if (Array.isArray(c.assignedLecturers)) {
+      for (const l of c.assignedLecturers) {
+        const lEmail = typeof l === "string" ? l.toLowerCase().trim() : String(l.email || "").toLowerCase().trim();
+        const lUid = typeof l === "object" ? (l.uid || l.id) : null;
+        if (lEmail === cleanEmail || (prefix && lEmail === prefix) || (lUid && lUid === cleanUid)) {
+          isAssigned = true;
+          break;
+        }
+      }
+    }
+    if (c.lecturer && typeof c.lecturer === "string") {
+      const l = c.lecturer.toLowerCase().trim();
+      if (l === cleanEmail || (prefix && l === prefix)) isAssigned = true;
+    }
+
+    if (isAssigned) {
+      if (Array.isArray(c.enrolledStudents)) {
+        for (const s of c.enrolledStudents) {
+          const r = typeof s === "string" ? s.toUpperCase().trim() : String(s.rollNo || s.rollNumber || "").toUpperCase().trim();
+          if (r) authorizedRolls.add(r);
+        }
+      }
+    }
+  }
+
+  return authorizedRolls;
+}
+
+/**
+ * Resolves whether an active re-registration permission exists for the given student rollNo
+ * and registration type ("FACE" or "BIOMETRIC").
+ * Returns { hasPermission: boolean, permissionDoc: DocumentSnapshot|null, permissionData: Object|null }
+ */
+async function resolveActiveReRegistrationPermission(transactionOrDb, rollNo, registrationType) {
+  const cleanRoll = String(rollNo || "").trim().toUpperCase();
+  if (!cleanRoll) return { hasPermission: false, permissionDoc: null, permissionData: null };
+
+  const query = db.collection("biometric_reregistration_permissions")
+    .where("targetRollNo", "==", cleanRoll)
+    .where("status", "==", "ACTIVE");
+
+  const snap = transactionOrDb && typeof transactionOrDb.get === "function"
+    ? await transactionOrDb.get(query)
+    : await query.get();
+
+  const nowMs = Date.now();
+  for (const docSnap of snap.docs) {
+    const data = docSnap.data() || {};
+    const pType = String(data.registrationType || "").toUpperCase();
+    if (pType !== registrationType && pType !== "BOTH") continue;
+
+    if (data.expiresAt) {
+      const expMs = typeof data.expiresAt.toMillis === "function"
+        ? data.expiresAt.toMillis()
+        : new Date(data.expiresAt).getTime();
+      if (expMs <= nowMs) {
+        continue;
+      }
+    }
+
+    const mode = String(data.mode || "ONE_TIME").toUpperCase();
+    if (mode === "ONE_TIME") {
+      const remaining = data.remainingUses != null ? Number(data.remainingUses) : 1;
+      if (remaining <= 0) continue;
+    }
+
+    return { hasPermission: true, permissionDoc: docSnap, permissionData: data };
+  }
+
+  return { hasPermission: false, permissionDoc: null, permissionData: null };
+}
+
+/**
+ * Consumes or updates a re-registration permission within a Firestore transaction.
+ * One-time grants are atomically decremented and marked EXHAUSTED when 0 uses remain.
+ * Repeated grants increment use count without expiring.
+ */
+function consumeReRegistrationPermission(transaction, permissionDoc, permissionData) {
+  if (!transaction || !permissionDoc) return;
+  const mode = String(permissionData.mode || "ONE_TIME").toUpperCase();
+  const usedCount = Number(permissionData.usedCount || 0) + 1;
+  const now = FieldValue.serverTimestamp();
+
+  if (mode === "ONE_TIME") {
+    const remaining = (permissionData.remainingUses != null ? Number(permissionData.remainingUses) : 1) - 1;
+    transaction.update(permissionDoc.ref, {
+      usedCount,
+      remainingUses: Math.max(0, remaining),
+      status: remaining <= 0 ? "EXHAUSTED" : "ACTIVE",
+      lastUsedAt: now,
+      consumedAt: remaining <= 0 ? now : null
+    });
+  } else {
+    transaction.update(permissionDoc.ref, {
+      usedCount,
+      lastUsedAt: now
+    });
+  }
+}
+
 
 /**
  * 1. INITIATE ATTENDANCE SESSION (Lecturer only)
@@ -1911,8 +2196,12 @@ exports.submitAttendance = onCall(async (request) => {
     // 4. Server-Side Face Identity & Vector Verification
     // Single authoritative enrollment source: students collection (protected by Security Rules)
     let enrolledDescriptor = null;
-    if (studentDocSnap && studentDocSnap.exists) {
-      enrolledDescriptor = studentDocSnap.data()?.faceDescriptor;
+    const faceEnrollmentSnap = await db.collection("face_enrollments").doc(String(rollNo).trim().toUpperCase()).get();
+    if (faceEnrollmentSnap.exists) enrolledDescriptor = faceEnrollmentSnap.data()?.faceDescriptor;
+    if (!enrolledDescriptor && studentDocSnap?.exists) enrolledDescriptor = studentDocSnap.data()?.faceDescriptor;
+    if (!enrolledDescriptor) {
+      const studentUidFaceSnap = await db.collection("face_enrollments").doc(studentUid).get();
+      if (studentUidFaceSnap.exists) enrolledDescriptor = studentUidFaceSnap.data()?.faceDescriptor;
     }
     if (!enrolledDescriptor) {
       const studentUidSnap = await db.collection("students").doc(studentUid).get();
@@ -1947,11 +2236,11 @@ exports.submitAttendance = onCall(async (request) => {
       const diff = liveVal - enrolledVal;
       sumSquares += diff * diff;
     }
-    let serverCalculatedDistance = Math.sqrt(sumSquares);
+    const serverCalculatedDistance = Math.sqrt(sumSquares);
     if (!Number.isFinite(serverCalculatedDistance)) {
-      serverCalculatedDistance = 0.35;
+      throw new HttpsError("failed-precondition", "Face comparison could not be completed safely. Please try again.");
     }
-    const MAX_FACE_MATCH_THRESHOLD = 0.52; // ResNet-34 face match threshold
+    const MAX_FACE_MATCH_THRESHOLD = FACE_MATCH_DISTANCE;
 
     // Verify optical presence signal from client-side vision pipeline:
     // ARCHITECTURAL SECURITY CONTRACT:
@@ -2637,15 +2926,23 @@ exports.registerInitialBiometricKey = onCall(async (request) => {
     throw new HttpsError("invalid-argument", "Malformed public key: " + kErr.message);
   }
 
-  // Check if student already has an active biometric credential
+  // Check if student/user already has an active biometric credential
   const credRef = db.collection("biometric_credentials").doc(studentUid);
   const existingCredSnap = await credRef.get();
+  const isCallerStaff = await isFaceEnrollmentStaff(request);
+  let activePermission = null;
 
   if (existingCredSnap.exists && existingCredSnap.data().status === "ACTIVE") {
-    throw new HttpsError(
-      "already-exists",
-      "An active biometric credential is already registered for your account. Direct re-enrollment is prohibited. To replace your credential, submit a Biometric Change Request or contact your course lecturer."
-    );
+    if (!isCallerStaff) {
+      const permCheck = await resolveActiveReRegistrationPermission(null, studentProfile.rollNo, "BIOMETRIC");
+      if (!permCheck.hasPermission) {
+        throw new HttpsError(
+          "already-exists",
+          "An active biometric credential is already registered for your account. Direct re-enrollment is prohibited. To replace your credential, ask an authorized lecturer or administrator for re-registration access."
+        );
+      }
+      activePermission = permCheck;
+    }
   }
 
   // Platform binding check (Option A: Prevent enrolling Android key on iOS-registered account)
@@ -2662,6 +2959,10 @@ exports.registerInitialBiometricKey = onCall(async (request) => {
     );
   }
 
+  const enrollmentMethod = isCallerStaff
+    ? "STAFF_ENROLLMENT"
+    : (activePermission ? "AUTHORIZED_RE_REGISTRATION" : "STUDENT_SELF_ENROLLMENT");
+
   const credentialRecord = {
     studentUid: studentUid,
     rollNo: studentProfile.rollNo,
@@ -2670,39 +2971,48 @@ exports.registerInitialBiometricKey = onCall(async (request) => {
     platform: platform || "android",
     keyAlias: keyAlias || `smartattend_p256_${studentProfile.rollNo}`,
     status: "ACTIVE",
-    enrollmentMethod: "STUDENT_SELF_ENROLLMENT",
+    enrollmentMethod: enrollmentMethod,
     createdAt: FieldValue.serverTimestamp(),
     updatedAt: FieldValue.serverTimestamp()
   };
 
-  await Promise.all([
-    credRef.set(credentialRecord),
-    db.collection("biometric_credentials").doc(studentProfile.rollNo).set(credentialRecord),
-    studentDocRef.set({
-      biometricEnrolled: true,
-      registeredPlatform: authoritativePlatform || "android",
-      deviceType: authoritativePlatform || "android",
-      registeredDeviceType: authoritativePlatform || "android",
-      deviceTypeLocked: true,
-      hardwareBiometricPlatform: platform || "android",
-      hardwareBiometricEnrolledAt: FieldValue.serverTimestamp()
-    }, { merge: true }),
-    db.collection("biometric_audit_logs").add({
-      action: "INITIAL_BIOMETRIC_ENROLLMENT",
-      studentUid: studentUid,
-      rollNo: studentProfile.rollNo,
-      platform: platform || "android",
-      enrolledBy: studentUid,
-      timestamp: FieldValue.serverTimestamp()
-    })
-  ]);
+  await db.runTransaction(async (transaction) => {
+    if (activePermission?.permissionDoc) {
+      consumeReRegistrationPermission(transaction, activePermission.permissionDoc, activePermission.permissionData);
+    }
+    transaction.set(credRef, credentialRecord);
+    transaction.set(db.collection("biometric_credentials").doc(studentProfile.rollNo), credentialRecord);
+    if (studentDocSnap.exists) {
+      transaction.set(studentDocRef, {
+        biometricEnrolled: true,
+        registeredPlatform: authoritativePlatform || "android",
+        deviceType: authoritativePlatform || "android",
+        registeredDeviceType: authoritativePlatform || "android",
+        deviceTypeLocked: true,
+        hardwareBiometricPlatform: platform || "android",
+        hardwareBiometricEnrolledAt: FieldValue.serverTimestamp()
+      }, { merge: true });
+    }
+  });
+
+  await db.collection("biometric_audit_logs").add({
+    action: activePermission ? "BIOMETRIC_RE_REGISTRATION" : (isCallerStaff ? "STAFF_BIOMETRIC_ENROLLMENT" : "INITIAL_BIOMETRIC_ENROLLMENT"),
+    studentUid: studentUid,
+    rollNo: studentProfile.rollNo,
+    platform: platform || "android",
+    enrolledBy: studentUid,
+    isStaff: isCallerStaff,
+    timestamp: FieldValue.serverTimestamp()
+  });
 
   return {
     success: true,
     rollNo: studentProfile.rollNo,
     platform: platform || "unknown",
     status: "ACTIVE",
-    message: "Initial biometric credential registered successfully."
+    message: activePermission
+      ? "Hardware biometric credential re-registered successfully under authorized permission."
+      : "Initial biometric credential registered successfully."
   };
 });
 
@@ -3683,91 +3993,564 @@ exports.verifyWebAuthnRegistration = onCall(async (request) => {
 });
 
 /**
- * Register Initial Student Face Biometrics
- * Authoritative backend endpoint for registering student face vector descriptors.
- * Validates:
- * - Caller is authenticated and matches target student
- * - Face is not already registered (or caller is staff)
- * - 128-float vector format and entropy validation
- * - Saves strictly to authoritative `students` collection.
+ * Registers a student's face template in a server-only collection.
+ * All writes are serialized through one guard document so concurrent enrollments
+ * re-check the same registry before committing.
  */
 exports.registerStudentFace = onCall(async (request) => {
-  if (!request.auth || !request.auth.uid) {
+  if (!request.auth?.uid) {
     throw new HttpsError("unauthenticated", "Authentication required.");
   }
-  const callerUid = request.auth.uid;
-  const callerEmail = (request.auth.token.email || "").toLowerCase().trim();
-  const { rollNo, faceDescriptor, photoURL } = request.data || {};
 
-  if (!rollNo || !faceDescriptor) {
+  const callerUid = request.auth.uid;
+  const callerEmail = String(request.auth.token.email || "").trim().toLowerCase();
+  const requestedRollNo = request.data?.rollNo;
+  if (!requestedRollNo || !request.data?.faceDescriptor) {
     throw new HttpsError("invalid-argument", "rollNo and faceDescriptor are required.");
   }
 
-  const cleanRollNo = String(rollNo).trim().toUpperCase();
-
-  // Validate vector format and entropy
-  let cleanVector = faceDescriptor;
-  if (!Array.isArray(cleanVector) && typeof cleanVector === "object" && cleanVector !== null) {
-    const vals = Object.values(cleanVector);
-    if (vals.length === 128) cleanVector = vals;
-  }
-  validateFaceVectorDescriptor(cleanVector, `Face descriptor for ${cleanRollNo}`);
-
-  // Determine authorization: caller must be staff or the student themselves
-  const callerUserDoc = await db.collection("users").doc(callerUid).get();
-  const callerRole = callerUserDoc.exists ? (callerUserDoc.data().role || "") : "";
-  const isStaff = callerRole === "lecturer" || callerRole === "admin" || callerRole === "faculty" || request.auth.token.admin === true;
-
-  // Resolve student doc
+  const cleanRollNo = String(requestedRollNo).trim().toUpperCase();
+  const cleanVector = normalizeFaceVector(request.data.faceDescriptor, `Face descriptor for ${cleanRollNo}`);
   const studentDocRef = db.collection("students").doc(cleanRollNo);
   const studentSnap = await studentDocRef.get();
-  let studentData = studentSnap.exists ? studentSnap.data() : null;
+  const isStaff = await isFaceEnrollmentStaff(request);
+  let isStaffSelf = false;
 
-  if (!studentData) {
-    const uidDocRef = db.collection("students").doc(callerUid);
-    const uidSnap = await uidDocRef.get();
-    if (uidSnap.exists) {
-      studentData = uidSnap.data();
+  if (!studentSnap.exists) {
+    if (isStaff) {
+      const userDoc = await db.collection("users").doc(callerUid).get();
+      const callerRoll = callerEmail ? callerEmail.split("@")[0].trim().toUpperCase() : "";
+      if (userDoc.exists || cleanRollNo === callerRoll || cleanRollNo === callerUid) {
+        isStaffSelf = true;
+      } else {
+        throw new HttpsError("not-found", "The target student record could not be verified.");
+      }
+    } else {
+      throw new HttpsError("not-found", "The target student record could not be verified.");
     }
   }
 
-  if (!isStaff) {
-    const matchUid = studentData && studentData.studentUid === callerUid;
-    const matchEmail = (studentData && studentData.email && studentData.email.toLowerCase() === callerEmail) ||
-      (callerEmail && callerEmail.startsWith(cleanRollNo.toLowerCase()));
-    const matchCallerRoll = callerEmail && callerEmail.split("@")[0].toUpperCase() === cleanRollNo;
+  const studentData = studentSnap.exists ? (studentSnap.data() || {}) : {};
+  const linkedUid = String(studentData.studentUid || studentData.uid || studentData.userUid || "").trim();
+  const studentEmail = String(studentData.email || "").trim().toLowerCase();
+  const callerRoll = callerEmail ? callerEmail.split("@")[0].trim().toUpperCase() : "";
+  const ownsStudent = linkedUid
+    ? linkedUid === callerUid
+    : Boolean((studentEmail && studentEmail === callerEmail) || callerRoll === cleanRollNo);
 
-    if (!matchUid && !matchEmail && !matchCallerRoll) {
-      throw new HttpsError("permission-denied", "You can only enroll face biometrics for your own student account.");
-    }
-
-    // Permanent biometric protection: if already registered, student cannot overwrite without staff
-    if (studentData && studentData.faceDescriptor && Array.isArray(studentData.faceDescriptor) && studentData.faceDescriptor.length === 128) {
-      throw new HttpsError("failed-precondition", "Face biometrics are already enrolled and locked. Please contact your lecturer or administrator for an authorized reset.");
-    }
+  if (!isStaff && !ownsStudent) {
+    throw new HttpsError("permission-denied", "You can only enroll face biometrics for your own student account.");
   }
 
-  const updateData = {
+  const targetIdentity = {
     rollNo: cleanRollNo,
-    faceDescriptor: cleanVector,
-    faceRegistered: true,
-    biometricEnrolled: true,
-    hasFaceRegistered: true,
-    faceEnrolledAt: FieldValue.serverTimestamp(),
-    studentUid: callerUid
+    studentUid: linkedUid || (!isStaff ? callerUid : "")
   };
-  if (photoURL) {
-    updateData.photoURL = photoURL;
+  const enrollmentRef = db.collection("face_enrollments").doc(cleanRollNo);
+  const guardRef = db.collection("face_enrollment_control").doc("global");
+  const reviewRef = db.collection("face_enrollment_reviews").doc();
+
+  let activePermissionForAudit = null;
+
+  const result = await db.runTransaction(async (transaction) => {
+    const [
+      guardSnap,
+      targetSnap,
+      enrollmentSnap,
+      enrolledFaces,
+      pendingReviews,
+      legacyStudents,
+      legacyUsers,
+      legacyAuthorizedUsers
+    ] = await Promise.all([
+      transaction.get(guardRef),
+      studentSnap.exists ? transaction.get(studentDocRef) : Promise.resolve({ exists: true, data: () => ({}) }),
+      transaction.get(enrollmentRef),
+      transaction.get(db.collection("face_enrollments")),
+      transaction.get(db.collection("face_enrollment_reviews").where("status", "==", "PENDING")),
+      transaction.get(db.collection("students")),
+      transaction.get(db.collection("users")),
+      transaction.get(db.collection("authorizedUsers"))
+    ]);
+
+    if (!targetSnap.exists && !isStaffSelf) {
+      throw new HttpsError("not-found", "The target student record could not be verified.");
+    }
+
+    const candidates = [
+      ...enrolledFaces.docs.map((docSnap) => faceCandidateFromDoc(docSnap, "face_enrollments")),
+      ...pendingReviews.docs.map((docSnap) => faceCandidateFromDoc(docSnap, "face_enrollment_reviews")),
+      ...legacyStudents.docs.map((docSnap) => faceCandidateFromDoc(docSnap, "students")),
+      ...legacyUsers.docs.map((docSnap) => faceCandidateFromDoc(docSnap, "users")),
+      ...legacyAuthorizedUsers.docs.map((docSnap) => faceCandidateFromDoc(docSnap, "authorizedUsers"))
+    ];
+    const uniqueness = evaluateFaceUniqueness(cleanVector, candidates, targetIdentity);
+    const hasExistingEnrollment = enrollmentSnap.exists ||
+      candidates.some((candidate) =>
+        sameFaceIdentity(candidate, targetIdentity) &&
+        (candidate.faceRegistered === true || candidate.status === "ACTIVE" || candidate.faceDescriptor)
+      );
+
+    let activePermission = null;
+    if (!isStaff && !isStaffSelf && hasExistingEnrollment) {
+      const permCheck = await resolveActiveReRegistrationPermission(transaction, cleanRollNo, "FACE");
+      if (!permCheck.hasPermission) {
+        throw new HttpsError(
+          "failed-precondition",
+          "Face biometrics are already enrolled. Ask an authorized lecturer or administrator to re-enroll them."
+        );
+      }
+      activePermission = permCheck;
+      activePermissionForAudit = permCheck;
+    }
+
+    if (uniqueness.decision === "duplicate") {
+      throw new HttpsError(
+        "already-exists",
+        "This face matches an enrollment belonging to another student. The existing enrollment was not changed."
+      );
+    }
+
+    if (hasExistingEnrollment && !activePermission && !isStaff && !isStaffSelf) {
+      const priorEnrollment = candidates.find((candidate) =>
+        sameFaceIdentity(candidate, targetIdentity) &&
+        (candidate.faceRegistered === true || candidate.status === "ACTIVE" || candidate.faceDescriptor)
+      );
+      let priorVector = null;
+      if (priorEnrollment?.faceDescriptor) {
+        try {
+          priorVector = normalizeFaceVector(priorEnrollment.faceDescriptor, "Existing face descriptor");
+        } catch (_) {
+          priorVector = null;
+        }
+      }
+      const existingDistance = priorVector ? faceVectorDistance(cleanVector, priorVector) : Number.POSITIVE_INFINITY;
+      if (existingDistance > FACE_REVIEW_DISTANCE) {
+        transaction.set(reviewRef, {
+          rollNo: cleanRollNo,
+          studentUid: targetIdentity.studentUid || null,
+          requestedBy: callerUid,
+          status: "PENDING",
+          reason: "EXISTING_IDENTITY_UNVERIFIED",
+          faceDescriptor: cleanVector,
+          distance: Number.isFinite(existingDistance) ? existingDistance : null,
+          createdAt: FieldValue.serverTimestamp()
+        });
+        transaction.set(guardRef, {
+          revision: Number(guardSnap.data()?.revision || 0) + 1,
+          updatedAt: FieldValue.serverTimestamp()
+        }, { merge: true });
+        return {
+          success: false,
+          status: "REVIEW_REQUIRED",
+          message: "The new face could not be verified against this student's existing enrollment. The current enrollment was preserved for authorized identity review."
+        };
+      }
+    }
+
+    if (uniqueness.decision === "review") {
+      transaction.set(reviewRef, {
+        rollNo: cleanRollNo,
+        studentUid: targetIdentity.studentUid || null,
+        requestedBy: callerUid,
+        status: "PENDING",
+        reason: "FACE_MATCH_AMBIGUOUS",
+        faceDescriptor: cleanVector,
+        candidateRollNo: uniqueness.match?.candidate?.rollNo || null,
+        distance: Number.isFinite(uniqueness.match?.distance) ? uniqueness.match.distance : null,
+        createdAt: FieldValue.serverTimestamp()
+      });
+      transaction.set(guardRef, {
+        revision: Number(guardSnap.data()?.revision || 0) + 1,
+        updatedAt: FieldValue.serverTimestamp()
+      }, { merge: true });
+      return {
+        success: false,
+        status: "REVIEW_REQUIRED",
+        message: "This face could not be safely distinguished from an existing enrollment. Enrollment is on hold for authorized review."
+      };
+    }
+
+    const publicFaceFields = {
+      faceDescriptor: FieldValue.delete(),
+      faceDescriptors: FieldValue.delete(),
+      descriptor: FieldValue.delete(),
+      descriptors: FieldValue.delete(),
+      faceVector: FieldValue.delete(),
+      faceVectors: FieldValue.delete(),
+      embedding: FieldValue.delete(),
+      embeddings: FieldValue.delete()
+    };
+    const metadata = {
+      rollNo: cleanRollNo,
+      faceRegistered: true,
+      biometricEnrolled: true,
+      hasFaceRegistered: true,
+      faceEnrolledAt: FieldValue.serverTimestamp(),
+      faceRemovedAt: FieldValue.delete(),
+      ...publicFaceFields
+    };
+    if (targetIdentity.studentUid) metadata.studentUid = targetIdentity.studentUid;
+
+    transaction.set(enrollmentRef, {
+      ...targetIdentity,
+      faceDescriptor: cleanVector,
+      status: "ACTIVE",
+      updatedAt: FieldValue.serverTimestamp()
+    });
+
+    if (studentSnap.exists) {
+      transaction.set(studentDocRef, metadata, { merge: true });
+    } else if (isStaffSelf) {
+      transaction.set(db.collection("users").doc(callerUid), metadata, { merge: true });
+    }
+
+    // Atomically consume re-registration permission if active
+    if (activePermission?.permissionDoc) {
+      consumeReRegistrationPermission(transaction, activePermission.permissionDoc, activePermission.permissionData);
+    }
+
+    const cleanedRefs = new Set();
+    for (const legacyDoc of [...legacyStudents.docs, ...legacyUsers.docs, ...legacyAuthorizedUsers.docs]) {
+      if (sameFaceIdentity(faceCandidateFromDoc(legacyDoc, legacyDoc.ref.parent.id), targetIdentity)) {
+        const path = legacyDoc.ref.path;
+        if (!cleanedRefs.has(path) && path !== studentDocRef.path) {
+          cleanedRefs.add(path);
+          transaction.update(legacyDoc.ref, {
+            ...publicFaceFields,
+            faceRegistered: true,
+            biometricEnrolled: true,
+            hasFaceRegistered: true,
+            faceEnrolledAt: FieldValue.serverTimestamp(),
+            faceRemovedAt: FieldValue.delete()
+          });
+        }
+      }
+    }
+    transaction.set(guardRef, {
+      revision: Number(guardSnap.data()?.revision || 0) + 1,
+      updatedAt: FieldValue.serverTimestamp()
+    }, { merge: true });
+
+    return { success: true, status: "ENROLLED", rollNo: cleanRollNo };
+  });
+
+  if (result.success) {
+    await db.collection("biometric_audit_logs").add({
+      action: activePermissionForAudit ? "FACE_RE_REGISTRATION" : (isStaff || isStaffSelf ? "STAFF_FACE_ENROLLMENT" : "INITIAL_FACE_ENROLLMENT"),
+      rollNo: cleanRollNo,
+      enrolledBy: callerUid,
+      isStaff: Boolean(isStaff || isStaffSelf),
+      timestamp: FieldValue.serverTimestamp()
+    });
   }
 
-  await studentDocRef.set(updateData, { merge: true });
+  return result;
+});
 
+/**
+ * Matches a live descriptor against a target student or, for staff, the enrolled
+ * student registry. Only profile details are returned; templates stay server-side.
+ */
+exports.matchStudentFace = onCall(async (request) => {
+  if (!request.auth?.uid) {
+    throw new HttpsError("unauthenticated", "Authentication required.");
+  }
+
+  const liveVector = normalizeFaceVector(request.data?.faceDescriptor, "Live face descriptor");
+  const targetRollNo = String(request.data?.rollNo || "").trim().toUpperCase();
+  const isStaff = await isFaceEnrollmentStaff(request);
+
+  if (!targetRollNo && !isStaff) {
+    throw new HttpsError("permission-denied", "Only authorized staff can identify a student from a face scan.");
+  }
+
+  let targetIdentity = null;
+  let targetStudentData = null;
+  if (targetRollNo) {
+    const targetSnap = await db.collection("students").doc(targetRollNo).get();
+    if (!targetSnap.exists) throw new HttpsError("not-found", "The target student record could not be verified.");
+    const data = targetSnap.data() || {};
+    targetStudentData = data;
+    const linkedUid = String(data.studentUid || data.uid || data.userUid || "").trim();
+    const email = String(data.email || "").trim().toLowerCase();
+    const callerEmail = String(request.auth.token.email || "").trim().toLowerCase();
+    const callerRoll = callerEmail ? callerEmail.split("@")[0].trim().toUpperCase() : "";
+    if (!isStaff && !(linkedUid ? linkedUid === request.auth.uid : (email === callerEmail || callerRoll === targetRollNo))) {
+      throw new HttpsError("permission-denied", "You can only verify your own student face.");
+    }
+    targetIdentity = { rollNo: targetRollNo, studentUid: linkedUid || (!isStaff ? request.auth.uid : "") };
+  }
+
+  const [enrolledFaces, legacyStudents, legacyUsers, legacyAuthorizedUsers] = targetRollNo
+    ? await Promise.all([
+      db.collection("face_enrollments").doc(targetRollNo).get(),
+      db.collection("students").doc(targetRollNo).get(),
+      targetIdentity.studentUid
+        ? db.collection("users").doc(targetIdentity.studentUid).get()
+        : db.collection("users").where("rollNo", "==", targetRollNo).get(),
+      targetStudentData.email
+        ? db.collection("authorizedUsers").where("email", "==", String(targetStudentData.email).toLowerCase()).get()
+        : db.collection("authorizedUsers").where("rollNo", "==", targetRollNo).get()
+    ])
+    : await Promise.all([
+      db.collection("face_enrollments").get(),
+      db.collection("students").get(),
+      db.collection("users").get(),
+      db.collection("authorizedUsers").get()
+    ]);
+  const candidateMap = new Map();
+  const snapshots = [
+    enrolledFaces,
+    legacyStudents,
+    ...(Array.isArray(legacyUsers) ? legacyUsers : [legacyUsers]),
+    ...(Array.isArray(legacyAuthorizedUsers) ? legacyAuthorizedUsers : [legacyAuthorizedUsers])
+  ];
+  snapshots.forEach((snapshot) => {
+    const docs = Array.isArray(snapshot.docs) ? snapshot.docs : (snapshot.exists ? [snapshot] : []);
+    docs.forEach((docSnap) => {
+    const candidate = faceCandidateFromDoc(docSnap, docSnap.ref.parent.id);
+    if (!candidate.rollNo) return;
+    const key = candidate.studentUid || candidate.rollNo || candidate.docId;
+    const existing = candidateMap.get(key);
+    if (!existing || (candidate.faceDescriptor && !existing.faceDescriptor)) candidateMap.set(key, candidate);
+    });
+  });
+
+  const matches = [];
+  for (const candidate of candidateMap.values()) {
+    if (targetIdentity && !sameFaceIdentity(candidate, targetIdentity)) continue;
+    const descriptor = candidate.faceDescriptor;
+    if (!descriptor) continue;
+    let storedVector;
+    try {
+      storedVector = normalizeFaceVector(descriptor, "Stored face descriptor");
+    } catch (_) {
+      continue;
+    }
+    matches.push({ candidate, distance: faceVectorDistance(liveVector, storedVector) });
+  }
+  matches.sort((left, right) => left.distance - right.distance);
+
+  const best = matches[0];
+  if (!best) return { status: "UNREGISTERED", matched: false };
+  if (best.distance > FACE_REVIEW_DISTANCE) {
+    return { status: "NO_MATCH", matched: false, distance: best.distance };
+  }
+  if (best.distance > FACE_MATCH_DISTANCE || (matches[1] && matches[1].distance - best.distance < 0.08)) {
+    return { status: "REVIEW_REQUIRED", matched: false, distance: best.distance };
+  }
+
+  const studentSnap = await db.collection("students").doc(best.candidate.rollNo).get();
+  const studentData = studentSnap.exists ? studentSnap.data() : {};
   return {
-    success: true,
-    rollNo: cleanRollNo,
-    message: "Face biometrics enrolled successfully."
+    status: "MATCH",
+    matched: true,
+    distance: best.distance,
+    confidence: Math.max(0, Math.min(100, Math.round((1 - best.distance / FACE_MATCH_DISTANCE) * 100))),
+    student: {
+      rollNo: best.candidate.rollNo,
+      name: studentData?.name || studentData?.fullName || "",
+      email: studentData?.email || "",
+      branch: studentData?.branch || studentData?.department || "",
+      semester: studentData?.semester || ""
+    }
   };
 });
+
+/**
+ * Staff can close an ambiguous request by requiring a fresh capture or rejecting
+ * it. This endpoint intentionally does not provide an approval override.
+ */
+exports.resolveFaceEnrollmentReview = onCall(async (request) => {
+  if (!request.auth?.uid) throw new HttpsError("unauthenticated", "Authentication required.");
+  if (!(await isFaceEnrollmentStaff(request))) {
+    throw new HttpsError("permission-denied", "Only authorized staff can review face enrollment requests.");
+  }
+
+  const requestId = String(request.data?.requestId || "").trim();
+  const action = String(request.data?.action || "").trim().toUpperCase();
+  if (!requestId || !["RECAPTURE_REQUIRED", "REJECTED"].includes(action)) {
+    throw new HttpsError("invalid-argument", "A requestId and supported review action are required.");
+  }
+
+  const reviewRef = db.collection("face_enrollment_reviews").doc(requestId);
+  const guardRef = db.collection("face_enrollment_control").doc("global");
+  await db.runTransaction(async (transaction) => {
+    const [reviewSnap, guardSnap] = await Promise.all([
+      transaction.get(reviewRef),
+      transaction.get(guardRef)
+    ]);
+    if (!reviewSnap.exists || reviewSnap.data()?.status !== "PENDING") {
+      throw new HttpsError("not-found", "Pending face enrollment review was not found.");
+    }
+    transaction.update(reviewRef, {
+      status: action,
+      faceDescriptor: FieldValue.delete(),
+      reviewedBy: request.auth.uid,
+      reviewedAt: FieldValue.serverTimestamp()
+    });
+    transaction.set(guardRef, {
+      revision: Number(guardSnap.data()?.revision || 0) + 1,
+      updatedAt: FieldValue.serverTimestamp()
+    }, { merge: true });
+  });
+
+  return { success: true, status: action };
+});
+
+exports.listFaceEnrollmentReviews = onCall(async (request) => {
+  if (!request.auth?.uid) throw new HttpsError("unauthenticated", "Authentication required.");
+  if (!(await isFaceEnrollmentStaff(request))) {
+    throw new HttpsError("permission-denied", "Only authorized staff can view face enrollment reviews.");
+  }
+
+  const requestedRollNo = String(request.data?.rollNo || "").trim().toUpperCase();
+  const pendingQuery = requestedRollNo
+    ? db.collection("face_enrollment_reviews").where("rollNo", "==", requestedRollNo).limit(100)
+    : db.collection("face_enrollment_reviews").where("status", "==", "PENDING").limit(100);
+  const pending = await pendingQuery.get();
+
+  const reviews = pending.docs
+    .map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }))
+    .filter((review) => review.status === "PENDING");
+
+  return {
+    reviews: await Promise.all(reviews.map(async (review) => {
+      const [studentSnap, conflictSnap] = await Promise.all([
+        db.collection("students").doc(String(review.rollNo || "").trim().toUpperCase()).get(),
+        review.candidateRollNo
+          ? db.collection("students").doc(String(review.candidateRollNo).trim().toUpperCase()).get()
+          : Promise.resolve(null)
+      ]);
+      const student = studentSnap?.exists ? studentSnap.data() : {};
+      const conflict = conflictSnap?.exists ? conflictSnap.data() : {};
+      return {
+        id: review.id,
+        rollNo: review.rollNo,
+        studentName: student.name || student.fullName || "",
+        candidateRollNo: review.candidateRollNo || null,
+        candidateName: conflict.name || conflict.fullName || "",
+        reason: review.reason || "FACE_MATCH_AMBIGUOUS",
+        distance: Number.isFinite(review.distance) ? review.distance : null,
+        createdAt: review.createdAt?.toMillis?.() || null
+      };
+    }))
+  };
+});
+
+exports.removeStudentFaceEnrollment = onCall(async (request) => {
+  if (!request.auth?.uid) throw new HttpsError("unauthenticated", "Authentication required.");
+  if (!(await isFaceEnrollmentStaff(request))) {
+    throw new HttpsError("permission-denied", "Only authorized staff can remove a student's face enrollment.");
+  }
+
+  const rollNo = String(request.data?.rollNo || "").trim().toUpperCase();
+  if (!rollNo) throw new HttpsError("invalid-argument", "rollNo is required.");
+
+  const studentRef = db.collection("students").doc(rollNo);
+  const enrollmentRef = db.collection("face_enrollments").doc(rollNo);
+  const guardRef = db.collection("face_enrollment_control").doc("global");
+  const templateFields = {
+    faceDescriptor: FieldValue.delete(),
+    faceDescriptors: FieldValue.delete(),
+    descriptor: FieldValue.delete(),
+    descriptors: FieldValue.delete(),
+    faceVector: FieldValue.delete(),
+    faceVectors: FieldValue.delete(),
+    embedding: FieldValue.delete(),
+    embeddings: FieldValue.delete(),
+    photoURL: FieldValue.delete(),
+    image: FieldValue.delete(),
+    photo: FieldValue.delete(),
+    avatar: FieldValue.delete(),
+    profilePic: FieldValue.delete(),
+    profileImage: FieldValue.delete(),
+    faceImage: FieldValue.delete(),
+    facePhoto: FieldValue.delete(),
+    enrolledFace: FieldValue.delete(),
+    faceData: FieldValue.delete(),
+    enrolledAt: FieldValue.delete(),
+    faceEnrolledAt: FieldValue.delete(),
+    biometricVerified: FieldValue.delete(),
+    biometricRegistered: FieldValue.delete()
+  };
+
+  await db.runTransaction(async (transaction) => {
+    const [
+      guardSnap,
+      studentSnap,
+      enrollmentSnap,
+      legacyStudents,
+      legacyUsers,
+      legacyAuthorizedUsers,
+      pendingReviews
+    ] = await Promise.all([
+      transaction.get(guardRef),
+      transaction.get(studentRef),
+      transaction.get(enrollmentRef),
+      transaction.get(db.collection("students")),
+      transaction.get(db.collection("users")),
+      transaction.get(db.collection("authorizedUsers")),
+      transaction.get(db.collection("face_enrollment_reviews").where("status", "==", "PENDING"))
+    ]);
+    if (!studentSnap.exists) throw new HttpsError("not-found", "The target student record could not be verified.");
+
+    const targetIdentity = cleanFaceIdentity({
+      ...studentSnap.data(),
+      rollNo,
+      studentUid: studentSnap.data()?.studentUid || studentSnap.data()?.uid
+    });
+    const cleanedPaths = new Set();
+    for (const docSnap of [...legacyStudents.docs, ...legacyUsers.docs, ...legacyAuthorizedUsers.docs]) {
+      const candidate = faceCandidateFromDoc(docSnap, docSnap.ref.parent.id);
+      if (
+        !sameFaceIdentity(candidate, targetIdentity) ||
+        cleanedPaths.has(docSnap.ref.path) ||
+        docSnap.ref.path === studentRef.path
+      ) continue;
+      cleanedPaths.add(docSnap.ref.path);
+      transaction.update(docSnap.ref, {
+        ...templateFields,
+        faceRegistered: false,
+        biometricEnrolled: false,
+        hasFaceRegistered: false,
+        faceRemovedAt: FieldValue.serverTimestamp()
+      });
+    }
+
+    transaction.set(studentRef, {
+      ...templateFields,
+      faceRegistered: false,
+      biometricEnrolled: false,
+      hasFaceRegistered: false,
+      faceRemovedAt: FieldValue.serverTimestamp()
+    }, { merge: true });
+    transaction.delete(enrollmentRef);
+
+    for (const reviewSnap of pendingReviews.docs) {
+      const review = reviewSnap.data() || {};
+      if (String(review.rollNo || "").trim().toUpperCase() === rollNo) {
+        transaction.update(reviewSnap.ref, {
+          status: "REJECTED",
+          faceDescriptor: FieldValue.delete(),
+          reviewedBy: request.auth.uid,
+          reviewedAt: FieldValue.serverTimestamp(),
+          resolutionReason: "ENROLLMENT_REMOVED"
+        });
+      }
+    }
+    transaction.set(guardRef, {
+      revision: Number(guardSnap.data()?.revision || 0) + 1,
+      updatedAt: FieldValue.serverTimestamp()
+    }, { merge: true });
+  });
+
+  return { success: true, rollNo };
+});
+
+exports.evaluateFaceUniqueness = evaluateFaceUniqueness;
+exports.faceVectorDistance = faceVectorDistance;
 
 /**
  * 17. BIND STUDENT DEVICE PLATFORM (Authoritative First-Time Platform Binding - Option A)
@@ -3778,7 +4561,7 @@ exports.registerStudentFace = onCall(async (request) => {
  * - Sets registeredPlatform, deviceType, registeredDeviceType, and deviceTypeLocked: true in students/{rollNo} and users/{uid}.
  * - Emits audit record into biometric_audit_logs.
  */
-const bindStudentDevicePlatform = onCall(async (request) => {
+const bindStudentDevicePlatform = onCall({ cors: true }, async (request) => {
   if (!request.auth || !request.auth.uid) {
     throw new HttpsError("unauthenticated", "Authentication required to bind device platform.");
   }
@@ -4040,7 +4823,606 @@ const resetStudentDevicePlatform = onCall(async (request) => {
 });
 exports.resetStudentDevicePlatform = resetStudentDevicePlatform;
 
+/**
+ * 19. GRANT BIOMETRIC RE-REGISTRATION ACCESS (Lecturer / Admin)
+ * Allows lecturers (within their course roster scope) and administrators (institution-wide)
+ * to grant student re-registration permissions for Face, Device Biometrics, or Both,
+ * under Mode A (One-Time) or Mode B (Repeated).
+ */
+exports.grantBiometricReRegistration = onCall(async (request) => {
+  if (!request.auth || !request.auth.uid) {
+    throw new HttpsError("unauthenticated", "Authentication required to grant re-registration access.");
+  }
+
+  const callerUid = request.auth.uid;
+  const callerEmail = String(request.auth.token.email || "").toLowerCase().trim();
+  const isAdmin = await isCallerAdmin(request);
+  if (!isAdmin) {
+    await assertLecturer(request);
+  }
+
+  const {
+    targetRollNos: rawRollNos,
+    targetRollNo: rawSingleRoll,
+    registrationType: rawType,
+    mode: rawMode,
+    scope: rawScope,
+    expiresInHours: rawHours,
+    reason: rawReason
+  } = request.data || {};
+
+  // Normalize registrationType
+  const cleanType = String(rawType || "BOTH").trim().toUpperCase();
+  if (!["FACE", "BIOMETRIC", "BOTH"].includes(cleanType)) {
+    throw new HttpsError("invalid-argument", "registrationType must be 'FACE', 'BIOMETRIC', or 'BOTH'.");
+  }
+
+  // Normalize mode
+  const cleanMode = String(rawMode || "ONE_TIME").trim().toUpperCase();
+  if (!["ONE_TIME", "REPEATED"].includes(cleanMode)) {
+    throw new HttpsError("invalid-argument", "mode must be 'ONE_TIME' or 'REPEATED'.");
+  }
+
+  const cleanScope = (typeof rawScope === "object" && rawScope !== null) ? rawScope : { type: "STUDENT" };
+  const targetRollsSet = new Set();
+
+  if (cleanScope.type === "ALL_INSTITUTION") {
+    if (!isAdmin) {
+      throw new HttpsError("permission-denied", "Only administrators can grant institution-wide re-registration permissions.");
+    }
+    const allStudentsSnap = await db.collection("students").get();
+    for (const doc of allStudentsSnap.docs) {
+      targetRollsSet.add(doc.id.toUpperCase().trim());
+    }
+  } else if (cleanScope.courseId || cleanScope.courseCode) {
+    const courseId = String(cleanScope.courseId || cleanScope.courseCode).toUpperCase().trim();
+    if (!isAdmin) {
+      await assertLecturerCourseScope(callerUid, callerEmail, courseId);
+    }
+    const courseDoc = await db.collection("courses").doc(courseId).get();
+    if (!courseDoc.exists) {
+      throw new HttpsError("not-found", `Course "${courseId}" not found.`);
+    }
+    const cData = courseDoc.data() || {};
+    if (Array.isArray(cData.enrolledStudents)) {
+      for (const s of cData.enrolledStudents) {
+        const r = typeof s === "string" ? s.toUpperCase().trim() : String(s.rollNo || s.rollNumber || "").toUpperCase().trim();
+        if (r) targetRollsSet.add(r);
+      }
+    }
+  } else {
+    // Student list
+    const candidateList = [];
+    if (Array.isArray(rawRollNos)) {
+      for (const r of rawRollNos) {
+        if (r && typeof r === "string") candidateList.push(r.toUpperCase().trim());
+      }
+    } else if (rawSingleRoll && typeof rawSingleRoll === "string") {
+      candidateList.push(rawSingleRoll.toUpperCase().trim());
+    }
+
+    if (candidateList.length === 0) {
+      throw new HttpsError("invalid-argument", "At least one target student roll number must be specified.");
+    }
+
+    if (!isAdmin) {
+      const authorizedRolls = await getAuthorizedStudentRollsForLecturer(callerUid, callerEmail);
+      for (const roll of candidateList) {
+        if (!authorizedRolls.has(roll)) {
+          throw new HttpsError(
+            "permission-denied",
+            `Lecturer ${callerEmail} is not authorized to grant permissions to student ${roll}: student is outside your assigned course rosters.`
+          );
+        }
+        targetRollsSet.add(roll);
+      }
+    } else {
+      for (const roll of candidateList) {
+        targetRollsSet.add(roll);
+      }
+    }
+  }
+
+  const targetRolls = Array.from(targetRollsSet);
+  if (targetRolls.length === 0) {
+    throw new HttpsError("invalid-argument", "No eligible students found in the requested scope.");
+  }
+
+  // Caller display name
+  let callerName = callerEmail;
+  try {
+    const userSnap = await db.collection("users").doc(callerUid).get();
+    if (userSnap.exists) {
+      callerName = userSnap.data()?.name || userSnap.data()?.fullName || callerEmail;
+    }
+  } catch (_) {}
+
+  // Fetch student info in batches
+  const studentMap = new Map();
+  for (let i = 0; i < targetRolls.length; i += 30) {
+    const chunk = targetRolls.slice(i, i + 30);
+    const snaps = await Promise.all(chunk.map(r => db.collection("students").doc(r).get()));
+    snaps.forEach(s => {
+      if (s.exists) studentMap.set(s.id, s.data());
+    });
+  }
+
+  const nowMs = Date.now();
+  const expiresInHours = rawHours ? Number(rawHours) : null;
+  const expiresAt = expiresInHours && expiresInHours > 0
+    ? Timestamp.fromMillis(nowMs + expiresInHours * 3600 * 1000)
+    : null;
+
+  // Batch write permissions
+  const batchSize = 400;
+  for (let i = 0; i < targetRolls.length; i += batchSize) {
+    const batch = db.batch();
+    const chunk = targetRolls.slice(i, i + batchSize);
+    for (const rollNo of chunk) {
+      const permId = `perm_${rollNo}_${nowMs}_${crypto.randomUUID().slice(0, 6)}`;
+      const sData = studentMap.get(rollNo) || {};
+      const permRef = db.collection("biometric_reregistration_permissions").doc(permId);
+      batch.set(permRef, {
+        id: permId,
+        targetRollNo: rollNo,
+        studentUid: sData.studentUid || sData.uid || null,
+        studentName: sData.name || sData.fullName || rollNo,
+        grantedByUid: callerUid,
+        grantedByEmail: callerEmail,
+        grantedByRole: isAdmin ? "ADMIN" : "LECTURER",
+        grantedByName: callerName,
+        scope: cleanScope,
+        registrationType: cleanType,
+        mode: cleanMode,
+        status: "ACTIVE",
+        maxUses: cleanMode === "ONE_TIME" ? 1 : null,
+        usedCount: 0,
+        remainingUses: cleanMode === "ONE_TIME" ? 1 : null,
+        reason: rawReason || "Authorized re-registration access grant",
+        createdAt: FieldValue.serverTimestamp(),
+        expiresAt: expiresAt,
+        revokedAt: null,
+        revokedBy: null,
+        lastUsedAt: null
+      });
+
+      // Audit log entry
+      const auditRef = db.collection("biometric_audit_logs").doc();
+      batch.set(auditRef, {
+        action: "RE_REGISTRATION_PERMISSION_GRANTED",
+        permissionId: permId,
+        targetRollNo: rollNo,
+        grantedByUid: callerUid,
+        grantedByEmail: callerEmail,
+        grantedByRole: isAdmin ? "ADMIN" : "LECTURER",
+        registrationType: cleanType,
+        mode: cleanMode,
+        timestamp: FieldValue.serverTimestamp()
+      });
+    }
+    await batch.commit();
+  }
+
+  return {
+    success: true,
+    grantedCount: targetRolls.length,
+    registrationType: cleanType,
+    mode: cleanMode,
+    targetRollNos: targetRolls,
+    message: `Granted ${cleanMode} re-registration permission (${cleanType}) to ${targetRolls.length} student(s).`
+  };
+});
+
+/**
+ * 20. REVOKE BIOMETRIC RE-REGISTRATION ACCESS (Lecturer / Admin)
+ * Revokes an unused/active re-registration permission.
+ */
+exports.revokeBiometricReRegistration = onCall(async (request) => {
+  if (!request.auth || !request.auth.uid) {
+    throw new HttpsError("unauthenticated", "Authentication required to revoke permissions.");
+  }
+
+  const callerUid = request.auth.uid;
+  const callerEmail = String(request.auth.token.email || "").toLowerCase().trim();
+  const isAdmin = await isCallerAdmin(request);
+  if (!isAdmin) {
+    await assertLecturer(request);
+  }
+
+  const { permissionId, reason } = request.data || {};
+  if (!permissionId || typeof permissionId !== "string") {
+    throw new HttpsError("invalid-argument", "permissionId is required.");
+  }
+
+  const permRef = db.collection("biometric_reregistration_permissions").doc(String(permissionId).trim());
+  const permSnap = await permRef.get();
+
+  if (!permSnap.exists) {
+    throw new HttpsError("not-found", "Re-registration permission document not found.");
+  }
+
+  const permData = permSnap.data() || {};
+  if (permData.status !== "ACTIVE") {
+    throw new HttpsError("failed-precondition", `Permission is already ${permData.status || "inactive"}.`);
+  }
+
+  if (!isAdmin) {
+    const isGrantor = permData.grantedByUid === callerUid || permData.grantedByEmail === callerEmail;
+    if (!isGrantor) {
+      const authorizedRolls = await getAuthorizedStudentRollsForLecturer(callerUid, callerEmail);
+      if (!authorizedRolls.has(permData.targetRollNo)) {
+        throw new HttpsError(
+          "permission-denied",
+          "You can only revoke permissions granted by yourself or for students in your authorized courses."
+        );
+      }
+    }
+  }
+
+  await permRef.update({
+    status: "REVOKED",
+    revokedAt: FieldValue.serverTimestamp(),
+    revokedBy: callerUid,
+    revocationReason: reason || "Revoked by staff"
+  });
+
+  await db.collection("biometric_audit_logs").add({
+    action: "RE_REGISTRATION_PERMISSION_REVOKED",
+    permissionId: permSnap.id,
+    targetRollNo: permData.targetRollNo,
+    revokedByUid: callerUid,
+    revokedByEmail: callerEmail,
+    revokedByRole: isAdmin ? "ADMIN" : "LECTURER",
+    timestamp: FieldValue.serverTimestamp()
+  });
+
+  return {
+    success: true,
+    permissionId: permSnap.id,
+    targetRollNo: permData.targetRollNo,
+    message: "Re-registration permission successfully revoked."
+  };
+});
+
+/**
+ * 21. LIST BIOMETRIC RE-REGISTRATION PERMISSIONS (Lecturer / Admin)
+ * Returns permissions filtered by operator's authorized administrative scope.
+ */
+exports.listBiometricReRegistrationPermissions = onCall(async (request) => {
+  if (!request.auth || !request.auth.uid) {
+    throw new HttpsError("unauthenticated", "Authentication required to list permissions.");
+  }
+
+  const callerUid = request.auth.uid;
+  const callerEmail = String(request.auth.token.email || "").toLowerCase().trim();
+  const isAdmin = await isCallerAdmin(request);
+  if (!isAdmin) {
+    await assertLecturer(request);
+  }
+
+  const { rollNo, statusFilter } = request.data || {};
+  let query = db.collection("biometric_reregistration_permissions");
+
+  if (rollNo && typeof rollNo === "string") {
+    const cleanRoll = rollNo.toUpperCase().trim();
+    if (!isAdmin) {
+      const authorizedRolls = await getAuthorizedStudentRollsForLecturer(callerUid, callerEmail);
+      if (!authorizedRolls.has(cleanRoll)) {
+        throw new HttpsError("permission-denied", "You are not authorized to view permissions for this student.");
+      }
+    }
+    query = query.where("targetRollNo", "==", cleanRoll);
+  }
+
+  if (statusFilter && typeof statusFilter === "string" && statusFilter !== "ALL") {
+    query = query.where("status", "==", statusFilter.toUpperCase().trim());
+  }
+
+  const snap = await query.limit(200).get();
+  let permissions = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+  if (!isAdmin && !rollNo) {
+    const authorizedRolls = await getAuthorizedStudentRollsForLecturer(callerUid, callerEmail);
+    permissions = permissions.filter(p =>
+      p.grantedByUid === callerUid || p.grantedByEmail === callerEmail || authorizedRolls.has(p.targetRollNo)
+    );
+  }
+
+  const cleanPermissions = permissions.map(p => ({
+    ...p,
+    createdAt: p.createdAt?.toMillis ? p.createdAt.toMillis() : (p.createdAt || null),
+    expiresAt: p.expiresAt?.toMillis ? p.expiresAt.toMillis() : (p.expiresAt || null),
+    revokedAt: p.revokedAt?.toMillis ? p.revokedAt.toMillis() : (p.revokedAt || null),
+    lastUsedAt: p.lastUsedAt?.toMillis ? p.lastUsedAt.toMillis() : (p.lastUsedAt || null)
+  }));
+
+  return { permissions: cleanPermissions };
+});
+
+/**
+ * 22. CHECK STUDENT RE-REGISTRATION STATUS
+ * Authoritative endpoint for student and staff to check current registration state,
+ * active re-registration permissions, and whether face/biometric registration is permitted.
+ */
+exports.checkStudentReRegistrationStatus = onCall(async (request) => {
+  if (!request.auth || !request.auth.uid) {
+    throw new HttpsError("unauthenticated", "Authentication required to check registration status.");
+  }
+
+  const callerUid = request.auth.uid;
+  const callerEmail = String(request.auth.token.email || "").toLowerCase().trim();
+  const callerRoll = callerEmail ? callerEmail.split("@")[0].toUpperCase().trim() : "";
+  const isStaff = await isFaceEnrollmentStaff(request);
+
+  const requestedRoll = request.data?.rollNo
+    ? String(request.data.rollNo).toUpperCase().trim()
+    : callerRoll;
+
+  if (!requestedRoll) {
+    throw new HttpsError("invalid-argument", "rollNo is required.");
+  }
+
+  if (!isStaff && requestedRoll !== callerRoll) {
+    const sSnap = await db.collection("students").doc(requestedRoll).get();
+    const sData = sSnap.exists ? sSnap.data() : {};
+    const linkedUid = sData.studentUid || sData.uid;
+    if (linkedUid !== callerUid) {
+      throw new HttpsError("permission-denied", "You can only view your own registration status.");
+    }
+  }
+
+  const [studentSnap, faceSnap, credSnap, userCredSnap, permSnaps] = await Promise.all([
+    db.collection("students").doc(requestedRoll).get(),
+    db.collection("face_enrollments").doc(requestedRoll).get(),
+    db.collection("biometric_credentials").doc(requestedRoll).get(),
+    db.collection("biometric_credentials").doc(callerUid).get(),
+    db.collection("biometric_reregistration_permissions")
+      .where("targetRollNo", "==", requestedRoll)
+      .where("status", "==", "ACTIVE")
+      .get()
+  ]);
+
+  const sData = studentSnap.exists ? studentSnap.data() : {};
+  const hasFace = Boolean(
+    faceSnap.exists ||
+    (sData.faceRegistered === true && !sData.faceRemovedAt) ||
+    sData.biometricEnrolled === true
+  );
+
+  const credData = credSnap.exists ? credSnap.data() : (userCredSnap.exists ? userCredSnap.data() : null);
+  const hasBiometric = Boolean(
+    (credData && credData.status === "ACTIVE") ||
+    sData.hardwareBiometricEnrolled === true
+  );
+
+  const nowMs = Date.now();
+  let facePermission = null;
+  let biometricPermission = null;
+  const activePerms = [];
+
+  for (const doc of permSnaps.docs) {
+    const data = doc.data() || {};
+    if (data.expiresAt) {
+      const expMs = typeof data.expiresAt.toMillis === "function"
+        ? data.expiresAt.toMillis()
+        : new Date(data.expiresAt).getTime();
+      if (expMs <= nowMs) continue;
+    }
+    const mode = String(data.mode || "ONE_TIME").toUpperCase();
+    if (mode === "ONE_TIME") {
+      const remaining = data.remainingUses != null ? Number(data.remainingUses) : 1;
+      if (remaining <= 0) continue;
+    }
+
+    const cleanP = {
+      id: doc.id,
+      registrationType: data.registrationType,
+      mode: data.mode,
+      remainingUses: data.remainingUses,
+      grantedByName: data.grantedByName || data.grantedByEmail,
+      grantedByRole: data.grantedByRole,
+      createdAt: data.createdAt?.toMillis ? data.createdAt.toMillis() : null,
+      expiresAt: data.expiresAt?.toMillis ? data.expiresAt.toMillis() : null
+    };
+    activePerms.push(cleanP);
+
+    const pType = String(data.registrationType || "").toUpperCase();
+    if (pType === "FACE" || pType === "BOTH") {
+      if (!facePermission) facePermission = cleanP;
+    }
+    if (pType === "BIOMETRIC" || pType === "BOTH") {
+      if (!biometricPermission) biometricPermission = cleanP;
+    }
+  }
+
+  const faceStatus = facePermission
+    ? "PERMISSION_GRANTED"
+    : (hasFace ? "REGISTERED" : "NOT_REGISTERED");
+
+  const biometricStatus = biometricPermission
+    ? "PERMISSION_GRANTED"
+    : (hasBiometric ? "REGISTERED" : "NOT_REGISTERED");
+
+  return {
+    rollNo: requestedRoll,
+    name: sData.name || sData.fullName || requestedRoll,
+    hasFaceRegistered: hasFace,
+    hasBiometricRegistered: hasBiometric,
+    canRegisterFace: !hasFace || Boolean(facePermission) || isStaff,
+    canRegisterBiometric: !hasBiometric || Boolean(biometricPermission) || isStaff,
+    faceEnrollmentStatus: faceStatus,
+    biometricEnrollmentStatus: biometricStatus,
+    activePermissions: activePerms,
+    facePermission,
+    biometricPermission
+  };
+});
+
+/**
+ * 23. IDENTIFY STUDENT BY FACE (Staff only: Lecturer & Admin)
+ * Compares live query face against enrolled student population within operator's authorized scope.
+ * - Admin: institution-wide search across enrolled students.
+ * - Lecturer: searches ONLY students enrolled in courses taught by the lecturer.
+ * - High confidence + unambiguous match required (threshold 0.52, margin >= 0.08).
+ * - Does NOT mark attendance.
+ * - Logs identification event without storing raw face embeddings.
+ */
+exports.identifyStudentByFace = onCall(async (request) => {
+  if (!request.auth || !request.auth.uid) {
+    throw new HttpsError("unauthenticated", "Authentication required to identify students by face.");
+  }
+
+  const isStaff = await isFaceEnrollmentStaff(request);
+  if (!isStaff) {
+    throw new HttpsError("permission-denied", "Only authorized faculty and administrators can identify students by face.");
+  }
+
+  const callerUid = request.auth.uid;
+  const callerEmail = String(request.auth.token.email || "").toLowerCase().trim();
+  const isAdmin = await isCallerAdmin(request);
+
+  const rawDescriptor = request.data?.faceDescriptor;
+  if (!rawDescriptor) {
+    throw new HttpsError("invalid-argument", "faceDescriptor is required.");
+  }
+
+  const liveVector = normalizeFaceVector(rawDescriptor, "Face descriptor for identification");
+  let authorizedRolls = null;
+
+  if (!isAdmin) {
+    authorizedRolls = await getAuthorizedStudentRollsForLecturer(callerUid, callerEmail);
+    if (!authorizedRolls || authorizedRolls.size === 0) {
+      return {
+        status: "NO_MATCH",
+        matched: false,
+        message: "No enrolled students found in courses assigned to your lecturer account."
+      };
+    }
+  }
+
+  let enrollmentDocs = [];
+  if (isAdmin) {
+    const snap = await db.collection("face_enrollments").get();
+    enrollmentDocs = snap.docs;
+  } else {
+    const rollList = Array.from(authorizedRolls);
+    const chunks = [];
+    for (let i = 0; i < rollList.length; i += 30) {
+      chunks.push(rollList.slice(i, i + 30));
+    }
+    const snaps = await Promise.all(
+      chunks.map(chunk => db.collection("face_enrollments").where(FieldPath.documentId(), "in", chunk).get())
+    );
+    enrollmentDocs = snaps.flatMap(s => s.docs);
+  }
+
+  const matches = [];
+  for (const docSnap of enrollmentDocs) {
+    const data = docSnap.data() || {};
+    const rollNo = data.rollNo || docSnap.id;
+    if (!isAdmin && authorizedRolls && !authorizedRolls.has(rollNo.toUpperCase())) continue;
+    const descriptor = data.faceDescriptor;
+    if (!descriptor) continue;
+    let candidateVector;
+    try {
+      candidateVector = normalizeFaceVector(descriptor, `Stored face descriptor for ${rollNo}`);
+    } catch (_) {
+      continue;
+    }
+    const dist = faceVectorDistance(liveVector, candidateVector);
+    matches.push({ rollNo: rollNo.toUpperCase(), distance: dist, data });
+  }
+
+  matches.sort((a, b) => a.distance - b.distance);
+  const best = matches[0];
+  const second = matches[1];
+
+  if (!best || best.distance > FACE_REVIEW_DISTANCE) {
+    return {
+      status: "NO_MATCH",
+      matched: false,
+      distance: best ? best.distance : null,
+      message: "No enrolled student found matching this face in your authorized scope."
+    };
+  }
+
+  // Ambiguity or weak match check
+  if (best.distance > FACE_MATCH_DISTANCE || (second && (second.distance - best.distance) < 0.08)) {
+    return {
+      status: "UNCERTAIN_MATCH",
+      matched: false,
+      distance: best.distance,
+      message: "Uncertain face match. Multiple candidates or low confidence; identity cannot be asserted."
+    };
+  }
+
+  // Match confirmed!
+  const studentSnap = await db.collection("students").doc(best.rollNo).get();
+  const sData = studentSnap.exists ? studentSnap.data() : {};
+
+  // Fetch courses for this student
+  const coursesSnap = await db.collection("courses").get();
+  const studentCourses = [];
+  for (const cDoc of coursesSnap.docs) {
+    const c = cDoc.data() || {};
+    let inCourse = false;
+    if (Array.isArray(c.enrolledStudents)) {
+      inCourse = c.enrolledStudents.some(s => {
+        const r = typeof s === "string" ? s.toUpperCase().trim() : String(s.rollNo || s.rollNumber || "").toUpperCase().trim();
+        return r === best.rollNo;
+      });
+    }
+    if (inCourse) {
+      studentCourses.push({
+        id: cDoc.id,
+        courseCode: c.courseCode || cDoc.id,
+        courseName: c.courseName || c.name || cDoc.id,
+        section: c.section || null,
+        batch: c.batch || null
+      });
+    }
+  }
+
+  const confidence = Math.max(0, Math.min(100, Math.round((1 - best.distance / FACE_MATCH_DISTANCE) * 100)));
+
+  // Audit log: NO raw embeddings or images stored!
+  await db.collection("biometric_audit_logs").add({
+    action: "STUDENT_FACE_IDENTIFICATION",
+    operatorUid: callerUid,
+    operatorEmail: callerEmail,
+    operatorRole: isAdmin ? "ADMIN" : "LECTURER",
+    identifiedRollNo: best.rollNo,
+    confidence,
+    distance: best.distance,
+    timestamp: FieldValue.serverTimestamp()
+  });
+
+  return {
+    status: "MATCH",
+    matched: true,
+    confidence,
+    distance: best.distance,
+    student: {
+      rollNo: best.rollNo,
+      name: sData.name || sData.fullName || best.rollNo,
+      email: sData.email || "",
+      branch: sData.branch || sData.department || "",
+      semester: sData.semester || "",
+      section: sData.section || "",
+      batch: sData.batch || "",
+      photoURL: sData.photoURL || sData.photo || sData.image || null,
+      courses: studentCourses
+    }
+  };
+});
+
 // Authoritative internal engine exports for direct unit and integration testing
 exports.evaluateServerGeofence = evaluateServerGeofence;
 exports.generateDynamicQrToken = generateDynamicQrToken;
 exports.verifyDynamicQrToken = verifyDynamicQrToken;
+exports.resolveActiveReRegistrationPermission = resolveActiveReRegistrationPermission;
+exports.consumeReRegistrationPermission = consumeReRegistrationPermission;
+exports.getAuthorizedStudentRollsForLecturer = getAuthorizedStudentRollsForLecturer;
+exports.evaluateFaceUniqueness = evaluateFaceUniqueness;
+exports.faceVectorDistance = faceVectorDistance;
+exports.validateFaceVectorDescriptor = validateFaceVectorDescriptor;

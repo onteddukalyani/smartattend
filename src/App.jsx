@@ -42,6 +42,8 @@ const AddStudent = lazy(() => import("./components/Admin/pages/AddStudent"));
 const ReadOnlyAdminList = lazy(() => import("./components/Admin/pages/ManageAdmins"));
 const ReadOnlyLecturerList = lazy(() => import("./components/Admin/pages/ManageLecturers"));
 const DeviceSetupPage = lazy(() => import("./components/Common/DeviceSetupPage"));
+const ManageBiometricReRegistration = lazy(() => import("./components/Common/ManageBiometricReRegistration"));
+const IdentifyStudentByFace = lazy(() => import("./components/Common/IdentifyStudentByFace"));
 
 // Student lazy imports
 const StudentDashboard = lazy(() => import("./components/Student/StudentDashboard"));
@@ -76,13 +78,21 @@ function App() {
   // 0. Real-time Live Subscription & Auto-check for APK / App Updates
   useEffect(() => {
     let lastNotifiedVersion = null;
+    let isMounted = true;
+    let resumeCheckTimeout = null;
 
     const handleUpdateDetected = async (info) => {
-      if (!info || !info.hasUpdate) return;
+      if (!isMounted || !info || !info.hasUpdate) return;
 
       const now = Date.now();
-      const dismissedVer = localStorage.getItem("smartattend_dismissed_update_version");
-      const dismissedTime = parseInt(localStorage.getItem("smartattend_dismissed_update_time") || "0", 10);
+      let dismissedVer = null;
+      let dismissedTime = 0;
+      try {
+        dismissedVer = localStorage.getItem("smartattend_dismissed_update_version");
+        dismissedTime = parseInt(localStorage.getItem("smartattend_dismissed_update_time") || "0", 10);
+      } catch (err) {
+        console.warn("[AppUpdate] Could not read dismissed-update state:", err);
+      }
       const isRecentlyDismissed = dismissedVer === info.latestVersion && (now - dismissedTime) < 24 * 60 * 60 * 1000;
 
       // Keep update info active so notification banner & floating pill remain visible
@@ -113,16 +123,25 @@ function App() {
     const unsubscribe = subscribeToAppUpdates(handleUpdateDetected);
 
     // Lifecycle resume & online reconnection triggers
+    const scheduleUpdateCheck = () => {
+      if (resumeCheckTimeout !== null) clearTimeout(resumeCheckTimeout);
+      resumeCheckTimeout = setTimeout(() => {
+        resumeCheckTimeout = null;
+        checkForAppUpdate()
+          .then(handleUpdateDetected)
+          .catch((err) => console.warn("[AppUpdate] Resume check failed:", err));
+      }, 200);
+    };
     const handleResume = () => {
       if (document.visibilityState === "visible") {
-        checkForAppUpdate().then(handleUpdateDetected).catch(() => {});
+        scheduleUpdateCheck();
       }
     };
     const handleFocus = () => {
-      checkForAppUpdate().then(handleUpdateDetected).catch(() => {});
+      scheduleUpdateCheck();
     };
     const handleOnline = () => {
-      checkForAppUpdate().then(handleUpdateDetected).catch(() => {});
+      scheduleUpdateCheck();
     };
 
     document.addEventListener("visibilitychange", handleResume);
@@ -130,6 +149,8 @@ function App() {
     window.addEventListener("online", handleOnline);
 
     return () => {
+      isMounted = false;
+      if (resumeCheckTimeout !== null) clearTimeout(resumeCheckTimeout);
       if (typeof unsubscribe === "function") unsubscribe();
       document.removeEventListener("visibilitychange", handleResume);
       window.removeEventListener("focus", handleFocus);
@@ -389,6 +410,10 @@ function App() {
           <Route path="scanqr" element={<QrScannerApp />} />
           <Route path="face-enroll" element={<FaceEnrollPage />} />
           <Route path="register-face" element={<FaceEnrollPage />} />
+          <Route path="manage-reregistration" element={<ManageBiometricReRegistration />} />
+          <Route path="reregistration" element={<ManageBiometricReRegistration />} />
+          <Route path="identify-student" element={<IdentifyStudentByFace />} />
+          <Route path="face-identification" element={<IdentifyStudentByFace />} />
           <Route path="support" element={<SupportFeedbackPage />} />
           <Route path="feedback" element={<SupportFeedbackPage />} />
           <Route path="contact" element={<SupportFeedbackPage />} />
@@ -684,6 +709,58 @@ function App() {
                   : currentRole === "lecturer"
                   ? "/lecturer/face-enroll"
                   : "/admin/face-enroll"
+              }
+              replace
+            />
+          }
+        />
+        <Route
+          path="/manage-reregistration"
+          element={
+            <Navigate
+              to={
+                currentRole === "admin"
+                  ? "/admin/manage-reregistration"
+                  : "/lecturer/manage-reregistration"
+              }
+              replace
+            />
+          }
+        />
+        <Route
+          path="/reregistration"
+          element={
+            <Navigate
+              to={
+                currentRole === "admin"
+                  ? "/admin/manage-reregistration"
+                  : "/lecturer/manage-reregistration"
+              }
+              replace
+            />
+          }
+        />
+        <Route
+          path="/identify-student"
+          element={
+            <Navigate
+              to={
+                currentRole === "admin"
+                  ? "/admin/identify-student"
+                  : "/lecturer/identify-student"
+              }
+              replace
+            />
+          }
+        />
+        <Route
+          path="/face-identification"
+          element={
+            <Navigate
+              to={
+                currentRole === "admin"
+                  ? "/admin/identify-student"
+                  : "/lecturer/identify-student"
               }
               replace
             />

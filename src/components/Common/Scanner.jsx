@@ -46,7 +46,7 @@ import FaceScanner, { releaseAllMediaTracks, loadFaceApiModels } from '../Lectur
 import { isIOSDevice, isGuidedAccessEnabled, addAppSwitchListener, addScreenCaptureListener } from '../../services/guidedAccessService';
 import { getApkDownloadUrl } from '../../utils/apkUrl';
 import GuidedAccessRequired, { GuidedAccessExitNotice } from '../GuidedAccessRequired';
-import { isGenericName, normalizeDescriptor } from '../../utils/studentDataHelper';
+import { isGenericName } from '../../utils/studentDataHelper';
 import { detectDeviceType, getClientIpAddress, getDeviceDisplayName, isDeviceMatching, isBrowserCameraAllowed } from '../../utils/deviceDetection';
 import { sendFacultyNotification, sendStudentNotification, reportUserVerificationComplaint } from '../../services/notificationsService';
 import { validateRotatingQrPayload } from '../../utils/qrCrypto';
@@ -119,6 +119,7 @@ function QrScannerApp() {
     const [violationCount, setViolationCount] = useState(0);
     const [interruptionWarning, setInterruptionWarning] = useState(false);
     const interruptedRef = useRef(false);
+    const lifecycleViolationSessionRef = useRef(null);
 
     // Camera & Scanner State
     const [facingMode, setFacingMode] = useState('environment');
@@ -545,14 +546,17 @@ function QrScannerApp() {
         if (!targetRoll || targetRoll.length < 2) return;
 
         // Fast-path 1: Check AuthContext profile or pre-loaded dbStudent (0ms execution)
-        const cachedDesc = normalizeDescriptor(profile?.faceDescriptor) ||
-            normalizeDescriptor(dbStudent?.faceDescriptor) ||
-            normalizeDescriptor(dbStudent?.descriptor);
-        if (cachedDesc && Array.isArray(cachedDesc) && cachedDesc.length === 128) {
+        const cachedFaceRegistered = Boolean(
+            !profile?.faceRemovedAt &&
+            !dbStudent?.faceRemovedAt &&
+            (profile?.faceRegistered || profile?.biometricEnrolled || profile?.hasFaceRegistered ||
+                dbStudent?.faceRegistered || dbStudent?.biometricEnrolled || dbStudent?.hasFaceRegistered)
+        );
+        if (cachedFaceRegistered) {
             setVerifiedStudent({
                 rollNo: targetRoll,
                 name: loggedInName || dbStudent?.name || profile?.name || 'Student',
-                faceDescriptor: cachedDesc,
+                faceDescriptor: null,
                 faceRegistered: true,
                 photoURL: dbStudent?.photoURL || profile?.photoURL || null
             });
@@ -565,12 +569,17 @@ function QrScannerApp() {
             const sDocDirect = await getDoc(doc(db, 'students', targetRoll)).catch(() => null);
             if (sDocDirect && sDocDirect.exists()) {
                 const sData = sDocDirect.data();
-                const desc = normalizeDescriptor(sData.faceDescriptor) || normalizeDescriptor(sData.descriptor);
-                if (desc && Array.isArray(desc) && desc.length === 128) {
+                const faceRegistered = Boolean(
+                    !sData.faceRemovedAt &&
+                    (sData.faceRegistered || sData.biometricEnrolled || sData.hasFaceRegistered ||
+                        (Array.isArray(sData.faceDescriptor) && sData.faceDescriptor.length === 128) ||
+                        (Array.isArray(sData.descriptor) && sData.descriptor.length === 128))
+                );
+                if (faceRegistered) {
                     setVerifiedStudent({
                         rollNo: targetRoll,
                         name: sData.name || loggedInName || 'Student',
-                        faceDescriptor: desc,
+                        faceDescriptor: null,
                         faceRegistered: true,
                         photoURL: sData.photoURL || null
                     });
@@ -616,12 +625,13 @@ function QrScannerApp() {
             sEmailSnap.docs?.forEach((d) => candidateDocs.push(d.data()));
             uEmailSnap.docs?.forEach((d) => candidateDocs.push(d.data()));
 
-            let merged = { rollNo: targetRoll, name: loggedInName };
-            const authDesc = normalizeDescriptor(profile?.faceDescriptor);
-            if (authDesc && Array.isArray(authDesc) && authDesc.length === 128) {
-                merged.faceDescriptor = authDesc;
-                merged.faceRegistered = true;
-            }
+            let merged = {
+                rollNo: targetRoll,
+                name: loggedInName,
+                faceDescriptor: null,
+                faceRegistered: false
+            };
+            let faceRemoved = false;
             if (profile?.photoURL) merged.photoURL = profile.photoURL;
 
             for (const docData of candidateDocs) {
@@ -629,16 +639,19 @@ function QrScannerApp() {
                 else if (docData.studentId) merged.rollNo = String(docData.studentId).trim().toUpperCase();
                 if (docData.name && !isGenericName(docData.name, merged.rollNo)) merged.name = docData.name;
                 if (docData.fullName && !isGenericName(docData.fullName, merged.rollNo)) merged.fullName = docData.fullName;
-                const desc = normalizeDescriptor(docData.faceDescriptor) || normalizeDescriptor(docData.descriptor);
-                if (desc && Array.isArray(desc) && desc.length === 128) {
-                    merged.faceDescriptor = desc;
+                if (docData.faceRemovedAt || docData.faceRegistered === false || docData.biometricEnrolled === false || docData.hasFaceRegistered === false) {
+                    faceRemoved = true;
+                }
+                if (docData.faceRegistered || docData.biometricEnrolled || docData.hasFaceRegistered ||
+                    (Array.isArray(docData.faceDescriptor) && docData.faceDescriptor.length === 128) ||
+                    (Array.isArray(docData.descriptor) && docData.descriptor.length === 128)) {
                     merged.faceRegistered = true;
                 }
                 if (docData.photoURL) merged.photoURL = docData.photoURL;
             }
+            if (faceRemoved) merged.faceRegistered = false;
 
             console.log(`[Scanner] Biometrics loaded for ${targetRoll}:`, {
-                hasDescriptor: Boolean(merged.faceDescriptor),
                 faceRegistered: Boolean(merged.faceRegistered),
                 name: merged.name
             });
@@ -842,10 +855,16 @@ function QrScannerApp() {
             setSupervisionViolation(false);
             setInterruptionWarning(false);
             interruptedRef.current = false;
+            lifecycleViolationSessionRef.current = null;
             return;
         }
 
-        const handleViolationTrigger = async (source) => {
+        const handleViolationTrigger = (source) => {
+            const sessionKey = activeSessionId || "active-session";
+            if (lifecycleViolationSessionRef.current === sessionKey) return;
+            lifecycleViolationSessionRef.current = sessionKey;
+            interruptedRef.current = true;
+
             console.warn(`[Kiosk Guardian] Lifecycle interruption detected via ${source}!`);
 
             const isAndroidNative = isNativeApp && !isIOSDevice();
@@ -857,40 +876,45 @@ function QrScannerApp() {
             console.error(`[Kiosk Guardian] Security violation detected via ${source}. Disqualifying attendance session (Zero-Tolerance Mode).`);
             try { localStorage.removeItem(`smartattend_qr1_auth_${activeSessionId}`); } catch (_) { }
             try { sessionStorage.removeItem(`smartattend_qr1_auth_${activeSessionId}`); } catch (_) { }
-            releaseAllMediaTracks();
-            releaseCameraLock();
-            if (isAndroidNative) {
-                Kiosk.startKioskMode().catch(() => { });
-            }
             setErrorMessage('❌ Attendance Disqualified: Security violation detected (application switch / minimizing / tab change). Attendance forfeited.');
             setScanState('DISQUALIFIED');
 
-            if (activeSessionId) {
-                try {
-                    await reportAttendanceLifecycleEvent(activeSessionId, {
-                        eventType: 'CONFIRMED_KIOSK_ESCAPE',
-                        source: source,
-                        platform: isAndroidNative ? 'android' : (isIOSDevice() ? (isNativeApp ? 'ios' : 'web_ios') : 'web'),
-                        count: nextCount
+            window.setTimeout(() => {
+                releaseAllMediaTracks();
+                releaseCameraLock();
+                if (isAndroidNative) {
+                    Kiosk.startKioskMode().catch((err) => {
+                        console.warn('[Kiosk Guardian] Could not restore kiosk mode:', err);
                     });
-                } catch (err) {
-                    console.warn('[Kiosk Guardian] Backend event report notice:', err);
                 }
 
-                // Explicitly update Firestore with student's roll number & UID
-                try {
-                    await recordSessionViolation(
-                        activeSessionId,
-                        user?.uid,
-                        loggedInRollNo,
-                        `CONFIRMED_KIOSK_ESCAPE: ${source}`,
-                        nextCount,
-                        true
-                    );
-                } catch (vErr) {
-                    console.warn('[Kiosk Guardian] Direct violation record notice:', vErr);
-                }
-            }
+                if (!activeSessionId) return;
+                void (async () => {
+                    try {
+                        await reportAttendanceLifecycleEvent(activeSessionId, {
+                            eventType: 'CONFIRMED_KIOSK_ESCAPE',
+                            source,
+                            platform: isAndroidNative ? 'android' : (isIOSDevice() ? (isNativeApp ? 'ios' : 'web_ios') : 'web'),
+                            count: nextCount
+                        });
+                    } catch (err) {
+                        console.warn('[Kiosk Guardian] Backend event report notice:', err);
+                    }
+
+                    try {
+                        await recordSessionViolation(
+                            activeSessionId,
+                            user?.uid,
+                            loggedInRollNo,
+                            `CONFIRMED_KIOSK_ESCAPE: ${source}`,
+                            nextCount,
+                            true
+                        );
+                    } catch (vErr) {
+                        console.warn('[Kiosk Guardian] Direct violation record notice:', vErr);
+                    }
+                })();
+            }, 0);
         };
 
         const handleReturnToApp = (source) => {
@@ -3155,7 +3179,7 @@ function QrScannerApp() {
                             onEnrollRequest={() => navigate('/student/face-enroll')}
                         />
 
-                        {verifiedStudent && !verifiedStudent.faceDescriptor && !lookingUpStudent && (
+                        {verifiedStudent && !verifiedStudent.faceRegistered && !lookingUpStudent && (
                             <div style={{ marginTop: '16px', textAlign: 'center' }}>
                                 <button
                                     type="button"

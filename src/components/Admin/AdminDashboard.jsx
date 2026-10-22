@@ -23,6 +23,8 @@ import LecturerPage from "../Lecturer/pages/Generateqr";
 import ActiveSessions from "../Lecturer/pages/ActiveSessions";
 import QrScannerApp from "../Common/Scanner";
 import FaceEnrollPage from "../Student/pages/FaceEnrollPage";
+import ManageBiometricReRegistration from "../Common/ManageBiometricReRegistration";
+import IdentifyStudentByFace from "../Common/IdentifyStudentByFace";
 import NotificationHistoryModal from "../Student/NotificationHistoryModal";
 import SupportFeedbackPage from "../Common/SupportFeedbackPage";
 import HelpSupportWidget from "../Common/HelpSupportWidget";
@@ -94,6 +96,10 @@ const AdminDashboard = () => {
             <Route path="scanqr" element={<QrScannerApp />} />
             <Route path="face-enroll" element={<FaceEnrollPage />} />
             <Route path="register-face" element={<FaceEnrollPage />} />
+            <Route path="manage-reregistration" element={<ManageBiometricReRegistration />} />
+            <Route path="reregistration" element={<ManageBiometricReRegistration />} />
+            <Route path="identify-student" element={<IdentifyStudentByFace />} />
+            <Route path="face-identification" element={<IdentifyStudentByFace />} />
             <Route path="institution" element={<InstitutionSettings />} />
             <Route path="settings" element={<Settings />} />
             <Route path="device-setup" element={<DeviceSetupPage />} />

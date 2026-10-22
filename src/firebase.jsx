@@ -41,7 +41,7 @@ try {
 
 export const db = firestoreDb;
 export const auth = getAuth(app);
-export const functions = getFunctions(app);
+export const functions = getFunctions(app, "us-central1");
 
 export const googleProvider = new GoogleAuthProvider();
 

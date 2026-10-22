@@ -60,6 +60,49 @@ service cloud.firestore {
       return isAdmin() || isLecturer();
     }
 
+    function hasNoFaceTemplate(data) {
+      return !data.keys().hasAny([
+        'faceDescriptor', 'faceDescriptors', 'descriptor', 'descriptors',
+        'faceVector', 'faceVectors', 'embedding', 'embeddings'
+      ]);
+    }
+
+    function hasNoClientFaceEnrollmentMutation() {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+        'faceDescriptor', 'faceDescriptors', 'descriptor', 'descriptors',
+        'faceVector', 'faceVectors', 'embedding', 'embeddings',
+        'faceRegistered', 'biometricEnrolled', 'hasFaceRegistered',
+        'faceEnrolledAt', 'faceRemovedAt',
+        'hardwareBiometricEnrolled', 'hardwareBiometricPlatform', 'hardwareBiometricEnrolledAt',
+        'isDeviceRegistered', 'registeredPlatform', 'registeredDeviceType'
+      ]);
+    }
+
+    function isOwnStudentRecord(studentId, data) {
+      return isSignedIn() && (
+        request.auth.uid == studentId ||
+        data.studentUid == request.auth.uid ||
+        data.uid == request.auth.uid ||
+        (request.auth.token.email != null && (
+          (data.email != null && data.email.lower() == request.auth.token.email.lower()) ||
+          studentId.lower() == request.auth.token.email.split('@')[0].lower()
+        ))
+      );
+    }
+
+    function isOwnUserRecord(userId, data) {
+      return isSignedIn() && (
+        request.auth.uid == userId ||
+        data.studentUid == request.auth.uid ||
+        data.uid == request.auth.uid ||
+        (request.auth.token.email != null && (
+          (data.email != null && data.email.lower() == request.auth.token.email.lower()) ||
+          (userId.lower() == request.auth.token.email.split('@')[0].lower() &&
+            (!('studentUid' in data) || data.studentUid == null || data.studentUid == request.auth.uid))
+        ))
+      );
+    }
+
     // Admins collection: strictly protected against client tampering and privilege escalation
     match /admins/{adminId} {
       allow read: if isSignedIn();
@@ -165,36 +208,35 @@ service cloud.firestore {
     // Students collection: records managed by staff.
     // Students can update their own profile, faceDescriptor, and biometric hardware keys, but cannot alter rollNo, status, role, or device lock.
     match /students/{studentId} {
-      allow read: if isSignedIn();
-      allow create: if isStaff() || (
+      allow read: if isStaff() || isOwnStudentRecord(studentId, resource.data);
+      allow create: if hasNoFaceTemplate(request.resource.data) &&
+        (!('faceRegistered' in request.resource.data) || request.resource.data.faceRegistered == false) &&
+        (!('biometricEnrolled' in request.resource.data) || request.resource.data.biometricEnrolled == false) &&
+        (!('hasFaceRegistered' in request.resource.data) || request.resource.data.hasFaceRegistered == false) &&
+        (isStaff() || (
         isSignedIn() &&
         (
           request.auth.uid == studentId ||
           (request.resource.data.studentUid != null && request.resource.data.studentUid == request.auth.uid) ||
           (request.auth.token.email != null && request.resource.data.email != null && (request.resource.data.email == request.auth.token.email || request.resource.data.email.lower() == request.auth.token.email.lower()))
         ) &&
-        !request.resource.data.keys().hasAny(['status', 'disqualified', 'role'])
-      );
+        !request.resource.data.keys().hasAny(['disqualified', 'isAdmin', 'isStaff']) &&
+        (!('role' in request.resource.data) || request.resource.data.role == 'student') &&
+        (!('status' in request.resource.data) || request.resource.data.status in ['active', 'pending'])
+      ));
       allow delete: if isStaff();
-      allow update: if isStaff() || (
+      allow update: if hasNoClientFaceEnrollmentMutation() && (isStaff() || (
         isSignedIn() &&
-        (
-          request.auth.uid == studentId ||
-          (resource.data.studentUid != null && resource.data.studentUid == request.auth.uid) ||
-          (request.auth.token.email != null && resource.data.email != null && (resource.data.email == request.auth.token.email || resource.data.email.lower() == request.auth.token.email.lower())) ||
-          (request.auth.token.email != null && request.auth.token.email.split('@')[0].lower() == studentId.lower()) ||
-          (resource.data.rollNo != null && request.auth.token.email != null && resource.data.rollNo.lower() == request.auth.token.email.split('@')[0].lower()) ||
-          (!('studentUid' in resource.data) || resource.data.studentUid == null || resource.data.studentUid == "")
-        ) &&
+        isOwnStudentRecord(studentId, resource.data) &&
         !request.resource.data.diff(resource.data).affectedKeys().hasAny([
-          'rollNo', 'rollNumber', 'status', 'disqualified', 'academicYear', 'department', 'batch', 'role'
+          'rollNo', 'rollNumber', 'status', 'disqualified', 'academicYear', 'department', 'batch', 'role', 'studentUid'
         ]) &&
         // Prevent unlocking an already locked device from client side
         (
           !request.resource.data.diff(resource.data).affectedKeys().hasAny(['deviceTypeLocked']) ||
           (resource.data.deviceTypeLocked != true && request.resource.data.deviceTypeLocked == true)
         )
-      );
+      ));
       match /{document=**} {
         allow read: if isSignedIn();
         allow write: if isStaff();
@@ -203,8 +245,12 @@ service cloud.firestore {
 
     // Users collection: users can create/update own profile
     match /users/{userId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn() && (
+      allow read: if isStaff() || isOwnUserRecord(userId, resource.data);
+      allow create: if hasNoFaceTemplate(request.resource.data) &&
+        (!('faceRegistered' in request.resource.data) || request.resource.data.faceRegistered == false) &&
+        (!('biometricEnrolled' in request.resource.data) || request.resource.data.biometricEnrolled == false) &&
+        (!('hasFaceRegistered' in request.resource.data) || request.resource.data.hasFaceRegistered == false) &&
+        isSignedIn() && (
         isAdmin() || (
           (
             request.auth.uid == userId ||
@@ -215,7 +261,7 @@ service cloud.firestore {
           ])
         )
       );
-      allow update: if isSignedIn() && (
+      allow update: if hasNoClientFaceEnrollmentMutation() && isSignedIn() && (
         isAdmin() || (
           (
             request.auth.uid == userId ||
@@ -237,12 +283,31 @@ service cloud.firestore {
     }
 
     match /authorizedUsers/{userId} {
-      allow read: if isSignedIn();
-      allow write: if isAdmin();
+      allow read: if isStaff() || isOwnUserRecord(userId, resource.data);
+      allow create: if hasNoFaceTemplate(request.resource.data) &&
+        (!('faceRegistered' in request.resource.data) || request.resource.data.faceRegistered == false) &&
+        (!('biometricEnrolled' in request.resource.data) || request.resource.data.biometricEnrolled == false) &&
+        (!('hasFaceRegistered' in request.resource.data) || request.resource.data.hasFaceRegistered == false) &&
+        isAdmin();
+      allow update: if isAdmin() && hasNoClientFaceEnrollmentMutation();
+      allow delete: if isAdmin();
       match /{document=**} {
         allow read: if isSignedIn();
         allow write: if isAdmin();
       }
+    }
+
+    match /face_enrollments/{studentId} {
+      allow read, write: if false;
+    }
+
+    match /face_enrollment_control/{guardId} {
+      allow read, write: if false;
+    }
+
+    match /face_enrollment_reviews/{reviewId} {
+      allow read: if isStaff();
+      allow write: if false;
     }
 
     // Notifications & Communications
@@ -506,19 +571,42 @@ service cloud.firestore {
 
     match /biometric_credentials/{docId} {
       allow read: if isStaff() || (isSignedIn() && (docId == request.auth.uid || resource.data.studentUid == request.auth.uid));
-      allow write: if isStaff();
+      // Authoritative key enrollment is strictly handled via Cloud Functions Admin SDK or Staff
+      allow create, update, delete: if isStaff();
       match /{document=**} {
         allow read: if isStaff() || (isSignedIn() && (docId == request.auth.uid || resource.data.studentUid == request.auth.uid));
         allow write: if isStaff();
       }
     }
 
-    match /biometric_challenges/{docId} {
-      allow read: if isStaff() || (isSignedIn() && resource.data.studentUid == request.auth.uid);
+    match /biometric_reregistration_permissions/{permId} {
+      allow read: if isStaff() || (
+        isSignedIn() && (
+          resource.data.targetStudentUid == request.auth.uid ||
+          (request.auth.token.email != null && resource.data.targetRollNo != null && resource.data.targetRollNo.lower() == request.auth.token.email.split('@')[0].lower())
+        )
+      );
+      // All permission grants, updates, and revocations are authoritative and executed by Cloud Functions
       allow write: if false;
       match /{document=**} {
-        allow read: if isStaff() || (isSignedIn() && resource.data.studentUid == request.auth.uid);
+        allow read: if isStaff() || (
+          isSignedIn() && (
+            resource.data.targetStudentUid == request.auth.uid ||
+            (request.auth.token.email != null && resource.data.targetRollNo != null && resource.data.targetRollNo.lower() == request.auth.token.email.split('@')[0].lower())
+          )
+        );
         allow write: if false;
+      }
+    }
+
+    match /biometric_challenges/{docId} {
+      allow read: if isStaff() || (isSignedIn() && (docId == request.auth.uid || resource.data.studentUid == request.auth.uid));
+      allow create: if isStaff() || (isSignedIn() && request.resource.data.studentUid == request.auth.uid);
+      allow update: if isStaff() || (isSignedIn() && resource.data.studentUid == request.auth.uid);
+      allow delete: if isStaff();
+      match /{document=**} {
+        allow read: if isStaff() || (isSignedIn() && (docId == request.auth.uid || resource.data.studentUid == request.auth.uid));
+        allow write: if isStaff();
       }
     }
 

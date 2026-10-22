@@ -79,21 +79,12 @@ export default function Statistics() {
                         ? String(d.semester).trim()
                         : (prev?.semester || "1");
 
-                    const docVector = (Array.isArray(d.faceDescriptor) && d.faceDescriptor.length === 128)
-                        ? d.faceDescriptor
-                        : ((Array.isArray(d.descriptor) && d.descriptor.length === 128) ? d.descriptor : null);
-                    const prevVector = (Array.isArray(prev?.faceDescriptor) && prev.faceDescriptor.length === 128)
-                        ? prev.faceDescriptor
-                        : null;
-                    const finalVector = docVector || prevVector || null;
-
-                    const latestEnrolledAt = Math.max(d.enrolledAt || 0, prev?.enrolledAt || 0);
-                    const latestRemovedAt = Math.max(d.faceRemovedAt || 0, prev?.faceRemovedAt || 0);
-                    const isExplicitlyRemoved = Boolean(latestRemovedAt > 0 && latestRemovedAt > latestEnrolledAt && !docVector);
-
-                    const hasFace = Boolean(!isExplicitlyRemoved && finalVector && Array.isArray(finalVector) && finalVector.length === 128);
-                    const validDescriptor = hasFace ? finalVector : null;
-                    const photo = hasFace ? ((d.photoURL && d.photoURL.length > 5) ? d.photoURL : (prev?.photoURL || d.photo || d.image || "")) : "";
+                    const hasFace = Boolean(
+                        !d.faceRemovedAt &&
+                        (d.faceRegistered || d.biometricEnrolled || d.hasFaceRegistered ||
+                            prev?.faceRegistered || prev?.biometricEnrolled || prev?.hasFaceRegistered)
+                    );
+                    const photo = hasFace ? (d.photoURL || prev?.photoURL || d.photo || d.image || "") : "";
 
                     return {
                         ...(prev || {}),
@@ -106,8 +97,8 @@ export default function Statistics() {
                         faceRegistered: hasFace,
                         biometricEnrolled: hasFace,
                         hasFaceRegistered: hasFace,
-                        faceRemovedAt: isExplicitlyRemoved ? (d.faceRemovedAt || Date.now()) : null,
-                        faceDescriptor: validDescriptor
+                        faceRemovedAt: d.faceRemovedAt || null,
+                        faceDescriptor: null
                     };
                 });
             }
@@ -138,8 +129,8 @@ export default function Statistics() {
 
     // Face biometric registration status detection
     const hasFaceRegistered = Boolean(
-        (!fetchedStudentData?.faceRemovedAt && Array.isArray(fetchedStudentData?.faceDescriptor) && fetchedStudentData.faceDescriptor.length === 128) ||
-        (!profile?.faceRemovedAt && Array.isArray(profile?.faceDescriptor) && profile.faceDescriptor.length === 128)
+        (!fetchedStudentData?.faceRemovedAt && (fetchedStudentData?.faceRegistered || fetchedStudentData?.biometricEnrolled || fetchedStudentData?.hasFaceRegistered)) ||
+        (!profile?.faceRemovedAt && (profile?.faceRegistered || profile?.biometricEnrolled || profile?.hasFaceRegistered))
     );
 
     // Build candidate roll numbers for matching

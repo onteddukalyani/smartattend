@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import {
     FaArrowLeft,
@@ -13,16 +13,17 @@ import {
     FaExclamationTriangle,
     FaInfoCircle,
     FaLock,
-    FaCog
+    FaCog,
+    FaKey,
+    FaUserShield
 } from "react-icons/fa";
-import { doc, setDoc, deleteField, onSnapshot } from "firebase/firestore";
-import { httpsCallable } from "firebase/functions";
+import { doc, onSnapshot } from "firebase/firestore";
 import { Capacitor } from "@capacitor/core";
-import { db, functions } from "../../../firebase";
+import { db } from "../../../firebase";
 import { useAuth } from "../../authcontext";
 import { LiveFaceEnrollment } from "../../Common/LiveFaceEnrollment";
 import FaceScanner from "../../Lecturer/pages/FaceScanner";
-import { checkDuplicateFaceBiometrics, clearFaceProfilesCache } from "../../../utils/biometricManager";
+import { registerStudentFace } from "../../../services/faceEnrollmentService";
 import { Biometric } from "../../../plugins/biometric";
 import {
     isHardwareBiometricAvailable,
@@ -41,10 +42,10 @@ export default function FaceEnrollPage() {
 
     // Real-time Enrollment Status
     const [hasFaceRegistered, setHasFaceRegistered] = useState(false);
-    const [registeredDescriptor, setRegisteredDescriptor] = useState(null);
     const [showFaceTest, setShowFaceTest] = useState(false);
     const [faceTestResult, setFaceTestResult] = useState("");
     const [isReEnrolling, setIsReEnrolling] = useState(false);
+    const [reRegPermission, setReRegPermission] = useState(null);
     const [hasHwRegistered, setHasHwRegistered] = useState(() => {
         try {
             return (
@@ -68,14 +69,17 @@ export default function FaceEnrollPage() {
     const [hwInfo, setHwInfo] = useState(null);
     const [keyExistsOnDevice, setKeyExistsOnDevice] = useState(true);
 
-    const emailRoll = (user?.email || "").split("@")[0].trim().toUpperCase();
+    const cleanEmail = String(user?.email || profile?.email || "").trim().toLowerCase();
+    const emailRoll = cleanEmail.split("@")[0].trim().toUpperCase();
     const activeRollNo = (profile?.rollNo || emailRoll || "").trim().toUpperCase();
     const studentName = profile?.name || profile?.fullName || activeRollNo || "Student";
-    const cleanEmail = (user?.email || "").toLowerCase().trim();
     const isNative = Capacitor.isNativePlatform();
     const platform = Capacitor.getPlatform();
     const browserCameraAuth = isBrowserCameraAllowed(profile, user);
     const isCameraAllowed = browserCameraAuth.allowed;
+
+    const userRole = String(profile?.role || "").trim().toLowerCase();
+    const isStaff = userRole === "lecturer" || userRole === "admin" || userRole === "administrator" || Boolean(profile?.isLecturer || profile?.isAdmin);
 
     const refreshHwStatus = async () => {
         try {
@@ -94,7 +98,7 @@ export default function FaceEnrollPage() {
         refreshHwStatus();
     }, [isNative, hasHwRegistered]);
 
-    // Live Snapshot for Real-Time Status Tracking
+    // Live Snapshot for Real-Time Status Tracking from student record
     useEffect(() => {
         if (!activeRollNo) return;
         const localHwStatus = (
@@ -109,14 +113,9 @@ export default function FaceEnrollPage() {
         const unsub = onSnapshot(doc(db, "students", activeRollNo), (snap) => {
             if (snap.exists()) {
                 const data = snap.data();
-                const validDescriptor = (
-                    data.faceDescriptor &&
-                    Array.isArray(data.faceDescriptor) &&
-                    data.faceDescriptor.length === 128
-                ) ? data.faceDescriptor : null;
-
-                setRegisteredDescriptor(validDescriptor);
-                setHasFaceRegistered(Boolean(validDescriptor));
+                setHasFaceRegistered(Boolean(
+                    data.faceRegistered || data.biometricEnrolled || data.hasFaceRegistered
+                ));
                 const hwEnrolled = Boolean(data.hardwareBiometricEnrolled) || localHwStatus;
                 setHasHwRegistered(hwEnrolled);
                 if (data.hardwareBiometricEnrolled) {
@@ -127,7 +126,6 @@ export default function FaceEnrollPage() {
                     } catch (_) {}
                 }
             } else {
-                setRegisteredDescriptor(null);
                 setHasFaceRegistered(false);
                 setHasHwRegistered(localHwStatus);
             }
@@ -138,12 +136,108 @@ export default function FaceEnrollPage() {
         return () => unsub();
     }, [activeRollNo, user?.uid]);
 
+    // Live Subscription to Re-registration Permissions
+    useEffect(() => {
+        if (!activeRollNo) return;
+        const unsubPerm = onSnapshot(doc(db, "biometric_reregistration_permissions", activeRollNo), (snap) => {
+            if (snap.exists()) {
+                setReRegPermission(snap.data());
+            } else {
+                setReRegPermission(null);
+            }
+        }, (err) => {
+            console.warn("Biometric permissions snap notice:", err);
+        });
+        return () => unsubPerm();
+    }, [activeRollNo]);
+
+    // Permission Authorization Logic
+    const isPermActive = Boolean(
+        reRegPermission &&
+        reRegPermission.status === "active" &&
+        (reRegPermission.remainingUses === undefined || reRegPermission.remainingUses === null || reRegPermission.remainingUses > 0) &&
+        (!reRegPermission.expiresAt || reRegPermission.expiresAt > Date.now())
+    );
+
+    const canReEnrollFace = isStaff || !hasFaceRegistered || (
+        isPermActive && (reRegPermission.registrationType === "face" || reRegPermission.registrationType === "both")
+    );
+
+    const canReEnrollHw = isStaff || !hasHwRegistered || (
+        isPermActive && (reRegPermission.registrationType === "biometric" || reRegPermission.registrationType === "both")
+    );
+
+    // Phase 7: Authoritative Registration State & Labels
+    const canonicalState = useMemo(() => {
+        if (faceSaving || hwEnrolling) {
+            return {
+                code: isReEnrolling ? "REREG_IN_PROGRESS" : "INITIAL_IN_PROGRESS",
+                label: isReEnrolling ? "Re-Registration in Progress..." : "Initial Registration in Progress...",
+                ribbonClass: "status-pending"
+            };
+        }
+        if (hasFaceRegistered && hasHwRegistered) {
+            if (isPermActive) {
+                return {
+                    code: "PERMISSION_GRANTED",
+                    label: `Re-Registration Authorized (${reRegPermission.mode === "one_time" ? "Mode A: 1-Time Pass" : "Mode B: Repeated Access"} • ${reRegPermission.remainingUses ?? 1} left)`,
+                    ribbonClass: "status-permission-granted"
+                };
+            }
+            if (reRegPermission?.status === "revoked") {
+                return {
+                    code: "PERMISSION_REVOKED",
+                    label: "Re-Registration Pass Revoked by Faculty",
+                    ribbonClass: "status-registered"
+                };
+            }
+            if (reRegPermission?.expiresAt && reRegPermission.expiresAt <= Date.now()) {
+                return {
+                    code: "PERMISSION_EXPIRED",
+                    label: "Re-Registration Pass Expired",
+                    ribbonClass: "status-registered"
+                };
+            }
+            return {
+                code: "COMPLETED",
+                label: "All Biometrics Registered & Locked",
+                ribbonClass: "status-registered"
+            };
+        }
+        if (hasFaceRegistered || hasHwRegistered) {
+            if (isPermActive) {
+                return {
+                    code: "PERMISSION_GRANTED",
+                    label: `Re-Registration Authorized (${reRegPermission.mode === "one_time" ? "Mode A" : "Mode B"})`,
+                    ribbonClass: "status-permission-granted"
+                };
+            }
+            return {
+                code: "PARTIALLY_REGISTERED",
+                label: hasFaceRegistered ? "Face Enrolled • Fingerprint Pending" : "Fingerprint Enrolled • Face Pending",
+                ribbonClass: "status-pending"
+            };
+        }
+        if (hwEnrollError) {
+            return {
+                code: "FAILED_RETRY_AVAILABLE",
+                label: "Registration Interrupted • Retry Available",
+                ribbonClass: "status-pending"
+            };
+        }
+        return {
+            code: "NOT_REGISTERED",
+            label: "Not Registered (Setup Required)",
+            ribbonClass: "status-pending"
+        };
+    }, [faceSaving, hwEnrolling, isReEnrolling, hasFaceRegistered, hasHwRegistered, isPermActive, reRegPermission, hwEnrollError]);
+
     const handleFaceEnrolled = async (enrollData) => {
         if (!enrollData || !enrollData.faceDescriptor || !activeRollNo) return;
 
-        // Security Lock: Allow if not registered or if explicitly re-enrolling
-        if (hasFaceRegistered && !isReEnrolling) {
-            alert("🔒 Biometrics Locked:\n\nYour facial biometrics are already registered and permanently protected. To update, tap 'Re-Enroll Face Biometrics'.");
+        // Security Lock: Allow if not registered, or if staff, or if re-registration permitted
+        if (hasFaceRegistered && !canReEnrollFace) {
+            alert("🔒 Biometrics Locked:\n\nInitial face registration is complete and permanently protected. Students cannot independently re-register face biometrics.\n\nPlease contact your Course Lecturer or Administrator to request an authorized Re-Registration Pass.");
             return;
         }
 
@@ -151,60 +245,8 @@ export default function FaceEnrollPage() {
             setFaceSaving(true);
             const rawVector = enrollData.faceDescriptor;
             const cleanVector = Array.isArray(rawVector) ? rawVector : Array.from(rawVector);
-
-            // Check duplicate face biometrics against registry
-            const duplicateCheck = await checkDuplicateFaceBiometrics(cleanVector, activeRollNo, cleanEmail);
-            if (duplicateCheck.isDuplicate && duplicateCheck.conflictStudent) {
-                const cs = duplicateCheck.conflictStudent;
-                alert(`⛔ Duplicate Face Detected!\n\nThis face matches registered student "${cs.name}" (${cs.rollNo} • ${cs.confidence}% Match).\n\nSystem policy strictly prohibits multiple students from using the same facial biometrics.`);
-                setFaceSaving(false);
-                return;
-            }
-
-            let cloudSaved = false;
-            try {
-                const regFn = httpsCallable(functions, "registerStudentFace");
-                const res = await regFn({
-                    rollNo: activeRollNo,
-                    faceDescriptor: cleanVector,
-                    photoURL: enrollData.photoURL || profile?.photoURL || ""
-                });
-                if (res && res.data && res.data.success) {
-                    cloudSaved = true;
-                }
-            } catch (cloudErr) {
-                console.warn("Cloud function registerStudentFace fallback notice:", cloudErr.message || cloudErr);
-            }
-
-            if (!cloudSaved) {
-                const updatePayload = {
-                    rollNo: activeRollNo,
-                    name: studentName,
-                    email: cleanEmail,
-                    branch: profile?.branch || "CSE",
-                    semester: profile?.semester || "1",
-                    role: "student",
-                    status: "active",
-                    faceDescriptor: cleanVector,
-                    photoURL: enrollData.photoURL || profile?.photoURL || "",
-                    faceRegistered: true,
-                    biometricEnrolled: true,
-                    hasFaceRegistered: true,
-                    studentUid: user?.uid || null,
-                    faceRemovedAt: deleteField(),
-                    enrolledAt: Date.now()
-                };
-
-                await Promise.all([
-                    setDoc(doc(db, "students", activeRollNo), updatePayload, { merge: true }),
-                    user?.uid ? setDoc(doc(db, "users", user.uid), updatePayload, { merge: true }).catch(() => {}) : Promise.resolve(),
-                    setDoc(doc(db, "users", activeRollNo), updatePayload, { merge: true }).catch(() => {})
-                ]);
-            }
-
-            clearFaceProfilesCache();
+            await registerStudentFace(activeRollNo, cleanVector);
             setHasFaceRegistered(true);
-            setRegisteredDescriptor(cleanVector);
             setIsReEnrolling(false);
             setShowFaceTest(false);
             setFaceSuccessMsg("✅ Face biometrics registered & saved! Next: Register your Device Fingerprint below.");
@@ -214,7 +256,14 @@ export default function FaceEnrollPage() {
             }, 2500);
         } catch (err) {
             console.error("Error saving face biometrics:", err);
-            alert("Failed to save face biometrics: " + err.message);
+            const msg = err.message || "";
+            if (msg.includes("already-exists") || msg.includes("Duplicate") || msg.includes("already enrolled under another")) {
+                alert("❌ Duplicate Face Detected:\n\nThis face matches another enrolled student account in the institution. Global face uniqueness requires one unique face per student identity.\n\nPlease enroll your own face or contact your Administrator.");
+            } else if (msg.includes("permission-denied") || msg.includes("re-registration permission") || msg.includes("already enrolled")) {
+                alert("🔒 Biometrics Locked:\n\n" + msg);
+            } else {
+                alert("Failed to save face biometrics: " + msg);
+            }
         } finally {
             setFaceSaving(false);
         }
@@ -222,9 +271,9 @@ export default function FaceEnrollPage() {
 
     // In-App Fingerprint / Device Biometrics Registration Handler
     const handleEnrollFingerprint = async (isRebind = false) => {
-        // Security Lock: Prevent re-enrolling or editing once registered unless re-binding this phone's keystore
-        if (hasHwRegistered && !isRebind) {
-            alert("🔒 Biometrics Locked:\n\nYour device fingerprint is already registered and permanently protected. Students cannot re-enroll or edit biometrics.\n\nPlease contact your Course Lecturer or Administrator if an authorized reset is needed.");
+        // Security Lock: Prevent re-enrolling once registered unless staff, re-registration authorized, or keystore rebind
+        if (hasHwRegistered && !canReEnrollHw && !isRebind) {
+            alert("🔒 Biometrics Locked:\n\nYour device fingerprint is already registered and permanently protected. Students cannot independently re-register biometrics.\n\nPlease contact your Course Lecturer or Administrator if an authorized reset is needed.");
             return;
         }
 
@@ -235,40 +284,8 @@ export default function FaceEnrollPage() {
 
             const res = await enrollHardwareBiometric(user?.uid || activeRollNo);
             if (res.success) {
-                // Save hardware biometric enrollment and device registration status to Firestore
+                // Persist locally for immediate offline client responsiveness
                 const regPlatform = res.platform || platform || (isNative ? "android" : "web");
-                const hwPayload = {
-                    hardwareBiometricEnrolled: true,
-                    hardwareBiometricPlatform: regPlatform,
-                    hardwareBiometricEnrolledAt: Date.now(),
-                    biometricEnrolled: true,
-                    studentUid: user?.uid || null,
-                    isDeviceRegistered: true,
-                    deviceType: regPlatform,
-                    registeredPlatform: regPlatform,
-                    registeredDeviceType: regPlatform,
-                    deviceTypeLocked: true,
-                    deviceSelectedAt: Date.now(),
-                    updatedAt: Date.now()
-                };
-
-                // Parallel Firestore sync across canonical student and user documents
-                const syncPromises = [];
-                if (activeRollNo) {
-                    syncPromises.push(setDoc(doc(db, "students", activeRollNo), hwPayload, { merge: true }).catch(() => {}));
-                }
-                if (user?.uid) {
-                    syncPromises.push(setDoc(doc(db, "users", user.uid), hwPayload, { merge: true }).catch(() => {}));
-                }
-                if (activeRollNo && user?.uid !== activeRollNo) {
-                    syncPromises.push(setDoc(doc(db, "users", activeRollNo), hwPayload, { merge: true }).catch(() => {}));
-                }
-                if (user?.uid && user.uid !== activeRollNo) {
-                    syncPromises.push(setDoc(doc(db, "students", user.uid), hwPayload, { merge: true }).catch(() => {}));
-                }
-                await Promise.all(syncPromises);
-
-                // Persist locally so it's instantly active across restarts and UI components
                 try {
                     if (activeRollNo) localStorage.setItem(`smartattend_hw_enrolled_${activeRollNo}`, "true");
                     if (user?.uid) localStorage.setItem(`smartattend_hw_enrolled_${user.uid}`, "true");
@@ -284,7 +301,11 @@ export default function FaceEnrollPage() {
                 setTimeout(() => setHwEnrollMsg(""), 4500);
                 refreshHwStatus();
             } else {
-                setHwEnrollError(res.message || "Failed to register fingerprint. Please try again.");
+                if (res.code === "ALREADY_REGISTERED") {
+                    setHwEnrollError("🔒 Biometrics Locked: Your hardware biometric is already enrolled. Contact your Course Lecturer or Administrator to grant an authorized re-registration pass.");
+                } else {
+                    setHwEnrollError(res.message || "Failed to register fingerprint. Please try again.");
+                }
             }
         } catch (err) {
             console.error("Fingerprint enrollment error:", err);
@@ -331,6 +352,19 @@ export default function FaceEnrollPage() {
 
             {/* Main Interactive Card */}
             <div className="face-enroll-card">
+                {/* Phase 7: Authoritative Registration State Ribbon */}
+                <div className={`bio-status-ribbon ${canonicalState.ribbonClass}`}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                        <FaShieldAlt />
+                        <span>Status: <strong>{canonicalState.label}</strong></span>
+                    </div>
+                    {isStaff && (
+                        <span style={{ fontSize: "0.78rem", background: "rgba(99, 102, 241, 0.2)", padding: "2px 8px", borderRadius: "6px", color: "#4f46e5" }}>
+                            <FaUserShield /> Staff Self-Enrollment Mode
+                        </span>
+                    )}
+                </div>
+
                 {/* Tab Navigation Switcher with Live Status */}
                 <div className="bio-tabs-switcher" role="tablist">
                     <button
@@ -375,15 +409,53 @@ export default function FaceEnrollPage() {
                                     Student: <strong>{studentName}</strong> • Roll No: <strong style={{ color: "var(--accent, #6366f1)" }}>{activeRollNo}</strong>
                                 </p>
                                 
-                                <div className="bio-locked-alert-box">
-                                    <FaLock className="lock-inline-icon" />
-                                    <div>
-                                        <strong>Biometric Vector Authenticated 🛡️</strong>
-                                        <p>
-                                            Your 128-dimensional facial biometric profile is active and verified for attendance. You can test face recognition below or update your biometrics if needed.
-                                        </p>
+                                {isStaff ? (
+                                    <div className="bio-permission-alert-box">
+                                        <FaUserShield className="perm-icon" />
+                                        <div>
+                                            <strong>Staff Biometrics Authorized</strong>
+                                            <p>As a faculty member or administrator, you may test face recognition or update and re-enroll your biometrics whenever needed.</p>
+                                        </div>
                                     </div>
-                                </div>
+                                ) : canReEnrollFace ? (
+                                    <div className="bio-permission-alert-box">
+                                        <FaKey className="perm-icon" />
+                                        <div>
+                                            <strong>Re-Registration Pass Authorized 🔑</strong>
+                                            <p>
+                                                You have been granted permission to re-enroll your facial biometrics.
+                                            </p>
+                                            <div className="bio-permission-tags">
+                                                <span className="bio-perm-tag">
+                                                    Grantor: {reRegPermission?.grantedByName || reRegPermission?.grantedByRole || "Faculty"}
+                                                </span>
+                                                <span className="bio-perm-tag">
+                                                    Mode: {reRegPermission?.mode === "one_time" ? "Mode A (One-Time)" : "Mode B (Repeated)"}
+                                                </span>
+                                                <span className="bio-perm-tag">
+                                                    Remaining Uses: {reRegPermission?.remainingUses ?? 1}
+                                                </span>
+                                                {reRegPermission?.expiresAt && (
+                                                    <span className="bio-perm-tag">
+                                                        Expires: {new Date(reRegPermission.expiresAt).toLocaleDateString()}
+                                                    </span>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div className="bio-locked-alert-box">
+                                        <FaLock className="lock-inline-icon" />
+                                        <div>
+                                            <strong>Student Biometrics Locked 🔒</strong>
+                                            <p>
+                                                Your 128-dimensional facial biometric profile is active and permanently protected for institutional attendance. Under policy, students cannot independently re-register face biometrics.
+                                                <br />
+                                                If you need to update your registered face (e.g. appearance changes, camera issues), please contact your Course Lecturer or Administrator to grant an authorized Re-Registration Pass.
+                                            </p>
+                                        </div>
+                                    </div>
+                                )}
 
                                 {/* Action Buttons: Test Live Verification & Re-Enroll */}
                                 <div style={{ display: "flex", gap: "12px", justifyContent: "center", flexWrap: "wrap", margin: "16px 0" }}>
@@ -410,30 +482,39 @@ export default function FaceEnrollPage() {
                                         <FaCamera /> {showFaceTest ? "Close Face Test" : "Test Live Face Verification"}
                                     </button>
 
-                                    <button
-                                        type="button"
-                                        onClick={() => {
-                                            if (window.confirm("Do you want to re-record your 3D facial biometrics? This will replace your previous facial template with a fresh live scan.")) {
+                                    {canReEnrollFace ? (
+                                        <button
+                                            type="button"
+                                            onClick={() => {
                                                 setShowFaceTest(false);
                                                 setIsReEnrolling(true);
-                                            }
-                                        }}
-                                        style={{
-                                            display: "inline-flex",
-                                            alignItems: "center",
-                                            gap: "8px",
-                                            padding: "10px 18px",
-                                            borderRadius: "10px",
-                                            background: "var(--surface-soft, #f1f5f9)",
-                                            color: "var(--text-main, #0f172a)",
-                                            border: "1.5px solid var(--border, #cbd5e1)",
-                                            fontWeight: 700,
-                                            fontSize: "0.88rem",
-                                            cursor: "pointer"
-                                        }}
-                                    >
-                                        <FaRedo /> Re-Enroll Face Biometrics
-                                    </button>
+                                            }}
+                                            style={{
+                                                display: "inline-flex",
+                                                alignItems: "center",
+                                                gap: "8px",
+                                                padding: "10px 18px",
+                                                borderRadius: "10px",
+                                                background: "linear-gradient(135deg, #10b981 0%, #059669 100%)",
+                                                color: "#ffffff",
+                                                border: "none",
+                                                fontWeight: 700,
+                                                fontSize: "0.88rem",
+                                                cursor: "pointer",
+                                                boxShadow: "0 4px 12px rgba(16, 185, 129, 0.25)"
+                                            }}
+                                        >
+                                            <FaRedo /> {isStaff ? "Re-Enroll Face Biometrics" : "Re-Enroll Face Biometrics (Pass Active)"}
+                                        </button>
+                                    ) : (
+                                        <button
+                                            type="button"
+                                            className="bio-locked-disabled-btn"
+                                            onClick={() => alert("🔒 Re-Registration Locked:\n\nInitial face registration is complete. To re-register your face, request an authorized Re-Registration Pass from your course lecturer or administrator.")}
+                                        >
+                                            <FaLock /> Re-Registration Locked (Requires Faculty Pass)
+                                        </button>
+                                    )}
                                 </div>
 
                                 {/* Live Face Test View */}
@@ -467,7 +548,7 @@ export default function FaceEnrollPage() {
                                                 verifiedStudent={{
                                                     name: studentName,
                                                     rollNo: activeRollNo,
-                                                    faceDescriptor: registeredDescriptor || profile?.faceDescriptor
+                                                    faceRegistered: hasFaceRegistered
                                                 }}
                                                 rollNo={activeRollNo}
                                                 onVerificationChange={(res) => {
@@ -559,8 +640,6 @@ export default function FaceEnrollPage() {
                                 <div className="face-enroll-camera-wrap">
                                     <LiveFaceEnrollment
                                         hideHeader={true}
-                                        targetRollNo={activeRollNo}
-                                        targetEmail={cleanEmail}
                                         targetName={studentName}
                                         onFaceEnrolled={handleFaceEnrolled}
                                     />
@@ -598,17 +677,68 @@ export default function FaceEnrollPage() {
                                     Bound to: <strong>{isNative ? (platform === "android" ? "Android Keystore (Hardware Chip)" : "Apple Secure Enclave (Face ID / Touch ID)") : "Platform Authenticator (Web Security)"}</strong>
                                 </p>
 
-                                <div className="bio-locked-alert-box">
-                                    <FaLock className="lock-inline-icon" />
-                                    <div>
-                                        <strong>Hardware Signature Locked 🔒</strong>
-                                        <p>
-                                            This physical device is cryptographically bound to Roll No: <strong>{activeRollNo}</strong>. Students cannot re-register, switch, or overwrite the registered biometric key. Attendance must be signed from this authorized device.
-                                        </p>
+                                {isStaff ? (
+                                    <div className="bio-permission-alert-box">
+                                        <FaUserShield className="perm-icon" />
+                                        <div>
+                                            <strong>Staff Device Biometrics Authorized</strong>
+                                            <p>As a faculty member or administrator, you may re-register or update device biometrics at any time.</p>
+                                        </div>
                                     </div>
-                                </div>
+                                ) : canReEnrollHw ? (
+                                    <div className="bio-permission-alert-box">
+                                        <FaKey className="perm-icon" />
+                                        <div>
+                                            <strong>Re-Registration Pass Authorized 🔑</strong>
+                                            <p>
+                                                You have been granted permission to re-register your device fingerprint.
+                                            </p>
+                                            <div className="bio-permission-tags">
+                                                <span className="bio-perm-tag">
+                                                    Grantor: {reRegPermission?.grantedByName || reRegPermission?.grantedByRole || "Faculty"}
+                                                </span>
+                                                <span className="bio-perm-tag">
+                                                    Mode: {reRegPermission?.mode === "one_time" ? "Mode A (One-Time)" : "Mode B (Repeated)"}
+                                                </span>
+                                                <span className="bio-perm-tag">
+                                                    Remaining Uses: {reRegPermission?.remainingUses ?? 1}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div className="bio-locked-alert-box">
+                                        <FaLock className="lock-inline-icon" />
+                                        <div>
+                                            <strong>Hardware Signature Locked 🔒</strong>
+                                            <p>
+                                                This physical device is cryptographically bound to Roll No: <strong>{activeRollNo}</strong>. Students cannot independently re-register or overwrite the registered biometric key. Attendance must be signed from this authorized device.
+                                                <br />
+                                                If you changed or lost your phone, request a Re-Registration Pass from your Course Lecturer or Administrator.
+                                            </p>
+                                        </div>
+                                    </div>
+                                )}
 
-                                {isNative && !keyExistsOnDevice && (
+                                {canReEnrollHw && (
+                                    <div style={{ margin: "16px 0" }}>
+                                        <button
+                                            type="button"
+                                            className="fp-primary-enroll-btn"
+                                            onClick={() => handleEnrollFingerprint(true)}
+                                            disabled={hwEnrolling}
+                                            style={{ padding: "12px 20px", fontSize: "0.95rem" }}
+                                        >
+                                            {hwEnrolling ? (
+                                                <><FaSpinner className="fa-spin" /> <span>Waiting for Fingerprint...</span></>
+                                            ) : (
+                                                <><FaRedo /> <span>{isStaff ? "Re-Register Fingerprint (Staff)" : "Re-Register Fingerprint (Pass Active)"}</span></>
+                                            )}
+                                        </button>
+                                    </div>
+                                )}
+
+                                {isNative && !keyExistsOnDevice && !canReEnrollHw && (
                                     <div className="fp-rebind-warning-box">
                                         <div style={{ display: "flex", alignItems: "flex-start", gap: "12px" }}>
                                             <FaExclamationTriangle style={{ color: "#d97706", fontSize: "1.4rem", flexShrink: 0, marginTop: "2px" }} />
@@ -657,7 +787,7 @@ export default function FaceEnrollPage() {
                                 )}
 
                                 <div className="bio-locked-help-note" style={{ marginTop: "20px" }}>
-                                    <FaInfoCircle /> If you lost or replaced your physical phone, request a device reset through your Course Lecturer or Administrator.
+                                    <FaInfoCircle /> If you lost or replaced your physical phone, request an authorized reset from your Course Lecturer or Administrator.
                                 </div>
                             </div>
                         ) : (

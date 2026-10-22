@@ -773,6 +773,57 @@
     }
 }
 
+@media (max-width: 480px) {
+    .student-statistics-page {
+        padding: 12px 8px calc(88px + env(safe-area-inset-bottom, 0px));
+        gap: 12px;
+    }
+
+    .student-statistics-page .stats-header-banner {
+        padding: 16px 14px;
+        border-radius: 14px;
+    }
+
+    .student-statistics-page .stats-header-actions {
+        width: 100%;
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .student-statistics-page .stats-btn-refresh,
+    .student-statistics-page .stats-btn-export {
+        width: 100%;
+        justify-content: center;
+        min-height: 44px;
+    }
+
+    .student-statistics-page .stats-subjects-grid {
+        grid-template-columns: 1fr;
+        gap: 12px;
+    }
+
+    .student-statistics-page .stats-section-card {
+        padding: 16px 14px;
+        border-radius: 14px;
+        gap: 14px;
+    }
+
+    .student-statistics-page .stats-subject-item {
+        padding: 14px 12px;
+        border-radius: 12px;
+    }
+}
+
+@media (max-width: 360px) {
+    .student-statistics-page .stats-header-info h1 {
+        font-size: 1.15rem;
+    }
+
+    .student-statistics-page .stats-kpi-card {
+        padding: 14px;
+    }
+}
+
 /* =========================================================
    MIDNIGHT THEME COMPATIBILITY
    ========================================================= */

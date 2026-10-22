@@ -41,6 +41,10 @@ export async function getRunningAppVersion() {
 }
 
 const GITHUB_VERSION_JSON_URL = "https://raw.githubusercontent.com/onteddukalyani/smartattend/main/version.json";
+const UPDATE_CHECK_CACHE_MS = 15000;
+let updateCheckPromise = null;
+let cachedUpdateCheck = null;
+let cachedUpdateCheckAt = 0;
 
 /**
  * Compare two semver version strings (e.g. '1.0.7' > '1.0.6', '1.0.0' > '1.0.0-rc.1')
@@ -105,11 +109,46 @@ export async function computeSha256(data) {
   }
 }
 
+async function fetchJsonWithTimeout(url, timeoutMs) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, {
+      cache: "no-store",
+      signal: controller.signal
+    });
+    return response.ok ? await response.json() : null;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 /**
- * Checks for the latest version of SmartAttend with timeout, offline detection, and multi-tier fallback.
+ * Shares concurrent checks and briefly caches successful results so lifecycle
+ * events and the periodic poll do not launch duplicate network requests.
  */
-export async function checkForAppUpdate() {
-  const _isNative = Capacitor.isNativePlatform();
+export function checkForAppUpdate() {
+  if (updateCheckPromise) return updateCheckPromise;
+  if (cachedUpdateCheck && Date.now() - cachedUpdateCheckAt < UPDATE_CHECK_CACHE_MS) {
+    return Promise.resolve(cachedUpdateCheck);
+  }
+
+  updateCheckPromise = performAppUpdateCheck()
+    .then((info) => {
+      if (info?.success && !info.isOffline) {
+        cachedUpdateCheck = info;
+        cachedUpdateCheckAt = Date.now();
+      }
+      return info;
+    })
+    .finally(() => {
+      updateCheckPromise = null;
+    });
+
+  return updateCheckPromise;
+}
+
+async function performAppUpdateCheck() {
   const running = await getRunningAppVersion();
 
   // 1. Immediate offline check
@@ -127,47 +166,50 @@ export async function checkForAppUpdate() {
 
   let remoteData = null;
 
-  // 2. Try fetching from Firestore first (Instant admin control) with 2.5s timeout
+  // 2. Try Firestore first, but keep update checks responsive when it is unavailable.
   try {
-    const firestorePromise = getDoc(doc(db, "app_updates", "latest"));
-    const timeoutPromise = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error("Firestore check timed out")), 2500)
-    );
-    const snap = await Promise.race([firestorePromise, timeoutPromise]);
+    let timeoutId;
+    const firestorePromise = getDoc(doc(db, "app_updates", "latest"))
+      .then((snapshot) => ({ snapshot }));
+    const timeoutPromise = new Promise((resolve) => {
+      timeoutId = setTimeout(() => resolve({ timedOut: true }), 1200);
+    });
+    let firestoreResult;
+    try {
+      firestoreResult = await Promise.race([firestorePromise, timeoutPromise]);
+    } finally {
+      clearTimeout(timeoutId);
+    }
+    if (firestoreResult?.timedOut) {
+      console.debug("[AppUpdate] Firestore check timed out; using the version-file fallback.");
+    }
+    const snap = firestoreResult?.snapshot;
     if (snap && snap.exists && snap.exists()) {
       remoteData = snap.data();
     }
   } catch (err) {
-    console.info("[AppUpdate] Firestore check notice, falling back to public version.json:", err.message);
+    console.debug("[AppUpdate] Firestore update check unavailable:", err.message);
   }
 
-  // 3. Fallback to GitHub raw version.json
+  // 3. The deployed site's version file is the fastest public fallback.
   if (!remoteData) {
     try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 7000);
-      const fetchUrl = `${GITHUB_VERSION_JSON_URL}?_nocache=${Date.now()}`;
-      const res = await fetch(fetchUrl, { cache: "no-store", signal: controller.signal });
-      clearTimeout(timeoutId);
-      if (res.ok) {
-        remoteData = await res.json();
-      }
+      remoteData = await fetchJsonWithTimeout(`/version.json?_nocache=${Date.now()}`, 2500);
     } catch (err) {
-      console.warn("[AppUpdate] GitHub version check notice:", err.message);
+      console.debug("[AppUpdate] Site version file unavailable:", err.message);
     }
   }
 
-  // 4. Fallback to bundled local public version.json
+  // 4. Use GitHub only when the current host cannot serve its version file.
   if (!remoteData) {
     try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000);
-      const res = await fetch(`/version.json?_nocache=${Date.now()}`, { cache: "no-store", signal: controller.signal });
-      clearTimeout(timeoutId);
-      if (res.ok) {
-        remoteData = await res.json();
-      }
-    } catch (_) { }
+      remoteData = await fetchJsonWithTimeout(
+        `${GITHUB_VERSION_JSON_URL}?_nocache=${Date.now()}`,
+        4000
+      );
+    } catch (err) {
+      console.warn("[AppUpdate] Public version fallback unavailable:", err.message);
+    }
   }
 
   if (!remoteData) {
@@ -602,6 +644,4 @@ export async function publishAppUpdate({
 
   return { success: true, version: cleanVersion };
 }
-
-
 

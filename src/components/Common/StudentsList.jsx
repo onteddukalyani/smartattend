@@ -33,7 +33,8 @@ import {
     FaApple,
     FaLock,
     FaUnlock,
-    FaFingerprint
+    FaFingerprint,
+    FaKey
 } from "react-icons/fa";
 import StudentDetailModal from "./StudentDetailModal";
 import { useTableSort, SortIcon } from "./useTableSort";
@@ -926,6 +927,16 @@ function StudentsList() {
                                                         style={{ background: "#e0f2fe", color: "#0369a1", borderColor: "#bae6fd" }}
                                                     >
                                                         <FaMobileAlt /> Device
+                                                    </button>
+
+                                                    <button
+                                                        type="button"
+                                                        className="row-action-btn"
+                                                        onClick={() => navigate(`${basePath}/manage-reregistration?roll=${student.rollNo || student.id}`)}
+                                                        title="Manage Biometric Re-Registration Access for this student"
+                                                        style={{ background: "#ede9fe", color: "#6d28d9", borderColor: "#ddd6fe" }}
+                                                    >
+                                                        <FaKey /> Re-Reg
                                                     </button>
 
                                                     {(student.hardwareBiometricEnrolled || student.deviceFingerprint) && (

@@ -269,35 +269,22 @@ export function mergeAllStudentRecords(authDocs = [], studentsDocs = [], usersDo
                    canonicalRoll;
         }
 
-        // Merge Facial Biometrics (128-D vector)
-        const docVector = normalizeDescriptor(data.faceDescriptor) || normalizeDescriptor(data.descriptor);
-        const existingVector = normalizeDescriptor(existing.faceDescriptor) || normalizeDescriptor(existing.descriptor);
-        const faceDescriptor = docVector || existingVector || null;
+        const hasStoredFace = Boolean(
+            data.faceRegistered || data.biometricEnrolled || data.hasFaceRegistered ||
+            existing.faceRegistered || existing.biometricEnrolled || existing.hasFaceRegistered ||
+            normalizeDescriptor(data.faceDescriptor) || normalizeDescriptor(data.descriptor) ||
+            normalizeDescriptor(existing.faceDescriptor) || normalizeDescriptor(existing.descriptor)
+        );
 
         const docEnrolledAt = Number(data.enrolledAt || data.faceEnrolledAt || 0) || 0;
         const existingEnrolledAt = Number(existing.enrolledAt || existing.faceEnrolledAt || 0) || 0;
         const latestEnrolledAt = Math.max(docEnrolledAt, existingEnrolledAt);
 
-        const docRemovedAt = Number(data.faceRemovedAt || 0) || 0;
-        const existingRemovedAt = Number(existing.faceRemovedAt || 0) || 0;
-        const latestRemovedAt = Math.max(docRemovedAt, existingRemovedAt);
+        const latestRemovedAt = data.faceRemovedAt || existing.faceRemovedAt || null;
 
-        // A face is explicitly removed ONLY if faceRemovedAt is strictly after enrolledAt AND neither doc has a valid vector
-        const isExplicitlyRemoved = Boolean(
-            latestRemovedAt > 0 &&
-            latestRemovedAt > latestEnrolledAt &&
-            !docVector &&
-            !existingVector
-        );
+        const isExplicitlyRemoved = Boolean(latestRemovedAt);
 
-        const hasValidVector = Boolean(
-            !isExplicitlyRemoved &&
-            faceDescriptor &&
-            Array.isArray(faceDescriptor) &&
-            faceDescriptor.length === 128
-        );
-
-        const faceRegistered = Boolean(hasValidVector || (data.faceRegistered && faceDescriptor) || (existing.faceRegistered && faceDescriptor));
+        const faceRegistered = Boolean(!isExplicitlyRemoved && hasStoredFace);
         const biometricEnrolled = faceRegistered;
         const hasFaceRegistered = faceRegistered;
 
@@ -337,7 +324,7 @@ export function mergeAllStudentRecords(authDocs = [], studentsDocs = [], usersDo
             faceRegistered: faceRegistered,
             biometricEnrolled: biometricEnrolled,
             hasFaceRegistered: hasFaceRegistered,
-            faceDescriptor: hasValidVector ? faceDescriptor : null,
+            faceDescriptor: null,
             photoURL: photoURL,
             enrolledAt: latestEnrolledAt,
             faceRemovedAt: isExplicitlyRemoved ? latestRemovedAt : null,

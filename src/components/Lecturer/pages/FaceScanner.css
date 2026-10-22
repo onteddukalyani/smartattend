@@ -442,3 +442,68 @@
   background: #243048;
 }
 
+/* =========================================================
+   RESPONSIVE DESIGN (MOBILE & TABLET VIEWPORTS)
+   ========================================================= */
+@media (max-width: 640px) {
+  .biometric-scanner-card {
+    padding: 16px 14px;
+    border-radius: 18px;
+    margin: 8px 0 16px;
+  }
+
+  .scanner-header-info {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .scanner-status-pill {
+    align-self: flex-start;
+  }
+
+  .scanner-video-wrapper {
+    max-width: 100%;
+    height: 250px;
+    min-height: 200px;
+    border-radius: 16px;
+  }
+
+  .scanner-instructions-box {
+    padding: 10px 12px;
+    font-size: 0.82rem;
+  }
+
+  .liveness-badge-row {
+    flex-direction: column;
+    gap: 4px;
+  }
+}
+
+@media (max-width: 440px) {
+  .biometric-scanner-card {
+    padding: 12px 10px;
+    border-radius: 14px;
+  }
+
+  .registered-avatar-thumb,
+  .registered-avatar-placeholder {
+    width: 36px;
+    height: 36px;
+  }
+
+  .registered-meta h4 {
+    font-size: 0.95rem;
+  }
+
+  .registered-meta p {
+    font-size: 0.78rem;
+  }
+
+  .scanner-video-wrapper {
+    height: 220px;
+    min-height: 180px;
+    border-radius: 12px;
+  }
+}
+

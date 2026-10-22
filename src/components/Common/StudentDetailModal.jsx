@@ -33,8 +33,10 @@ import { useAuth } from "../authcontext";
 import { downloadExcel } from "../../DownloadExcel";
 import { useTableSort, SortIcon } from "./useTableSort";
 import { LiveFaceEnrollment } from "./LiveFaceEnrollment";
+import FaceEnrollmentReviewPanel from "./FaceEnrollmentReviewPanel";
 import ProfilePhotoModal from "./ProfilePhotoModal";
-import { removeStudentFaceAndBiometrics, removeStudentPhotoOnly, checkDuplicateFaceBiometrics, clearFaceProfilesCache } from "../../utils/biometricManager";
+import { removeStudentFaceAndBiometrics, removeStudentPhotoOnly } from "../../utils/biometricManager";
+import { registerStudentFace } from "../../services/faceEnrollmentService";
 import { deleteStudentRecordCompletely, normalizeBranchName } from "../../utils/studentDataHelper";
 import { sendStudentNotification, sendFacultyNotification } from "../../services/notificationsService";
 import "./StudentDetailModal.css";
@@ -89,7 +91,6 @@ const StudentDetailModal = ({ student, onClose, onUpdate }) => {
   useEffect(() => {
     if (!currentStudent || !currentStudent.rollNo) return;
     const cleanRoll = String(currentStudent.rollNo).trim().toUpperCase();
-    const cleanEmail = (currentStudent.email || "").toLowerCase().trim();
 
     const unsubStudent = onSnapshot(doc(db, "students", cleanRoll), (snap) => {
       if (snap.exists()) {
@@ -170,7 +171,10 @@ const StudentDetailModal = ({ student, onClose, onUpdate }) => {
 
   const isFaceEnrolled = Boolean(
     !currentStudent?.faceRemovedAt &&
-    ((Array.isArray(currentStudent?.faceDescriptor) && currentStudent.faceDescriptor.length === 128) ||
+    (currentStudent?.faceRegistered ||
+     currentStudent?.biometricEnrolled ||
+     currentStudent?.hasFaceRegistered ||
+     (Array.isArray(currentStudent?.faceDescriptor) && currentStudent.faceDescriptor.length === 128) ||
      (Array.isArray(currentStudent?.descriptor) && currentStudent.descriptor.length === 128))
   );
 
@@ -202,57 +206,17 @@ const StudentDetailModal = ({ student, onClose, onUpdate }) => {
     try {
       setSavingFace(true);
       const cleanRoll = String(currentStudent.rollNo || currentStudent.id || "").trim().toUpperCase();
-      const cleanEmail = String(currentStudent.email || "").trim().toLowerCase();
-      const prefix = cleanEmail ? cleanEmail.split("@")[0].toLowerCase().trim() : cleanRoll.toLowerCase();
 
       const rawVector = enrolledBiometric.faceDescriptor;
       const cleanVector = Array.isArray(rawVector) ? rawVector : Array.from(rawVector);
 
-      // Verify no other registered student has this biometric face
-      const duplicateCheck = await checkDuplicateFaceBiometrics(cleanVector, cleanRoll, cleanEmail);
-      if (duplicateCheck.isDuplicate && duplicateCheck.conflictStudent) {
-        const cs = duplicateCheck.conflictStudent;
-        alert(`⛔ Duplicate Face Detected!\n\nThis face is already registered to "${cs.name}" (Roll No: ${cs.rollNo} • ${cs.confidence}% Match).\n\nThe system strictly prohibits saving duplicate facial biometric templates across multiple students.`);
-        setSavingFace(false);
-        return;
-      }
-
-      // Purely update face registration details (never overwrite existing student profile details)
+      await registerStudentFace(cleanRoll, cleanVector);
       const updateData = {
-        faceDescriptor: cleanVector,
-        photoURL: enrolledBiometric.photoURL || currentStudent.photoURL || "",
         faceRegistered: true,
         biometricEnrolled: true,
         hasFaceRegistered: true,
-        faceRemovedAt: deleteField(),
-        enrolledAt: Date.now()
+        faceRemovedAt: null
       };
-
-      const promises = [];
-      if (cleanRoll) {
-        promises.push(setDoc(doc(db, "students", cleanRoll), updateData, { merge: true }));
-        promises.push(setDoc(doc(db, "users", cleanRoll), updateData, { merge: true }));
-      }
-      if (cleanEmail) {
-        promises.push(setDoc(doc(db, "authorizedUsers", cleanEmail), updateData, { merge: true }).catch(() => { }));
-        promises.push(setDoc(doc(db, "students", cleanEmail), updateData, { merge: true }).catch(() => { }));
-        promises.push(setDoc(doc(db, "users", cleanEmail), updateData, { merge: true }).catch(() => { }));
-      }
-      if (prefix && prefix !== cleanRoll.toLowerCase()) {
-        promises.push(setDoc(doc(db, "students", prefix), updateData, { merge: true }).catch(() => { }));
-        promises.push(setDoc(doc(db, "users", prefix), updateData, { merge: true }).catch(() => { }));
-        promises.push(setDoc(doc(db, "authorizedUsers", prefix), updateData, { merge: true }).catch(() => { }));
-      }
-      if (currentStudent.id && currentStudent.id !== cleanRoll && currentStudent.id !== cleanEmail) {
-        promises.push(setDoc(doc(db, "students", currentStudent.id), updateData, { merge: true }).catch(() => { }));
-        promises.push(setDoc(doc(db, "users", currentStudent.id), updateData, { merge: true }).catch(() => { }));
-      }
-      if (currentStudent.userDocId) {
-        promises.push(setDoc(doc(db, "users", currentStudent.userDocId), updateData, { merge: true }).catch(() => { }));
-      }
-
-      await Promise.all(promises);
-      clearFaceProfilesCache();
 
       const updatedStudent = {
         ...currentStudent,
@@ -267,14 +231,14 @@ const StudentDetailModal = ({ student, onClose, onUpdate }) => {
       if (cleanRoll) {
         await sendStudentNotification(
           cleanRoll,
-          "Face Photo Updated ✅",
-          `Your face photo was updated by ${actorName}.`,
+          "Face Biometrics Updated",
+          `Your face enrollment was updated by ${actorName}.`,
           "BIOMETRIC_UPDATE",
           actorName
         );
       }
 
-      setFaceSuccessMsg("✅ Face biometric enrolled & synchronized successfully across database!");
+      setFaceSuccessMsg("✅ Face enrollment saved and verified by the server.");
       setTimeout(() => {
         setShowFaceEnroll(false);
         setFaceSuccessMsg("");
@@ -1020,6 +984,10 @@ const StudentDetailModal = ({ student, onClose, onUpdate }) => {
                   </div>
                 </div>
               </div>
+
+              {isStaff && (
+                <FaceEnrollmentReviewPanel rollNo={currentStudent?.rollNo || currentStudent?.id} />
+              )}
 
               {/* Live Face Enrollment in Modal */}
               {showFaceEnroll && (

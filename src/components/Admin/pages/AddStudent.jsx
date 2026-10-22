@@ -28,7 +28,7 @@ import { db } from "../../../firebase";
 import { useAuth } from "../../authcontext";
 import { useTableSort, SortIcon } from "../../Common/useTableSort";
 import { LiveFaceEnrollment } from "../../Common/LiveFaceEnrollment";
-import { checkDuplicateFaceBiometrics, clearFaceProfilesCache } from "../../../utils/biometricManager";
+import { registerStudentFace } from "../../../services/faceEnrollmentService";
 import { normalizeBranchName } from "../../../utils/studentDataHelper";
 import "./AddStudent.css";
 
@@ -197,17 +197,6 @@ const AddStudent = () => {
         }
       }
 
-      // 3. Biometric duplicate check if face vector is provided
-      if (enrolledBiometric?.faceDescriptor) {
-        const duplicateCheck = await checkDuplicateFaceBiometrics(enrolledBiometric.faceDescriptor, cleanRollNo, cleanEmail);
-        if (duplicateCheck.isDuplicate && duplicateCheck.conflictStudent) {
-          const cs = duplicateCheck.conflictStudent;
-          setError(`⛔ Duplicate Face Detected! This face is already registered to "${cs.name}" (Roll No: ${cs.rollNo} • ${cs.confidence}% Match). Multiple students cannot share the same facial biometric template.`);
-          setSaving(false);
-          return;
-        }
-      }
-
       const normalizedBranch = normalizeBranchName(form.branch || "CSE");
       const studentPayload = {
         name: form.name.trim(),
@@ -221,18 +210,20 @@ const AddStudent = () => {
         role: "student",
         status: "active",
         approved: true,
-        faceRegistered: Boolean(enrolledBiometric?.faceDescriptor),
-        biometricEnrolled: Boolean(enrolledBiometric?.faceDescriptor),
-        faceDescriptor: enrolledBiometric?.faceDescriptor || null,
-        photoURL: enrolledBiometric?.photoURL || "",
-        enrolledAt: enrolledBiometric?.enrolledAt || null,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
       };
 
       // 4. Save strictly under a single master student document in Firestore
       await setDoc(doc(db, "students", cleanRollNo), studentPayload, { merge: true });
-      clearFaceProfilesCache();
+      if (enrolledBiometric?.faceDescriptor) {
+        try {
+          await registerStudentFace(cleanRollNo, enrolledBiometric.faceDescriptor);
+        } catch (enrollmentError) {
+          setError(`Student record was created, but face enrollment was not completed: ${enrollmentError.message}`);
+          return;
+        }
+      }
 
       alert(`✅ Student "${form.name.trim()}" (${cleanRollNo}) registered successfully!`);
       navigate(studentsPath);
@@ -277,11 +268,9 @@ const AddStudent = () => {
         role: "student",
         status: "active",
         approved: true,
-        faceRegistered: Boolean(enrolledBiometric?.faceDescriptor),
-        biometricEnrolled: Boolean(enrolledBiometric?.faceDescriptor),
-        faceDescriptor: enrolledBiometric?.faceDescriptor || null,
-        photoURL: enrolledBiometric?.photoURL || "",
-        enrolledAt: enrolledBiometric?.enrolledAt || null,
+        faceRegistered: false,
+        biometricEnrolled: false,
+        hasFaceRegistered: false,
         updatedAt: serverTimestamp()
       };
 
@@ -300,6 +289,9 @@ const AddStudent = () => {
       }
 
       await Promise.all(promises);
+      if (enrolledBiometric?.faceDescriptor) {
+        await registerStudentFace(cleanRollNo, enrolledBiometric.faceDescriptor);
+      }
 
       alert(`✅ Successfully converted ${cleanEmail} to a registered student (Roll No: ${cleanRollNo})!`);
       navigate(studentsPath);

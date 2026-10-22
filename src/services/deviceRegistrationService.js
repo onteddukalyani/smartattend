@@ -1,6 +1,7 @@
 import { doc, setDoc } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
 import { db, functions } from "../firebase";
+import { Capacitor } from "@capacitor/core";
 import { detectDeviceType, getClientIpAddress } from "../utils/deviceDetection";
 
 /**
@@ -27,7 +28,7 @@ export async function registerUserDevice({
   const cleanId = String(id || rollNo || profile?.rollNo || profile?.id || cleanEmail.split("@")[0] || uid || "").trim().toUpperCase();
 
   const detectedPlatform = detectDeviceType();
-  const cleanPlatform = String(platform || detectedPlatform || "android").trim().toLowerCase();
+  const cleanPlatform = String(platform || detectedPlatform || "web").trim().toLowerCase();
 
   // Resolve client IP if not passed
   let clientIp = ip;
@@ -151,13 +152,19 @@ export async function registerUserDevice({
   await Promise.allSettled(writePromises);
 
   // 3. Optional Cloud Function platform binding for students
-  if (normRole === "student") {
+  if (
+    normRole === "student" &&
+    Capacitor.isNativePlatform() &&
+    (cleanPlatform === "android" || cleanPlatform === "ios")
+  ) {
     try {
-      if (functions) {
-        const bindFn = httpsCallable(functions, "bindStudentDevicePlatform");
-        bindFn({ platform: cleanPlatform }).catch(() => {});
-      }
-    } catch (_) {}
+      const bindFn = httpsCallable(functions, "bindStudentDevicePlatform");
+      bindFn({ platform: cleanPlatform }).catch((err) => {
+        console.warn("Student device platform binding notice:", err.message || err);
+      });
+    } catch (err) {
+      console.warn("Student device platform binding notice:", err.message || err);
+    }
   }
 
   return {

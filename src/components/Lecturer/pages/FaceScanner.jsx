@@ -15,8 +15,7 @@ import {
   FaEyeSlash,
   FaSyncAlt
 } from "react-icons/fa";
-import { collection, getDocs } from "firebase/firestore";
-import { db } from "../../../firebase";
+import { matchStudentFace } from "../../../services/faceEnrollmentService";
 import {
   computeEAR,
   computeHeadPose,
@@ -25,13 +24,11 @@ import {
   computeMAR,
   computeSmileMetric,
   MAR_SMILE_THRESHOLD,
-  fuseFaceDescriptors,
   BLINK_CLOSED_THRESHOLD,
   BLINK_OPEN_THRESHOLD,
   STATIC_VARIANCE_THRESHOLD,
   RandomizedChallengeEngine
 } from "../../../utils/livenessDetector";
-import { normalizeDescriptor } from "../../../utils/studentDataHelper";
 import "./FaceScanner.css";
 
 const MODEL_CDN_URL = "https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/";
@@ -210,7 +207,6 @@ function FaceScanner({
   const [confidence, setConfidence] = useState(0);
   const [distance, setDistance] = useState(1.0);
   const [cameraError, setCameraError] = useState("");
-  const [standaloneStudents, setStandaloneStudents] = useState([]);
   const [recognizedStudent, setRecognizedStudent] = useState(null);
 
   // Performance & Concurrency Refs
@@ -221,6 +217,10 @@ function FaceScanner({
   const lastStateUpdateRef = useRef(0);
   const liveDescriptorRef = useRef(null);
   const frameCountRef = useRef(0);
+  const serverMatchRef = useRef(null);
+  const lastServerMatchAtRef = useRef(0);
+  const matchInFlightRef = useRef(false);
+  const matchRequestTokenRef = useRef(0);
 
   useEffect(() => {
     statusRef.current = status;
@@ -367,37 +367,11 @@ function FaceScanner({
   // Reset state when roll number or verified student changes
   useEffect(() => {
     resetLivenessState();
+    serverMatchRef.current = null;
+    lastServerMatchAtRef.current = 0;
+    matchRequestTokenRef.current += 1;
+    matchInFlightRef.current = false;
   }, [rollNo, verifiedStudent, resetLivenessState]);
-
-  // 2. Fetch standalone database students if in standalone mode (no verifiedStudent prop provided)
-  useEffect(() => {
-    if (verifiedStudent !== null || !modelsLoaded) return;
-    const fetchAllForStandalone = async () => {
-      try {
-        const [studentsSnap, usersSnap, authSnap] = await Promise.all([
-          getDocs(collection(db, "students")),
-          getDocs(collection(db, "users")),
-          getDocs(collection(db, "authorizedUsers")).catch(() => ({ docs: [] }))
-        ]);
-        const map = new Map();
-        [...studentsSnap.docs, ...usersSnap.docs, ...authSnap.docs].forEach((docSnap) => {
-          const d = docSnap.data();
-          const normalized = normalizeDescriptor(d.faceDescriptor || d.descriptor);
-          if (normalized) {
-            let key = (d.rollNo && String(d.rollNo).trim()) ? String(d.rollNo).trim() : docSnap.id;
-            if (key.includes("@")) key = key.split("@")[0];
-            key = key.toUpperCase().trim();
-            const existing = map.get(key) || {};
-            map.set(key, { ...existing, ...d, rollNo: key, descriptor: new Float32Array(normalized) });
-          }
-        });
-        setStandaloneStudents(Array.from(map.values()));
-      } catch (err) {
-        console.warn("Could not fetch students for standalone face scanner:", err);
-      }
-    };
-    fetchAllForStandalone();
-  }, [verifiedStudent, modelsLoaded]);
 
   // 3. Real-time Face Detection, Biometric Matching, Liveness & Anti-Spoofing Loop
   useEffect(() => {
@@ -409,8 +383,12 @@ function FaceScanner({
       return;
     }
 
-    const enrolledVector = normalizeDescriptor(verifiedStudent?.faceDescriptor || verifiedStudent?.descriptor);
-    if (verifiedStudent && !enrolledVector) {
+    const hasEnrolledFace = Boolean(
+      verifiedStudent?.faceRegistered ||
+      verifiedStudent?.faceDescriptor ||
+      verifiedStudent?.descriptor
+    );
+    if (verifiedStudent && !hasEnrolledFace) {
       resetLivenessState();
       updateStatus("unregistered");
       updateFeedback(`⚠️ No registered face biometrics found for ${verifiedStudent.name || "Student"} (Roll No: ${verifiedStudent.rollNo || rollNo}). Please complete in-app Face Registration in the Biometric Registration hub before marking attendance.`);
@@ -543,29 +521,52 @@ function FaceScanner({
               setIsSpoof(false);
             }
 
+            if (
+              liveDescriptor &&
+              !challengeEngine.spoofDetected &&
+              !matchInFlightRef.current &&
+              now - lastServerMatchAtRef.current >= 1800
+            ) {
+              const requestToken = matchRequestTokenRef.current;
+              const targetRollNo = verifiedStudent?.rollNo || rollNo || "";
+              lastServerMatchAtRef.current = now;
+              matchInFlightRef.current = true;
+              matchStudentFace(Array.from(liveDescriptor), targetRollNo)
+                .then((result) => {
+                  if (requestToken === matchRequestTokenRef.current) {
+                    serverMatchRef.current = { ...result, receivedAt: performance.now() };
+                  }
+                })
+                .catch((error) => {
+                  if (requestToken === matchRequestTokenRef.current) {
+                    serverMatchRef.current = {
+                      status: "ERROR",
+                      message: error.message || "Secure face matching is unavailable.",
+                      receivedAt: performance.now()
+                    };
+                  }
+                })
+                .finally(() => {
+                  if (requestToken === matchRequestTokenRef.current) {
+                    matchInFlightRef.current = false;
+                  }
+                });
+            }
+
+            const serverMatch = serverMatchRef.current;
+            const hasFreshServerMatch = Boolean(
+              serverMatch && now - serverMatch.receivedAt < 2000
+            );
+
             // -------------------------------------------------------------
             // B. BIOMETRIC MATCHING & VERIFICATION GATING
             // -------------------------------------------------------------
             // SCENARIO 1: Targeted student verification (Form mode / Attendance)
-            if (verifiedStudent && enrolledVector) {
-              const targetDescriptor = new Float32Array(enrolledVector);
-
-              // Accurate Euclidean distance calculation (with multi-frame centroid fusion)
-              const distSingle = faceapi.euclideanDistance(liveDescriptor, targetDescriptor);
-              const fusedVector = (challengeEngine?.collectedDescriptors?.length >= 2)
-                ? fuseFaceDescriptors(challengeEngine.collectedDescriptors)
-                : null;
-              const distFused = fusedVector
-                ? faceapi.euclideanDistance(fusedVector, targetDescriptor)
-                : distSingle;
-
-              const dist = Math.min(distSingle, distFused);
-              const bestLiveVector = (distFused <= distSingle && fusedVector) ? fusedVector : liveDescriptor;
-
-              // Accurately calibrated confidence score mapping
-              const conf = dist <= MATCH_THRESHOLD
-                ? Math.max(68, Math.min(99, Math.round(100 - (dist / MATCH_THRESHOLD) * 32)))
-                : Math.max(5, Math.min(60, Math.round((1 - (dist / 0.85)) * 100)));
+            if (verifiedStudent) {
+              const dist = hasFreshServerMatch && Number.isFinite(serverMatch.distance)
+                ? serverMatch.distance
+                : 1;
+              const conf = hasFreshServerMatch ? Number(serverMatch.confidence || 0) : 0;
 
               // Throttled UI distance & confidence updates
               if (now - lastStateUpdateRef.current > 250) {
@@ -573,7 +574,7 @@ function FaceScanner({
                 setConfidence(conf);
               }
 
-              const isMatch = dist <= MATCH_THRESHOLD;
+              const isMatch = hasFreshServerMatch && serverMatch.matched === true;
               const isLive = livenessConfirmedRef.current;
               const isSpoofed = spoofDetectedRef.current;
 
@@ -590,6 +591,18 @@ function FaceScanner({
                   distance: dist,
                   antiSpoof: "FAILED"
                 });
+              } else if (hasFreshServerMatch && serverMatch.status === "REVIEW_REQUIRED") {
+                updateStatus("mismatch");
+                updateFeedback("⚠️ Face match is uncertain. Ask an authorized lecturer or administrator to review; attendance is not verified.");
+                onVerificationChange({ verified: false, reason: "REVIEW_REQUIRED", distance: dist });
+              } else if (hasFreshServerMatch && serverMatch.status === "UNREGISTERED") {
+                updateStatus("unregistered");
+                updateFeedback(`⚠️ No registered face biometrics found for ${verifiedStudent.name || "Student"} (${verifiedStudent.rollNo || rollNo}).`);
+                onVerificationChange({ verified: false, reason: "NO_REGISTERED_FACE", student: verifiedStudent });
+              } else if (!hasFreshServerMatch || serverMatch.status === "ERROR") {
+                updateStatus("scanning");
+                updateFeedback(serverMatch?.message || "Secure face comparison in progress...");
+                onVerificationChange({ verified: false, reason: "MATCHING_IN_PROGRESS" });
               } else if (isMatch && isLive) {
                 mismatchFramesRef.current = 0;
                 matchScoreRef.current = Math.min(3, matchScoreRef.current + 1);
@@ -619,7 +632,7 @@ function FaceScanner({
                     antiSpoof: "PASSED",
                     blinkCount: challengeEngine.blinkCount || 1,
                     student: verifiedStudent,
-                    liveDescriptor: Array.from(bestLiveVector)
+                    liveDescriptor: Array.from(liveDescriptor)
                   });
                 } else {
                   updateStatus("scanning");
@@ -663,19 +676,9 @@ function FaceScanner({
               }
             }
             // SCENARIO 2: Standalone Mode (e.g. /facedetection)
-            else if (standaloneStudents.length > 0) {
-              let bestMatch = null;
-              let minDistance = 1.0;
-
-              standaloneStudents.forEach((st) => {
-                const dist = faceapi.euclideanDistance(liveDescriptor, st.descriptor);
-                if (dist < minDistance) {
-                  minDistance = dist;
-                  bestMatch = st;
-                }
-              });
-
-              const isMatch = bestMatch && minDistance <= MATCH_THRESHOLD;
+            else {
+              const bestMatch = hasFreshServerMatch ? serverMatch.student : null;
+              const isMatch = hasFreshServerMatch && serverMatch.matched === true;
               const isLive = livenessConfirmedRef.current;
               const isSpoofed = spoofDetectedRef.current;
 
@@ -683,24 +686,27 @@ function FaceScanner({
                 updateStatus("spoof");
                 setRecognizedStudent(null);
                 updateFeedback("⚠️ Anti-Spoof Alert: Static Photo / Replay Screen Detected!");
+              } else if (hasFreshServerMatch && serverMatch.status === "REVIEW_REQUIRED") {
+                updateStatus("mismatch");
+                setRecognizedStudent(null);
+                updateFeedback("⚠️ Face match is uncertain. Ask an authorized lecturer or administrator to review.");
+              } else if (!hasFreshServerMatch || serverMatch.status === "ERROR") {
+                updateStatus("scanning");
+                updateFeedback(serverMatch?.message || "Secure face comparison in progress...");
               } else if (isMatch && isLive) {
-                const conf = Math.max(68, Math.min(99, Math.round(100 - (minDistance / MATCH_THRESHOLD) * 32)));
+                const conf = Number(serverMatch.confidence || 0);
                 setConfidence(conf);
                 setRecognizedStudent(bestMatch);
                 updateStatus("verified");
                 updateFeedback(`✅ Live Verified: ${bestMatch.name} (${bestMatch.rollNo}) • ${conf}% Match`);
               } else if (isMatch && !isLive) {
                 updateStatus("liveness_check");
-                updateFeedback(challengeEngine.message || `👁️ Recognized ${bestMatch.name}. Blink naturally to confirm liveness...`);
+                updateFeedback(challengeEngine.message || "👁️ Face found. Blink naturally to confirm liveness...");
               } else {
                 updateStatus("mismatch");
                 setRecognizedStudent(null);
                 updateFeedback("❌ Unknown Face / Unregistered Student");
               }
-            } else {
-              updateStatus("scanning");
-              updateFeedback("Face detected in camera. Enter your Roll Number above to verify.");
-              onVerificationChange({ verified: false, reason: "WAITING_ROLL_NUMBER" });
             }
 
             // -------------------------------------------------------------
@@ -787,7 +793,6 @@ function FaceScanner({
     lookingUp,
     modelsLoaded,
     cameraActive,
-    standaloneStudents,
     onVerificationChange,
     resetLivenessState,
     updateStatus,

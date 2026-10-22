@@ -36,14 +36,14 @@ import {
     FaShieldAlt
 } from "react-icons/fa";
 import { MdQrCodeScanner } from "react-icons/md";
-import { httpsCallable } from "firebase/functions";
 import { db, functions } from "../../../firebase";
 import { useAuth } from "../../authcontext";
 import { downloadExcel } from "../../../DownloadExcel";
 import { useTableSort, SortIcon } from "../../Common/useTableSort";
 import { LiveFaceEnrollment } from "../../Common/LiveFaceEnrollment";
 import ProfilePhotoModal from "../../Common/ProfilePhotoModal";
-import { removeStudentPhotoOnly, checkDuplicateFaceBiometrics, clearFaceProfilesCache } from "../../../utils/biometricManager";
+import { removeStudentPhotoOnly } from "../../../utils/biometricManager";
+import { registerStudentFace } from "../../../services/faceEnrollmentService";
 import { getCandidateRolls, computeStudentMetrics, parseTimestampMillis } from "../studentAttendanceHelper";
 import { isGenericName, normalizeBranchName } from "../../../utils/studentDataHelper";
 import DeviceOnboardingModal from "../DeviceOnboardingModal";
@@ -253,22 +253,11 @@ export default function StudentDashboard() {
                         ? String(d.semester).trim()
                         : (prev?.semester || "1");
 
-                    // Determine valid 128-D descriptor from current doc or preserve existing
-                    const docVector = (Array.isArray(d.faceDescriptor) && d.faceDescriptor.length === 128)
-                        ? d.faceDescriptor
-                        : ((Array.isArray(d.descriptor) && d.descriptor.length === 128) ? d.descriptor : null);
-                    const prevVector = (Array.isArray(prev?.faceDescriptor) && prev.faceDescriptor.length === 128)
-                        ? prev.faceDescriptor
-                        : null;
-                    const finalVector = docVector || prevVector || null;
-
-                    const latestEnrolledAt = Math.max(d.enrolledAt || 0, prev?.enrolledAt || 0);
-                    const latestRemovedAt = Math.max(d.faceRemovedAt || 0, prev?.faceRemovedAt || 0);
-                    const isExplicitlyRemoved = Boolean(latestRemovedAt > 0 && latestRemovedAt > latestEnrolledAt && !docVector);
-
-                    const hasFace = Boolean(!isExplicitlyRemoved && finalVector && Array.isArray(finalVector) && finalVector.length === 128);
-                    const validDescriptor = hasFace ? finalVector : null;
-                    const photo = hasFace ? ((d.photoURL && d.photoURL.length > 5) ? d.photoURL : (prev?.photoURL || d.photo || d.image || "")) : "";
+                    const hasFace = Boolean(
+                        !d.faceRemovedAt &&
+                        (d.faceRegistered || d.biometricEnrolled || d.hasFaceRegistered ||
+                            prev?.faceRegistered || prev?.biometricEnrolled || prev?.hasFaceRegistered)
+                    );
 
                     return {
                         ...(prev || {}),
@@ -277,12 +266,13 @@ export default function StudentDashboard() {
                         fullName: resolvedName,
                         branch: branch,
                         semester: semester,
-                        photoURL: photo,
+                        photoURL: d.photoURL || prev?.photoURL || "",
                         faceRegistered: hasFace,
                         biometricEnrolled: hasFace,
                         hasFaceRegistered: hasFace,
-                        faceRemovedAt: isExplicitlyRemoved ? (d.faceRemovedAt || Date.now()) : null,
-                        faceDescriptor: validDescriptor
+                        faceRemovedAt: d.faceRemovedAt || null,
+                        faceDescriptor: null,
+                        descriptor: null
                     };
                 });
             }
@@ -315,8 +305,8 @@ export default function StudentDashboard() {
         : (profile?.semester ? String(profile.semester).trim() : "1");
 
     const hasFaceRegistered = Boolean(
-        (!fetchedStudentData?.faceRemovedAt && Array.isArray(fetchedStudentData?.faceDescriptor) && fetchedStudentData.faceDescriptor.length === 128) ||
-        (!profile?.faceRemovedAt && Array.isArray(profile?.faceDescriptor) && profile.faceDescriptor.length === 128)
+        (!fetchedStudentData?.faceRemovedAt && (fetchedStudentData?.faceRegistered || fetchedStudentData?.biometricEnrolled || fetchedStudentData?.hasFaceRegistered)) ||
+        (!profile?.faceRemovedAt && (profile?.faceRegistered || profile?.biometricEnrolled || profile?.hasFaceRegistered))
     );
 
     const hasHwRegistered = Boolean(
@@ -564,63 +554,15 @@ export default function StudentDashboard() {
 
         try {
             setFaceSaving(true);
-            const cleanEmail = (user?.email || "").toLowerCase().trim();
-
             const rawVector = enrollData.faceDescriptor;
             const cleanVector = Array.isArray(rawVector) ? rawVector : Array.from(rawVector);
-
-            // Check duplicate face biometrics against registry
-            const duplicateCheck = await checkDuplicateFaceBiometrics(cleanVector, activeRollNo, cleanEmail);
-            if (duplicateCheck.isDuplicate && duplicateCheck.conflictStudent) {
-                const cs = duplicateCheck.conflictStudent;
-                alert(`⛔ Duplicate Face Detected!\n\nThis face matches registered student "${cs.name}" (${cs.rollNo} • ${cs.confidence}% Match).\n\nSystem policy strictly prohibits multiple students from using the same facial biometrics.`);
-                setFaceSaving(false);
-                return;
-            }
-
-            const targetDocId = (fetchedStudentData?.id || activeRollNo).trim().toUpperCase();
-            let cloudSaved = false;
-            try {
-                const regFn = httpsCallable(functions, "registerStudentFace");
-                const res = await regFn({
-                    rollNo: targetDocId,
-                    faceDescriptor: cleanVector,
-                    photoURL: enrollData.photoURL || fetchedStudentData?.photoURL || profile?.photoURL || ""
-                });
-                if (res && res.data && res.data.success) {
-                    cloudSaved = true;
-                }
-            } catch (cloudErr) {
-                console.warn("Cloud function registerStudentFace notice:", cloudErr.message || cloudErr);
-            }
-
-            // Purely update face registration details while guaranteeing complete student profile schema
-            const updatePayload = {
-                rollNo: activeRollNo,
-                name: fetchedStudentData?.name || profile?.name || activeRollNo,
-                email: cleanEmail,
-                branch: studentBranch || "CSE",
-                semester: studentSemester || "3",
-                role: "student",
-                status: "active",
-                faceDescriptor: cleanVector,
-                photoURL: enrollData.photoURL || fetchedStudentData?.photoURL || profile?.photoURL || "",
-                faceRegistered: true,
-                biometricEnrolled: true,
-                hasFaceRegistered: true,
-                faceRemovedAt: deleteField(),
-                enrolledAt: Date.now()
-            };
-
-            if (!cloudSaved) {
-                // Append face biometrics strictly to the student's existing single Firestore document
-                await setDoc(doc(db, "students", targetDocId), updatePayload, { merge: true });
-            }
-            clearFaceProfilesCache();
+            await registerStudentFace(activeRollNo, cleanVector);
 
             setFetchedStudentData((prev) => ({
                 ...(prev || {}),
-                ...updatePayload,
+                faceRegistered: true,
+                biometricEnrolled: true,
+                hasFaceRegistered: true,
                 faceRemovedAt: null
             }));
 
