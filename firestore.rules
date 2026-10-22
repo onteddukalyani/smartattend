@@ -11,11 +11,23 @@ service cloud.firestore {
     function isAdmin() {
       return isSignedIn() && (
         exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && (
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['admin', 'superadmin', 'administrator'] ||
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true
+        )) ||
         (request.auth.token.email != null && (
           exists(/databases/$(database)/documents/admins/$(request.auth.token.email)) ||
           exists(/databases/$(database)/documents/admins/$(request.auth.token.email.lower())) ||
           exists(/databases/$(database)/documents/admins/$(request.auth.token.email.split('@')[0])) ||
-          exists(/databases/$(database)/documents/admins/$(request.auth.token.email.split('@')[0].lower()))
+          exists(/databases/$(database)/documents/admins/$(request.auth.token.email.split('@')[0].lower())) ||
+          (exists(/databases/$(database)/documents/users/$(request.auth.token.email.lower())) && (
+            get(/databases/$(database)/documents/users/$(request.auth.token.email.lower())).data.role in ['admin', 'superadmin', 'administrator'] ||
+            get(/databases/$(database)/documents/users/$(request.auth.token.email.lower())).data.isAdmin == true
+          )) ||
+          (exists(/databases/$(database)/documents/authorizedUsers/$(request.auth.token.email.lower())) && (
+            get(/databases/$(database)/documents/authorizedUsers/$(request.auth.token.email.lower())).data.role in ['admin', 'superadmin', 'administrator'] ||
+            get(/databases/$(database)/documents/authorizedUsers/$(request.auth.token.email.lower())).data.isAdmin == true
+          ))
         ))
       );
     }
@@ -23,11 +35,23 @@ service cloud.firestore {
     function isLecturer() {
       return isSignedIn() && (
         exists(/databases/$(database)/documents/lecturers/$(request.auth.uid)) ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && (
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['lecturer', 'faculty', 'professor']
+        )) ||
         (request.auth.token.email != null && (
           exists(/databases/$(database)/documents/lecturers/$(request.auth.token.email)) ||
           exists(/databases/$(database)/documents/lecturers/$(request.auth.token.email.lower())) ||
           exists(/databases/$(database)/documents/lecturers/$(request.auth.token.email.split('@')[0])) ||
-          exists(/databases/$(database)/documents/lecturers/$(request.auth.token.email.split('@')[0].lower()))
+          exists(/databases/$(database)/documents/lecturers/$(request.auth.token.email.split('@')[0].lower())) ||
+          (exists(/databases/$(database)/documents/users/$(request.auth.token.email.lower())) && (
+            get(/databases/$(database)/documents/users/$(request.auth.token.email.lower())).data.role in ['lecturer', 'faculty', 'professor']
+          )) ||
+          (exists(/databases/$(database)/documents/authorizedUsers/$(request.auth.token.email.lower())) && (
+            get(/databases/$(database)/documents/authorizedUsers/$(request.auth.token.email.lower())).data.role in ['lecturer', 'faculty', 'professor']
+          )) ||
+          (exists(/databases/$(database)/documents/authorizedUsers/$(request.auth.token.email.split('@')[0].lower())) && (
+            get(/databases/$(database)/documents/authorizedUsers/$(request.auth.token.email.split('@')[0].lower())).data.role in ['lecturer', 'faculty', 'professor']
+          ))
         ))
       );
     }
@@ -83,23 +107,48 @@ service cloud.firestore {
       }
     }
 
-    // Lecturers collection: managed by admins; lecturers can update own device and profile settings
+    // Lecturers collection: managed by admins; lecturers can create/update own device and profile settings
     match /lecturers/{lecturerId} {
       allow read: if isSignedIn();
-      allow create, delete: if isAdmin();
+      allow create: if isAdmin() || (
+        isSignedIn() && (
+          request.auth.uid == lecturerId ||
+          (request.auth.token.email != null && (
+            lecturerId == request.auth.token.email ||
+            lecturerId == request.auth.token.email.lower() ||
+            lecturerId == request.auth.token.email.split('@')[0] ||
+            lecturerId == request.auth.token.email.split('@')[0].lower() ||
+            lecturerId.lower() == request.auth.token.email.lower() ||
+            lecturerId.lower() == request.auth.token.email.split('@')[0].lower()
+          ))
+        ) && !request.resource.data.keys().hasAny(['isAdmin', 'isSuperAdmin'])
+      );
+      allow delete: if isAdmin();
       allow update: if isAdmin() || (
         isSignedIn() && (
           request.auth.uid == lecturerId ||
           (request.auth.token.email != null && (
             lecturerId == request.auth.token.email ||
+            lecturerId == request.auth.token.email.lower() ||
             lecturerId == request.auth.token.email.split('@')[0] ||
+            lecturerId == request.auth.token.email.split('@')[0].lower() ||
+            lecturerId.lower() == request.auth.token.email.lower() ||
+            lecturerId.lower() == request.auth.token.email.split('@')[0].lower() ||
             (resource.data.email != null && resource.data.email.lower() == request.auth.token.email.lower())
           ))
-        ) && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'department', 'designation', 'status', 'approved'])
+        ) && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'department', 'designation', 'status', 'approved', 'isAdmin'])
       );
       match /{document=**} {
         allow read: if isSignedIn();
-        allow write: if isAdmin();
+        allow write: if isAdmin() || (
+          isSignedIn() && (
+            request.auth.uid == lecturerId ||
+            (request.auth.token.email != null && (
+              lecturerId.lower() == request.auth.token.email.lower() ||
+              lecturerId.lower() == request.auth.token.email.split('@')[0].lower()
+            ))
+          )
+        );
       }
     }
 
@@ -316,35 +365,75 @@ service cloud.firestore {
       allow delete: if isSignedIn() && (
         isAdmin() ||
         resource.data.ownerId == request.auth.uid ||
-        resource.data.ownerEmail == request.auth.token.email
+        (request.auth.token.email != null && resource.data.ownerEmail != null && resource.data.ownerEmail.lower() == request.auth.token.email.lower())
       );
 
       allow update: if isSignedIn() && (
         isAdmin() ||
-        (isLecturer() && (resource.data.ownerId == request.auth.uid || (request.auth.token.email != null && resource.data.ownerEmail == request.auth.token.email)))
+        (isLecturer() && (
+          resource.data.ownerId == request.auth.uid ||
+          (request.auth.token.email != null && resource.data.ownerEmail != null && resource.data.ownerEmail.lower() == request.auth.token.email.lower())
+        ))
       );
 
       match /security/{docId} {
         allow read: if isSignedIn() && (
           isAdmin() ||
-          (isLecturer() && exists(/databases/$(database)/documents/attendance_sessions/$(sessionId)) && (
-            get(/databases/$(database)/documents/attendance_sessions/$(sessionId)).data.ownerId == request.auth.uid ||
-            (request.auth.token.email != null && get(/databases/$(database)/documents/attendance_sessions/$(sessionId)).data.ownerEmail == request.auth.token.email)
+          (isLecturer() && (
+            (resource.data != null && (
+              resource.data.ownerId == request.auth.uid ||
+              (request.auth.token.email != null && resource.data.ownerEmail != null && resource.data.ownerEmail.lower() == request.auth.token.email.lower())
+            )) ||
+            (exists(/databases/$(database)/documents/attendance_sessions/$(sessionId)) && (
+              get(/databases/$(database)/documents/attendance_sessions/$(sessionId)).data.ownerId == request.auth.uid ||
+              (request.auth.token.email != null && get(/databases/$(database)/documents/attendance_sessions/$(sessionId)).data.ownerEmail != null && get(/databases/$(database)/documents/attendance_sessions/$(sessionId)).data.ownerEmail.lower() == request.auth.token.email.lower())
+            ))
           ))
         );
-        allow write: if isSignedIn() && (
+        allow create: if isSignedIn() && (
           isAdmin() ||
-          (isLecturer() && exists(/databases/$(database)/documents/attendance_sessions/$(sessionId)) && (
-            get(/databases/$(database)/documents/attendance_sessions/$(sessionId)).data.ownerId == request.auth.uid ||
-            (request.auth.token.email != null && get(/databases/$(database)/documents/attendance_sessions/$(sessionId)).data.ownerEmail == request.auth.token.email)
+          (isStaff() && (
+            request.resource.data.ownerId == request.auth.uid ||
+            (request.auth.token.email != null && request.resource.data.ownerEmail != null && request.resource.data.ownerEmail.lower() == request.auth.token.email.lower())
           ))
+        );
+        allow update: if isSignedIn() && (
+          isAdmin() ||
+          (isLecturer() && (
+            (resource.data != null && (
+              resource.data.ownerId == request.auth.uid ||
+              (request.auth.token.email != null && resource.data.ownerEmail != null && resource.data.ownerEmail.lower() == request.auth.token.email.lower())
+            )) ||
+            (exists(/databases/$(database)/documents/attendance_sessions/$(sessionId)) && (
+              get(/databases/$(database)/documents/attendance_sessions/$(sessionId)).data.ownerId == request.auth.uid ||
+              (request.auth.token.email != null && get(/databases/$(database)/documents/attendance_sessions/$(sessionId)).data.ownerEmail != null && get(/databases/$(database)/documents/attendance_sessions/$(sessionId)).data.ownerEmail.lower() == request.auth.token.email.lower())
+            ))
+          ))
+        );
+        allow delete: if isAdmin() || (
+          isSignedIn() && (
+            (resource.data != null && (
+              resource.data.ownerId == request.auth.uid ||
+              (request.auth.token.email != null && resource.data.ownerEmail != null && resource.data.ownerEmail.lower() == request.auth.token.email.lower())
+            )) ||
+            (exists(/databases/$(database)/documents/attendance_sessions/$(sessionId)) && (
+              get(/databases/$(database)/documents/attendance_sessions/$(sessionId)).data.ownerId == request.auth.uid ||
+              (request.auth.token.email != null && get(/databases/$(database)/documents/attendance_sessions/$(sessionId)).data.ownerEmail != null && get(/databases/$(database)/documents/attendance_sessions/$(sessionId)).data.ownerEmail.lower() == request.auth.token.email.lower())
+            ))
+          )
         );
         match /{document=**} {
           allow read: if isSignedIn() && (
             isAdmin() ||
-            (isLecturer() && exists(/databases/$(database)/documents/attendance_sessions/$(sessionId)) && (
-              get(/databases/$(database)/documents/attendance_sessions/$(sessionId)).data.ownerId == request.auth.uid ||
-              (request.auth.token.email != null && get(/databases/$(database)/documents/attendance_sessions/$(sessionId)).data.ownerEmail == request.auth.token.email)
+            (isLecturer() && (
+              (resource.data != null && (
+                resource.data.ownerId == request.auth.uid ||
+                (request.auth.token.email != null && resource.data.ownerEmail != null && resource.data.ownerEmail.lower() == request.auth.token.email.lower())
+              )) ||
+              (exists(/databases/$(database)/documents/attendance_sessions/$(sessionId)) && (
+                get(/databases/$(database)/documents/attendance_sessions/$(sessionId)).data.ownerId == request.auth.uid ||
+                (request.auth.token.email != null && get(/databases/$(database)/documents/attendance_sessions/$(sessionId)).data.ownerEmail != null && get(/databases/$(database)/documents/attendance_sessions/$(sessionId)).data.ownerEmail.lower() == request.auth.token.email.lower())
+              ))
             ))
           );
           allow write: if false;

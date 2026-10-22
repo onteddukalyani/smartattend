@@ -46,6 +46,9 @@ export async function initiateSession(sessionParams) {
 
   // Direct Firestore Fallback with configurable session timeline and tokens
   const currentUser = auth.currentUser;
+  if (!currentUser) {
+    throw new Error("Authentication required. Please sign in to initiate an attendance session.");
+  }
   const nowMs = Date.now();
 
   let qr1DurationSec = 60;

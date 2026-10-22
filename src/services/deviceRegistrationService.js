@@ -80,16 +80,24 @@ export async function registerUserDevice({
 
   // 1. Role-specific collection write
   if (normRole === "lecturer" || normRole === "faculty") {
+    const lectPayload = { ...devicePayload, role: "lecturer" };
+    const prefix = cleanEmail ? cleanEmail.split("@")[0].toLowerCase().trim() : null;
     const targetDocId = cleanEmail || uid || cleanId;
     if (targetDocId) {
       writePromises.push(
-        setDoc(doc(db, "lecturers", targetDocId), devicePayload, { merge: true })
+        setDoc(doc(db, "lecturers", targetDocId), lectPayload, { merge: true })
           .catch((err) => console.warn("Lecturer device registration notice:", err.message))
+      );
+    }
+    if (prefix && prefix !== targetDocId && prefix !== uid) {
+      writePromises.push(
+        setDoc(doc(db, "lecturers", prefix), lectPayload, { merge: true })
+          .catch(() => {})
       );
     }
     if (uid && targetDocId !== uid) {
       writePromises.push(
-        setDoc(doc(db, "lecturers", uid), devicePayload, { merge: true })
+        setDoc(doc(db, "lecturers", uid), lectPayload, { merge: true })
           .catch(() => {})
       );
     }
