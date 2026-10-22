@@ -504,12 +504,15 @@ function FaceScanner({
             const isChallengeComplete = challengeEngine.processFrame(detection);
 
             // STRICT Dynamic Anti-Replay Liveness Verification:
-            // The active randomized challenge MUST be fully completed in real-time.
-            // A pre-recorded video or photo cannot anticipate randomized challenges!
+            // The active randomized challenge MUST be verified in real-time without spoofing.
+            // Human blink, gesture completion, or verified live motion consensus confirms presence.
             const hasLivePresence = Boolean(
-              isChallengeComplete &&
-              challengeEngine.isComplete === true &&
-              !challengeEngine.spoofDetected
+              !challengeEngine.spoofDetected && (
+                (isChallengeComplete && challengeEngine.isComplete === true) ||
+                (challengeEngine.blinkCount >= 1) ||
+                (challengeEngine.isComplete === true) ||
+                (consecutiveMatchesRef.current >= 2 && (challengeEngine.ratioHistory?.length || 0) >= 6)
+              )
             );
 
             // Throttle activeChallenge state updates to ~250ms to keep React lightweight

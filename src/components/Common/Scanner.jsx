@@ -219,7 +219,7 @@ function QrScannerApp() {
                         }
                     },
                     () => { },
-                    { enableHighAccuracy: true, timeout: 5000, maximumAge: 30000 }
+                    { enableHighAccuracy: true, timeout: 5000, maximumAge: 3000 }
                 );
 
                 // 2. Continuous high-accuracy refinement
@@ -229,8 +229,8 @@ function QrScannerApp() {
                             const rawAcc = Number(pos.coords.accuracy);
                             const acc = (Number.isFinite(rawAcc) && rawAcc > 0) ? rawAcc : 15;
                             const prev = prewarmedLocationRef.current;
-                            // Keep fix if fresher (> 10s) or more precise
-                            if (!prev || (Date.now() - prev.timestamp > 10000) || acc <= prev.accuracy) {
+                            // Keep fix if fresher (> 5s) or more precise
+                            if (!prev || (Date.now() - prev.timestamp > 5000) || acc <= prev.accuracy) {
                                 const locObj = {
                                     latitude: pos.coords.latitude,
                                     longitude: pos.coords.longitude,
@@ -245,7 +245,7 @@ function QrScannerApp() {
                         }
                     },
                     (err) => console.warn('[Scanner] GPS prewarm notice:', err?.message || err),
-                    { enableHighAccuracy: true, maximumAge: 10000, timeout: 10000 }
+                    { enableHighAccuracy: true, maximumAge: 3000, timeout: 6000 }
                 );
             } catch (_) { }
         }
@@ -544,15 +544,17 @@ function QrScannerApp() {
         const targetRoll = (roll || loggedInRollNo || '').trim().toUpperCase();
         if (!targetRoll || targetRoll.length < 2) return;
 
-        // Fast-path 1: Check AuthContext profile (0ms execution in 99% of cases)
-        const authDesc = normalizeDescriptor(profile?.faceDescriptor);
-        if (authDesc && Array.isArray(authDesc) && authDesc.length === 128) {
+        // Fast-path 1: Check AuthContext profile or pre-loaded dbStudent (0ms execution)
+        const cachedDesc = normalizeDescriptor(profile?.faceDescriptor) ||
+            normalizeDescriptor(dbStudent?.faceDescriptor) ||
+            normalizeDescriptor(dbStudent?.descriptor);
+        if (cachedDesc && Array.isArray(cachedDesc) && cachedDesc.length === 128) {
             setVerifiedStudent({
                 rollNo: targetRoll,
-                name: loggedInName || profile?.name || 'Student',
-                faceDescriptor: authDesc,
+                name: loggedInName || dbStudent?.name || profile?.name || 'Student',
+                faceDescriptor: cachedDesc,
                 faceRegistered: true,
-                photoURL: profile?.photoURL || null
+                photoURL: dbStudent?.photoURL || profile?.photoURL || null
             });
             return;
         }
@@ -647,7 +649,7 @@ function QrScannerApp() {
         } finally {
             setLookingUpStudent(false);
         }
-    }, [loggedInRollNo, loggedInName, user, profile]);
+    }, [loggedInRollNo, loggedInName, user, profile, dbStudent]);
 
     // Authoritative Session Countdown Timer
     useEffect(() => {
@@ -1568,7 +1570,7 @@ function QrScannerApp() {
                             }
                         },
                         () => resolve(null),
-                        { enableHighAccuracy: false, timeout: 900, maximumAge: 60000 }
+                        { enableHighAccuracy: true, timeout: 2500, maximumAge: 3000 }
                     );
                 });
             } catch (_) {}
@@ -2468,7 +2470,7 @@ function QrScannerApp() {
                 </span>
                 {gpsTelemetry?.status === 'PASS' ? (
                     <span style={{ fontSize: '0.74rem', fontWeight: 800, color: '#059669', background: 'rgba(16, 185, 129, 0.12)', padding: '2px 8px', borderRadius: '6px' }}>
-                        ✓ Within Classroom ({gpsTelemetry.distance}m)
+                        ✓ Within Classroom ({gpsTelemetry.distance <= 1.5 ? '< 1m' : `${gpsTelemetry.distance}m`})
                     </span>
                 ) : gpsTelemetry?.status === 'REJECT' ? (
                     <span style={{ fontSize: '0.74rem', fontWeight: 800, color: '#dc2626', background: 'rgba(239, 68, 68, 0.12)', padding: '2px 8px', borderRadius: '6px' }}>
@@ -2493,7 +2495,7 @@ function QrScannerApp() {
                     </div>
                     {(scannedStudentLocation || currentStudentLocation) && (
                         <div style={{ fontSize: '0.68rem', color: '#10b981', fontWeight: 600 }}>
-                            Precision: ±{Math.round((scannedStudentLocation || currentStudentLocation).accuracy || 15)}m
+                            GNSS Precision: ±{Math.round((scannedStudentLocation || currentStudentLocation).accuracy || 15)}m
                         </div>
                     )}
                 </div>
@@ -2504,15 +2506,25 @@ function QrScannerApp() {
                         fontWeight: 800,
                         fontSize: '0.88rem',
                         color: (gpsTelemetry?.distance !== undefined && gpsTelemetry?.distance !== null)
-                            ? (gpsTelemetry.distance <= (gpsTelemetry.radius || 30) ? '#059669' : '#dc2626')
+                            ? ((gpsTelemetry.status === 'PASS' || gpsTelemetry.distance <= (gpsTelemetry.radius || 10)) ? '#059669' : '#dc2626')
                             : '#4338ca'
                     }}>
                         {gpsTelemetry?.distance !== undefined && gpsTelemetry?.distance !== null
-                            ? `${gpsTelemetry.distance} metres`
+                            ? (gpsTelemetry.status === 'PASS'
+                                ? (gpsTelemetry.distance <= 1.5
+                                    ? `< 1m (Co-located · Verified)`
+                                    : `${gpsTelemetry.distance}m (In Classroom Range)`)
+                                : `${gpsTelemetry.distance} metres`)
                             : (gpsTelemetry?.locationAcquiring ? 'Measuring distance...' : 'Scan QR on screen')}
                     </div>
-                    <div style={{ fontSize: '0.68rem', color: '#64748b' }}>
-                        {gpsTelemetry?.radius ? `Boundary: ≤ ${gpsTelemetry.radius}m` : 'Classroom Geofence'}
+                    <div style={{
+                        fontSize: '0.68rem',
+                        color: gpsTelemetry?.status === 'PASS' ? '#059669' : '#64748b',
+                        fontWeight: gpsTelemetry?.status === 'PASS' ? 700 : 500
+                    }}>
+                        {gpsTelemetry?.status === 'PASS'
+                            ? `✓ Within Classroom Limit (≤ ${gpsTelemetry.radius || 10}m)`
+                            : (gpsTelemetry?.radius ? `Boundary: ≤ ${gpsTelemetry.radius}m` : 'Classroom Geofence')}
                     </div>
                 </div>
             </div>
@@ -3009,50 +3021,92 @@ function QrScannerApp() {
                                 <p style={{ color: '#dc2626', fontWeight: 700, fontSize: '0.9rem', margin: '0 0 16px 0' }}>
                                     {fingerprintError}
                                 </p>
-                                <button
-                                    type="button"
-                                    onClick={handleTriggerFingerprint}
-                                    style={{
-                                        padding: '12px 24px',
-                                        borderRadius: '12px',
-                                        background: '#6366f1',
-                                        color: '#ffffff',
-                                        border: 'none',
-                                        fontWeight: 800,
-                                        fontSize: '0.92rem',
-                                        cursor: 'pointer',
-                                        display: 'inline-flex',
-                                        alignItems: 'center',
-                                        gap: '8px'
-                                    }}
-                                >
-                                    <FaSyncAlt /> Retry Fingerprint
-                                </button>
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', justifyContent: 'center' }}>
+                                    <button
+                                        type="button"
+                                        onClick={handleTriggerFingerprint}
+                                        style={{
+                                            padding: '12px 20px',
+                                            borderRadius: '12px',
+                                            background: '#6366f1',
+                                            color: '#ffffff',
+                                            border: 'none',
+                                            fontWeight: 800,
+                                            fontSize: '0.92rem',
+                                            cursor: 'pointer',
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            gap: '8px'
+                                        }}
+                                    >
+                                        <FaSyncAlt /> Retry Fingerprint
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setBiometricComboStep('FACE')}
+                                        style={{
+                                            padding: '12px 20px',
+                                            borderRadius: '12px',
+                                            background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                                            color: '#ffffff',
+                                            border: 'none',
+                                            fontWeight: 800,
+                                            fontSize: '0.92rem',
+                                            cursor: 'pointer',
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            gap: '8px'
+                                        }}
+                                    >
+                                        <FaCamera /> Verify with 3D Face Scan Instead
+                                    </button>
+                                </div>
                             </div>
                         ) : (
                             <div>
-                                <button
-                                    type="button"
-                                    onClick={handleTriggerFingerprint}
-                                    disabled={fingerprintVerifying}
-                                    style={{
-                                        padding: '14px 28px',
-                                        borderRadius: '14px',
-                                        background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
-                                        color: '#ffffff',
-                                        border: 'none',
-                                        fontWeight: 800,
-                                        fontSize: '0.98rem',
-                                        cursor: fingerprintVerifying ? 'wait' : 'pointer',
-                                        display: 'inline-flex',
-                                        alignItems: 'center',
-                                        gap: '10px',
-                                        boxShadow: '0 6px 18px rgba(99, 102, 241, 0.3)'
-                                    }}
-                                >
-                                    <FaFingerprint />
-                                    <span>{fingerprintVerifying ? "Verifying..." : "Verify Fingerprint"}</span>
-                                </button>
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', justifyContent: 'center' }}>
+                                    <button
+                                        type="button"
+                                        onClick={handleTriggerFingerprint}
+                                        disabled={fingerprintVerifying}
+                                        style={{
+                                            padding: '14px 24px',
+                                            borderRadius: '14px',
+                                            background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
+                                            color: '#ffffff',
+                                            border: 'none',
+                                            fontWeight: 800,
+                                            fontSize: '0.98rem',
+                                            cursor: fingerprintVerifying ? 'wait' : 'pointer',
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            gap: '10px',
+                                            boxShadow: '0 6px 18px rgba(99, 102, 241, 0.3)'
+                                        }}
+                                    >
+                                        <FaFingerprint />
+                                        <span>{fingerprintVerifying ? "Verifying..." : "Verify Fingerprint"}</span>
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setBiometricComboStep('FACE')}
+                                        style={{
+                                            padding: '14px 20px',
+                                            borderRadius: '14px',
+                                            background: 'var(--surface, #ffffff)',
+                                            color: '#4f46e5',
+                                            border: '1.5px solid #6366f1',
+                                            fontWeight: 800,
+                                            fontSize: '0.92rem',
+                                            cursor: 'pointer',
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            gap: '8px'
+                                        }}
+                                    >
+                                        <FaCamera /> Verify with 3D Face
+                                    </button>
+                                </div>
                             </div>
                         )}
                     </div>
@@ -3098,7 +3152,33 @@ function QrScannerApp() {
                             lookingUp={lookingUpStudent}
                             rollNo={loggedInRollNo}
                             onVerificationChange={handleFaceVerificationChange}
+                            onEnrollRequest={() => navigate('/student/face-enroll')}
                         />
+
+                        {verifiedStudent && !verifiedStudent.faceDescriptor && !lookingUpStudent && (
+                            <div style={{ marginTop: '16px', textAlign: 'center' }}>
+                                <button
+                                    type="button"
+                                    onClick={() => navigate('/student/face-enroll')}
+                                    style={{
+                                        padding: '12px 24px',
+                                        borderRadius: '12px',
+                                        background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
+                                        color: '#ffffff',
+                                        border: 'none',
+                                        fontWeight: 800,
+                                        fontSize: '0.92rem',
+                                        cursor: 'pointer',
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '8px',
+                                        boxShadow: '0 4px 14px rgba(99, 102, 241, 0.35)'
+                                    }}
+                                >
+                                    <FaCamera /> Enroll / Register Face Biometrics Now
+                                </button>
+                            </div>
+                        )}
                     </div>
                 )}
 
@@ -3236,6 +3316,10 @@ function QrScannerApp() {
 
                         {/* Circular SVG Animated Countdown Ring */}
                         <div className="st-timer-ring-container">
+                            {/* Dynamic Rotating Orbit Spinner & Radar Sweep */}
+                            <div className="st-timer-orbit-spinner" />
+                            <div className="st-timer-radar-sweep" />
+
                             <svg className="st-timer-svg" viewBox="0 0 180 180">
                                 <defs>
                                     <linearGradient id="stTimerGradient" x1="0%" y1="0%" x2="100%" y2="100%">
@@ -3262,7 +3346,7 @@ function QrScannerApp() {
 
                             <div className="st-timer-center-content">
                                 <div className="st-timer-icon-wrap">
-                                    <FaHourglassHalf className="st-timer-spin-icon" />
+                                    <FaSyncAlt className="st-timer-turning-sync-icon" />
                                 </div>
                                 <div className="st-timer-digital">
                                     {secondsUntilQr2 !== null && secondsUntilQr2 > 0 ? (
@@ -3275,9 +3359,15 @@ function QrScannerApp() {
                                     )}
                                 </div>
                                 <div className="st-timer-subtext">
-                                    UNTIL QR 2 UNLOCKS
+                                    LOADING PHASE 2 QR
                                 </div>
                             </div>
+                        </div>
+
+                        {/* Live Turning Loading Badge */}
+                        <div className="st-turning-loader-badge">
+                            <span className="st-turning-dot-pulse" />
+                            <span>Actively synchronizing session · Auto-loading Phase 2 QR</span>
                         </div>
 
                         {/* Strict Camera Paused / Locked Indicator */}

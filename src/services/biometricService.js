@@ -335,6 +335,8 @@ export async function verifyHardwareBiometric(studentUid, promptSubtitle = "Conf
           message: "Biometric setup failed: " + enrollResult.message
         };
       }
+      // Cooldown to allow Android BiometricPrompt HAL to cleanly dismiss before prompt 2
+      await new Promise((resolve) => setTimeout(resolve, 450));
     }
 
     // 3. Obtain authoritative server challenge bound to session and attempt

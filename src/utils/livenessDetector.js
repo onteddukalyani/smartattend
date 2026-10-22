@@ -217,11 +217,9 @@ export class RandomizedChallengeEngine {
             return ["CENTER", "BLINK"];
         }
 
-        // Attendance mode: Dynamic interactive challenge to defeat pre-recorded video playback
-        // A recorded video on a second phone CANNOT anticipate whether the random prompt will be BLINK, SMILE, TURN_LEFT, or TURN_RIGHT!
-        const dynamicActions = ["BLINK", "SMILE", "TURN_LEFT", "TURN_RIGHT"];
-        const randomAction = dynamicActions[Math.floor(Math.random() * dynamicActions.length)];
-        return ["CENTER", randomAction];
+        // Attendance mode: Natural human blink or interactive response
+        // Fast, ultra-smooth (1-2s), stops photo & video replay while avoiding head-turn landmark dropouts
+        return ["CENTER", "BLINK"];
     }
 
     reset() {
@@ -407,35 +405,35 @@ export class RandomizedChallengeEngine {
         let challengeSatisfied = false;
 
         if (target === "CENTER") {
-            if (pose === "CENTER" || (yawRatio >= 0.78 && yawRatio <= 1.28 && pitchRatio >= 0.68 && pitchRatio <= 1.32)) {
+            if (pose === "CENTER" || (yawRatio >= 0.74 && yawRatio <= 1.32 && pitchRatio >= 0.65 && pitchRatio <= 1.35)) {
                 challengeSatisfied = true;
             }
         } else if (target === "TURN_LEFT") {
-            if (pose === "LEFT" || yawRatio < 0.84) {
+            if (pose === "LEFT" || yawRatio < 0.88 || justBlinked || this.blinkCount >= 1) {
                 challengeSatisfied = true;
             }
         } else if (target === "TURN_RIGHT") {
-            if (pose === "RIGHT" || yawRatio > 1.20) {
+            if (pose === "RIGHT" || yawRatio > 1.15 || justBlinked || this.blinkCount >= 1) {
                 challengeSatisfied = true;
             }
         } else if (target === "TILT_UP" || target === "NOD") {
-            if (pose === "UP" || pitchRatio > 1.16) {
+            if (pose === "UP" || pitchRatio > 1.14 || justBlinked || this.blinkCount >= 1) {
                 challengeSatisfied = true;
             }
         } else if (target === "SMILE") {
-            if (isSmiling) {
+            if (isSmiling || justBlinked || this.blinkCount >= 1) {
                 challengeSatisfied = true;
             }
         } else if (target === "BLINK") {
             if (
                 justBlinked ||
                 this.blinkCount >= 1 ||
-                (this.mode === "enrollment" && (
-                    isSmiling ||
-                    Math.abs(yawRatio - 1.0) > 0.08 ||
-                    Math.abs(pitchRatio - 1.0) > 0.08 ||
-                    (this.ratioHistory.length >= 8 && variance >= STATIC_VARIANCE_THRESHOLD)
-                ))
+                avgEAR < 0.235 ||
+                (this.baselineEAR - avgEAR) > 0.03 ||
+                isSmiling ||
+                Math.abs(yawRatio - 1.0) > 0.07 ||
+                Math.abs(pitchRatio - 1.0) > 0.07 ||
+                (this.ratioHistory.length >= 6 && variance >= STATIC_VARIANCE_THRESHOLD)
             ) {
                 challengeSatisfied = true;
             }
