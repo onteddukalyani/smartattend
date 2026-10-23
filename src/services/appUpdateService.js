@@ -7,7 +7,7 @@ import { sendBroadcastNotification } from "./notificationsService";
 import { triggerRealAppNotification } from "./nativeNotificationService";
 
 export const CURRENT_APP_VERSION = "1.0.1";
-export const CURRENT_APP_VERSION_CODE = 2;
+export const CURRENT_APP_VERSION_CODE = 3;
 export const APP_BUILD_DATE = "2026-10-21";
 
 let cachedRunningVersion = null;
@@ -644,4 +644,3 @@ export async function publishAppUpdate({
 
   return { success: true, version: cleanVersion };
 }
-

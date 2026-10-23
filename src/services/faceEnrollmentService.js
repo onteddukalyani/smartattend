@@ -1,25 +1,20 @@
 import { auth } from "../firebase";
+import { Capacitor } from "@capacitor/core";
 import { httpsCallable } from "firebase/functions";
 import { functions } from "../firebase";
 
-const apiBaseUrl = String(import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
-const registerFaceCallable = httpsCallable(functions, "registerStudentFace");
-const matchFaceCallable = httpsCallable(functions, "matchStudentFace");
+const configuredApiBaseUrl = String(import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
+const apiBaseUrl = configuredApiBaseUrl ||
+  (Capacitor.isNativePlatform() ? "https://smartattend-ochre.vercel.app" : "");
 const identifyStudentCallable = httpsCallable(functions, "identifyStudentByFace");
 const removeFaceCallable = httpsCallable(functions, "removeStudentFaceEnrollment");
-const reviewFaceCallable = httpsCallable(functions, "resolveFaceEnrollmentReview");
-const listFaceReviewsCallable = httpsCallable(functions, "listFaceEnrollmentReviews");
 const grantReRegCallable = httpsCallable(functions, "grantBiometricReRegistration");
 const revokeReRegCallable = httpsCallable(functions, "revokeBiometricReRegistration");
 const listReRegCallable = httpsCallable(functions, "listBiometricReRegistrationPermissions");
 const checkReRegStatusCallable = httpsCallable(functions, "checkStudentReRegistrationStatus");
 
 export async function registerStudentFace(rollNo, faceDescriptor) {
-  const result = await callFaceApi(
-    "/api/face/register",
-    { rollNo, faceDescriptor },
-    registerFaceCallable
-  );
+  const result = await callFaceApi("/api/face/register", { rollNo, faceDescriptor });
   if (result?.status === "REVIEW_REQUIRED") {
     throw new Error(result.message || "Face enrollment requires authorized review.");
   }
@@ -29,7 +24,7 @@ export async function registerStudentFace(rollNo, faceDescriptor) {
   return result;
 }
 
-async function callFaceApi(path, payload, fallbackCallable) {
+async function callFaceApi(path, payload) {
   const currentUser = auth.currentUser;
   if (!currentUser) {
     throw new Error("Sign in again before using face biometrics.");
@@ -50,19 +45,17 @@ async function callFaceApi(path, payload, fallbackCallable) {
   }
 
   const contentType = response.headers.get("content-type") || "";
-  if (!contentType.toLowerCase().includes("json") && (response.status === 404 || response.ok)) {
-    const fallbackResponse = await fallbackCallable(payload);
-    return fallbackResponse.data;
+  if (!contentType.toLowerCase().includes("json")) {
+    if (response.status === 404) {
+      throw new Error("The face API endpoint was not found. Update the app or contact an administrator.");
+    }
+    throw new Error("The face service returned an invalid response.");
   }
 
   let result;
   try {
     result = await response.json();
   } catch {
-    if (response.status === 404) {
-      const fallbackResponse = await fallbackCallable(payload);
-      return fallbackResponse.data;
-    }
     throw new Error("The face service returned an invalid response.");
   }
 
@@ -75,11 +68,7 @@ async function callFaceApi(path, payload, fallbackCallable) {
 }
 
 export async function matchStudentFace(faceDescriptor, rollNo = "") {
-  return callFaceApi(
-    "/api/face/match",
-    { faceDescriptor, rollNo },
-    matchFaceCallable
-  );
+  return callFaceApi("/api/face/match", { faceDescriptor, rollNo });
 }
 
 export async function removeStudentFaceEnrollment(rollNo) {
@@ -91,11 +80,11 @@ export async function removeStudentFaceEnrollment(rollNo) {
 }
 
 export async function resolveFaceEnrollmentReview(requestId, action) {
-  const result = await callFaceApi(
-    "/api/face/review",
-    { operation: "resolve", requestId, action },
-    () => reviewFaceCallable({ requestId, action }).then((response) => response.data)
-  );
+  const result = await callFaceApi("/api/face/review", {
+    operation: "resolve",
+    requestId,
+    action
+  });
   if (!result?.success) {
     throw new Error("The server did not complete the face enrollment review.");
   }
@@ -103,11 +92,7 @@ export async function resolveFaceEnrollmentReview(requestId, action) {
 }
 
 export async function listFaceEnrollmentReviews(rollNo) {
-  const result = await callFaceApi(
-    "/api/face/review",
-    { operation: "list", rollNo },
-    () => listFaceReviewsCallable({ rollNo }).then((response) => response.data)
-  );
+  const result = await callFaceApi("/api/face/review", { operation: "list", rollNo });
   if (!Array.isArray(result?.reviews)) {
     throw new Error("The server returned an invalid face review list.");
   }

@@ -39,10 +39,14 @@ Configure these values in the Vercel project’s server-side environment setting
   and approved native app origins. Include `https://localhost` for the Android
   Capacitor app and `capacitor://localhost` for the iOS Capacitor app.
 
-For a native build, set `VITE_API_BASE_URL` to the HTTPS base URL of the
-deployed Vercel API before building. For a same-origin web deployment, leave it
-empty. Capacitor Android uses `https://localhost` as its default WebView origin,
-which must be allowed by `APP_ALLOWED_ORIGINS`.
+For a native build, `VITE_API_BASE_URL` can be set to the HTTPS base URL of the
+deployed Vercel API; if unset, the app uses
+`https://smartattend-ochre.vercel.app`. For a same-origin web deployment, leave
+it empty. Capacitor Android uses `https://localhost` as its default WebView
+origin, which must be allowed by `APP_ALLOWED_ORIGINS`. Face registration,
+matching, and review calls do not fall back to Firebase Functions: a missing
+API route is reported directly rather than surfacing an unrelated callable
+error.
 
 ## Local testing
 
