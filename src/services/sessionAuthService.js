@@ -51,8 +51,8 @@ export async function initiateSession(sessionParams) {
   }
   const nowMs = Date.now();
 
-  let qr1DurationSec = 15;
-  let qr2DurationSec = 15;
+  let qr1DurationSec = 45;
+  let qr2DurationSec = 75;
 
   if (Number(sessionParams.qr1DurationSeconds) > 0 && Number(sessionParams.qr2DurationSeconds) > 0) {
     qr1DurationSec = Math.max(15, Math.min(600, Math.round(Number(sessionParams.qr1DurationSeconds))));
@@ -225,7 +225,7 @@ export async function authorizeStudentQR1(sessionId, qr1Token, studentProfileOve
           sessionStartAt: result.data.sessionStartAt || Date.now(),
           qr1ExpiresAt: result.data.qr1ExpiresAt || 0,
           qr2StartsAt: result.data.qr2StartsAt || result.data.qr1ExpiresAt || 0,
-          qr1DurationSeconds: result.data.qr1DurationSeconds || 15,
+          qr1DurationSeconds: result.data.qr1DurationSeconds || 45,
           verifiedAt: Date.now()
         };
         try {
@@ -284,7 +284,7 @@ export async function authorizeStudentQR1(sessionId, qr1Token, studentProfileOve
             sessionStartAt: serverData.sessionStartAt || Date.now(),
             qr1ExpiresAt: serverData.qr1ExpiresAt || 0,
             qr2StartsAt: serverData.qr2StartsAt || serverData.qr1ExpiresAt || 0,
-            qr1DurationSeconds: serverData.qr1DurationSeconds || 15
+            qr1DurationSeconds: serverData.qr1DurationSeconds || 45
           };
           try {
             if (typeof sessionStorage !== "undefined") sessionStorage.setItem(`smartattend_qr1_auth_${sessionId}`, JSON.stringify(confirmedRecord));
@@ -1806,6 +1806,5 @@ export function subscribeToStudentAuthorization(sessionId, studentUid, onUpdate)
     console.warn("Student authorization subscription notice:", err);
   });
 }
-
 
 

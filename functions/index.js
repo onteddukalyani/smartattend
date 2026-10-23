@@ -1429,9 +1429,9 @@ exports.initiateAttendanceSession = onCall({ cors: true }, async (request) => {
   const nowMs = Date.now();
   const sessionStartMs = nowMs;
 
-  // Granular QR1 + QR2 Duration Timetable Breakdown (default: 15s per phase)
-  let qr1DurationSec = 15;
-  let qr2DurationSec = 15;
+  // Granular QR1 + QR2 Duration Timetable Breakdown (default: 45s + 75s)
+  let qr1DurationSec = 45;
+  let qr2DurationSec = 75;
 
   if (Number(request.data?.qr1DurationSeconds) > 0 && Number(request.data?.qr2DurationSeconds) > 0) {
     qr1DurationSec = Math.max(15, Math.min(600, Math.round(Number(request.data.qr1DurationSeconds))));

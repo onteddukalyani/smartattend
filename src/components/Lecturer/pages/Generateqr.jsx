@@ -73,14 +73,14 @@ function GenerateQR() {
     const [classCode, setClassCode] = useState(normalizeBranchName(searchParams.get("classCode") || ""));
     const [batch, setBatch] = useState(searchParams.get("batch") || "2025");
     const [lectureHours, setLectureHours] = useState("1.0"); // Optional lecture duration in hours
-    const [timetablePreset, setTimetablePreset] = useState("fast"); // "fast" | "express" | "standard" | "extended" | "custom"
-    const [qr1Seconds, setQr1Seconds] = useState(15);   // Phase 1 (QR1 check-in) window
-    const [qr2Seconds, setQr2Seconds] = useState(15);  // Phase 2 (QR2 biometric verification) window
+    const [timetablePreset, setTimetablePreset] = useState("express"); // "fast" | "express" | "standard" | "extended" | "custom"
+    const [qr1Seconds, setQr1Seconds] = useState(45);   // Phase 1 (QR1 check-in) window
+    const [qr2Seconds, setQr2Seconds] = useState(75);  // Phase 2 (QR2 biometric verification) window
     const [sessionDurationMinutes, setSessionDurationMinutes] = useState("0.5");
     const [customDurationMinutes, setCustomDurationMinutes] = useState("0.5");
     const [availableCourses, setAvailableCourses] = useState([]);
 
-    // Authoritative 2-Phase Session State (0:00 -> 1:00 -> 3:00)
+    // Authoritative 2-Phase Session State (0:00 -> 0:45 -> 2:00)
     const [sessionId, setSessionId] = useState(searchParams.get("sessionId") || searchParams.get("session") || "");
     const [sessionPin, setSessionPin] = useState("");
     const [showPin, setShowPin] = useState(false);
@@ -422,10 +422,8 @@ function GenerateQR() {
             const finalBatch = (batch && batch.trim() !== "") ? batch.trim() : "2025";
             const parsedHours = parseFloat(lectureHours) > 0 ? parseFloat(lectureHours) : 1.0;
             const finalClassCode = normalizeBranchName(classCode || "CSE");
-            const effectiveQr1Sec = Math.max(15, Number(qr1Seconds) || 15);
-            const effectiveQr2Sec = Math.max(15, Number(qr2Seconds) || 15);
-            const effectiveTotalSec = effectiveQr1Sec + effectiveQr2Sec;
-            const effectiveDurationMinutes = Math.round((effectiveTotalSec / 60) * 10) / 10;
+            const effectiveQr1Sec = Math.max(15, Number(qr1Seconds) || 45);
+            const effectiveQr2Sec = Math.max(15, Number(qr2Seconds) || 75);
 
             // Ensure Lecturer Host GPS is locked before initiating session document
             let hostCoords = isFreshLocation(classroomCoords) ? classroomCoords : null;
@@ -468,7 +466,6 @@ function GenerateQR() {
                 lecturerInfo,
                 parsedHours,
                 geofenceRadius,
-                effectiveDurationMinutes,
                 {
                     qr1DurationSeconds: effectiveQr1Sec,
                     qr2DurationSeconds: effectiveQr2Sec,
@@ -1438,8 +1435,8 @@ function GenerateQR() {
                         </label>
                         <div className="qr-preset-grid">
                             {[
-                                { id: "fast", icon: "⚡", title: "30s Quick", badge: "15s + 15s", desc: "Rapid check-in & scan", qr1: 15, qr2: 15 },
-                                { id: "express", icon: "⏱️", title: "2m Express", badge: "45s + 75s", desc: "Smooth class flow", qr1: 45, qr2: 75 },
+                                { id: "fast", icon: "⚡", title: "1m Quick", badge: "30s + 30s", desc: "Rapid check-in & scan", qr1: 30, qr2: 30 },
+                                { id: "express", icon: "⏱️", title: "2m Default", badge: "45s + 75s", desc: "Smooth class flow", qr1: 45, qr2: 75 },
                                 { id: "standard", icon: "🛡️", title: "3m Standard", badge: "60s + 120s", desc: "Extended attendance window", qr1: 60, qr2: 120 },
                                 { id: "extended", icon: "⏳", title: "5m Extended", badge: "90s + 210s", desc: "Large lecture hall", qr1: 90, qr2: 210 },
                                 { id: "custom", icon: "🛠️", title: "Custom", badge: "Manual", desc: "Specify QR1 & QR2", qr1: qr1Seconds, qr2: qr2Seconds }
