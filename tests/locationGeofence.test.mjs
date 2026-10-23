@@ -2,7 +2,12 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { evaluateGeofence } from "../src/utils/geofence.js";
-import { isFreshLocation, locationFromPosition } from "../src/utils/location.js";
+import {
+  acquireAccurateLocation,
+  isAccurateLocation,
+  isFreshLocation,
+  locationFromPosition
+} from "../src/utils/location.js";
 
 const require = createRequire(import.meta.url);
 const { evaluateServerGeofence } = require("../functions/index.js");
@@ -29,6 +34,63 @@ test("GPS freshness accepts current fixes only within one minute", () => {
   assert.equal(isFreshLocation({ ...fix, timestamp: now - 61000 }, now), false);
   assert.equal(isFreshLocation({ ...fix, timestamp: now + 16000 }, now), false);
   assert.equal(isFreshLocation({ ...fix, accuracy: 0 }, now), false);
+});
+
+test("classroom GPS readiness requires a fresh fix with accuracy of 45m or better", () => {
+  const now = Date.now();
+  const fix = { latitude: 12.9716, longitude: 77.5946, accuracy: 45, timestamp: now };
+
+  assert.equal(isAccurateLocation(fix, now), true);
+  assert.equal(isAccurateLocation({ ...fix, accuracy: 46 }, now), false);
+  assert.equal(isAccurateLocation({ ...fix, timestamp: now - 61000 }, now), false);
+});
+
+test("classroom GPS acquisition waits for an accurate watch fix and clears the watch", async () => {
+  let success;
+  let clearedWatchId = null;
+  const geolocation = {
+    watchPosition(onSuccess) {
+      success = onSuccess;
+      return 7;
+    },
+    clearWatch(id) {
+      clearedWatchId = id;
+    }
+  };
+
+  const resultPromise = acquireAccurateLocation(geolocation, { timeoutMs: 1000 });
+  success({
+    timestamp: Date.now(),
+    coords: { latitude: 12.9716, longitude: 77.5946, accuracy: 90 }
+  });
+  success({
+    timestamp: Date.now(),
+    coords: { latitude: 12.9716, longitude: 77.5946, accuracy: 24 }
+  });
+
+  const result = await resultPromise;
+  assert.equal(result.accuracy, 24);
+  assert.equal(clearedWatchId, 7);
+});
+
+test("classroom GPS acquisition returns the best fix if it times out below the accuracy threshold", async () => {
+  let success;
+  const geolocation = {
+    watchPosition(onSuccess) {
+      success = onSuccess;
+      return 9;
+    },
+    clearWatch() {}
+  };
+
+  const resultPromise = acquireAccurateLocation(geolocation, { timeoutMs: 25 });
+  success({
+    timestamp: Date.now(),
+    coords: { latitude: 12.9716, longitude: 77.5946, accuracy: 80 }
+  });
+
+  const result = await resultPromise;
+  assert.equal(result.accuracy, 80);
 });
 
 test("client geofence mirrors server accuracy and uncertainty policy", () => {

@@ -1,4 +1,6 @@
 export const MAX_LOCATION_AGE_MS = 60000;
+export const MAX_CLASSROOM_LOCATION_ACCURACY_METERS = 45;
+export const CLASSROOM_LOCATION_ACQUISITION_TIMEOUT_MS = 15000;
 const MAX_FUTURE_LOCATION_SKEW_MS = 15000;
 
 export function locationFromPosition(position) {
@@ -52,4 +54,72 @@ export function isFreshLocation(location, now = Date.now(), maxAgeMs = MAX_LOCAT
     age <= maxAgeMs &&
     age >= -MAX_FUTURE_LOCATION_SKEW_MS
   );
+}
+
+export function isAccurateLocation(
+  location,
+  now = Date.now(),
+  maxAccuracy = MAX_CLASSROOM_LOCATION_ACCURACY_METERS
+) {
+  return isFreshLocation(location, now) && Number(location.accuracy ?? location.acc) <= maxAccuracy;
+}
+
+export function acquireAccurateLocation(
+  geolocation,
+  {
+    timeoutMs = CLASSROOM_LOCATION_ACQUISITION_TIMEOUT_MS,
+    maxAccuracy = MAX_CLASSROOM_LOCATION_ACCURACY_METERS
+  } = {}
+) {
+  return new Promise((resolve, reject) => {
+    if (!geolocation || typeof geolocation.watchPosition !== "function") {
+      resolve(null);
+      return;
+    }
+
+    let watchId = null;
+    let settled = false;
+    let clearWatchAfterStart = false;
+    let bestLocation = null;
+    const timeoutId = setTimeout(() => finish(bestLocation), timeoutMs);
+
+    const finish = (location) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeoutId);
+      if (watchId !== null) {
+        geolocation.clearWatch(watchId);
+      } else {
+        clearWatchAfterStart = true;
+      }
+      resolve(location);
+    };
+
+    try {
+      watchId = geolocation.watchPosition(
+        (position) => {
+          const location = locationFromPosition(position);
+          if (!location) return;
+          if (!bestLocation || location.accuracy < bestLocation.accuracy) {
+            bestLocation = location;
+          }
+          if (isAccurateLocation(location, Date.now(), maxAccuracy)) {
+            finish(location);
+          }
+        },
+        () => finish(bestLocation),
+        { enableHighAccuracy: true, timeout: timeoutMs, maximumAge: 0 }
+      );
+      if (clearWatchAfterStart && watchId !== null) {
+        geolocation.clearWatch(watchId);
+      }
+    } catch (error) {
+      settled = true;
+      clearTimeout(timeoutId);
+      if (watchId !== null) {
+        geolocation.clearWatch(watchId);
+      }
+      reject(error);
+    }
+  });
 }
