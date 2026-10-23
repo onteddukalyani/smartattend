@@ -45,8 +45,9 @@ and native builds. This is required when the frontend is hosted on Firebase
 Hosting because Firebase Hosting does not serve these Vercel API routes. The
 API explicitly allows the production Firebase Hosting origins
 `https://smart-attendance-ok.web.app` and
-`https://smart-attendance-ok.firebaseapp.com`; add any other production or
-preview origin to `APP_ALLOWED_ORIGINS`. Capacitor Android uses
+`https://smart-attendance-ok.firebaseapp.com`, plus the Vite development origin
+`http://localhost:5173`; add any other production or preview origin to
+`APP_ALLOWED_ORIGINS`. Capacitor Android uses
 `https://localhost` as its default WebView origin, which must also be allowed.
 Face registration, matching, and review calls do not fall back to Firebase
 Functions: a missing API route is reported directly rather than surfacing an

@@ -8,6 +8,7 @@ export function applyCors(req, res) {
   const allowedOrigins = new Set([
     "https://smart-attendance-ok.web.app",
     "https://smart-attendance-ok.firebaseapp.com",
+    "http://localhost:5173",
     ...(process.env.APP_ALLOWED_ORIGINS || "")
       .split(",")
       .map((value) => value.trim())
