@@ -110,14 +110,18 @@ function StudentsList() {
         };
     }, []);
 
-    // Check if a student has biometric face enrolled (strictly requires 128-D vector)
+    // Face descriptors are server-only; use enrollment flags for the client-visible status.
     const checkHasFace = (student) => {
         if (!student) return false;
         if (student.faceRemovedAt) return false;
         const fd = student.faceDescriptor || student.descriptor;
-        if (Array.isArray(fd) && fd.length === 128) return true;
-        if (fd instanceof Float32Array && fd.length === 128) return true;
-        return false;
+        return Boolean(
+            student.faceRegistered ||
+            student.biometricEnrolled ||
+            student.hasFaceRegistered ||
+            (Array.isArray(fd) && fd.length === 128) ||
+            (fd instanceof Float32Array && fd.length === 128)
+        );
     };
 
 
