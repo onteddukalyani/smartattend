@@ -7,7 +7,7 @@
  */
 
 export const DEFAULT_GEOFENCE_RADIUS_METRES = 10; // 10m standard classroom radius, adjustable by authorized lecturer
-export const MAX_ACCEPTABLE_ACCURACY_METRES = 65; // University classroom standard indoor positioning tolerance ceiling (max 65m uncertainty for boundary decisions)
+export const MAX_ACCEPTABLE_ACCURACY_METRES = 45;
 export const MAX_RETRY_ATTEMPTS = 3;
 
 /**
@@ -85,17 +85,34 @@ export function extractCoords(obj) {
  */
 export function evaluateGeofence(studentCoordsRaw, classroomCoordsRaw, retryCount = 0) {
   const classroom = extractCoords(classroomCoordsRaw);
-  if (!classroom || classroom.radius === 0 || classroomCoordsRaw?.enabled === false) {
-    // If classroom has not registered GPS or lecturer disabled geofence, allow pass-through with audit notice
+  const geofenceDisabled = classroomCoordsRaw?.enabled === false ||
+    Number(classroomCoordsRaw?.radius ?? classroomCoordsRaw?.r) === 0;
+  if (geofenceDisabled) {
     return {
       status: "PASS",
       distance: 0,
       accuracy: studentCoordsRaw?.accuracy || 0,
       radius: 0,
       geofenceEnforced: false,
-      message: (classroom && classroom.radius === 0)
+      message: (
+        classroomCoordsRaw?.enabled === false ||
+        classroomCoordsRaw?.radius === 0 ||
+        classroomCoordsRaw?.r === 0
+      )
         ? "Classroom GPS geofence disabled for this session."
         : "Classroom GPS not registered for this session."
+    };
+  }
+
+  if (!classroom) {
+    return {
+      status: "INCONCLUSIVE_RETRY",
+      distance: null,
+      accuracy: studentCoordsRaw?.accuracy || 0,
+      radius: DEFAULT_GEOFENCE_RADIUS_METRES,
+      geofenceEnforced: true,
+      locationAcquiring: true,
+      message: "Classroom GPS location is not ready. Ask the lecturer to refresh the session location."
     };
   }
 
@@ -134,7 +151,6 @@ export function evaluateGeofence(studentCoordsRaw, classroomCoordsRaw, retryCoun
   }
 
   const accuracy = Math.max(0, Math.round(Number(student.accuracy) || 0));
-  const rawHostAccuracy = Math.round(Number(classroom.accuracy) || 0);
 
   // 2. Exact physical distance calculation
   const rawDistance = calculateHaversineDistance(
@@ -144,34 +160,38 @@ export function evaluateGeofence(studentCoordsRaw, classroomCoordsRaw, retryCoun
     classroom.longitude
   );
 
-  // If calculation failed somehow to finite number, fail safely
+  // Invalid coordinate pairs cannot establish classroom presence.
   if (!Number.isFinite(rawDistance)) {
     return {
-      status: "PASS",
-      distance: 0,
-      effectiveDistance: 0,
+      status: "INCONCLUSIVE_RETRY",
+      distance: null,
       accuracy,
       radius,
-      geofenceEnforced: false,
       studentCoords: { latitude: student.latitude, longitude: student.longitude, accuracy },
       classroomCoords: { latitude: classroom.latitude, longitude: classroom.longitude, radius },
-      message: "Classroom GPS verification bypassed (coordinates invalid)."
+      geofenceEnforced: true,
+      message: "GPS coordinates are invalid. Wait for a fresh location fix and scan again."
     };
   }
 
   const distance = Math.round(rawDistance * 10) / 10;
 
-  // 3. Defensible Sensor Uncertainty Calibration for Real-World Mobile Hardware & Host Laptops:
-  // Civilian smartphone GPS receivers indoors experience horizontal dilution of precision (HDOP)
-  // and building roof/wall attenuation (±15m to ±40m).
-  // Additionally, classroom host machines (lecturer laptops / desktops) obtain location from Wi-Fi BSSID or ISP IP,
-  // which frequently places the host coordinate at the campus router/server room 50m - 100m away from the classroom.
-  // We combine the student receiver uncertainty and classroom host uncertainty using root-sum-square plus indoor allowance.
-  const hostAccuracy = rawHostAccuracy > 0 ? rawHostAccuracy : 75; // Standard indoor laptop Wi-Fi location uncertainty
-  const studentAllowance = accuracy > 0 ? accuracy : 20;
-  const combinedSensorUncertainty = Math.sqrt(Math.pow(studentAllowance, 2) + Math.pow(hostAccuracy, 2));
-  // Total indoor tolerance accommodates combined sensor uncertainty up to a safe institutional boundary (120m)
-  const uncertaintyAllowance = Math.min(120, Math.max(20, Math.round(combinedSensorUncertainty)));
+  if (accuracy > MAX_ACCEPTABLE_ACCURACY_METRES) {
+    const canRetry = retryCount < MAX_RETRY_ATTEMPTS;
+    return {
+      status: "INCONCLUSIVE_RETRY",
+      distance,
+      accuracy,
+      radius,
+      retryCount,
+      canRetry,
+      studentCoords: { latitude: student.latitude, longitude: student.longitude, accuracy },
+      classroomCoords: { latitude: classroom.latitude, longitude: classroom.longitude, radius },
+      message: `GPS accuracy is too low (${accuracy}m > ${MAX_ACCEPTABLE_ACCURACY_METRES}m). Wait for a better GPS fix and scan again.`
+    };
+  }
+
+  const uncertaintyAllowance = Math.min(accuracy > 0 ? accuracy / 2 : 0, Math.min(5, radius * 0.5));
   const effectiveDistance = Math.max(0, Math.round((distance - uncertaintyAllowance) * 10) / 10);
 
   const telemetry = {
@@ -192,20 +212,6 @@ export function evaluateGeofence(studentCoordsRaw, classroomCoordsRaw, retryCoun
       ...telemetry,
       geofenceEnforced: true,
       message: `✅ Geofence Verified: Inside classroom (${distance}m measured distance within ${radius}m boundary).`
-    };
-  }
-
-  // Case B: Student is measured outside classroom, but GPS accuracy is excessively degraded (> 65m)
-  if (accuracy > MAX_ACCEPTABLE_ACCURACY_METRES) {
-    const canRetry = retryCount < MAX_RETRY_ATTEMPTS;
-    return {
-      status: "INCONCLUSIVE_RETRY",
-      ...telemetry,
-      retryCount,
-      canRetry,
-      message: canRetry
-        ? `⚠️ Low GPS accuracy (±${accuracy}m uncertainty > ${MAX_ACCEPTABLE_ACCURACY_METRES}m). Tap retry to refresh satellite lock (Attempt ${retryCount + 1}/${MAX_RETRY_ATTEMPTS}).`
-        : `⚠️ Inconclusive GPS after ${MAX_RETRY_ATTEMPTS} attempts (±${accuracy}m uncertainty). Attendance flagged for lecturer classroom review.`
     };
   }
 

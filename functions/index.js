@@ -1429,9 +1429,9 @@ exports.initiateAttendanceSession = onCall({ cors: true }, async (request) => {
   const nowMs = Date.now();
   const sessionStartMs = nowMs;
 
-  // Granular QR1 + QR2 Duration Timetable Breakdown (e.g. 30s QR1 + 30s QR2 = 1 min)
-  let qr1DurationSec = 60;
-  let qr2DurationSec = 120;
+  // Granular QR1 + QR2 Duration Timetable Breakdown (default: 15s per phase)
+  let qr1DurationSec = 15;
+  let qr2DurationSec = 15;
 
   if (Number(request.data?.qr1DurationSeconds) > 0 && Number(request.data?.qr2DurationSeconds) > 0) {
     qr1DurationSec = Math.max(15, Math.min(600, Math.round(Number(request.data.qr1DurationSeconds))));
@@ -1439,8 +1439,8 @@ exports.initiateAttendanceSession = onCall({ cors: true }, async (request) => {
   } else if (Number(request.data?.durationMinutes) > 0) {
     const totalMinutes = Number(request.data.durationMinutes);
     const totalSec = Math.round(totalMinutes * 60);
-    qr1DurationSec = Math.min(60, Math.max(20, Math.round(totalSec / 3)));
-    qr2DurationSec = totalSec - qr1DurationSec;
+    qr1DurationSec = Math.min(60, Math.max(15, Math.round(totalSec / 3)));
+    qr2DurationSec = Math.max(15, totalSec - qr1DurationSec);
   }
 
   const totalDurationMs = (qr1DurationSec + qr2DurationSec) * 1000;

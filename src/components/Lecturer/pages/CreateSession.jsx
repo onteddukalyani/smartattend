@@ -4,7 +4,7 @@ import { normalizeBranchName } from "../../../utils/studentDataHelper";
 
 /**
  * Creates a new 2-Phase Attendance Session via Cloud Functions / Firestore
- * Returns session object with sessionId, secure qr1Token, and 60-second qr1ExpiresAt.
+ * Returns a session with a 30-second QR1/QR2 attendance window by default.
  */
 export async function createAttendanceSession(
     classCode,
@@ -14,7 +14,7 @@ export async function createAttendanceSession(
     lecturerInfo = {},
     lectureHours = 1.0,
     geofenceRadius = 10,
-    durationMinutes = 3,
+    durationMinutes = 0.5,
     timetableOptions = {}
 ) {
     const currentUser = auth.currentUser;
@@ -26,11 +26,11 @@ export async function createAttendanceSession(
     const parsedHours = Number(lectureHours) > 0 ? Number(lectureHours) : 1.0;
     const finalClassCode = normalizeBranchName(classCode || "CSE");
     const parsedRadius = typeof geofenceRadius === "number" ? geofenceRadius : (typeof timetableOptions?.geofenceRadius === "number" ? timetableOptions.geofenceRadius : 10);
-    const parsedDuration = Number(durationMinutes) > 0 ? Number(durationMinutes) : 3;
+    const parsedDuration = Number(durationMinutes) > 0 ? Number(durationMinutes) : 0.5;
 
     const qr1Sec = Number(timetableOptions?.qr1DurationSeconds) > 0
         ? Number(timetableOptions.qr1DurationSeconds)
-        : Math.min(60, Math.round((parsedDuration * 60) / 3));
+        : Math.max(15, Math.min(60, Math.round((parsedDuration * 60) / 3)));
     const qr2Sec = Number(timetableOptions?.qr2DurationSeconds) > 0
         ? Number(timetableOptions.qr2DurationSeconds)
         : Math.max(15, (parsedDuration * 60) - qr1Sec);

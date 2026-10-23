@@ -51,8 +51,8 @@ export async function initiateSession(sessionParams) {
   }
   const nowMs = Date.now();
 
-  let qr1DurationSec = 60;
-  let qr2DurationSec = 120;
+  let qr1DurationSec = 15;
+  let qr2DurationSec = 15;
 
   if (Number(sessionParams.qr1DurationSeconds) > 0 && Number(sessionParams.qr2DurationSeconds) > 0) {
     qr1DurationSec = Math.max(15, Math.min(600, Math.round(Number(sessionParams.qr1DurationSeconds))));
@@ -60,8 +60,8 @@ export async function initiateSession(sessionParams) {
   } else if (Number(sessionParams.durationMinutes) > 0) {
     const totalMinutes = Number(sessionParams.durationMinutes);
     const totalSec = Math.round(totalMinutes * 60);
-    qr1DurationSec = Math.min(60, Math.max(20, Math.round(totalSec / 3)));
-    qr2DurationSec = totalSec - qr1DurationSec;
+    qr1DurationSec = Math.min(60, Math.max(15, Math.round(totalSec / 3)));
+    qr2DurationSec = Math.max(15, totalSec - qr1DurationSec);
   }
 
   const totalDurationMs = (qr1DurationSec + qr2DurationSec) * 1000;
@@ -225,7 +225,7 @@ export async function authorizeStudentQR1(sessionId, qr1Token, studentProfileOve
           sessionStartAt: result.data.sessionStartAt || Date.now(),
           qr1ExpiresAt: result.data.qr1ExpiresAt || 0,
           qr2StartsAt: result.data.qr2StartsAt || result.data.qr1ExpiresAt || 0,
-          qr1DurationSeconds: result.data.qr1DurationSeconds || 60,
+          qr1DurationSeconds: result.data.qr1DurationSeconds || 15,
           verifiedAt: Date.now()
         };
         try {
@@ -284,7 +284,7 @@ export async function authorizeStudentQR1(sessionId, qr1Token, studentProfileOve
             sessionStartAt: serverData.sessionStartAt || Date.now(),
             qr1ExpiresAt: serverData.qr1ExpiresAt || 0,
             qr2StartsAt: serverData.qr2StartsAt || serverData.qr1ExpiresAt || 0,
-            qr1DurationSeconds: serverData.qr1DurationSeconds || 60
+            qr1DurationSeconds: serverData.qr1DurationSeconds || 15
           };
           try {
             if (typeof sessionStorage !== "undefined") sessionStorage.setItem(`smartattend_qr1_auth_${sessionId}`, JSON.stringify(confirmedRecord));

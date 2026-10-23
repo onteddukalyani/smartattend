@@ -51,6 +51,7 @@ import { detectDeviceType, getClientIpAddress, getDeviceDisplayName, isDeviceMat
 import { sendFacultyNotification, sendStudentNotification, reportUserVerificationComplaint } from '../../services/notificationsService';
 import { validateRotatingQrPayload } from '../../utils/qrCrypto';
 import { evaluateGeofence, calculateHaversineDistance, DEFAULT_GEOFENCE_RADIUS_METRES } from '../../utils/geofence';
+import { isFreshLocation, locationFromPosition } from '../../utils/location';
 import { checkVpnAndNetworkSecurity } from '../../utils/vpnDetection';
 import { verifyHardwareBiometric, prefetchBiometricChallenge } from '../../services/biometricService';
 import { checkForAppUpdate, CURRENT_APP_VERSION, compareVersions } from '../../services/appUpdateService';
@@ -61,8 +62,8 @@ import './Scanner.css';
  * Stage 4: Student Two-Phase Attendance Scanner & Supervised Kiosk Controller
  * 
  * Timeline:
- * T = 0s to 60s (0:00 - 1:00) : QR 1 Phase 1 Check-In -> Authorizes Student -> Starts Kiosk Mode
- * T = 60s to 180s (1:00 - 3:00): QR 2 Phase 2 Biometric -> Gated by Phase 1 -> Submits Attendance
+ * T = 0s to 15s (0:00 - 0:15) : QR 1 Phase 1 Check-In -> Authorizes Student -> Starts Kiosk Mode
+ * T = 15s to 30s (0:15 - 0:30): QR 2 Phase 2 Biometric -> Gated by Phase 1 -> Submits Attendance
  * Post-Attendance             : Device remains locked in Lock Task Mode -> Auto Release in 5:00 Fail-Safe
  */
 function QrScannerApp() {
@@ -137,7 +138,7 @@ function QrScannerApp() {
     const [sessionStartAt, setSessionStartAt] = useState(0);
     const [kioskEndsAt, setKioskEndsAt] = useState(0);
     const [authQr2StartsAt, setAuthQr2StartsAt] = useState(0);
-    const [authQr1DurationSec, setAuthQr1DurationSec] = useState(60);
+    const [authQr1DurationSec, setAuthQr1DurationSec] = useState(15);
     const [elapsedSeconds, setElapsedSeconds] = useState(0);
     const [sessionRemaining, setSessionRemaining] = useState(180);
     const [errorMessage, setErrorMessage] = useState('');
@@ -205,48 +206,28 @@ function QrScannerApp() {
                 // 1. Instant GPS prime: Request high-accuracy GNSS fix with quick fallback
                 navigator.geolocation.getCurrentPosition(
                     (pos) => {
-                        if (pos && pos.coords) {
-                            const rawAcc = Number(pos.coords.accuracy);
-                            const locObj = {
-                                latitude: pos.coords.latitude,
-                                longitude: pos.coords.longitude,
-                                lat: pos.coords.latitude,
-                                lng: pos.coords.longitude,
-                                accuracy: (Number.isFinite(rawAcc) && rawAcc > 0) ? rawAcc : 15,
-                                timestamp: Date.now()
-                            };
+                        const locObj = locationFromPosition(pos);
+                        if (locObj) {
                             prewarmedLocationRef.current = locObj;
                             setCurrentStudentLocation(locObj);
                         }
                     },
                     () => { },
-                    { enableHighAccuracy: true, timeout: 5000, maximumAge: 3000 }
+                    { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
                 );
 
                 // 2. Continuous high-accuracy refinement
                 watchId = navigator.geolocation.watchPosition(
                     (pos) => {
-                        if (pos && pos.coords) {
-                            const rawAcc = Number(pos.coords.accuracy);
-                            const acc = (Number.isFinite(rawAcc) && rawAcc > 0) ? rawAcc : 15;
-                            const prev = prewarmedLocationRef.current;
-                            // Keep fix if fresher (> 5s) or more precise
-                            if (!prev || (Date.now() - prev.timestamp > 5000) || acc <= prev.accuracy) {
-                                const locObj = {
-                                    latitude: pos.coords.latitude,
-                                    longitude: pos.coords.longitude,
-                                    lat: pos.coords.latitude,
-                                    lng: pos.coords.longitude,
-                                    accuracy: acc,
-                                    timestamp: Date.now()
-                                };
-                                prewarmedLocationRef.current = locObj;
-                                setCurrentStudentLocation(locObj);
-                            }
+                        const locObj = locationFromPosition(pos);
+                        const prev = prewarmedLocationRef.current;
+                        if (locObj && (!prev || locObj.timestamp >= prev.timestamp)) {
+                            prewarmedLocationRef.current = locObj;
+                            setCurrentStudentLocation(locObj);
                         }
                     },
                     (err) => console.warn('[Scanner] GPS prewarm notice:', err?.message || err),
-                    { enableHighAccuracy: true, maximumAge: 3000, timeout: 6000 }
+                    { enableHighAccuracy: true, maximumAge: 0, timeout: 6000 }
                 );
             } catch (_) { }
         }
@@ -1368,7 +1349,7 @@ function QrScannerApp() {
             // Instant authoritative target calculation for QR2 countdown
             const calculatedQr2Target = result.qr2StartsAt || result.qr1ExpiresAt || (Date.now() + 60000);
             setAuthQr2StartsAt(calculatedQr2Target);
-            const totalWaitSec = result.qr1DurationSeconds || Math.max(15, Math.round((calculatedQr2Target - (result.sessionStartAt || Date.now())) / 1000)) || 60;
+            const totalWaitSec = result.qr1DurationSeconds || Math.max(15, Math.round((calculatedQr2Target - (result.sessionStartAt || Date.now())) / 1000)) || 15;
             setAuthQr1DurationSec(totalWaitSec);
 
             // Turn off camera tracks completely while waiting for QR 2 (strictly no scanning, saves battery)
@@ -1560,32 +1541,27 @@ function QrScannerApp() {
         const isGeofenceDisabled = selectedGeofence === 0 || classroomTarget?.enabled === false || sessionData?.geofenceRadius === 0;
 
         // Retrieve student's device location (instant pre-warmer, recent cache, or fast fix)
-        let studentCoords = prewarmedLocationRef.current || currentStudentLocation;
-        if (!studentCoords) {
+        let studentCoords = [prewarmedLocationRef.current, currentStudentLocation]
+            .filter((location) => isFreshLocation(location))
+            .sort((a, b) => Number(b.timestamp) - Number(a.timestamp))[0] || null;
+        if (!studentCoords && !isGeofenceDisabled) {
             try {
                 const cached = localStorage.getItem('smartattend_student_location');
                 if (cached) {
                     const parsed = JSON.parse(cached);
-                    if (parsed && (Date.now() - (parsed.timestamp || 0) < 180000)) {
+                    if (isFreshLocation(parsed)) {
                         studentCoords = parsed;
                     }
                 }
             } catch (_) {}
         }
-        if (!studentCoords && typeof navigator !== "undefined" && navigator.geolocation) {
+        if (!studentCoords && !isGeofenceDisabled && typeof navigator !== "undefined" && navigator.geolocation) {
             try {
                 studentCoords = await new Promise((resolve) => {
                     navigator.geolocation.getCurrentPosition(
                         (pos) => {
-                            if (pos?.coords) {
-                                const locObj = {
-                                    latitude: pos.coords.latitude,
-                                    longitude: pos.coords.longitude,
-                                    lat: pos.coords.latitude,
-                                    lng: pos.coords.longitude,
-                                    accuracy: Number(pos.coords.accuracy) || 15,
-                                    timestamp: Date.now()
-                                };
+                            const locObj = locationFromPosition(pos);
+                            if (locObj && isFreshLocation(locObj)) {
                                 prewarmedLocationRef.current = locObj;
                                 setCurrentStudentLocation(locObj);
                                 resolve(locObj);
@@ -1594,12 +1570,20 @@ function QrScannerApp() {
                             }
                         },
                         () => resolve(null),
-                        { enableHighAccuracy: true, timeout: 2500, maximumAge: 3000 }
+                        { enableHighAccuracy: true, timeout: 2500, maximumAge: 0 }
                     );
                 });
             } catch (_) {}
         }
 
+        if (studentCoords && !isFreshLocation(studentCoords)) {
+            studentCoords = null;
+        }
+
+        if (!isGeofenceDisabled && !studentCoords) {
+            setErrorMessage('A fresh GPS fix is not ready yet. Keep Location enabled, wait a moment, then scan again.');
+            return;
+        }
         // Store student's scanned location in state and persistent storage
         if (studentCoords) {
             setScannedStudentLocation(studentCoords);
@@ -1708,11 +1692,21 @@ function QrScannerApp() {
         }
 
         // 4C. Geofence Distance Check: Calculate distance to creating lecturer; if distance <= selected geofence -> accept to next layer; else reject (max attempts = 3)
+        if (!isGeofenceDisabled && (!classroomTarget || calculatedDistance === null)) {
+            setErrorMessage('The lecturer classroom location is not ready. Ask the lecturer to refresh the session location.');
+            return;
+        }
+
         if (!isGeofenceDisabled && classroomTarget && calculatedDistance !== null) {
             const geoEval = evaluateGeofence(studentCoords, classroomTarget, geofenceAttemptsRef.current);
             setGpsTelemetry(geoEval);
 
-            const isWithinGeofence = geoEval.status === "PASS" || (calculatedDistance <= selectedGeofence);
+            if (geoEval.status === "INCONCLUSIVE_RETRY") {
+                setErrorMessage(geoEval.message || 'GPS accuracy is too low to verify attendance. Wait for a better location fix and scan again.');
+                return;
+            }
+
+            const isWithinGeofence = geoEval.status === "PASS";
 
             if (!isWithinGeofence) {
                 geofenceAttemptsRef.current += 1;
@@ -3232,7 +3226,7 @@ function QrScannerApp() {
     // UI VIEW 3: KIOSK WAITING SCREEN (Phase 1 Complete, Waiting for Phase 2 QR)
     // =========================================================================
     if (scanState === 'KIOSK_WAITING_QR2') {
-        const totalDuration = authQr1DurationSec || 60;
+        const totalDuration = authQr1DurationSec || 15;
         const remainingSec = secondsUntilQr2 !== null ? secondsUntilQr2 : 0;
         const progressFraction = Math.max(0, Math.min(1, remainingSec / totalDuration));
         const CIRCUMFERENCE = 465;

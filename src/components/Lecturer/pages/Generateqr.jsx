@@ -20,6 +20,7 @@ import { useAuth } from "../../authcontext";
 import { isCourseAssignedToLecturer } from "../../Common/CoursesManager";
 import { normalizeBranchName, isGenericName } from "../../../utils/studentDataHelper";
 import { generateRotatingQrPayload, DEFAULT_ROTATION_INTERVAL, ROTATION_INTERVALS } from "../../../utils/qrCrypto";
+import { isFreshLocation, locationFromPosition } from "../../../utils/location";
 import {
     FaQrcode,
     FaBookOpen,
@@ -72,11 +73,11 @@ function GenerateQR() {
     const [classCode, setClassCode] = useState(normalizeBranchName(searchParams.get("classCode") || ""));
     const [batch, setBatch] = useState(searchParams.get("batch") || "2025");
     const [lectureHours, setLectureHours] = useState("1.0"); // Optional lecture duration in hours
-    const [timetablePreset, setTimetablePreset] = useState("standard"); // "fast" | "express" | "standard" | "extended" | "custom"
-    const [qr1Seconds, setQr1Seconds] = useState(60);   // Phase 1 (QR1 check-in) window
-    const [qr2Seconds, setQr2Seconds] = useState(120);  // Phase 2 (QR2 biometric verification) window
-    const [sessionDurationMinutes, setSessionDurationMinutes] = useState("3");
-    const [customDurationMinutes, setCustomDurationMinutes] = useState("3");
+    const [timetablePreset, setTimetablePreset] = useState("fast"); // "fast" | "express" | "standard" | "extended" | "custom"
+    const [qr1Seconds, setQr1Seconds] = useState(15);   // Phase 1 (QR1 check-in) window
+    const [qr2Seconds, setQr2Seconds] = useState(15);  // Phase 2 (QR2 biometric verification) window
+    const [sessionDurationMinutes, setSessionDurationMinutes] = useState("0.5");
+    const [customDurationMinutes, setCustomDurationMinutes] = useState("0.5");
     const [availableCourses, setAvailableCourses] = useState([]);
 
     // Authoritative 2-Phase Session State (0:00 -> 1:00 -> 3:00)
@@ -208,14 +209,10 @@ function GenerateQR() {
         if (typeof navigator === "undefined" || !navigator.geolocation) return;
         let watchId = null;
         const applyHostGps = (pos) => {
-            if (pos && pos.coords) {
-                const acc = Math.round(Number(pos.coords.accuracy) || 15);
+            const location = locationFromPosition(pos);
+            if (location && !sessionId) {
                 const coords = {
-                    latitude: pos.coords.latitude,
-                    longitude: pos.coords.longitude,
-                    lat: pos.coords.latitude,
-                    lng: pos.coords.longitude,
-                    accuracy: acc,
+                    ...location,
                     radius: geofenceRadius || 10
                 };
                 setClassroomCoords(coords);
@@ -230,16 +227,16 @@ function GenerateQR() {
                     navigator.geolocation.getCurrentPosition(
                         applyHostGps,
                         (err) => console.warn("[Generateqr] Lecturer GPS pre-warm notice:", err?.message || err),
-                        { enableHighAccuracy: false, timeout: 6000, maximumAge: 30000 }
+                        { enableHighAccuracy: false, timeout: 6000, maximumAge: 0 }
                     );
                 },
-                { enableHighAccuracy: true, timeout: 6000, maximumAge: 10000 }
+                { enableHighAccuracy: true, timeout: 6000, maximumAge: 0 }
             );
 
             watchId = navigator.geolocation.watchPosition(
                 applyHostGps,
                 () => {},
-                { enableHighAccuracy: true, maximumAge: 5000 }
+                { enableHighAccuracy: true, maximumAge: 0 }
             );
         } catch (_) {}
 
@@ -342,7 +339,7 @@ function GenerateQR() {
                 ? Number(sessionData.totalDurationSeconds)
                 : ((kioskEndsAt && sessionStartAt && kioskEndsAt > sessionStartAt)
                     ? Math.max(30, Math.round((kioskEndsAt - sessionStartAt) / 1000))
-                    : (Number(qr1Seconds) + Number(qr2Seconds) || 180));
+                    : (Number(qr1Seconds) + Number(qr2Seconds) || 30));
 
             if (phase === "CLOSED" || sessionData?.phase === "CLOSED" || sessionData?.status === "CLOSED" || sessionData?.active === false) {
                 setPhase("CLOSED");
@@ -425,13 +422,13 @@ function GenerateQR() {
             const finalBatch = (batch && batch.trim() !== "") ? batch.trim() : "2025";
             const parsedHours = parseFloat(lectureHours) > 0 ? parseFloat(lectureHours) : 1.0;
             const finalClassCode = normalizeBranchName(classCode || "CSE");
-            const effectiveQr1Sec = Math.max(15, Number(qr1Seconds) || 60);
-            const effectiveQr2Sec = Math.max(15, Number(qr2Seconds) || 120);
+            const effectiveQr1Sec = Math.max(15, Number(qr1Seconds) || 15);
+            const effectiveQr2Sec = Math.max(15, Number(qr2Seconds) || 15);
             const effectiveTotalSec = effectiveQr1Sec + effectiveQr2Sec;
             const effectiveDurationMinutes = Math.round((effectiveTotalSec / 60) * 10) / 10;
 
             // Ensure Lecturer Host GPS is locked before initiating session document
-            let hostCoords = classroomCoords;
+            let hostCoords = isFreshLocation(classroomCoords) ? classroomCoords : null;
             if (!hostCoords && geofenceRadius > 0 && typeof navigator !== "undefined" && navigator.geolocation) {
                 try {
                     hostCoords = await new Promise((resolve) => {
@@ -439,20 +436,14 @@ function GenerateQR() {
                         navigator.geolocation.getCurrentPosition(
                             (pos) => {
                                 clearTimeout(timeout);
-                                resolve({
-                                    latitude: pos.coords.latitude,
-                                    longitude: pos.coords.longitude,
-                                    lat: pos.coords.latitude,
-                                    lng: pos.coords.longitude,
-                                    accuracy: Math.round(Number(pos.coords.accuracy) || 15),
-                                    radius: geofenceRadius
-                                });
+                                const location = locationFromPosition(pos);
+                                resolve(location ? { ...location, radius: geofenceRadius } : null);
                             },
                             () => {
                                 clearTimeout(timeout);
                                 resolve(null);
                             },
-                            { enableHighAccuracy: true, timeout: 2800, maximumAge: 15000 }
+                            { enableHighAccuracy: true, timeout: 2800, maximumAge: 0 }
                         );
                     });
                     if (hostCoords) {
@@ -462,7 +453,12 @@ function GenerateQR() {
                 } catch (_) {}
             }
 
-            const activeClassroomCoords = hostCoords || classroomCoords || null;
+            if (geofenceRadius > 0 && (!isFreshLocation(hostCoords) || hostCoords.accuracy > 45)) {
+                setClassroomGpsStatus("UNAVAILABLE");
+                throw new Error("A fresh, accurate classroom GPS fix (45m accuracy or better) is required before attendance. Enable Location on the lecturer's device, wait for GPS to lock, then try again.");
+            }
+
+            const activeClassroomCoords = geofenceRadius > 0 ? { ...hostCoords, radius: geofenceRadius } : null;
 
             const result = await createAttendanceSession(
                 finalClassCode,
@@ -494,65 +490,12 @@ function GenerateQR() {
             setElapsedSeconds(0);
             setLiveViewMode("PROJECTOR");
 
-            // Capture Classroom GPS coordinates for Geofencing (Configurable radius, 10m default)
-            if (geofenceRadius > 0 && typeof navigator !== "undefined" && navigator.geolocation) {
-                const captureHostGps = () => {
-                    let bestAccuracy = 999;
-                    const applyCoords = (pos) => {
-                        const acc = Number(pos.coords.accuracy) || 80;
-                        if (acc <= bestAccuracy) {
-                            bestAccuracy = acc;
-                            const coords = {
-                                latitude: pos.coords.latitude,
-                                longitude: pos.coords.longitude,
-                                lat: pos.coords.latitude,
-                                lng: pos.coords.longitude,
-                                accuracy: acc,
-                                radius: geofenceRadius
-                            };
-                            setClassroomCoords(coords);
-                            setClassroomGpsStatus("ACTIVE");
-                            if (result?.sessionId) {
-                                updateDoc(doc(db, "attendance_sessions", result.sessionId), {
-                                    classroomLocation: coords,
-                                    geofenceRadius: geofenceRadius
-                                }).catch(() => { });
-                            }
-                        }
-                    };
-
-                    navigator.geolocation.getCurrentPosition(
-                        applyCoords,
-                        () => {
-                            // Fallback to coarse / Wi-Fi location provider if high-accuracy GPS times out on laptop/desktop
-                            navigator.geolocation.getCurrentPosition(
-                                applyCoords,
-                                (err2) => {
-                                    console.warn("Classroom GPS unavailable on lecturer device:", err2?.message || err2);
-                                    setClassroomGpsStatus("UNAVAILABLE");
-                                },
-                                { enableHighAccuracy: false, timeout: 7000, maximumAge: 10000 }
-                            );
-                        },
-                        { enableHighAccuracy: true, timeout: 7000, maximumAge: 5000 }
-                    );
-
-                    // High-precision watcher refinement for 5 seconds during session start
-                    try {
-                        const refineWatchId = navigator.geolocation.watchPosition(
-                            applyCoords,
-                            () => { },
-                            { enableHighAccuracy: true, maximumAge: 0 }
-                        );
-                        setTimeout(() => {
-                            try { navigator.geolocation.clearWatch(refineWatchId); } catch (_) { }
-                        }, 5000);
-                    } catch (_) { }
-                };
-                captureHostGps();
-            } else if (geofenceRadius === 0) {
+            if (geofenceRadius === 0) {
                 setClassroomCoords(null);
                 setClassroomGpsStatus("DISABLED");
+            } else {
+                setClassroomCoords(activeClassroomCoords);
+                setClassroomGpsStatus("ACTIVE");
             }
 
             // Real-time Faculty & Admin Alert
@@ -753,7 +696,7 @@ function GenerateQR() {
 
                 if (targetQr1 <= now + 2000) {
                     // Time removal ends Phase 1 immediately -> advance directly to Phase 2 right now!
-                    const qr2Sec = Number(qr2Seconds) || 120;
+                    const qr2Sec = Number(qr2Seconds) || 15;
                     const newEnds = now + (qr2Sec * 1000);
                     setPhase("PHASE_2");
                     setQr1ExpiresAt(now);
@@ -761,7 +704,7 @@ function GenerateQR() {
                     const newQr1Sec = Math.max(10, Math.round((now - startMs) / 1000));
                     setElapsedSeconds(newQr1Sec);
                 } else {
-                    const qr2Sec = Number(qr2Seconds) || 120;
+                    const qr2Sec = Number(qr2Seconds) || 15;
                     const newEnds = targetQr1 + (qr2Sec * 1000);
                     setQr1ExpiresAt(targetQr1);
                     setKioskEndsAt(newEnds);
@@ -1319,7 +1262,7 @@ function GenerateQR() {
         if (qr1ExpiresAt && sessionStartAt && qr1ExpiresAt > sessionStartAt) {
             return Math.max(10, Math.round((qr1ExpiresAt - sessionStartAt) / 1000));
         }
-        return Math.max(10, Number(qr1Seconds) || 60);
+        return Math.max(15, Number(qr1Seconds) || 15);
     }, [sessionData?.qr1DurationSeconds, qr1ExpiresAt, sessionStartAt, qr1Seconds]);
 
     const qr1Remaining = Math.max(0, qr1ExpiresAt ? Math.floor((qr1ExpiresAt - Date.now()) / 1000) : (qr1TotalSeconds - elapsedSeconds));
@@ -1495,9 +1438,9 @@ function GenerateQR() {
                         </label>
                         <div className="qr-preset-grid">
                             {[
-                                { id: "fast", icon: "⚡", title: "1m Quick", badge: "30s + 30s", desc: "Rapid check-in & scan", qr1: 30, qr2: 30 },
+                                { id: "fast", icon: "⚡", title: "30s Quick", badge: "15s + 15s", desc: "Rapid check-in & scan", qr1: 15, qr2: 15 },
                                 { id: "express", icon: "⏱️", title: "2m Express", badge: "45s + 75s", desc: "Smooth class flow", qr1: 45, qr2: 75 },
-                                { id: "standard", icon: "🛡️", title: "3m Standard", badge: "60s + 120s", desc: "Recommended default", qr1: 60, qr2: 120 },
+                                { id: "standard", icon: "🛡️", title: "3m Standard", badge: "60s + 120s", desc: "Extended attendance window", qr1: 60, qr2: 120 },
                                 { id: "extended", icon: "⏳", title: "5m Extended", badge: "90s + 210s", desc: "Large lecture hall", qr1: 90, qr2: 210 },
                                 { id: "custom", icon: "🛠️", title: "Custom", badge: "Manual", desc: "Specify QR1 & QR2", qr1: qr1Seconds, qr2: qr2Seconds }
                             ].map((preset) => (
