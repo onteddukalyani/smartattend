@@ -1,0 +1,51 @@
+# Vercel face enrollment API
+
+The face registration and matching clients use `POST /api/face/register` and
+`POST /api/face/match` instead of the Firebase callables
+`registerStudentFace` and `matchStudentFace`. Both routes verify the Firebase
+ID token and use the Firebase Admin SDK; registration performs uniqueness
+checks, review queue writes, enrollment updates, permission consumption, and
+audit logging. Admin credentials are read only from server environment
+variables.
+
+This is a partial backend migration. Face review management, re-registration
+permission management, hardware biometric enrollment/verification, attendance,
+device binding, and other Firebase callable operations still use their existing
+Firebase Functions endpoints and will remain unavailable until they are
+deployed or migrated separately.
+
+The current duplicate scan compares the captured 128-value face descriptor
+with descriptors stored in Firestore. Its distance thresholds have not been
+validated for a production biometric deployment; uncertain or unreadable
+records are sent for staff review rather than automatically accepted. The
+matching implementation also reads the enrolled and legacy records to compare
+them, so its transaction cost and Firestore limits must be evaluated before
+using it with a large student database.
+
+## Required server environment
+
+Configure these values in the Vercel project’s server-side environment settings:
+
+- `FIREBASE_PROJECT_ID`: the Firebase project ID.
+- `FIREBASE_SERVICE_ACCOUNT_JSON`: the full service-account JSON as a protected
+  secret. Never use a `VITE_` prefix, commit it, or share it in chat.
+- `APP_ALLOWED_ORIGINS`: comma-separated exact origins for the deployed web app
+  and approved native app origins. Include `https://localhost` for the Android
+  Capacitor app and `capacitor://localhost` for the iOS Capacitor app.
+
+For a native build, set `VITE_API_BASE_URL` to the HTTPS base URL of the
+deployed Vercel API before building. For a same-origin web deployment, leave it
+empty. Capacitor Android uses `https://localhost` as its default WebView origin,
+which must be allowed by `APP_ALLOWED_ORIGINS`.
+
+## Local testing
+
+Use a test Firebase project and synthetic records only. Run the Vercel
+development server with `npx vercel dev`, after configuring local server
+environment variables in a private, ignored `.env.local` file. Do not use real
+student biometrics for local testing.
+
+Vercel Hobby is documented as personal/non-commercial use only. Confirm plan
+eligibility for an institutional pilot before using it with college data.
+Exceeding free quotas can pause service. No deployment or billing change has
+been performed by this code change.
