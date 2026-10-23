@@ -263,6 +263,14 @@ export async function enrollHardwareBiometric(studentUid) {
       err.message?.includes("Code: 11") ||
       err.message?.includes("No fingerprints enrolled") ||
       err.message?.includes("unenrolled");
+    const isServerUnavailable = [
+      "functions/internal",
+      "internal",
+      "functions/unavailable",
+      "unavailable",
+      "functions/not-found",
+      "not-found"
+    ].includes(err.code);
 
     return {
       success: false,
@@ -270,7 +278,9 @@ export async function enrollHardwareBiometric(studentUid) {
       platform: Capacitor.getPlatform(),
       message: isNoneEnrolled
         ? "No fingerprints enrolled on this phone. Please add a fingerprint in your phone's Settings > Security > Fingerprint, then return to SmartAttend."
-        : (err.message || "Biometric enrollment failed.")
+        : isServerUnavailable
+          ? "The fingerprint key was not saved to your account because its Firebase registration function is unavailable. Ask the administrator to deploy Firebase Functions on the Blaze plan; no registration was confirmed."
+          : (err.message || "Biometric enrollment failed.")
     };
   }
 }

@@ -64,11 +64,13 @@ test("face enrollment API rejects unapproved origins", async () => {
   assert.equal(response.body.error.code, "origin-not-allowed");
 });
 
-test("face API CORS allows Firebase Hosting and local Vite origins", () => {
+test("face API CORS allows Firebase Hosting, local Vite, and Capacitor origins", () => {
   for (const origin of [
     "https://smart-attendance-ok.web.app",
     "https://smart-attendance-ok.firebaseapp.com",
-    "http://localhost:5173"
+    "http://localhost:5173",
+    "https://localhost",
+    "capacitor://localhost"
   ]) {
     const response = responseRecorder();
     assert.equal(applyCors({ headers: { origin } }, response), true);

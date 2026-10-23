@@ -30,8 +30,8 @@ export default function AppUpdateBanner({
     if (!updateInfo || !updateInfo.hasUpdate) return null;
 
     const isNative = Capacitor.isNativePlatform() || Boolean(updateInfo.isNative);
-    const latestVersion = updateInfo.latestVersion || '1.0.1';
-    const currentVersion = updateInfo.currentVersion || '1.0.0';
+    const latestVersion = updateInfo.latestVersion || '1.0.3';
+    const currentVersion = updateInfo.currentVersion || '1.0.2';
     const isMandatory = Boolean(updateInfo.isMandatory);
 
     const handleWebRefresh = () => {
@@ -61,8 +61,11 @@ export default function AppUpdateBanner({
 
     const handleCloseBanner = (e) => {
         e.stopPropagation();
-        setIsCollapsed(true);
-        if (onDismiss) onDismiss();
+        if (onDismiss) {
+            onDismiss();
+        } else {
+            setIsCollapsed(true);
+        }
     };
 
     // Compact floating pill when collapsed

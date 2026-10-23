@@ -21,6 +21,7 @@ import {
   triggerApkDownload,
   downloadApkWithStream
 } from "../../services/appUpdateService";
+import { dismissAppUpdate } from "../../utils/appUpdateDismissal";
 import { getApkMirrors } from "../../utils/apkUrl";
 import "./AppUpdateModal.css";
 
@@ -130,10 +131,7 @@ export default function AppUpdateModal({ updateInfo, onClose }) {
       abortControllerRef.current.abort();
     }
     if (!isMandatory) {
-      try {
-        localStorage.setItem("smartattend_dismissed_update_version", latestVersion);
-        localStorage.setItem("smartattend_dismissed_update_time", String(Date.now()));
-      } catch (_) {}
+      dismissAppUpdate(latestVersion);
     }
     if (onClose) onClose();
   };
@@ -570,5 +568,4 @@ export default function AppUpdateModal({ updateInfo, onClose }) {
     </div>
   );
 }
-
 

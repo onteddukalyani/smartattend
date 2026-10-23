@@ -6,9 +6,9 @@ import { getApkDownloadUrl, GITHUB_RELEASE_APK_URL, getApkMirrors } from "../uti
 import { sendBroadcastNotification } from "./notificationsService";
 import { triggerRealAppNotification } from "./nativeNotificationService";
 
-export const CURRENT_APP_VERSION = "1.0.1";
-export const CURRENT_APP_VERSION_CODE = 3;
-export const APP_BUILD_DATE = "2026-10-21";
+export const CURRENT_APP_VERSION = "1.0.3";
+export const CURRENT_APP_VERSION_CODE = 5;
+export const APP_BUILD_DATE = "2026-10-23";
 
 let cachedRunningVersion = null;
 let cachedRunningVersionCode = null;

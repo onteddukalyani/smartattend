@@ -35,9 +35,8 @@ Configure these values in the Vercel project’s server-side environment setting
 - `FIREBASE_PROJECT_ID`: the Firebase project ID.
 - `FIREBASE_SERVICE_ACCOUNT_JSON`: the full service-account JSON as a protected
   secret. Never use a `VITE_` prefix, commit it, or share it in chat.
-- `APP_ALLOWED_ORIGINS`: comma-separated exact origins for the deployed web app
-  and approved native app origins. Include `https://localhost` for the Android
-  Capacitor app and `capacitor://localhost` for the iOS Capacitor app.
+- `APP_ALLOWED_ORIGINS`: comma-separated exact origins for any additional
+  deployed web app or approved app origin not already listed below.
 
 `VITE_API_BASE_URL` can be set to the HTTPS base URL of the deployed Vercel API.
 If unset, the client uses `https://smartattend-ochre.vercel.app` on both web
@@ -46,9 +45,9 @@ Hosting because Firebase Hosting does not serve these Vercel API routes. The
 API explicitly allows the production Firebase Hosting origins
 `https://smart-attendance-ok.web.app` and
 `https://smart-attendance-ok.firebaseapp.com`, plus the Vite development origin
-`http://localhost:5173`; add any other production or preview origin to
-`APP_ALLOWED_ORIGINS`. Capacitor Android uses
-`https://localhost` as its default WebView origin, which must also be allowed.
+`http://localhost:5173` and Capacitor origins `https://localhost` and
+`capacitor://localhost`; add any other production or preview origin to
+`APP_ALLOWED_ORIGINS`.
 Face registration, matching, and review calls do not fall back to Firebase
 Functions: a missing API route is reported directly rather than surfacing an
 unrelated callable error.

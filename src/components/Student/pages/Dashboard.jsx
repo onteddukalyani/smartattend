@@ -54,6 +54,7 @@ import { detectDeviceType, getClientIpAddress, getDeviceDisplayName, isDeviceMat
 import { Capacitor } from "@capacitor/core";
 import { KioskPlugin } from "../../../plugins/kiosk";
 import { checkForAppUpdate, subscribeToAppUpdates, triggerApkDownload } from "../../../services/appUpdateService";
+import { dismissAppUpdate, isAppUpdateDismissed } from "../../../utils/appUpdateDismissal";
 import { registerStudentDevice } from "../../../services/deviceRegistrationService";
 import AppUpdateModal from "../../Common/AppUpdateModal";
 import "./Dashboard.css";
@@ -138,18 +139,23 @@ export default function StudentDashboard() {
     // Subscribe to App Updates so students are immediately notified of new versions
     useEffect(() => {
         let isMounted = true;
-        checkForAppUpdate().then((info) => {
-            if (isMounted && info && info.hasUpdate) {
-                setUpdateInfo(info);
+        const applyUpdateInfo = (info) => {
+            if (!isMounted) return;
+            if (!info?.hasUpdate) {
+                setUpdateInfo(null);
+                setUpdateDismissed(false);
+                return;
             }
+            setUpdateInfo(info);
+            setUpdateDismissed(!info.isMandatory && isAppUpdateDismissed(info.latestVersion));
+        };
+
+        checkForAppUpdate().then((info) => {
+            applyUpdateInfo(info);
         }).catch(() => {});
 
         const unsub = subscribeToAppUpdates((info) => {
-            if (isMounted && info && info.hasUpdate) {
-                setUpdateInfo(info);
-            } else if (isMounted && (!info || !info.hasUpdate)) {
-                setUpdateInfo(null);
-            }
+            applyUpdateInfo(info);
         });
 
         return () => {
@@ -793,7 +799,11 @@ export default function StudentDashboard() {
                         {!updateInfo.isMandatory && (
                             <button
                                 type="button"
-                                onClick={() => setUpdateDismissed(true)}
+                                onClick={() => {
+                                    dismissAppUpdate(updateInfo.latestVersion);
+                                    setUpdateDismissed(true);
+                                    setShowUpdateModal(false);
+                                }}
                                 title="Dismiss reminder for now"
                                 style={{
                                     background: "transparent",
@@ -2068,7 +2078,13 @@ export default function StudentDashboard() {
             {/* App Update Modal */}
             <AppUpdateModal
                 updateInfo={showUpdateModal ? updateInfo : null}
-                onClose={() => setShowUpdateModal(false)}
+                onClose={() => {
+                    if (!updateInfo?.isMandatory) {
+                        dismissAppUpdate(updateInfo?.latestVersion);
+                        setUpdateDismissed(true);
+                    }
+                    setShowUpdateModal(false);
+                }}
             />
         </div>
     );

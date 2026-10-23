@@ -16,6 +16,12 @@ import HeadsUpNotification from "./components/Common/HeadsUpNotification";
 import AndroidOverlayPermissionModal from "./components/Common/AndroidOverlayPermissionModal";
 import { checkForAppUpdate, subscribeToAppUpdates } from "./services/appUpdateService";
 import { requestAppNotificationPermissions, triggerRealAppNotification } from "./services/nativeNotificationService";
+import {
+  dismissAppUpdate,
+  hasAppUpdateNotificationBeenShown,
+  isAppUpdateDismissed,
+  markAppUpdateNotificationShown
+} from "./utils/appUpdateDismissal";
 import "./App.css";
 
 // Lazy-loaded components for instant initial page loads and code splitting
@@ -77,38 +83,27 @@ function App() {
 
   // 0. Real-time Live Subscription & Auto-check for APK / App Updates
   useEffect(() => {
-    let lastNotifiedVersion = null;
     let isMounted = true;
     let resumeCheckTimeout = null;
 
     const handleUpdateDetected = async (info) => {
       if (!isMounted || !info || !info.hasUpdate) return;
 
-      const now = Date.now();
-      let dismissedVer = null;
-      let dismissedTime = 0;
-      try {
-        dismissedVer = localStorage.getItem("smartattend_dismissed_update_version");
-        dismissedTime = parseInt(localStorage.getItem("smartattend_dismissed_update_time") || "0", 10);
-      } catch (err) {
-        console.warn("[AppUpdate] Could not read dismissed-update state:", err);
+      if (!info.isMandatory && isAppUpdateDismissed(info.latestVersion)) {
+        setUpdateInfo(null);
+        setIsUpdateModalOpen(false);
+        return;
       }
-      const isRecentlyDismissed = dismissedVer === info.latestVersion && (now - dismissedTime) < 24 * 60 * 60 * 1000;
 
-      // Keep update info active so notification banner & floating pill remain visible
       setUpdateInfo(info);
+      setIsUpdateModalOpen(true);
 
-      // Whoever is using the app receives the modal prompt if mandatory or not recently dismissed
-      if (info.isMandatory || !isRecentlyDismissed) {
-        setIsUpdateModalOpen(true);
-      }
-
-      // Notify the active user via OS/native push notification immediately
-      if (lastNotifiedVersion !== info.latestVersion) {
-        lastNotifiedVersion = info.latestVersion;
+      if (!hasAppUpdateNotificationBeenShown(info.latestVersion)) {
+        markAppUpdateNotificationShown(info.latestVersion);
         try {
+          const now = Date.now();
           await triggerRealAppNotification({
-            id: `sys_update_${info.latestVersion}_${now}`,
+            id: `sys_update_${info.latestVersion}`,
             title: `🚀 Update Available (v${info.latestVersion})`,
             message: `A new version of SmartAttend is available. Tap to download and install now!`,
             type: "APP_UPDATE",
@@ -1002,16 +997,21 @@ function App() {
       updateInfo={updateInfo}
       onOpenModal={() => setIsUpdateModalOpen(true)}
       onDismiss={() => {
-        try {
-          localStorage.setItem("smartattend_dismissed_update_version", updateInfo?.latestVersion || "");
-          localStorage.setItem("smartattend_dismissed_update_time", String(Date.now()));
-        } catch (_) {}
+        dismissAppUpdate(updateInfo?.latestVersion);
+        setUpdateInfo(null);
+        setIsUpdateModalOpen(false);
       }}
     />
     <HeadsUpNotification />
     <AppUpdateModal
       updateInfo={isUpdateModalOpen ? updateInfo : null}
-      onClose={() => setIsUpdateModalOpen(false)}
+      onClose={() => {
+        if (!updateInfo?.isMandatory) {
+          dismissAppUpdate(updateInfo?.latestVersion);
+          setUpdateInfo(null);
+        }
+        setIsUpdateModalOpen(false);
+      }}
     />
     <AndroidOverlayPermissionModal />
     </>
