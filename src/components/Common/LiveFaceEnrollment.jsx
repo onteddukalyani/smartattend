@@ -16,11 +16,12 @@ import {
     FaUserTimes,
     FaBolt,
     FaIdCard,
-    FaDownload
+    FaDownload,
+    FaSyncAlt
 } from "react-icons/fa";
 import { useAuth } from "../authcontext";
 import { BiometricLivenessEngine, fuseFaceDescriptors } from "../../utils/livenessDetector";
-import { isBrowserCameraAllowed } from "../../utils/deviceDetection";
+import { isBrowserCameraAllowed, isStaffCameraUser } from "../../utils/deviceDetection";
 import { getApkDownloadUrl } from "../../utils/apkUrl";
 import "./LiveFaceEnrollment.css";
 
@@ -35,6 +36,7 @@ export function LiveFaceEnrollment({
     const { user, profile } = useAuth();
     const browserCameraAuth = isBrowserCameraAllowed(profile, user);
     const isCameraAllowed = browserCameraAuth.allowed;
+    const canSwitchCamera = isStaffCameraUser(profile, user);
 
     const videoRef = useRef(null);
     const streamRef = useRef(null);
@@ -49,6 +51,7 @@ export function LiveFaceEnrollment({
 
     const [cameraActive, setCameraActive] = useState(false);
     const [cameraLoading, setCameraLoading] = useState(false);
+    const [cameraFacingMode, setCameraFacingMode] = useState("user");
     const [permissionStatus, setPermissionStatus] = useState("unknown");
     const [cameraError, setCameraError] = useState("");
     const [modelsLoaded, setModelsLoaded] = useState(false);
@@ -189,9 +192,10 @@ export function LiveFaceEnrollment({
     }, [loadAiModels, initialPhoto]);
 
     // 3. Start Camera Stream
-    const startCameraStream = async () => {
+    const startCameraStream = async (requestedFacingMode = cameraFacingMode) => {
         setCameraError("");
         setCameraLoading(true);
+        setCameraActive(false);
         setStatusMessage("Connecting camera...");
         setStatusType("ready");
         hasTriggeredCompleteRef.current = false;
@@ -229,25 +233,25 @@ export function LiveFaceEnrollment({
                 throw new Error("Camera API is not supported in this browser.");
             }
 
-            // Check if device enumeration can find a front/user camera deviceId
-            let frontDeviceId = null;
+            const facingLabels = requestedFacingMode === "environment"
+                ? /rear|back|environment|world/i
+                : /front|user|selfie|face/i;
+            let preferredDeviceId = null;
             try {
                 if (navigator?.mediaDevices?.enumerateDevices) {
                     const devs = await navigator.mediaDevices.enumerateDevices();
                     const videoDevs = devs.filter((d) => d.kind === 'videoinput');
-                    const frontDev = videoDevs.find((d) =>
-                        /front|user|selfie|face/i.test(d.label)
-                    );
-                    if (frontDev?.deviceId) {
-                        frontDeviceId = frontDev.deviceId;
+                    const preferredDevice = videoDevs.find((d) => facingLabels.test(d.label));
+                    if (preferredDevice?.deviceId) {
+                        preferredDeviceId = preferredDevice.deviceId;
                     }
                 }
             } catch (_) { }
 
             const attempts = [
-                ...(frontDeviceId ? [{
+                ...(preferredDeviceId ? [{
                     video: {
-                        deviceId: { exact: frontDeviceId },
+                        deviceId: { exact: preferredDeviceId },
                         width: { ideal: 640, min: 320 },
                         height: { ideal: 480, min: 240 }
                     },
@@ -255,23 +259,13 @@ export function LiveFaceEnrollment({
                 }] : []),
                 {
                     video: {
-                        facingMode: { ideal: "user" },
+                        facingMode: { exact: requestedFacingMode },
                         width: { ideal: 640, min: 320 },
                         height: { ideal: 480, min: 240 }
                     },
                     audio: false
                 },
-                {
-                    video: {
-                        facingMode: "user",
-                        width: { ideal: 640, min: 320 },
-                        height: { ideal: 480, min: 240 }
-                    },
-                    audio: false
-                },
-                { video: { facingMode: { ideal: "user" } }, audio: false },
-                { video: { facingMode: "user" }, audio: false },
-                { video: true, audio: false }
+                { video: { facingMode: { exact: requestedFacingMode } }, audio: false }
             ];
 
             let stream = null;
@@ -284,7 +278,7 @@ export function LiveFaceEnrollment({
                     }
                 } catch (err) {
                     lastErr = err;
-                    console.warn("Front camera attempt notice:", constraints, err?.name, err?.message);
+                    console.warn("Camera selection attempt notice:", constraints, err?.name, err?.message);
                     if (err?.name === "NotAllowedError" || err?.name === "PermissionDeniedError") {
                         throw err;
                     }
@@ -292,7 +286,7 @@ export function LiveFaceEnrollment({
             }
 
             if (!stream) {
-                throw lastErr || new Error("Unable to obtain front camera stream.");
+                throw lastErr || new Error(`Unable to obtain ${requestedFacingMode === "environment" ? "rear" : "front"} camera stream.`);
             }
 
             streamRef.current = stream;
@@ -317,13 +311,28 @@ export function LiveFaceEnrollment({
                 setPermissionStatus("denied");
                 setCameraError("Camera permission blocked in browser. Allow camera permission or upload a photo.");
             } else {
-                setCameraError(camErr.message || "Failed to start camera.");
+                setCameraError(requestedFacingMode === "environment"
+                    ? "Could not access the rear camera. Check camera permissions and that a rear camera is available."
+                    : (camErr.message || "Failed to start camera."));
             }
             setStatusMessage("⚠️ Camera unavailable. You can upload a photo below.");
             setStatusType("warning");
         } finally {
             setCameraLoading(false);
         }
+    };
+
+    const handleCameraSwitch = async () => {
+        const nextFacingMode = cameraFacingMode === "user" ? "environment" : "user";
+        setCameraFacingMode(nextFacingMode);
+        setIsBiometricVerified(false);
+        setProgress(0);
+        bufferedDescriptorsRef.current = [];
+        frameCountRef.current = 0;
+        if (livenessEngineRef.current) {
+            livenessEngineRef.current.reset();
+        }
+        await startCameraStream(nextFacingMode);
     };
 
     // 4. Real-time Multi-Angle Tracking Loop (smooth non-blocking 60fps camera feed)
@@ -616,7 +625,10 @@ export function LiveFaceEnrollment({
                             playsInline
                             muted
                             className="lfe-video"
-                            style={{ display: cameraActive ? "block" : "none" }}
+                            style={{
+                                display: cameraActive ? "block" : "none",
+                                transform: cameraFacingMode === "user" ? "scaleX(-1)" : "none"
+                            }}
                         />
                         <canvas
                             ref={canvasRef}
@@ -627,7 +639,7 @@ export function LiveFaceEnrollment({
                                 width: "100%",
                                 height: "100%",
                                 pointerEvents: "none",
-                                transform: "scaleX(-1)",
+                                transform: cameraFacingMode === "user" ? "scaleX(-1)" : "none",
                                 display: cameraActive ? "block" : "none"
                             }}
                         />
@@ -690,6 +702,18 @@ export function LiveFaceEnrollment({
                                                     <><FaVideo /> Start Live Biometric Scan</>
                                                 )}
                                             </button>
+                                            {canSwitchCamera && (
+                                                <button
+                                                    type="button"
+                                                    className="lfe-switch-camera-btn"
+                                                    onClick={handleCameraSwitch}
+                                                    disabled={cameraLoading}
+                                                    aria-label={`Switch to ${cameraFacingMode === "user" ? "rear" : "front"} camera`}
+                                                >
+                                                    <FaSyncAlt />
+                                                    {cameraFacingMode === "user" ? "Start with rear camera" : "Start with front camera"}
+                                                </button>
+                                            )}
                                         </div>
 
                                         {permissionStatus === "denied" && (
@@ -772,6 +796,18 @@ export function LiveFaceEnrollment({
                     </div>
                 ) : cameraActive ? (
                     <div className="lfe-active-action-row">
+                        {canSwitchCamera && (
+                            <button
+                                type="button"
+                                className="lfe-switch-camera-btn"
+                                onClick={handleCameraSwitch}
+                                disabled={cameraLoading || capturing}
+                                aria-label={`Switch to ${cameraFacingMode === "user" ? "rear" : "front"} camera`}
+                            >
+                                <FaSyncAlt />
+                                {cameraFacingMode === "user" ? "Rear camera" : "Front camera"}
+                            </button>
+                        )}
                         <button
                             type="button"
                             className={`lfe-capture-btn ${isBiometricVerified ? "ready-pulse" : ""}`}

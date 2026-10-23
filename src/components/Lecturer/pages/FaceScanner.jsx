@@ -1,5 +1,7 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import * as faceapi from "@vladmandic/face-api";
+import { useAuth } from "../../authcontext";
+import { isStaffCameraUser } from "../../../utils/deviceDetection";
 import {
   FaCamera,
   FaCheckCircle,
@@ -54,31 +56,34 @@ export const releaseAllMediaTracks = () => {
 };
 
 // Helper for camera stream capture with progressive fallback and automatic retry
-const getCameraStream = async (_requestedFacingMode = "user", maxRetries = 3) => {
+const getCameraStream = async (requestedFacingMode = "user", maxRetries = 3) => {
+  const facingMode = requestedFacingMode === "environment" ? "environment" : "user";
   releaseAllMediaTracks();
   // Safe cooldown for hardware camera HAL release between rear and front sensors
   await new Promise((resolve) => setTimeout(resolve, 300));
 
   // Identify front/user camera device ID if multiple video devices are available
-  let frontDeviceId = null;
+  let preferredDeviceId = null;
   try {
     if (navigator?.mediaDevices?.enumerateDevices) {
       const devs = await navigator.mediaDevices.enumerateDevices();
       const videoDevs = devs.filter((d) => d.kind === "videoinput");
-      const frontDev = videoDevs.find((d) =>
-        /front|user|selfie|face/i.test(d.label)
+      const preferredDevice = videoDevs.find((d) =>
+        facingMode === "environment"
+          ? /back|rear|environment|world/i.test(d.label)
+          : /front|user|selfie|face/i.test(d.label)
       );
-      if (frontDev?.deviceId) {
-        frontDeviceId = frontDev.deviceId;
+      if (preferredDevice?.deviceId) {
+        preferredDeviceId = preferredDevice.deviceId;
       }
     }
   } catch (_) { }
 
   if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
     const attempts = [
-      ...(frontDeviceId ? [{
+      ...(preferredDeviceId ? [{
         video: {
-          deviceId: { exact: frontDeviceId },
+          deviceId: { exact: preferredDeviceId },
           width: { ideal: 640, max: 1280 },
           height: { ideal: 480, max: 720 },
           frameRate: { ideal: 30, max: 30 }
@@ -87,16 +92,16 @@ const getCameraStream = async (_requestedFacingMode = "user", maxRetries = 3) =>
       }] : []),
       {
         video: {
-          facingMode: { ideal: "user" },
+          facingMode: { ideal: facingMode },
           width: { ideal: 640, max: 1280 },
           height: { ideal: 480, max: 720 },
           frameRate: { ideal: 30, max: 30 }
         },
         audio: false
       },
-      { video: { facingMode: { ideal: "user" }, width: { ideal: 640 }, height: { ideal: 480 } }, audio: false },
-      { video: { facingMode: { ideal: "user" } }, audio: false },
-      { video: { facingMode: "user" }, audio: false },
+      { video: { facingMode: { ideal: facingMode }, width: { ideal: 640 }, height: { ideal: 480 } }, audio: false },
+      { video: { facingMode: { ideal: facingMode } }, audio: false },
+      { video: { facingMode }, audio: false },
       { video: true, audio: false }
     ];
 
@@ -182,6 +187,8 @@ function FaceScanner({
   onEnrollRequest = null,
   allowRearCamera = false
 }) {
+  const { profile, user } = useAuth();
+  const canUseRearCamera = allowRearCamera || isStaffCameraUser(profile, user);
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const canvasRef = useRef(null);
@@ -281,6 +288,7 @@ function FaceScanner({
   const initCameraAndModels = useCallback(async (targetFacingMode) => {
     const activeFacing = (typeof targetFacingMode === "string" && targetFacingMode) ? targetFacingMode : (facingMode || "user");
     setCameraError("");
+    setCameraActive(false);
     setStatus("loading_camera");
     setFeedback("Initializing camera and biometric models...");
 
@@ -347,6 +355,14 @@ function FaceScanner({
       setFeedback("Failed to load facial recognition models.");
     }
   }, []);
+
+  const handleCameraSwitch = useCallback(() => {
+    if (!canUseRearCamera || status === "loading_camera" || status === "loading_models") return;
+    const nextFacingMode = facingMode === "user" ? "environment" : "user";
+    resetLivenessState();
+    setFacingMode(nextFacingMode);
+    initCameraAndModels(nextFacingMode);
+  }, [canUseRearCamera, facingMode, initCameraAndModels, resetLivenessState, status]);
 
   useEffect(() => {
     initCameraAndModels();
@@ -837,9 +853,22 @@ function FaceScanner({
         )}
 
         {/* Actions & Status */}
-        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+        <div className="scanner-header-actions">
+          {canUseRearCamera && (
+            <button
+              type="button"
+              className="scanner-camera-switch"
+              onClick={handleCameraSwitch}
+              disabled={status === "loading_camera" || status === "loading_models"}
+              aria-label={`Switch to ${facingMode === "user" ? "rear" : "front"} camera`}
+            >
+              <FaSyncAlt />
+              {facingMode === "user" ? "Rear camera" : "Front camera"}
+            </button>
+          )}
           {/* Front Camera Biometrics Badge */}
           <div
+            className="scanner-camera-badge"
             style={{
               display: "inline-flex",
               alignItems: "center",
@@ -854,7 +883,7 @@ function FaceScanner({
             }}
           >
             <span style={{ width: "7px", height: "7px", borderRadius: "50%", background: "#6366f1", boxShadow: "0 0 6px #6366f1" }}></span>
-            Front Cam · Biometrics
+            {facingMode === "user" ? "Front" : "Rear"} Cam · Biometrics
           </div>
 
           {/* Status Pill */}
@@ -875,7 +904,7 @@ function FaceScanner({
       </div>
 
       {/* Video & Scanner Box */}
-      <div className="scanner-video-wrapper">
+      <div className={`scanner-video-wrapper ${facingMode === "environment" ? "rear-camera" : ""}`}>
         <video
           ref={videoRef}
           autoPlay

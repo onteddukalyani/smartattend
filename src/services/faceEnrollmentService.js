@@ -1,11 +1,9 @@
 import { auth } from "../firebase";
-import { Capacitor } from "@capacitor/core";
 import { httpsCallable } from "firebase/functions";
 import { functions } from "../firebase";
 
 const configuredApiBaseUrl = String(import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
-const apiBaseUrl = configuredApiBaseUrl ||
-  (Capacitor.isNativePlatform() ? "https://smartattend-ochre.vercel.app" : "");
+const apiBaseUrl = configuredApiBaseUrl || "https://smartattend-ochre.vercel.app";
 const identifyStudentCallable = httpsCallable(functions, "identifyStudentByFace");
 const removeFaceCallable = httpsCallable(functions, "removeStudentFaceEnrollment");
 const grantReRegCallable = httpsCallable(functions, "grantBiometricReRegistration");

@@ -39,6 +39,39 @@
   flex-wrap: wrap;
 }
 
+.scanner-header-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.scanner-camera-switch {
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 7px 11px;
+  border: 1px solid var(--border, #cbd5e1);
+  border-radius: 9px;
+  background: var(--surface, #ffffff);
+  color: var(--text-main, #334155);
+  font-size: 0.78rem;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.scanner-camera-switch:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+.scanner-camera-badge {
+  white-space: nowrap;
+}
+
 .scanner-registered-student {
   display: flex;
   align-items: center;
@@ -167,6 +200,11 @@
   transform: scaleX(-1);
 }
 
+.scanner-video-wrapper.rear-camera .scanner-video,
+.scanner-video-wrapper.rear-camera .scanner-overlay-canvas {
+  transform: none;
+}
+
 /* Cyber Scanning Line */
 .scanner-laser-line {
   position: absolute;
@@ -192,6 +230,27 @@
 @keyframes laserScan {
   0% { top: 6%; }
   100% { top: 92%; }
+}
+
+@media (max-width: 600px) {
+  .biometric-scanner-card {
+    padding: 14px 12px;
+    border-radius: 16px;
+  }
+
+  .scanner-header-info {
+    align-items: stretch;
+  }
+
+  .scanner-header-actions {
+    justify-content: flex-start;
+  }
+
+  .scanner-video-wrapper {
+    min-height: 220px;
+    height: min(66vw, 310px);
+    border-radius: 14px;
+  }
 }
 
 /* Corner Reticles */
@@ -506,4 +565,3 @@
     border-radius: 12px;
   }
 }
-

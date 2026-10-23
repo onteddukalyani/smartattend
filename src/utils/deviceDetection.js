@@ -119,6 +119,20 @@ export function isDeviceMatching(registeredType, currentType) {
   return false;
 }
 
+export function isStaffCameraUser(profile = {}, user = {}) {
+  const roleValues = [
+    profile?.role,
+    profile?.designation,
+    user?.role,
+    user?.claims?.role,
+    user?.customClaims?.role
+  ].map((value) => String(value || "").trim().toLowerCase());
+  return roleValues.some((role) =>
+    ["admin", "administrator", "superadmin", "lecturer", "faculty", "professor", "teacher", "instructor", "staff"].includes(role)
+  ) || profile?.isAdmin === true || profile?.isLecturer === true ||
+    user?.isAdmin === true || user?.isLecturer === true;
+}
+
 /**
  * Enforces browser camera authorization policy:
  * - Native Mobile App (Capacitor APK): Camera is available.
@@ -145,13 +159,26 @@ export function isBrowserCameraAllowed(profile = {}, user = {}) {
   }
 
   // Lecturer: Camera is allowed in browser
-  const role = String(profile?.role || user?.role || "").trim().toLowerCase();
-  if (role === "lecturer" || role === "faculty" || role === "teacher") {
+  const roleValues = [
+    profile?.role,
+    profile?.designation,
+    user?.role,
+    user?.claims?.role,
+    user?.customClaims?.role
+  ].map((value) => String(value || "").trim().toLowerCase());
+  const isLecturer = roleValues.some((role) =>
+    ["lecturer", "faculty", "professor", "teacher", "instructor", "staff"].includes(role)
+  ) || profile?.isLecturer === true || user?.isLecturer === true;
+  if (isLecturer) {
     return { allowed: true, reason: "lecturer" };
   }
 
   // Admin: Camera is allowed in browser
-  if (role === "admin" || role === "administrator" || role === "superadmin") {
+  if (
+    roleValues.some((role) => ["admin", "administrator", "superadmin"].includes(role)) ||
+    profile?.isAdmin === true ||
+    user?.isAdmin === true
+  ) {
     return { allowed: true, reason: "admin" };
   }
 

@@ -5,15 +5,19 @@ export function applyCors(req, res) {
   const origin = req.headers.origin;
   if (!origin) return true;
 
-  const allowedOrigins = (process.env.APP_ALLOWED_ORIGINS || "")
-    .split(",")
-    .map((value) => value.trim())
-    .filter(Boolean);
+  const allowedOrigins = new Set([
+    "https://smart-attendance-ok.web.app",
+    "https://smart-attendance-ok.firebaseapp.com",
+    ...(process.env.APP_ALLOWED_ORIGINS || "")
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean)
+  ]);
   if (process.env.VERCEL_URL) {
-    allowedOrigins.push(`https://${process.env.VERCEL_URL}`);
+    allowedOrigins.add(`https://${process.env.VERCEL_URL}`);
   }
 
-  if (!allowedOrigins.includes(origin)) return false;
+  if (!allowedOrigins.has(origin)) return false;
   res.setHeader("Access-Control-Allow-Origin", origin);
   res.setHeader("Vary", "Origin");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");

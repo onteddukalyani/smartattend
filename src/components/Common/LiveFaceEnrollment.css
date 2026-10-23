@@ -759,6 +759,28 @@
   transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+.lfe-switch-camera-btn {
+  min-height: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 8px 12px;
+  border: 1px solid var(--border, #cbd5e1);
+  border-radius: 10px;
+  background: var(--surface, #ffffff);
+  color: var(--text-main, #334155);
+  font-size: 0.82rem;
+  font-weight: 750;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.lfe-switch-camera-btn:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
 .lfe-capture-btn:hover:not(:disabled) {
   transform: translateY(-2px);
   box-shadow: 0 6px 20px rgba(99, 102, 241, 0.5);
@@ -862,6 +884,7 @@
   }
 
   .lfe-capture-btn,
+  .lfe-switch-camera-btn,
   .lfe-secondary-upload-btn {
     width: 100%;
     max-width: 100%;

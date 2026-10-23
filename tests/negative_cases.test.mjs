@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import { createRequire } from "node:module";
-import { isBrowserCameraAllowed } from "../src/utils/deviceDetection.js";
+import { isBrowserCameraAllowed, isStaffCameraUser } from "../src/utils/deviceDetection.js";
 import { Capacitor } from "@capacitor/core";
 
 const require = createRequire(import.meta.url);
@@ -3091,6 +3091,13 @@ test("35. Browser Camera Authorization: Only lecturer, admin, and iPhone users c
   } finally {
     Capacitor.isNativePlatform = origIsNative;
   }
+});
+
+test("Staff camera switching is enabled for admins and lecturers only", () => {
+  assert.equal(isStaffCameraUser({ role: "lecturer" }), true);
+  assert.equal(isStaffCameraUser({ role: "faculty" }), true);
+  assert.equal(isStaffCameraUser({ designation: "administrator" }), true);
+  assert.equal(isStaffCameraUser({ role: "student" }), false);
 });
 
 test("36. Dynamic QR Signature Validation: rejects missing, empty, malformed, or forged HMAC signatures", () => {

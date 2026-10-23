@@ -11,6 +11,7 @@ import {
 import handler from "../api/face/register.js";
 import matchHandler from "../api/face/match.js";
 import reviewHandler from "../api/face/review.js";
+import { applyCors } from "../server/apiRequest.js";
 
 function sampleVector(seed = 0) {
   return Array.from({ length: 128 }, (_, index) => Math.sin(index + seed) * 0.4);
@@ -61,6 +62,17 @@ test("face enrollment API rejects unapproved origins", async () => {
   }, response);
   assert.equal(response.statusCode, 403);
   assert.equal(response.body.error.code, "origin-not-allowed");
+});
+
+test("face API CORS allows both configured Firebase Hosting origins", () => {
+  for (const origin of [
+    "https://smart-attendance-ok.web.app",
+    "https://smart-attendance-ok.firebaseapp.com"
+  ]) {
+    const response = responseRecorder();
+    assert.equal(applyCors({ headers: { origin } }, response), true);
+    assert.equal(response.headers["Access-Control-Allow-Origin"], origin);
+  }
 });
 
 test("face match API rejects unsupported methods without initializing Admin SDK", async () => {
