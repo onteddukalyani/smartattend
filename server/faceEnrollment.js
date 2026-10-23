@@ -290,6 +290,89 @@ export async function resolveCaller(db, decodedToken) {
   };
 }
 
+export async function listFaceEnrollmentReviews(db, caller, input = {}) {
+  if (!caller?.uid) {
+    throw new EnrollmentError(401, "unauthenticated", "Authentication required.");
+  }
+  if (!caller.isStaff) {
+    throw new EnrollmentError(403, "permission-denied", "Only authorized staff can view face enrollment reviews.");
+  }
+
+  const requestedRollNo = String(input.rollNo || "").trim().toUpperCase();
+  if (requestedRollNo.length > 64) {
+    throw new EnrollmentError(400, "invalid-argument", "A valid student roll number is required.");
+  }
+  const collection = db.collection("face_enrollment_reviews");
+  const query = requestedRollNo
+    ? collection.where("rollNo", "==", requestedRollNo).where("status", "==", "PENDING").limit(100)
+    : collection.where("status", "==", "PENDING").limit(100);
+  const pending = await query.get();
+  const reviews = await Promise.all(pending.docs.map(async (snapshot) => {
+    const review = snapshot.data() || {};
+    const rollNo = String(review.rollNo || "").trim().toUpperCase();
+    const candidateRollNo = String(review.candidateRollNo || "").trim().toUpperCase();
+    const [studentSnap, candidateSnap] = await Promise.all([
+      rollNo ? db.collection("students").doc(rollNo).get() : Promise.resolve(null),
+      candidateRollNo ? db.collection("students").doc(candidateRollNo).get() : Promise.resolve(null)
+    ]);
+    const student = studentSnap?.exists ? studentSnap.data() || {} : {};
+    const candidate = candidateSnap?.exists ? candidateSnap.data() || {} : {};
+    return {
+      id: snapshot.id,
+      rollNo,
+      studentName: student.name || student.fullName || "",
+      candidateRollNo: candidateRollNo || null,
+      candidateName: candidate.name || candidate.fullName || "",
+      reason: review.reason || "FACE_MATCH_AMBIGUOUS",
+      distance: Number.isFinite(review.distance) ? review.distance : null,
+      createdAt: review.createdAt?.toMillis?.() || null
+    };
+  }));
+
+  return { reviews };
+}
+
+export async function resolveFaceEnrollmentReview(db, admin, caller, input = {}) {
+  if (!caller?.uid) {
+    throw new EnrollmentError(401, "unauthenticated", "Authentication required.");
+  }
+  if (!caller.isStaff) {
+    throw new EnrollmentError(403, "permission-denied", "Only authorized staff can review face enrollment requests.");
+  }
+
+  const requestId = String(input.requestId || "").trim();
+  const action = String(input.action || "").trim().toUpperCase();
+  if (!requestId || requestId.length > 128 || requestId.includes("/") ||
+    !["RECAPTURE_REQUIRED", "REJECTED"].includes(action)) {
+    throw new EnrollmentError(400, "invalid-argument", "A requestId and supported review action are required.");
+  }
+
+  const reviewRef = db.collection("face_enrollment_reviews").doc(requestId);
+  const guardRef = db.collection("face_enrollment_control").doc("global");
+  const fieldValue = admin.firestore.FieldValue;
+  await db.runTransaction(async (transaction) => {
+    const [reviewSnap, guardSnap] = await Promise.all([
+      transaction.get(reviewRef),
+      transaction.get(guardRef)
+    ]);
+    if (!reviewSnap.exists || reviewSnap.data()?.status !== "PENDING") {
+      throw new EnrollmentError(404, "not-found", "Pending face enrollment review was not found.");
+    }
+    transaction.update(reviewRef, {
+      status: action,
+      faceDescriptor: fieldValue.delete(),
+      reviewedBy: caller.uid,
+      reviewedAt: fieldValue.serverTimestamp()
+    });
+    transaction.set(guardRef, {
+      revision: Number(guardSnap.data()?.revision || 0) + 1,
+      updatedAt: fieldValue.serverTimestamp()
+    }, { merge: true });
+  });
+
+  return { success: true, status: action };
+}
+
 export async function registerFaceEnrollment(db, admin, caller, input) {
   const rollNo = String(input?.rollNo || "").trim().toUpperCase();
   if (!rollNo || rollNo.length > 64) {

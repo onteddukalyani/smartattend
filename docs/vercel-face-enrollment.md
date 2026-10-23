@@ -2,17 +2,23 @@
 
 The face registration and matching clients use `POST /api/face/register` and
 `POST /api/face/match` instead of the Firebase callables
-`registerStudentFace` and `matchStudentFace`. Both routes verify the Firebase
-ID token and use the Firebase Admin SDK; registration performs uniqueness
-checks, review queue writes, enrollment updates, permission consumption, and
-audit logging. Admin credentials are read only from server environment
-variables.
+`registerStudentFace` and `matchStudentFace`. Face-review listing and resolution
+use `POST /api/face/review`. These routes verify the Firebase ID token and use
+the Firebase Admin SDK; registration performs uniqueness checks, review queue
+writes, enrollment updates, permission consumption, and audit logging.
+Admin credentials are read only from server environment variables.
 
-This is a partial backend migration. Face review management, re-registration
-permission management, hardware biometric enrollment/verification, attendance,
-device binding, and other Firebase callable operations still use their existing
-Firebase Functions endpoints and will remain unavailable until they are
-deployed or migrated separately.
+Review API operations are `{"operation":"list","rollNo":"..."}` and
+`{"operation":"resolve","requestId":"...","action":"RECAPTURE_REQUIRED"}`.
+The only resolution actions are `RECAPTURE_REQUIRED` and `REJECTED`; the API
+does not allow staff to override face-uniqueness checks. Review responses
+contain identity and decision metadata, never stored face descriptors.
+
+This is a partial backend migration. Re-registration permission management,
+hardware biometric enrollment/verification, attendance, device binding, and
+other Firebase callable operations still use their existing Firebase
+Functions endpoints and will remain unavailable until they are deployed or
+migrated separately.
 
 The current duplicate scan compares the captured 128-value face descriptor
 with descriptors stored in Firestore. Its distance thresholds have not been

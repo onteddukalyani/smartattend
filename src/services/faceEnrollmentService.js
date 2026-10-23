@@ -91,19 +91,27 @@ export async function removeStudentFaceEnrollment(rollNo) {
 }
 
 export async function resolveFaceEnrollmentReview(requestId, action) {
-  const response = await reviewFaceCallable({ requestId, action });
-  if (!response.data?.success) {
+  const result = await callFaceApi(
+    "/api/face/review",
+    { operation: "resolve", requestId, action },
+    () => reviewFaceCallable({ requestId, action }).then((response) => response.data)
+  );
+  if (!result?.success) {
     throw new Error("The server did not complete the face enrollment review.");
   }
-  return response.data;
+  return result;
 }
 
 export async function listFaceEnrollmentReviews(rollNo) {
-  const response = await listFaceReviewsCallable({ rollNo });
-  if (!Array.isArray(response.data?.reviews)) {
+  const result = await callFaceApi(
+    "/api/face/review",
+    { operation: "list", rollNo },
+    () => listFaceReviewsCallable({ rollNo }).then((response) => response.data)
+  );
+  if (!Array.isArray(result?.reviews)) {
     throw new Error("The server returned an invalid face review list.");
   }
-  return response.data.reviews;
+  return result.reviews;
 }
 
 export async function grantBiometricReRegistration(params) {

@@ -3,11 +3,14 @@ import assert from "node:assert/strict";
 import {
   evaluateFaceUniqueness,
   faceVectorDistance,
+  listFaceEnrollmentReviews,
   matchEnrolledFace,
-  normalizeFaceVector
+  normalizeFaceVector,
+  resolveFaceEnrollmentReview
 } from "../server/faceEnrollment.js";
 import handler from "../api/face/register.js";
 import matchHandler from "../api/face/match.js";
+import reviewHandler from "../api/face/review.js";
 
 function sampleVector(seed = 0) {
   return Array.from({ length: 128 }, (_, index) => Math.sin(index + seed) * 0.4);
@@ -74,6 +77,20 @@ test("face match API requires a bearer ID token", async () => {
   assert.equal(response.body.error.code, "unauthenticated");
 });
 
+test("face review API rejects unsupported methods without initializing Admin SDK", async () => {
+  const response = responseRecorder();
+  await reviewHandler({ method: "GET", headers: {} }, response);
+  assert.equal(response.statusCode, 405);
+  assert.equal(response.body.error.code, "method-not-allowed");
+});
+
+test("face review API requires a bearer ID token", async () => {
+  const response = responseRecorder();
+  await reviewHandler({ method: "POST", headers: {}, body: {} }, response);
+  assert.equal(response.statusCode, 401);
+  assert.equal(response.body.error.code, "unauthenticated");
+});
+
 test("face descriptor validation rejects malformed and degenerate input", () => {
   assert.throws(() => normalizeFaceVector([1, 2, 3]), /128 values/);
   assert.throws(() => normalizeFaceVector(Array(128).fill(0.5)), /degenerate/);
@@ -134,4 +151,119 @@ test("staff face matching reports an explicit result when no enrollment exists",
   assert.equal(result.status, "UNREGISTERED");
   assert.equal(result.matched, false);
   assert.ok(result.message);
+});
+
+test("face review listing is staff-only and never returns stored descriptors", async () => {
+  const review = {
+    rollNo: "STUDENT-1",
+    candidateRollNo: "STUDENT-2",
+    reason: "FACE_MATCH_AMBIGUOUS",
+    distance: 0.5,
+    faceDescriptor: sampleVector(),
+    createdAt: { toMillis: () => 1234 }
+  };
+  const db = {
+    collection(name) {
+      if (name === "face_enrollment_reviews") {
+        return {
+          where() {
+            return this;
+          },
+          limit() {
+            return this;
+          },
+          get: async () => ({
+            docs: [{ id: "review-1", data: () => review }]
+          })
+        };
+      }
+      return {
+        doc(id) {
+          return {
+            get: async () => ({
+              exists: true,
+              data: () => ({ name: id === "STUDENT-1" ? "Student One" : "Student Two" })
+            })
+          };
+        }
+      };
+    }
+  };
+
+  await assert.rejects(
+    listFaceEnrollmentReviews(db, { uid: "student-uid", isStaff: false }),
+    (error) => error.status === 403
+  );
+  const result = await listFaceEnrollmentReviews(db, { uid: "lecturer-uid", isStaff: true });
+  assert.deepEqual(result.reviews[0], {
+    id: "review-1",
+    rollNo: "STUDENT-1",
+    studentName: "Student One",
+    candidateRollNo: "STUDENT-2",
+    candidateName: "Student Two",
+    reason: "FACE_MATCH_AMBIGUOUS",
+    distance: 0.5,
+    createdAt: 1234
+  });
+  assert.equal("faceDescriptor" in result.reviews[0], false);
+});
+
+test("face review resolution only permits pending requests and safe staff actions", async () => {
+  const writes = [];
+  const reviewRef = { id: "review-1" };
+  const guardRef = { id: "global" };
+  const db = {
+    collection(name) {
+      return {
+        doc(id) {
+          return name === "face_enrollment_reviews" ? { ...reviewRef, id } : { ...guardRef, id };
+        }
+      };
+    },
+    async runTransaction(callback) {
+      return callback({
+        get: async (ref) => ({
+          exists: true,
+          data: () => ref.id === "review-1" ? { status: "PENDING" } : { revision: 4 }
+        }),
+        update: (ref, value) => writes.push({ type: "update", ref, value }),
+        set: (ref, value, options) => writes.push({ type: "set", ref, value, options })
+      });
+    }
+  };
+  const admin = {
+    firestore: {
+      FieldValue: {
+        delete: () => "DELETE",
+        serverTimestamp: () => "SERVER_TIMESTAMP"
+      }
+    }
+  };
+
+  await assert.rejects(
+    resolveFaceEnrollmentReview(db, admin, { uid: "student-uid", isStaff: false }, {
+      requestId: "review-1",
+      action: "RECAPTURE_REQUIRED"
+    }),
+    (error) => error.status === 403
+  );
+  await assert.rejects(
+    resolveFaceEnrollmentReview(db, admin, { uid: "lecturer-uid", isStaff: true }, {
+      requestId: "review-1",
+      action: "APPROVE"
+    }),
+    (error) => error.status === 400
+  );
+
+  const result = await resolveFaceEnrollmentReview(
+    db,
+    admin,
+    { uid: "lecturer-uid", isStaff: true },
+    { requestId: "review-1", action: "RECAPTURE_REQUIRED" }
+  );
+  assert.deepEqual(result, { success: true, status: "RECAPTURE_REQUIRED" });
+  assert.equal(writes[0].value.status, "RECAPTURE_REQUIRED");
+  assert.equal(writes[0].value.faceDescriptor, "DELETE");
+  assert.equal(writes[0].value.reviewedBy, "lecturer-uid");
+  assert.equal(writes[1].value.revision, 5);
 });
