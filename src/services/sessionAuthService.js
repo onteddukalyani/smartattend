@@ -98,7 +98,7 @@ export async function initiateSession(sessionParams) {
     batch: batch || "2025",
     geofenceRadius: typeof sessionParams.geofenceRadius === "number" ? sessionParams.geofenceRadius : 10,
     classroomLocation: sessionParams.classroomLocation || null,
-    rotationIntervalSec: (typeof sessionParams.rotationIntervalSec === "number" && sessionParams.rotationIntervalSec >= 5 && sessionParams.rotationIntervalSec <= 60 && sessionParams.rotationIntervalSec % 5 === 0) ? sessionParams.rotationIntervalSec : 10,
+    rotationIntervalSec: (typeof sessionParams.rotationIntervalSec === "number" && (sessionParams.rotationIntervalSec === 3 || (sessionParams.rotationIntervalSec >= 5 && sessionParams.rotationIntervalSec <= 60 && sessionParams.rotationIntervalSec % 5 === 0))) ? sessionParams.rotationIntervalSec : 10,
     lectureHours: Number(sessionParams.lectureHours) > 0 ? Number(sessionParams.lectureHours) : 1.0,
     durationHours: Number(sessionParams.lectureHours) > 0 ? Number(sessionParams.lectureHours) : 1.0,
     qr1DurationSeconds: qr1DurationSec,
@@ -133,7 +133,7 @@ export async function initiateSession(sessionParams) {
   const pinSalt = Array.from(pinSaltBytes).map((b) => b.toString(16).padStart(2, "0")).join("");
   const saltedReleaseCodeHash = await sha256(`${pinSalt}:${rawPin.trim()}`);
 
-  const rotationIntervalSec = (typeof sessionParams.rotationIntervalSec === "number" && sessionParams.rotationIntervalSec >= 5 && sessionParams.rotationIntervalSec <= 60 && sessionParams.rotationIntervalSec % 5 === 0) ? sessionParams.rotationIntervalSec : 10;
+  const rotationIntervalSec = (typeof sessionParams.rotationIntervalSec === "number" && (sessionParams.rotationIntervalSec === 3 || (sessionParams.rotationIntervalSec >= 5 && sessionParams.rotationIntervalSec <= 60 && sessionParams.rotationIntervalSec % 5 === 0))) ? sessionParams.rotationIntervalSec : 10;
 
   const securityDoc = {
     ownerId: currentUser ? currentUser.uid : "",
@@ -314,12 +314,33 @@ export async function authorizeStudentQR1(sessionId, qr1Token, studentProfileOve
   };
 
   // Asynchronously save to Firestore (non-blocking if connection is recovering)
+  const attendeePayload = {
+    rollNo: cleanRoll,
+    studentUid: studentUid,
+    name: studentName,
+    studentName: studentName,
+    email: studentProfileOverride?.email || currentUser?.email || "",
+    authorizedAt: Date.now(),
+    qr1Verified: true,
+    status: "QR1_VERIFIED"
+  };
+
   setDoc(authRef, newAuthRecord, { merge: true })
     .then(() => {
-      updateDoc(sessionRef, { authorizedCount: increment(1) }).catch(() => { });
+      updateDoc(sessionRef, {
+        authorizedCount: increment(1),
+        attendees: arrayUnion(attendeePayload)
+      }).catch((sessionErr) => {
+        console.warn("[sessionAuth] Notice updating session doc with attendee:", sessionErr?.message || sessionErr);
+      });
     })
     .catch((writeErr) => {
       console.warn("[sessionAuth] Notice saving authorization record to Firestore:", writeErr?.message || writeErr);
+      // Fallback: still try to update session document attendees directly
+      updateDoc(sessionRef, {
+        authorizedCount: increment(1),
+        attendees: arrayUnion(attendeePayload)
+      }).catch(() => { });
     });
 
   try {
@@ -423,14 +444,8 @@ export async function validateStudentQR2(sessionId, qr2Token, qrPayload = null) 
   } catch (cloudErr) {
     const msg = cloudErr.message || "";
     if (msg !== "CLOUD_TIMEOUT") {
-      if (msg.includes("violation") || msg.includes("disqualified") || msg.includes("unexcused")) {
+      if (msg.includes("disqualified") || msg.includes("unexcused")) {
         throw new Error("❌ Access rejected: An unexcused security violation is recorded on your session.");
-      }
-      if (msg.includes("scan QR 1 first") || msg.includes("Missing Phase 1")) {
-        throw new Error("⛔ Access Denied: You must scan QR 1 first.");
-      }
-      if (msg.includes("Access denied") || msg.includes("QR 1") || msg.includes("permission-denied")) {
-        throw new Error("⛔ Access Denied: You did not scan QR 1 during Phase 1 (0:00 - 1:00). You cannot mark attendance for this session.");
       }
       if (msg.includes("deadline-exceeded") || msg.includes("expired")) {
         throw new Error("❌ QR code has expired. Please scan the current live QR code.");
@@ -438,7 +453,8 @@ export async function validateStudentQR2(sessionId, qr2Token, qrPayload = null) 
       if (msg.includes("already-exists") || msg.includes("already submitted")) {
         throw new Error("✅ Attendance for this session has already been recorded.");
       }
-      console.warn("Cloud function validateQR2 notice (using direct Firestore engine):", msg || cloudErr);
+      // permission-denied or not-found means Cloud Functions are not deployed on Spark tier: fall through to direct Firestore verification
+      console.warn("Cloud function validateQR2 notice (falling back to direct Firestore engine):", msg || cloudErr);
     }
   }
 
@@ -470,6 +486,26 @@ export async function validateStudentQR2(sessionId, qr2Token, qrPayload = null) 
         }
       }
     }
+
+    // Also search in session.attendees array as direct source of truth
+    if (!authData && session && Array.isArray(session.attendees)) {
+      const matchAttendee = session.attendees.find((a) => {
+        const aRoll = String(a.rollNo || "").toUpperCase().trim();
+        const aUid = String(a.studentUid || a.uid || "").trim();
+        const aEmail = String(a.email || a.studentEmail || "").toLowerCase().trim();
+        return (currentRollNo && aRoll === currentRollNo) ||
+          (currentUid && aUid === currentUid) ||
+          (currentEmail && aEmail === currentEmail);
+      });
+      if (matchAttendee) {
+        authData = {
+          ...matchAttendee,
+          qr1Verified: true,
+          status: matchAttendee.status || "QR1_VERIFIED",
+          sessionId
+        };
+      }
+    }
   } catch (e) {
     console.warn("Session & auth read notice:", e.message);
   }
@@ -490,12 +526,15 @@ export async function validateStudentQR2(sessionId, qr2Token, qrPayload = null) 
     throw new Error("⛔ Access Denied: You did not scan QR 1 during Phase 1 (0:00 - 1:00). You cannot mark attendance for this session.");
   }
 
-  // 3.5 Check for unexcused violations or disqualification
+  // 3.5 Check for unexcused violations or disqualification (Android: 2 strikes allowed; Web/iOS: 1 strike)
+  const isAndroidClient = typeof navigator !== "undefined" && /Android/i.test(navigator?.userAgent || "");
+  const violationThreshold = isAndroidClient ? 2 : 1;
+  const authViolations = Number(authData.confirmedKioskViolations || authData.violationCount || 0);
+
   const hasAuthViolation =
     authData.disqualified === true ||
-    (authData.hasViolation === true && !authData.excused) ||
-    (authData.violation === 1 && !authData.excused) ||
-    (Number(authData.confirmedKioskViolations || authData.violationCount || 0) >= 1 && !authData.excused);
+    (authData.hasViolation === true && !authData.excused && authViolations >= violationThreshold) ||
+    (authViolations >= violationThreshold && !authData.excused);
 
   let hasFlaggedViolation = false;
   if (session && Array.isArray(session.flaggedViolations)) {
@@ -504,8 +543,11 @@ export async function validateStudentQR2(sessionId, qr2Token, qrPayload = null) 
       const fUid = (f.studentUid || "").toUpperCase().trim();
       return (currentRollNo && fRoll === currentRollNo) || (currentUid && fUid === currentUid.toUpperCase().trim());
     });
-    if (flagEntry && !flagEntry.excused && !flagEntry.resolved && (flagEntry.disqualified === true || flagEntry.status === "FLAGGED_DISQUALIFIED" || Number(flagEntry.count || flagEntry.violationCount || 0) >= 1)) {
-      hasFlaggedViolation = true;
+    if (flagEntry && !flagEntry.excused && !flagEntry.resolved) {
+      const fCount = Number(flagEntry.count || flagEntry.violationCount || 0);
+      if (flagEntry.disqualified === true || flagEntry.status === "FLAGGED_DISQUALIFIED" || fCount >= violationThreshold) {
+        hasFlaggedViolation = true;
+      }
     }
   }
 
@@ -1652,8 +1694,8 @@ export async function updateSessionRotationInterval(sessionId, intervalSec) {
   if (!sessionId) throw new Error("Session ID is required to update rotation interval.");
 
   const numericInterval = Number(intervalSec);
-  if (!Number.isInteger(numericInterval) || numericInterval < 5 || numericInterval > 60 || numericInterval % 5 !== 0) {
-    throw new Error("QR rotation interval must be an integer between 5 and 60 seconds divisible by 5.");
+  if (!Number.isInteger(numericInterval) || (numericInterval !== 3 && (numericInterval < 5 || numericInterval > 60 || numericInterval % 5 !== 0))) {
+    throw new Error("QR rotation interval must be 3 seconds or an integer between 5 and 60 seconds divisible by 5.");
   }
 
   try {

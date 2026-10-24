@@ -5,8 +5,8 @@
  * exact expiry boundaries (interval + 5s clock skew grace), and replay prevention.
  */
 
-// Supported rotation intervals in seconds: 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60 seconds
-export const ROTATION_INTERVALS = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60];
+// Supported rotation intervals in seconds: 3, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60 seconds
+export const ROTATION_INTERVALS = [3, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60];
 export const DEFAULT_ROTATION_INTERVAL = 10; // 10s stable, authoritative default
 export const MAX_CLOCK_SKEW_GRACE_SEC = 90; // 90s clock skew grace window
 

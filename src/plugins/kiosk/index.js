@@ -19,6 +19,9 @@ const NativeKioskPlugin = registerPlugin('KioskPlugin', {
     clearAttendanceRestrictions: async () => {
       return { success: true, isWebFallback: true, message: 'Web attendance restrictions cleared' };
     },
+    setScreenCaptureDisabled: async (options) => {
+      return { success: true, disabled: Boolean(options?.disabled), isWebFallback: true };
+    },
     canDrawOverlays: async () => {
       return { canDrawOverlays: false, isWebFallback: true };
     },
@@ -155,6 +158,21 @@ export const Kiosk = {
       return result;
     } catch (err) {
       console.warn('[Kiosk] clearAttendanceRestrictions notice:', err);
+      return { success: false, error: err.message || String(err) };
+    }
+  },
+
+  /**
+   * Device Owner: Enable or disable OS-level screenshots and screen recording
+   */
+  async setScreenCaptureDisabled(options = { disabled: true }) {
+    try {
+      const isNative = Capacitor.isNativePlatform();
+      if (!isNative) return { success: true, disabled: Boolean(options?.disabled), isWebFallback: true };
+      const result = await NativeKioskPlugin.setScreenCaptureDisabled(options);
+      return result || { success: true };
+    } catch (err) {
+      console.warn('[Kiosk] setScreenCaptureDisabled notice:', err);
       return { success: false, error: err.message || String(err) };
     }
   },

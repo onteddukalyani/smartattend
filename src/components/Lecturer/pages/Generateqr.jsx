@@ -68,6 +68,17 @@ import {
 } from "react-icons/fa";
 import "./Generateqr.css";
 
+const GEOFENCE_PRESETS = [
+    { label: "0m (Disabled / Any Location)", value: 0 },
+    { label: "5m (Strict Room / Lab)", value: 5 },
+    { label: "10m (Classroom Standard - Default)", value: 10 },
+    { label: "15m (Large Classroom)", value: 15 },
+    { label: "20m (Lecture Hall)", value: 20 },
+    { label: "30m (Auditorium)", value: 30 },
+    { label: "50m (Department Wing)", value: 50 },
+    { label: "100m (Campus Building)", value: 100 }
+];
+
 function GenerateQR() {
     const { user, profile } = useAuth();
     const [searchParams] = useSearchParams();
@@ -103,6 +114,10 @@ function GenerateQR() {
     const [rotationSecondsLeft, setRotationSecondsLeft] = useState(DEFAULT_ROTATION_INTERVAL);
     const [dynamicQrUrl, setDynamicQrUrl] = useState("");
     const [geofenceRadius, setGeofenceRadius] = useState(10); // Mandatory default: 10 metres standard, adjustable live by lecturer (0 = disabled)
+    const [isCustomGps, setIsCustomGps] = useState(false);
+    const [customGpsInput, setCustomGpsInput] = useState("10");
+    const [showLiveCustomGps, setShowLiveCustomGps] = useState(false);
+    const [liveCustomGpsInput, setLiveCustomGpsInput] = useState("10");
     const [classroomCoords, setClassroomCoords] = useState(null);
     const [classroomGpsStatus, setClassroomGpsStatus] = useState("IDLE"); // "IDLE" | "ACTIVE" | "UNAVAILABLE" | "DISABLED"
     
@@ -326,8 +341,14 @@ function GenerateQR() {
             }
             if (typeof data.geofenceRadius === 'number') {
                 setGeofenceRadius(data.geofenceRadius);
+                setCustomGpsInput(String(data.geofenceRadius));
+                setLiveCustomGpsInput(String(data.geofenceRadius));
+                const standardVals = [0, 5, 10, 15, 20, 30, 50, 100];
+                if (!standardVals.includes(data.geofenceRadius)) {
+                    setIsCustomGps(true);
+                }
             }
-            if (typeof data.rotationIntervalSec === 'number' && data.rotationIntervalSec >= 5 && data.rotationIntervalSec <= 60 && data.rotationIntervalSec % 5 === 0) {
+            if (typeof data.rotationIntervalSec === 'number' && (data.rotationIntervalSec === 3 || (data.rotationIntervalSec >= 5 && data.rotationIntervalSec <= 60 && data.rotationIntervalSec % 5 === 0))) {
                 setRotationIntervalSec(data.rotationIntervalSec);
             }
         });
@@ -1054,6 +1075,32 @@ function GenerateQR() {
             };
         };
 
+        // 0. Process attendee records stored directly on the session document (instant QR 1 check-ins)
+        (sessionData?.attendees || []).forEach((st) => {
+            const { canonicalRoll, canonicalName, canonicalEmail, canonicalUid, dedupeKey } = resolveStudentIdentity(st);
+            if (!dedupeKey) return;
+
+            const isDisq = checkIsDisqualified(st);
+            const hasV = isDisq || checkHasViolation(st);
+            const vCount = Math.max(Number(st.violationCount || st.confirmedKioskViolations || 0), isDisq ? 2 : hasV ? 1 : 0);
+
+            if (!map.has(dedupeKey)) {
+                map.set(dedupeKey, {
+                    ...st,
+                    rollNo: canonicalRoll || st.rollNo || dedupeKey.toUpperCase(),
+                    studentName: canonicalName || st.studentName || st.name || canonicalRoll || "Student",
+                    studentEmail: canonicalEmail || st.email,
+                    studentUid: canonicalUid || st.studentUid,
+                    disqualified: isDisq,
+                    hasViolation: hasV,
+                    violationCount: vCount,
+                    violations: Array.isArray(st.violations) ? st.violations : [],
+                    status: st.status || "QR1_VERIFIED",
+                    qr1Verified: true
+                });
+            }
+        });
+
         // 1. Process authorized students (QR 1 check-ins)
         (authorizedStudents || []).forEach((st) => {
             const { canonicalRoll, canonicalName, canonicalEmail, canonicalUid, dedupeKey } = resolveStudentIdentity(st);
@@ -1146,7 +1193,7 @@ function GenerateQR() {
         });
 
         return Array.from(map.values()).sort((a, b) => (a.rollNo || "").localeCompare(b.rollNo || ""));
-    }, [authorizedStudents, attendanceRecords, dbStudentsMap]);
+    }, [authorizedStudents, attendanceRecords, dbStudentsMap, sessionData?.attendees]);
 
     const attendeesSet = useMemo(() => {
         const set = new Set();
@@ -1591,84 +1638,99 @@ function GenerateQR() {
                                 </span>
                             </div>
 
-                            {/* Manual Numeric Input + Test GPS Button */}
-                            <div style={{ display: "flex", gap: "8px", alignItems: "center", marginBottom: "8px" }}>
-                                <input
-                                    id="geofence-radius"
-                                    type="number"
-                                    min="0"
-                                    max="500"
-                                    step="5"
-                                    value={geofenceRadius}
-                                    onChange={(e) => handleUpdateGeofenceRadius(Math.max(0, parseInt(e.target.value) || 0))}
-                                    placeholder="Enter metres (e.g. 25)"
-                                    style={{ flex: 1, fontWeight: 750 }}
-                                />
-                                <span style={{ fontSize: "0.82rem", fontWeight: 700, color: "#64748b", whiteSpace: "nowrap" }}>
-                                    metres
-                                </span>
+                            {/* Dropdown for GPS Geofence + Custom Input */}
+                            <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                                <select
+                                    id="geofence-radius-select"
+                                    value={isCustomGps ? "custom" : geofenceRadius}
+                                    onChange={(e) => {
+                                        if (e.target.value === "custom") {
+                                            setIsCustomGps(true);
+                                            setCustomGpsInput(String(geofenceRadius || 10));
+                                        } else {
+                                            setIsCustomGps(false);
+                                            const val = Number(e.target.value);
+                                            setCustomGpsInput(String(val));
+                                            handleUpdateGeofenceRadius(val);
+                                        }
+                                    }}
+                                    style={{
+                                        flex: 1,
+                                        padding: "10px 12px",
+                                        borderRadius: "10px",
+                                        border: "1.5px solid var(--border, #cbd5e1)",
+                                        background: "var(--surface, #ffffff)",
+                                        color: "var(--text-main, #0f172a)",
+                                        fontSize: "0.88rem",
+                                        fontWeight: 700,
+                                        cursor: "pointer",
+                                        outline: "none"
+                                    }}
+                                >
+                                    {GEOFENCE_PRESETS.map((p) => (
+                                        <option key={p.value} value={p.value}>{p.label}</option>
+                                    ))}
+                                    <option value="custom">✏️ Custom Distance (type meters)...</option>
+                                </select>
+
                                 <button
                                     type="button"
                                     onClick={handleRecalibrateGps}
                                     title="Capture / Test Classroom GPS Now"
                                     style={{
-                                        padding: "8px 12px",
-                                        borderRadius: "8px",
+                                        padding: "9px 14px",
+                                        borderRadius: "10px",
                                         border: "1px solid var(--border, #cbd5e1)",
                                         background: "var(--surface, #ffffff)",
                                         color: "#4f46e5",
-                                        fontSize: "0.78rem",
+                                        fontSize: "0.82rem",
                                         fontWeight: 750,
                                         cursor: "pointer",
                                         display: "inline-flex",
                                         alignItems: "center",
-                                        gap: "4px"
+                                        gap: "5px",
+                                        whiteSpace: "nowrap"
                                     }}
                                 >
                                     <FaMapMarkerAlt /> Test GPS
                                 </button>
                             </div>
 
-                            {/* Fine-Tuning Slider */}
-                            <input
-                                type="range"
-                                min="0"
-                                max="150"
-                                step="5"
-                                value={geofenceRadius}
-                                onChange={(e) => handleUpdateGeofenceRadius(Number(e.target.value))}
-                                style={{ width: "100%", accentColor: "#6366f1", marginBottom: "8px", cursor: "pointer" }}
-                            />
-
-                            {/* Quick Presets */}
-                            <div style={{ display: "flex", gap: "5px", flexWrap: "wrap" }}>
-                                {[
-                                    { label: "0m (Off)", val: 0 },
-                                    { label: "15m Lab", val: 15 },
-                                    { label: "20m Small", val: 20 },
-                                    { label: "30m (Default)", val: 30 },
-                                    { label: "50m Hall", val: 50 },
-                                    { label: "100m Campus", val: 100 }
-                                ].map((p) => (
-                                    <button
-                                        key={p.val}
-                                        type="button"
-                                        onClick={() => handleUpdateGeofenceRadius(p.val)}
-                                        style={{
-                                            padding: "3px 8px",
-                                            borderRadius: "6px",
-                                            border: geofenceRadius === p.val ? "1.5px solid #6366f1" : "1px solid var(--border, #cbd5e1)",
-                                            background: geofenceRadius === p.val ? "rgba(99, 102, 241, 0.15)" : "transparent",
-                                            color: geofenceRadius === p.val ? "#4f46e5" : "var(--text-muted, #64748b)",
-                                            fontWeight: 700,
-                                            fontSize: "0.74rem",
-                                            cursor: "pointer"
+                            {/* Custom Metres Typing Input */}
+                            {isCustomGps && (
+                                <div style={{ display: "flex", gap: "8px", alignItems: "center", marginTop: "10px" }}>
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        max="1000"
+                                        step="1"
+                                        placeholder="Type distance in meters (e.g. 25)"
+                                        value={customGpsInput}
+                                        onChange={(e) => {
+                                            const val = e.target.value;
+                                            setCustomGpsInput(val);
+                                            const num = Number(val);
+                                            if (!isNaN(num) && num >= 0) {
+                                                handleUpdateGeofenceRadius(num);
+                                            }
                                         }}
-                                    >
-                                        {p.label}
-                                    </button>
-                                ))}
-                            </div>
+                                        style={{
+                                            flex: 1,
+                                            padding: "9px 12px",
+                                            borderRadius: "10px",
+                                            border: "1.5px solid #6366f1",
+                                            background: "var(--surface, #ffffff)",
+                                            color: "var(--text-main, #0f172a)",
+                                            fontSize: "0.88rem",
+                                            fontWeight: 700,
+                                            outline: "none"
+                                        }}
+                                    />
+                                    <span style={{ fontSize: "0.82rem", fontWeight: 700, color: "#6366f1", whiteSpace: "nowrap" }}>
+                                        metres
+                                    </span>
+                                </div>
+                            )}
 
                             {/* Live Host GPS Telemetry Card */}
                             {geofenceRadius === 0 ? (
@@ -1777,7 +1839,7 @@ function GenerateQR() {
                             >
                                 {ROTATION_INTERVALS.map((sec) => (
                                     <option key={sec} value={sec}>
-                                        {sec}s {sec === 10 ? "(Authoritative Default)" : (sec === 5 ? "(Anti-Proxy Ultra Security)" : "")}
+                                        {sec}s {sec === 3 ? "(Ultra Fast Anti-Screenshot)" : (sec === 10 ? "(Authoritative Default)" : (sec === 5 ? "(Anti-Proxy Ultra Security)" : ""))}
                                     </option>
                                 ))}
                             </select>
@@ -2398,7 +2460,10 @@ function GenerateQR() {
                             )}
                             <button
                                 type="button"
-                                onClick={handlePromptCustomGeofence}
+                                onClick={() => {
+                                    setShowLiveCustomGps((prev) => !prev);
+                                    setLiveCustomGpsInput(String(geofenceRadius || 10));
+                                }}
                                 title="Manually type custom metres radius"
                                 style={{ padding: "2px 7px", borderRadius: "5px", border: "1px solid #6366f1", background: "rgba(99, 102, 241, 0.12)", color: "#4f46e5", fontSize: "0.7rem", fontWeight: 750, cursor: "pointer" }}
                             >
@@ -2431,15 +2496,34 @@ function GenerateQR() {
                                     Enable 10m
                                 </button>
                             )}
-                            <button
-                                type="button"
-                                onClick={handleRecalibrateGps}
-                                title="Re-calibrate GPS from current device position"
-                                style={{ padding: "2px 7px", borderRadius: "5px", border: "1px solid #cbd5e1", background: "var(--surface, #ffffff)", color: "#64748b", fontSize: "0.7rem", fontWeight: 700, cursor: "pointer" }}
-                            >
-                                🎯 Re-fix
-                            </button>
                         </div>
+                        {showLiveCustomGps && (
+                            <div style={{ display: "flex", alignItems: "center", gap: "6px", width: "100%", justifyContent: "center", marginTop: "6px" }}>
+                                <input
+                                    type="number"
+                                    min="0"
+                                    max="1000"
+                                    step="1"
+                                    placeholder="Meters"
+                                    value={liveCustomGpsInput}
+                                    onChange={(e) => setLiveCustomGpsInput(e.target.value)}
+                                    style={{ width: "90px", padding: "3px 6px", borderRadius: "6px", border: "1.5px solid #6366f1", fontSize: "0.76rem", fontWeight: 700, textAlign: "center" }}
+                                />
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        const num = Number(liveCustomGpsInput);
+                                        if (!isNaN(num) && num >= 0) {
+                                            handleUpdateGeofenceRadius(num);
+                                            setShowLiveCustomGps(false);
+                                        }
+                                    }}
+                                    style={{ padding: "3px 10px", borderRadius: "6px", border: "none", background: "#6366f1", color: "#ffffff", fontSize: "0.72rem", fontWeight: 800, cursor: "pointer" }}
+                                >
+                                    Apply
+                                </button>
+                            </div>
+                        )}
                     </div>
 
                     {/* Progress Track */}

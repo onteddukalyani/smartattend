@@ -2718,4 +2718,59 @@
     background: rgba(100, 116, 139, 0.12);
     color: #475569;
     border: 1px solid rgba(100, 116, 139, 0.25);
-}
+}
+
+/* =========================================================
+   Universal Mobile Responsiveness for Generate QR (< 680px)
+   ========================================================= */
+@media (max-width: 680px) {
+    .qrpage {
+        padding: 12px 10px calc(88px + env(safe-area-inset-bottom, 0px)) !important;
+    }
+
+    .qr-setup-grid {
+        grid-template-columns: 1fr !important;
+        gap: 16px !important;
+    }
+
+    .qr-setup-card,
+    .qr-blueprint-card {
+        padding: 16px 14px !important;
+        border-radius: 16px !important;
+    }
+
+    .qrpage-header h1 {
+        font-size: 1.35rem !important;
+    }
+
+    .qr-form-row,
+    .qr-form-row-3 {
+        grid-template-columns: 1fr !important;
+        gap: 12px !important;
+    }
+
+    .qrpage-active-split {
+        grid-template-columns: 1fr !important;
+        gap: 14px !important;
+    }
+
+    .qr-roster-table-wrap {
+        border-radius: 10px !important;
+        max-height: 400px !important;
+    }
+
+    .qr-hero-card {
+        padding: 16px 12px !important;
+    }
+
+    .qr-projector-hero-stats {
+        grid-template-columns: repeat(2, 1fr) !important;
+        gap: 6px !important;
+    }
+
+    .qr-code-frame.cyber-frame {
+        padding: 12px !important;
+        max-width: 220px !important;
+    }
+}
+

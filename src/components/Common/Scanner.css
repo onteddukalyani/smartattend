@@ -849,3 +849,94 @@
 .st-biometric-exit-btn:hover {
     background: rgba(99, 102, 241, 0.08);
 }
+
+/* =========================================================
+   Mobile Responsiveness for Scanner Screens (< 680px & < 420px)
+   Prevents cramped, clumsy appearance on all mobile devices
+   ========================================================= */
+@media (max-width: 680px) {
+    .st-scanner-container,
+    .st-biometric-container {
+        margin: 12px auto;
+        padding: 20px 16px;
+        width: 94vw;
+        border-radius: 20px;
+    }
+
+    .st-kiosk-hero-card {
+        padding: 24px 16px;
+        border-radius: 20px;
+    }
+
+    .st-timer-ring-container {
+        width: 175px;
+        height: 175px;
+        margin: 0 auto 20px;
+    }
+
+    .st-timer-digital {
+        font-size: 2rem;
+    }
+
+    .st-kiosk-session-title {
+        font-size: 1.2rem;
+    }
+
+    .st-kiosk-session-sub {
+        font-size: 0.82rem;
+        margin-bottom: 18px;
+    }
+
+    .st-supervised-bar {
+        font-size: 0.8rem;
+        padding: 8px 12px;
+    }
+
+    .st-supervised-release-btn {
+        padding: 4px 10px;
+        font-size: 0.76rem;
+    }
+
+    .st-camera-paused-card {
+        padding: 12px 14px;
+        border-radius: 14px;
+    }
+
+    .st-paused-desc {
+        font-size: 0.78rem;
+    }
+
+    .st-turning-loader-badge {
+        font-size: 0.72rem;
+        padding: 5px 12px;
+    }
+}
+
+@media (max-width: 420px) {
+    .st-scanner-container,
+    .st-biometric-container {
+        margin: 8px auto;
+        padding: 16px 12px;
+        width: 96vw;
+        border-radius: 18px;
+    }
+
+    .st-timer-ring-container {
+        width: 155px;
+        height: 155px;
+        margin: 0 auto 16px;
+    }
+
+    .st-timer-digital {
+        font-size: 1.75rem;
+    }
+
+    .st-kiosk-session-title {
+        font-size: 1.1rem;
+    }
+
+    .st-scanner-title {
+        font-size: 1.35rem;
+    }
+}
+

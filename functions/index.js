@@ -1575,8 +1575,8 @@ exports.initiateAttendanceSession = onCall({ cors: true }, async (request) => {
   let rotationIntervalSec = 10;
   if (request.data?.rotationIntervalSec !== undefined) {
     const parsedInt = Number(request.data.rotationIntervalSec);
-    if (!Number.isInteger(parsedInt) || parsedInt < 5 || parsedInt > 60 || parsedInt % 5 !== 0) {
-      throw new HttpsError("invalid-argument", "QR rotation interval must be an integer between 5 and 60 seconds divisible by 5.");
+    if (!Number.isInteger(parsedInt) || (parsedInt !== 3 && (parsedInt < 5 || parsedInt > 60 || parsedInt % 5 !== 0))) {
+      throw new HttpsError("invalid-argument", "QR rotation interval must be 3 seconds or an integer between 5 and 60 seconds divisible by 5.");
     }
     rotationIntervalSec = parsedInt;
   }
@@ -3881,10 +3881,10 @@ exports.updateSessionQrInterval = onCall(async (request) => {
   }
 
   const numericInterval = Number(intervalSec);
-  if (!Number.isInteger(numericInterval) || numericInterval < 5 || numericInterval > 60 || numericInterval % 5 !== 0) {
+  if (!Number.isInteger(numericInterval) || (numericInterval !== 3 && (numericInterval < 5 || numericInterval > 60 || numericInterval % 5 !== 0))) {
     throw new HttpsError(
       "invalid-argument",
-      "Invalid rotation interval. QR rotation interval must be an integer between 5 and 60 seconds divisible by 5."
+      "Invalid rotation interval. QR rotation interval must be 3 seconds or an integer between 5 and 60 seconds divisible by 5."
     );
   }
 

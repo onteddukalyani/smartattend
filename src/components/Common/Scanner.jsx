@@ -223,13 +223,12 @@ function QrScannerApp() {
             ? (typeof sessionData.qr1ExpiresAt.toMillis === 'function' ? sessionData.qr1ExpiresAt.toMillis() : Number(sessionData.qr1ExpiresAt))
             : authQr2StartsAt)) || 0;
 
-    // Helper to evaluate if Lecturer has officially released Phase 2 (QR 2) or time has arrived
+    // Helper to evaluate if Lecturer has officially released Phase 2 (QR 2)
     const isQr2Released = Boolean(
         (sessionData && (
             sessionData.phase === 'PHASE_2' ||
             sessionData.phase === '2' ||
-            sessionData.qr2Released === true ||
-            (effectiveQr2TargetMs > 0 && effectiveQr2TargetMs <= nowTick)
+            sessionData.qr2Released === true
         )) ||
         (!sessionData && authQr2StartsAt > 0 && authQr2StartsAt <= nowTick)
     );
@@ -239,6 +238,15 @@ function QrScannerApp() {
     const secondsUntilQr2 = (effectiveQr2TargetMs > 0 && !isQr2Released)
         ? Math.max(0, Math.ceil((effectiveQr2TargetMs - nowTick) / 1000))
         : null;
+
+    // Explicitly disable and release camera hardware during waiting phase to save battery and protect privacy
+    useEffect(() => {
+        if (scanState === 'KIOSK_WAITING_QR2' && !isQr2Released) {
+            releaseAllMediaTracks();
+            releaseCameraLock();
+            setScannerActive(false);
+        }
+    }, [scanState, isQr2Released]);
 
     // Haptic vibration feedback trigger when Phase 2 unlocks
     const wasQr2ReleasedRef = useRef(false);
@@ -988,11 +996,32 @@ function QrScannerApp() {
             setViolationCount(nextCount);
             setSupervisionViolation(true);
 
-            // Immediate Disqualification on all platforms during active kiosk session
-            console.error(`[Kiosk Guardian] Security violation detected via ${source}. Disqualifying attendance session (Zero-Tolerance Mode).`);
+            // Android Policy: 1 warning chance allowed. Disqualify only on strike 2.
+            // Non-Android Policy: Zero tolerance — disqualify on strike 1.
+            if (isAndroidNative && nextCount === 1) {
+                console.warn(`[Kiosk Guardian] Security warning triggered on Android via ${source} (Strike 1/2). Warning chance granted.`);
+                setErrorMessage('⚠️ Warning (Strike 1/2): App switching detected! This is your 1 warning chance. If you leave or switch apps again (Strike 2), attendance will be permanently disqualified.');
+                // Re-engage Kiosk Lock
+                Kiosk?.startKioskMode?.().catch(() => { });
+                if (activeSessionId) {
+                    reportAttendanceLifecycleEvent(activeSessionId, {
+                        eventType: 'KIOSK_ESCAPE_WARNING',
+                        source,
+                        platform: 'android',
+                        count: 1,
+                        warningOnly: true
+                    }).catch(() => { });
+                }
+                return;
+            }
+
+            // Immediate Disqualification: Strike 2 on Android, or Strike 1 on Non-Android
+            console.error(`[Kiosk Guardian] Security violation threshold reached via ${source} (Strike ${nextCount}). Disqualifying attendance session.`);
             try { localStorage.removeItem(`smartattend_qr1_auth_${activeSessionId}`); } catch (_) { }
             try { sessionStorage.removeItem(`smartattend_qr1_auth_${activeSessionId}`); } catch (_) { }
-            setErrorMessage('❌ Attendance Disqualified: Security violation detected (application switch / minimizing / tab change). Attendance forfeited.');
+            setErrorMessage(isAndroidNative
+                ? '❌ Attendance Rejected: 2/2 security violations detected (application switch / minimizing). Attendance forfeited.'
+                : '❌ Attendance Disqualified: Security violation detected (application switch / minimizing / tab change). Attendance forfeited.');
             setScanState('DISQUALIFIED');
 
             window.setTimeout(() => {
@@ -1498,8 +1527,8 @@ function QrScannerApp() {
             .then(() => Kiosk.startKioskMode())
             .catch((kioskErr) => console.warn('[Kiosk] Notice starting kiosk mode:', kioskErr));
 
-        // Device Owner: disable screen capture/recording at OS level
-        Kiosk.setScreenCaptureDisabled({ disabled: true }).catch(() => { });
+        // Device Owner: disable screen capture/recording at OS level (safe optional chaining)
+        Kiosk?.setScreenCaptureDisabled?.({ disabled: true })?.catch?.(() => { });
 
         // Pre-fetch student biometric template in background
         lookupStudentBiometrics(loggedInRollNo).catch((bioErr) => {
@@ -1607,8 +1636,10 @@ function QrScannerApp() {
             return;
         }
 
-        // Strictly block QR 2 validation if student is disqualified or has an unexcused violation
-        if (scanState === 'DISQUALIFIED' || violationCount > 0 || supervisionViolation) {
+        // Strictly block QR 2 validation if student is disqualified or exceeded allowed violations
+        const isAndroidStudent = isNativeApp ? !isIOSDevice() : (typeof navigator !== 'undefined' && /Android/i.test(navigator?.userAgent || ''));
+        const maxViolationsAllowed = isAndroidStudent ? 2 : 1;
+        if (scanState === 'DISQUALIFIED' || violationCount >= maxViolationsAllowed || (supervisionViolation && violationCount >= maxViolationsAllowed)) {
             setErrorMessage('❌ Attendance Disqualified: Security violation detected on your session. Attendance forfeited.');
             return;
         }
@@ -3765,8 +3796,8 @@ function QrScannerApp() {
                             width: '68px',
                             height: '68px',
                             borderRadius: '50%',
-                            background: '#fee2e2',
-                            color: '#b91c1c',
+                            background: (violationCount >= 2 || (!isNativeApp || isIOSDevice())) ? '#fee2e2' : '#fef3c7',
+                            color: (violationCount >= 2 || (!isNativeApp || isIOSDevice())) ? '#b91c1c' : '#b45309',
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'center',
@@ -3775,19 +3806,24 @@ function QrScannerApp() {
                         }}>
                             <FaExclamationTriangle />
                         </div>
-                        <h2 style={{ fontSize: '1.45rem', fontWeight: 800, margin: '0 0 10px 0', color: '#f87171' }}>
-                            Security Supervision Alert!
+                        <h2 style={{ fontSize: '1.45rem', fontWeight: 800, margin: '0 0 10px 0', color: (violationCount >= 2 || (!isNativeApp || isIOSDevice())) ? '#f87171' : '#fbbf24' }}>
+                            {violationCount >= 2 || (!isNativeApp || isIOSDevice()) ? 'Security Violation Disqualification!' : '⚠️ Security Warning (Strike 1/2)'}
                         </h2>
                         <p style={{ maxWidth: '440px', fontSize: '0.94rem', color: '#cbd5e1', lineHeight: 1.5, marginBottom: '20px' }}>
-                            App switching detected for <strong>{loggedInRollNo}</strong>. Leaving SmartAttend is strictly prohibited.
+                            {violationCount >= 2 || (!isNativeApp || isIOSDevice())
+                                ? `App switching detected for ${loggedInRollNo}. Security violations forfeit your attendance.`
+                                : `App switching detected for ${loggedInRollNo}. This is your 1st warning chance! Any further app switch (Strike 2) will permanently disqualify your attendance.`}
                         </p>
                         <button
                             type="button"
-                            onClick={() => setSupervisionViolation(false)}
+                            onClick={() => {
+                                setSupervisionViolation(false);
+                                lifecycleViolationSessionRef.current = null;
+                            }}
                             style={{
                                 padding: '12px 28px',
                                 borderRadius: '14px',
-                                background: '#6366f1',
+                                background: (violationCount >= 2 || (!isNativeApp || isIOSDevice())) ? '#ef4444' : '#6366f1',
                                 color: '#ffffff',
                                 border: 'none',
                                 fontWeight: 800,
@@ -3796,7 +3832,7 @@ function QrScannerApp() {
                                 boxShadow: '0 4px 14px rgba(99, 102, 241, 0.35)'
                             }}
                         >
-                            Return to Attendance Session
+                            {violationCount >= 2 || (!isNativeApp || isIOSDevice()) ? 'Close' : 'I Understand · Return to Attendance'}
                         </button>
                     </div>
                 )}
@@ -3823,6 +3859,37 @@ function QrScannerApp() {
 
                 {/* Live GPS & Lecturer Distance Telemetry */}
                 {renderGpsTelemetryCard()}
+
+                {/* Explicit Attendance Policy Warning Banner */}
+                <div style={{
+                    margin: '0 0 16px 0',
+                    padding: '10px 14px',
+                    borderRadius: '14px',
+                    background: 'rgba(239, 68, 68, 0.1)',
+                    border: '1.5px solid rgba(239, 68, 68, 0.3)',
+                    color: '#fca5a5',
+                    fontSize: '0.82rem',
+                    fontWeight: 700,
+                    lineHeight: 1.45,
+                    textAlign: 'left',
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                    gap: '10px'
+                }}>
+                    <FaExclamationTriangle style={{ color: '#ef4444', fontSize: '1.1rem', flexShrink: 0, marginTop: '2px' }} />
+                    <div>
+                        <strong style={{ color: '#f87171' }}>Security Policy:</strong> Leaving SmartAttend, opening notifications, or switching apps is strictly monitored.
+                        {isNativeApp && !isIOSDevice() ? (
+                            <span style={{ display: 'block', marginTop: '2px', color: '#fde047' }}>
+                                📱 Android: Strike 1 gives a warning chance; Strike 2 permanently forfeits your attendance!
+                            </span>
+                        ) : (
+                            <span style={{ display: 'block', marginTop: '2px', color: '#fde047' }}>
+                                ⚠️ Zero Tolerance: Even 1 violation will immediately disqualify your attendance!
+                            </span>
+                        )}
+                    </div>
+                </div>
 
                 {!isQr2Released ? (
                     /* Hero Supervised Waiting & Countdown Card (Strictly No Scanning) */
