@@ -556,15 +556,23 @@ function QrScannerApp() {
                 });
 
                 if (hasFace) {
-                    setVerifiedStudent((prev) => ({
-                        ...(prev || {}),
-                        rollNo: activeRollNo || prev?.rollNo,
-                        name: data.name || data.fullName || loggedInName || prev?.name || 'Student',
-                        faceRegistered: true,
-                        biometricEnrolled: true,
-                        hasFaceRegistered: true,
-                        photoURL: data.photoURL || prev?.photoURL || null
-                    }));
+                    setVerifiedStudent((prev) => {
+                        const nextRoll = activeRollNo || prev?.rollNo;
+                        const nextName = data.name || data.fullName || loggedInName || prev?.name || 'Student';
+                        const nextPhoto = data.photoURL || prev?.photoURL || null;
+                        if (prev && prev.rollNo === nextRoll && prev.name === nextName && prev.faceRegistered === true && prev.photoURL === nextPhoto) {
+                            return prev;
+                        }
+                        return {
+                            ...(prev || {}),
+                            rollNo: nextRoll,
+                            name: nextName,
+                            faceRegistered: true,
+                            biometricEnrolled: true,
+                            hasFaceRegistered: true,
+                            photoURL: nextPhoto
+                        };
+                    });
                 }
             }
         };
@@ -658,13 +666,21 @@ function QrScannerApp() {
         });
 
         if (hasFace) {
-            setVerifiedStudent((prev) => ({
-                ...(prev || {}),
-                rollNo: roll || activeRollNo,
-                name: dbStudent?.name || profile?.name || prev?.name || loggedInName || 'Student',
-                faceRegistered: true,
-                photoURL: dbStudent?.photoURL || profile?.photoURL || prev?.photoURL || null
-            }));
+            setVerifiedStudent((prev) => {
+                const nextRoll = roll || activeRollNo;
+                const nextName = dbStudent?.name || profile?.name || prev?.name || loggedInName || 'Student';
+                const nextPhoto = dbStudent?.photoURL || profile?.photoURL || prev?.photoURL || null;
+                if (prev && prev.rollNo === nextRoll && prev.name === nextName && prev.faceRegistered === true && prev.photoURL === nextPhoto) {
+                    return prev;
+                }
+                return {
+                    ...(prev || {}),
+                    rollNo: nextRoll,
+                    name: nextName,
+                    faceRegistered: true,
+                    photoURL: nextPhoto
+                };
+            });
         }
     }, [profile, dbStudent, user, activeRollNo, loggedInRollNo, emailRoll, loggedInName]);
 
@@ -821,12 +837,25 @@ function QrScannerApp() {
         };
     }, [releaseCameraLock]);
 
+    const lookupInFlightRef = useRef(false);
+    const lookupCacheRef = useRef({});
+
     // Student Database Record Lookup for Facial Biometrics (Fast 0ms in-memory cache)
     const lookupStudentBiometrics = useCallback(async (roll) => {
-        const targetRoll = (roll || loggedInRollNo || '').trim().toUpperCase();
+        const targetRoll = (roll || loggedInRollNo || activeRollNo || '').trim().toUpperCase();
         if (!targetRoll || targetRoll.length < 2) return;
 
-        // Fast-path 1: Check AuthContext profile or pre-loaded dbStudent (0ms execution)
+        // Fast-path 1: Check in-memory cache
+        if (lookupCacheRef.current[targetRoll]) {
+            const cached = lookupCacheRef.current[targetRoll];
+            setVerifiedStudent((prev) => {
+                if (prev && prev.rollNo === cached.rollNo && prev.faceRegistered === cached.faceRegistered) return prev;
+                return cached;
+            });
+            return;
+        }
+
+        // Fast-path 2: Check AuthContext profile or pre-loaded dbStudent (0ms execution)
         const cachedFaceRemoved = Boolean(
             (profile?.faceRemovedAt && (!profile?.faceEnrolledAt || profile.faceRemovedAt > profile.faceEnrolledAt)) ||
             (dbStudent?.faceRemovedAt && (!dbStudent?.faceEnrolledAt || dbStudent.faceRemovedAt > dbStudent.faceEnrolledAt))
@@ -840,16 +869,23 @@ function QrScannerApp() {
                 localStorage.getItem('smartattend_face_enrolled') === 'true')
         );
         if (cachedFaceRegistered) {
-            setVerifiedStudent({
+            const cachedData = {
                 rollNo: targetRoll,
                 name: loggedInName || dbStudent?.name || profile?.name || 'Student',
                 faceDescriptor: null,
                 faceRegistered: true,
                 photoURL: dbStudent?.photoURL || profile?.photoURL || null
+            };
+            lookupCacheRef.current[targetRoll] = cachedData;
+            setVerifiedStudent((prev) => {
+                if (prev && prev.rollNo === targetRoll && prev.faceRegistered === true) return prev;
+                return cachedData;
             });
             return;
         }
 
+        if (lookupInFlightRef.current) return;
+        lookupInFlightRef.current = true;
         setLookingUpStudent(true);
         try {
             // Fast-path 2: Direct lookup on canonical students/{targetRoll}
@@ -867,14 +903,15 @@ function QrScannerApp() {
                         (Array.isArray(sData.descriptor) && sData.descriptor.length === 128))
                 );
                 if (faceRegistered) {
-                    setVerifiedStudent({
+                    const directResult = {
                         rollNo: targetRoll,
                         name: sData.name || loggedInName || 'Student',
                         faceDescriptor: null,
                         faceRegistered: true,
                         photoURL: sData.photoURL || null
-                    });
-                    setLookingUpStudent(false);
+                    };
+                    lookupCacheRef.current[targetRoll] = directResult;
+                    setVerifiedStudent(directResult);
                     return;
                 }
             }
@@ -939,20 +976,22 @@ function QrScannerApp() {
                 name: merged.name
             });
 
+            lookupCacheRef.current[targetRoll] = merged;
             setVerifiedStudent(merged);
         } catch (err) {
             console.warn('Student biometrics lookup notice:', err);
         } finally {
+            lookupInFlightRef.current = false;
             setLookingUpStudent(false);
         }
-    }, [loggedInRollNo, loggedInName, user, profile, dbStudent]);
+    }, [loggedInRollNo, activeRollNo, loggedInName, user, profile, dbStudent]);
 
     // Pre-load student biometrics immediately when component mounts
     useEffect(() => {
         if (isStudentUser && (loggedInRollNo || activeRollNo)) {
             lookupStudentBiometrics(loggedInRollNo || activeRollNo).catch(() => {});
         }
-    }, [isStudentUser, loggedInRollNo, activeRollNo, lookupStudentBiometrics]);
+    }, [isStudentUser, loggedInRollNo, activeRollNo]);
 
     // Safety Watchdog: Prevent indefinite freeze on VALIDATING_QR2 screen (4000ms safety limit)
     useEffect(() => {

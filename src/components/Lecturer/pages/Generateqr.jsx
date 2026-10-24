@@ -119,8 +119,12 @@ function GenerateQR() {
     const [showLiveCustomGps, setShowLiveCustomGps] = useState(false);
     const [liveCustomGpsInput, setLiveCustomGpsInput] = useState("10");
     const [classroomCoords, setClassroomCoords] = useState(null);
+    const classroomCoordsRef = useRef(classroomCoords);
+    useEffect(() => {
+        classroomCoordsRef.current = classroomCoords;
+    }, [classroomCoords]);
     const [classroomGpsStatus, setClassroomGpsStatus] = useState("IDLE"); // "IDLE" | "ACTIVE" | "UNAVAILABLE" | "DISABLED"
-    
+
     // Laptop / Desktop detection: laptops do not have satellite GPS hardware and rely on Wi-Fi positioning (±50m - 200m)
     const isMobileDevice = typeof navigator !== "undefined" && /Android|iPhone|iPad|iPod|Mobile/i.test(navigator?.userAgent || "");
     const maxHostAccuracy = isMobileDevice ? MAX_CLASSROOM_LOCATION_ACCURACY_METERS : 250;
@@ -950,11 +954,13 @@ function GenerateQR() {
         }, manualExcuseReason || "Physically verified and excused by lecturer in classroom", false, true);
     };
 
-    // Dynamic Rotating QR Effect (rotates every rotationIntervalSec, default 10s)
+    // Dynamic Rotating QR Effect (rotates smoothly every rotationIntervalSec, default 10s)
     useEffect(() => {
         if (!sessionId || phase === "NONE" || phase === "CLOSED") return;
 
         let isMounted = true;
+        let lastSlot = -1;
+
         const updateDynamicToken = async () => {
             const baseToken = phase === "PHASE_1" ? qr1Token : qr2Token;
             const currentPhaseNum = phase === "PHASE_1" ? "1" : "2";
@@ -963,31 +969,34 @@ function GenerateQR() {
                 phase: currentPhaseNum,
                 baseToken,
                 intervalSec: rotationIntervalSec,
-                classroomLocation: classroomCoords
+                classroomLocation: classroomCoordsRef.current
             });
             if (isMounted) {
                 setDynamicQrUrl(url);
             }
         };
 
-        updateDynamicToken();
+        const tickSlot = () => {
+            const now = Date.now();
+            const currentSlot = Math.floor(now / (rotationIntervalSec * 1000));
+            const elapsedInSlot = Math.floor((now % (rotationIntervalSec * 1000)) / 1000);
+            const remaining = Math.max(1, rotationIntervalSec - elapsedInSlot);
+            setRotationSecondsLeft(remaining);
 
-        setRotationSecondsLeft(rotationIntervalSec);
-        const intervalId = setInterval(() => {
-            setRotationSecondsLeft((prev) => {
-                if (prev <= 1) {
-                    updateDynamicToken();
-                    return rotationIntervalSec;
-                }
-                return prev - 1;
-            });
-        }, 1000);
+            if (currentSlot !== lastSlot) {
+                lastSlot = currentSlot;
+                updateDynamicToken();
+            }
+        };
+
+        tickSlot();
+        const intervalId = setInterval(tickSlot, 1000);
 
         return () => {
             isMounted = false;
             clearInterval(intervalId);
         };
-    }, [sessionId, phase, qr1Token, qr2Token, rotationIntervalSec, classroomCoords]);
+    }, [sessionId, phase, qr1Token, qr2Token, rotationIntervalSec]);
 
     // Construct Active QR URL based on current phase and dynamic rotation
     const activeQrUrl = useMemo(() => {

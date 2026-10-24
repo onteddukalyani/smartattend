@@ -401,14 +401,27 @@ function FaceScanner({
     };
   }, [initCameraAndModels]);
 
-  // Reset state when roll number or verified student changes
+  const verifiedRoll = (verifiedStudent?.rollNo || rollNo || profile?.rollNo || "").trim().toUpperCase();
+  const verifiedHasFace = Boolean(
+    verifiedStudent?.faceRegistered ||
+    verifiedStudent?.faceDescriptor ||
+    verifiedStudent?.descriptor ||
+    verifiedStudent?.biometricEnrolled ||
+    verifiedStudent?.hasFaceRegistered
+  );
+  const verifiedStudentRef = useRef(verifiedStudent);
+  useEffect(() => {
+    verifiedStudentRef.current = verifiedStudent;
+  }, [verifiedStudent]);
+
+  // Reset state when target roll number changes
   useEffect(() => {
     resetLivenessState();
     serverMatchRef.current = null;
     lastServerMatchAtRef.current = 0;
     matchRequestTokenRef.current += 1;
     matchInFlightRef.current = false;
-  }, [rollNo, verifiedStudent, resetLivenessState]);
+  }, [verifiedRoll, resetLivenessState]);
 
   // 3. Real-time Face Detection, Biometric Matching, Liveness & Anti-Spoofing Loop
   useEffect(() => {
@@ -836,7 +849,8 @@ function FaceScanner({
       }
     };
   }, [
-    verifiedStudent,
+    verifiedRoll,
+    verifiedHasFace,
     rollNo,
     lookingUp,
     modelsLoaded,
