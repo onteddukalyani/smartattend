@@ -191,7 +191,21 @@ export function evaluateGeofence(studentCoordsRaw, classroomCoordsRaw, retryCoun
     };
   }
 
-  const uncertaintyAllowance = Math.min(accuracy > 0 ? accuracy / 2 : 0, Math.min(5, radius * 0.5));
+  const studentAccuracy = accuracy;
+  const classroomAccuracy = Math.max(0, Math.round(Number(classroom.accuracy) || 0));
+
+  let uncertaintyAllowance;
+  if (classroomAccuracy > 10) {
+    // When classroom accuracy is coarse (e.g. laptop Wi-Fi location ±35m or indoor fix),
+    // combine the host and student error radii using standard RSS (root-sum-square) uncertainty model.
+    const hostAllowance = Math.min(60, classroomAccuracy);
+    const studentAllowance = Math.min(45, studentAccuracy > 0 ? studentAccuracy : 15);
+    uncertaintyAllowance = Math.round(Math.sqrt(hostAllowance * hostAllowance + studentAllowance * studentAllowance) * 10) / 10;
+  } else {
+    // Baseline model for high-precision GNSS hosts (accuracy <= 10m)
+    uncertaintyAllowance = Math.min(studentAccuracy > 0 ? studentAccuracy / 2 : 0, Math.min(5, radius * 0.5));
+  }
+
   const effectiveDistance = Math.max(0, Math.round((distance - uncertaintyAllowance) * 10) / 10);
 
   const telemetry = {
@@ -211,7 +225,7 @@ export function evaluateGeofence(studentCoordsRaw, classroomCoordsRaw, retryCoun
       status: "PASS",
       ...telemetry,
       geofenceEnforced: true,
-      message: `✅ Geofence Verified: Inside classroom (${distance}m measured distance within ${radius}m boundary).`
+      message: `✅ Geofence Verified: Inside classroom (${distance}m measured distance within ${radius}m boundary${uncertaintyAllowance > 0 ? `, ±${uncertaintyAllowance}m sensor tolerance` : ""}).`
     };
   }
 

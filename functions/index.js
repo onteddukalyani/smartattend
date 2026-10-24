@@ -175,12 +175,18 @@ function evaluateServerGeofence(studentCoords, classroomCoords, radiusMetres, se
     };
   }
 
-  // Defensible sensor uncertainty model:
-  // For standard 10m classroom radius, uncertainty allowance accommodates indoor GPS antenna drift
-  // but strictly caps max allowance to min(5m, radius * 0.5).
-  // This guarantees that no student beyond (radius + 5m) = 15m can EVER pass, even with poor accuracy!
-  const maxAllowance = Math.min(5, radius * 0.5);
-  const uncertaintyAllowance = Math.min(accuracy > 0 ? accuracy / 2 : 0, maxAllowance);
+  const studentAccuracy = accuracy;
+  const classroomAccuracy = Math.max(0, Math.round(Number(classroomCoords.accuracy) || 0));
+
+  let uncertaintyAllowance;
+  if (classroomAccuracy > 10) {
+    const hostAllowance = Math.min(60, classroomAccuracy);
+    const studentAllowance = Math.min(45, studentAccuracy > 0 ? studentAccuracy : 15);
+    uncertaintyAllowance = Math.round(Math.sqrt(hostAllowance * hostAllowance + studentAllowance * studentAllowance) * 10) / 10;
+  } else {
+    const maxAllowance = Math.min(5, radius * 0.5);
+    uncertaintyAllowance = Math.min(studentAccuracy > 0 ? studentAccuracy / 2 : 0, maxAllowance);
+  }
 
   const measuredDist = Math.round(rawDist * 10) / 10;
   const effectiveDist = Math.max(0, Math.round((rawDist - uncertaintyAllowance) * 10) / 10);

@@ -1763,9 +1763,10 @@ function QrScannerApp() {
                 const currentAttempts = geofenceAttemptsRef.current;
                 setGeofenceAttempts(currentAttempts);
 
+                const displayDist = geoEval?.effectiveDistance !== undefined ? geoEval.effectiveDistance : calculatedDistance;
                 if (currentAttempts >= 3) {
-                    console.error(`[Geofence] Max attempts (3/3) exceeded. Distance: ${calculatedDistance}m > ${selectedGeofence}m.`);
-                    setErrorMessage(`❌ Attendance Rejected: Maximum attempts (3/3) exceeded. You are ${calculatedDistance}m away from the lecturer (allowed: ≤ ${selectedGeofence}m). Attendance forfeited.`);
+                    console.error(`[Geofence] Max attempts (3/3) exceeded. Distance: ${displayDist}m > ${selectedGeofence}m.`);
+                    setErrorMessage(`❌ Attendance Rejected: Maximum attempts (3/3) exceeded. You are ${displayDist}m away from the lecturer (allowed: ≤ ${selectedGeofence}m). Attendance forfeited.`);
                     setScanState('DISQUALIFIED');
                     setSupervisionViolation(true);
                     if (activeSessionId || payload.sessionId) {
@@ -1773,8 +1774,8 @@ function QrScannerApp() {
                     }
                     return;
                 } else {
-                    console.warn(`[Geofence] Attempt ${currentAttempts}/3 rejected. Distance: ${calculatedDistance}m > ${selectedGeofence}m.`);
-                    setErrorMessage(`❌ Geofence Rejection: You are ${calculatedDistance}m away from the lecturer (allowed: ≤ ${selectedGeofence}m). Attempt ${currentAttempts}/3. Please move closer to the lecturer and scan again.`);
+                    console.warn(`[Geofence] Attempt ${currentAttempts}/3 rejected. Distance: ${displayDist}m > ${selectedGeofence}m.`);
+                    setErrorMessage(`❌ Geofence Rejection: You are ${displayDist}m away from the lecturer (allowed: ≤ ${selectedGeofence}m). Attempt ${currentAttempts}/3. Please move closer to the lecturer and scan again.`);
                     return;
                 }
             }

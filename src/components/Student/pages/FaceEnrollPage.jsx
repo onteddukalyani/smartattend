@@ -41,7 +41,19 @@ export default function FaceEnrollPage() {
     const [activeTab, setActiveTab] = useState("face"); // "face" | "fingerprint"
 
     // Real-time Enrollment Status
-    const [hasFaceRegistered, setHasFaceRegistered] = useState(false);
+    const [hasFaceRegistered, setHasFaceRegistered] = useState(() => {
+        try {
+            return Boolean(
+                profile?.faceRegistered ||
+                profile?.biometricEnrolled ||
+                profile?.hasFaceRegistered ||
+                localStorage.getItem(`smartattend_face_enrolled_${profile?.rollNo || ""}`) === "true" ||
+                localStorage.getItem("smartattend_face_enrolled") === "true"
+            );
+        } catch (_) {
+            return false;
+        }
+    });
     const [showFaceTest, setShowFaceTest] = useState(false);
     const [faceTestResult, setFaceTestResult] = useState("");
     const [isReEnrolling, setIsReEnrolling] = useState(false);
@@ -98,10 +110,23 @@ export default function FaceEnrollPage() {
         refreshHwStatus();
     }, [isNative, hasHwRegistered]);
 
-    // Live Snapshot for Real-Time Status Tracking from student record
+    // Live Snapshot for Real-Time Status Tracking from student & user records
     useEffect(() => {
         if (!activeRollNo) return;
+        const localFaceStatus = (
+            profile?.faceRegistered ||
+            profile?.biometricEnrolled ||
+            profile?.hasFaceRegistered ||
+            localStorage.getItem(`smartattend_face_enrolled_${activeRollNo}`) === "true" ||
+            (user?.uid && localStorage.getItem(`smartattend_face_enrolled_${user.uid}`) === "true") ||
+            localStorage.getItem("smartattend_face_enrolled") === "true"
+        );
+        if (localFaceStatus) {
+            setHasFaceRegistered(true);
+        }
+
         const localHwStatus = (
+            profile?.hardwareBiometricEnrolled ||
             localStorage.getItem(`smartattend_hw_enrolled_${activeRollNo}`) === "true" ||
             (user?.uid && localStorage.getItem(`smartattend_hw_enrolled_${user.uid}`) === "true") ||
             localStorage.getItem("smartattend_hw_enrolled") === "true"
@@ -110,31 +135,59 @@ export default function FaceEnrollPage() {
             setHasHwRegistered(true);
         }
 
-        const unsub = onSnapshot(doc(db, "students", activeRollNo), (snap) => {
-            if (snap.exists()) {
-                const data = snap.data();
-                setHasFaceRegistered(Boolean(
-                    data.faceRegistered || data.biometricEnrolled || data.hasFaceRegistered
-                ));
-                const hwEnrolled = Boolean(data.hardwareBiometricEnrolled) || localHwStatus;
-                setHasHwRegistered(hwEnrolled);
-                if (data.hardwareBiometricEnrolled) {
-                    try {
-                        localStorage.setItem(`smartattend_hw_enrolled_${activeRollNo}`, "true");
-                        if (user?.uid) localStorage.setItem(`smartattend_hw_enrolled_${user.uid}`, "true");
-                        localStorage.setItem("smartattend_hw_enrolled", "true");
-                    } catch (_) {}
-                }
-            } else {
-                setHasFaceRegistered(false);
-                setHasHwRegistered(localHwStatus);
+        const handleDocUpdate = (data) => {
+            if (!data) return;
+            const faceEnrolled = Boolean(
+                !data.faceRemovedAt &&
+                (data.faceRegistered || data.biometricEnrolled || data.hasFaceRegistered)
+            );
+            if (faceEnrolled) {
+                setHasFaceRegistered(true);
+                try {
+                    localStorage.setItem(`smartattend_face_enrolled_${activeRollNo}`, "true");
+                    if (user?.uid) localStorage.setItem(`smartattend_face_enrolled_${user.uid}`, "true");
+                    localStorage.setItem("smartattend_face_enrolled", "true");
+                } catch (_) {}
             }
-        }, (err) => {
-            console.warn("Biometric status snap warning:", err);
-            if (localHwStatus) setHasHwRegistered(true);
-        });
-        return () => unsub();
-    }, [activeRollNo, user?.uid]);
+
+            const hwEnrolled = Boolean(data.hardwareBiometricEnrolled) || localHwStatus;
+            if (hwEnrolled) {
+                setHasHwRegistered(true);
+                try {
+                    localStorage.setItem(`smartattend_hw_enrolled_${activeRollNo}`, "true");
+                    if (user?.uid) localStorage.setItem(`smartattend_hw_enrolled_${user.uid}`, "true");
+                    localStorage.setItem("smartattend_hw_enrolled", "true");
+                } catch (_) {}
+            }
+        };
+
+        const unsubs = [];
+        unsubs.push(onSnapshot(doc(db, "students", activeRollNo), (snap) => {
+            if (snap.exists()) {
+                handleDocUpdate(snap.data());
+            } else if (localFaceStatus) {
+                setHasFaceRegistered(true);
+            }
+        }, (err) => console.warn("Biometric student snap warning:", err)));
+
+        unsubs.push(onSnapshot(doc(db, "users", activeRollNo), (snap) => {
+            if (snap.exists()) {
+                handleDocUpdate(snap.data());
+            }
+        }, (err) => console.warn("Biometric user roll snap warning:", err)));
+
+        if (user?.uid && user.uid !== activeRollNo) {
+            unsubs.push(onSnapshot(doc(db, "users", user.uid), (snap) => {
+                if (snap.exists()) {
+                    handleDocUpdate(snap.data());
+                }
+            }, (err) => console.warn("Biometric user uid snap warning:", err)));
+        }
+
+        return () => {
+            unsubs.forEach((u) => u && u());
+        };
+    }, [activeRollNo, user?.uid, profile]);
 
     // Live Subscription to Re-registration Permissions
     useEffect(() => {
@@ -735,33 +788,6 @@ export default function FaceEnrollPage() {
                                                 <><FaRedo /> <span>{isStaff ? "Re-Register Fingerprint (Staff)" : "Re-Register Fingerprint (Pass Active)"}</span></>
                                             )}
                                         </button>
-                                    </div>
-                                )}
-
-                                {isNative && !keyExistsOnDevice && !canReEnrollHw && (
-                                    <div className="fp-rebind-warning-box">
-                                        <div style={{ display: "flex", alignItems: "flex-start", gap: "12px" }}>
-                                            <FaExclamationTriangle style={{ color: "#d97706", fontSize: "1.4rem", flexShrink: 0, marginTop: "2px" }} />
-                                            <div>
-                                                <strong style={{ color: "#92400e", fontSize: "0.95rem" }}>Phone Keystore Not Yet Initialized</strong>
-                                                <p style={{ margin: "4px 0 10px", fontSize: "0.85rem", color: "#b45309", lineHeight: 1.45 }}>
-                                                    Your account has hardware biometrics enrolled in the database, but this phone does not have the hardware signature key in its keystore yet. Tap below to bind this phone now:
-                                                </p>
-                                                <button
-                                                    type="button"
-                                                    className="fp-primary-enroll-btn"
-                                                    onClick={() => handleEnrollFingerprint(true)}
-                                                    disabled={hwEnrolling}
-                                                    style={{ padding: "10px 18px", fontSize: "0.9rem" }}
-                                                >
-                                                    {hwEnrolling ? (
-                                                        <><FaSpinner className="fa-spin" /> <span>Waiting for Fingerprint...</span></>
-                                                    ) : (
-                                                        <><FaFingerprint /> <span>Touch Sensor to Bind This Phone</span></>
-                                                    )}
-                                                </button>
-                                            </div>
-                                        </div>
                                     </div>
                                 )}
 

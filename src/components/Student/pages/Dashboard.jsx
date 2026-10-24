@@ -324,7 +324,10 @@ export default function StudentDashboard() {
 
     const hasFaceRegistered = Boolean(
         (!fetchedStudentData?.faceRemovedAt && (fetchedStudentData?.faceRegistered || fetchedStudentData?.biometricEnrolled || fetchedStudentData?.hasFaceRegistered)) ||
-        (!profile?.faceRemovedAt && (profile?.faceRegistered || profile?.biometricEnrolled || profile?.hasFaceRegistered))
+        (!profile?.faceRemovedAt && (profile?.faceRegistered || profile?.biometricEnrolled || profile?.hasFaceRegistered)) ||
+        (activeRollNo && localStorage.getItem(`smartattend_face_enrolled_${activeRollNo}`) === "true") ||
+        (user?.uid && localStorage.getItem(`smartattend_face_enrolled_${user.uid}`) === "true") ||
+        localStorage.getItem("smartattend_face_enrolled") === "true"
     );
 
     const hasHwRegistered = Boolean(
