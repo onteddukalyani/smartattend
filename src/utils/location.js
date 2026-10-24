@@ -64,15 +64,56 @@ export function isAccurateLocation(
   return isFreshLocation(location, now) && Number(location.accuracy ?? location.acc) <= maxAccuracy;
 }
 
+/**
+ * Selects the highest quality, most defensible student GPS fix from available candidates.
+ * Prioritizes fixes meeting the classroom accuracy threshold (<= 45m), tie-broken by
+ * precision and freshness. Never discards an accurate fix in favor of a newer degraded fix.
+ */
+export function pickBestStudentLocation(
+  candidates = [],
+  maxAccuracy = MAX_CLASSROOM_LOCATION_ACCURACY_METERS,
+  now = Date.now()
+) {
+  const validCandidates = (Array.isArray(candidates) ? candidates : [candidates])
+    .filter((loc) => isFreshLocation(loc, now));
+
+  if (validCandidates.length === 0) return null;
+
+  const accurate = validCandidates.filter((loc) => isAccurateLocation(loc, now, maxAccuracy));
+  if (accurate.length > 0) {
+    accurate.sort((a, b) => {
+      const accA = Number(a.accuracy ?? a.acc);
+      const accB = Number(b.accuracy ?? b.acc);
+      const diff = accA - accB;
+      if (Math.abs(diff) > 5) return diff; // Significant accuracy gain
+      return Number(b.timestamp) - Number(a.timestamp); // Fresher fix
+    });
+    return accurate[0];
+  }
+
+  // Fallback: pick the best precision among fresh fixes
+  validCandidates.sort((a, b) => {
+    const accA = Number(a.accuracy ?? a.acc);
+    const accB = Number(b.accuracy ?? b.acc);
+    return accA - accB;
+  });
+  return validCandidates[0];
+}
+
 export function acquireAccurateLocation(
   geolocation,
   {
     timeoutMs = CLASSROOM_LOCATION_ACQUISITION_TIMEOUT_MS,
-    maxAccuracy = MAX_CLASSROOM_LOCATION_ACCURACY_METERS
+    maxAccuracy = MAX_CLASSROOM_LOCATION_ACCURACY_METERS,
+    maximumAge = 0
   } = {}
 ) {
   return new Promise((resolve, reject) => {
-    if (!geolocation || typeof geolocation.watchPosition !== "function") {
+    if (
+      !geolocation ||
+      (typeof geolocation.watchPosition !== "function" &&
+        typeof geolocation.getCurrentPosition !== "function")
+    ) {
       resolve(null);
       return;
     }
@@ -87,7 +128,7 @@ export function acquireAccurateLocation(
       if (settled) return;
       settled = true;
       clearTimeout(timeoutId);
-      if (watchId !== null) {
+      if (watchId !== null && typeof geolocation.clearWatch === "function") {
         geolocation.clearWatch(watchId);
       } else {
         clearWatchAfterStart = true;
@@ -95,31 +136,54 @@ export function acquireAccurateLocation(
       resolve(location);
     };
 
-    try {
-      watchId = geolocation.watchPosition(
-        (position) => {
-          const location = locationFromPosition(position);
-          if (!location) return;
-          if (!bestLocation || location.accuracy < bestLocation.accuracy) {
-            bestLocation = location;
-          }
-          if (isAccurateLocation(location, Date.now(), maxAccuracy)) {
-            finish(location);
-          }
-        },
-        () => finish(bestLocation),
-        { enableHighAccuracy: true, timeout: timeoutMs, maximumAge: 0 }
-      );
-      if (clearWatchAfterStart && watchId !== null) {
-        geolocation.clearWatch(watchId);
+    const handlePosition = (position) => {
+      const location = locationFromPosition(position);
+      if (!location) return;
+      if (!bestLocation || location.accuracy < bestLocation.accuracy) {
+        bestLocation = location;
       }
-    } catch (error) {
-      settled = true;
-      clearTimeout(timeoutId);
-      if (watchId !== null) {
-        geolocation.clearWatch(watchId);
+      if (isAccurateLocation(location, Date.now(), maxAccuracy)) {
+        finish(location);
       }
-      reject(error);
+    };
+
+    // Fast-path 1: Parallel getCurrentPosition for rapid one-shot GNSS prime
+    if (typeof geolocation.getCurrentPosition === "function") {
+      try {
+        geolocation.getCurrentPosition(
+          handlePosition,
+          () => {},
+          {
+            enableHighAccuracy: true,
+            timeout: timeoutMs,
+            maximumAge: typeof maximumAge === "number" ? maximumAge : 0
+          }
+        );
+      } catch (_) {}
+    }
+
+    // Fast-path 2: watchPosition for continuous refining lock
+    if (typeof geolocation.watchPosition === "function") {
+      try {
+        watchId = geolocation.watchPosition(
+          handlePosition,
+          () => finish(bestLocation),
+          {
+            enableHighAccuracy: true,
+            timeout: timeoutMs,
+            maximumAge: typeof maximumAge === "number" ? maximumAge : 0
+          }
+        );
+        if (clearWatchAfterStart && watchId !== null && typeof geolocation.clearWatch === "function") {
+          geolocation.clearWatch(watchId);
+        }
+      } catch (error) {
+        if (!settled && typeof geolocation.getCurrentPosition !== "function") {
+          settled = true;
+          clearTimeout(timeoutId);
+          reject(error);
+        }
+      }
     }
   });
 }

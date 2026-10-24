@@ -51,6 +51,7 @@ import StudentReadinessModal from "../StudentReadinessModal";
 import { requestAppNotificationPermissions } from "../../../services/nativeNotificationService";
 import { subscribeToStudentNotifications, markNotificationAsRead, sendFacultyNotification, sendStudentNotification, reportUserVerificationComplaint, getTimestampMs } from "../../../services/notificationsService";
 import { detectDeviceType, getClientIpAddress, getDeviceDisplayName, isDeviceMatching } from "../../../utils/deviceDetection";
+import { locationFromPosition, isAccurateLocation } from "../../../utils/location";
 import { Capacitor } from "@capacitor/core";
 import { KioskPlugin } from "../../../plugins/kiosk";
 import { checkForAppUpdate, subscribeToAppUpdates, triggerApkDownload } from "../../../services/appUpdateService";
@@ -179,7 +180,18 @@ export default function StudentDashboard() {
             // Auto-trigger native / browser permission requests
             requestAppNotificationPermissions().catch(() => { });
             if (typeof navigator !== "undefined" && navigator.geolocation) {
-                navigator.geolocation.getCurrentPosition(() => { }, () => { }, { timeout: 8000, maximumAge: 0 });
+                navigator.geolocation.getCurrentPosition(
+                    (pos) => {
+                        const loc = locationFromPosition(pos);
+                        if (loc && isAccurateLocation(loc)) {
+                            try {
+                                localStorage.setItem('smartattend_student_location', JSON.stringify(loc));
+                            } catch (_) { }
+                        }
+                    },
+                    () => { },
+                    { enableHighAccuracy: true, timeout: 8000, maximumAge: 15000 }
+                );
             }
         }
     }, []);
@@ -552,7 +564,6 @@ export default function StudentDashboard() {
     const handleEnrollStudentFace = async (enrollData) => {
         if (!enrollData || !enrollData.faceDescriptor || !activeRollNo) return;
 
-        // Security Lock: Prevent re-enrolling or editing once registered
         if (hasFaceRegistered) {
             alert("🔒 Biometrics Locked:\n\nYour facial biometrics are already enrolled and permanently protected. Students cannot re-enroll or edit biometrics.\n\nPlease contact your Course Lecturer or Administrator if an authorized reset is needed.");
             return;
@@ -572,7 +583,6 @@ export default function StudentDashboard() {
                 faceRemovedAt: null
             }));
 
-            // Notify Faculty & Admins
             sendFacultyNotification(
                 "Face Biometrics Enrolled 👤",
                 `Student ${studentName} (${activeRollNo}) registered facial biometrics via live 3D face verification.`,

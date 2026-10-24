@@ -3,13 +3,19 @@ import { db, auth } from '../../firebase';
 import { doc, updateDoc, setDoc, getDoc, arrayUnion, increment, serverTimestamp } from 'firebase/firestore';
 import { FaShieldAlt, FaCheck, FaTimes, FaExclamationTriangle, FaTrashAlt } from 'react-icons/fa';
 import { sendStudentNotification } from '../../services/notificationsService';
+import ExcuseFaceVerification from './ExcuseFaceVerification';
 
 export default function ViolationReviewModal({ violation, onClose, onActionComplete }) {
     const [actionLoading, setActionLoading] = useState(false);
+    const [pendingFaceVerification, setPendingFaceVerification] = useState(false);
 
     if (!violation) return null;
 
-    const handleDecision = async (status, reviewNotes) => {
+    const handleDecision = async (status, reviewNotes, faceVerified = false) => {
+        if (status === 'APPROVED' && !faceVerified) {
+            setPendingFaceVerification(true);
+            return;
+        }
         setActionLoading(true);
         try {
             const studentRoll = (violation.rollNo || violation.rollNumber || violation.studentUid || "").toString().trim().toUpperCase();
@@ -92,7 +98,7 @@ export default function ViolationReviewModal({ violation, onClose, onActionCompl
                 reviewedAt: serverTimestamp(),
                 excused: status === 'APPROVED',
                 dismissed: status === 'DISMISSED',
-                faceVerified: Boolean(violation.faceVerified)
+                faceVerified: status === 'APPROVED' ? true : Boolean(violation.faceVerified)
             };
 
             for (const recId of targetIds) {
@@ -165,7 +171,7 @@ export default function ViolationReviewModal({ violation, onClose, onActionCompl
                                 studentName: studentName,
                                 fullName: studentName,
                                 email: studentEmail,
-                                faceVerified: Boolean(violation.faceVerified),
+                                faceVerified: status === 'APPROVED' ? true : Boolean(violation.faceVerified),
                                 excused: true,
                                 status: 'APPROVED',
                                 submittedAt: violation.submittedAt || violation.timestamp || Date.now()
@@ -343,6 +349,20 @@ export default function ViolationReviewModal({ violation, onClose, onActionCompl
                     </button>
                 </div>
             </div>
+            {pendingFaceVerification && (
+                <ExcuseFaceVerification
+                    student={{
+                        ...violation,
+                        rollNo: violation.rollNo || violation.rollNumber || violation.studentUid || violation.id,
+                        studentName: violation.studentName || violation.name
+                    }}
+                    onCancel={() => setPendingFaceVerification(false)}
+                    onVerified={() => {
+                        setPendingFaceVerification(false);
+                        void handleDecision('APPROVED', 'Violation forgiven by lecturer', true);
+                    }}
+                />
+            )}
         </div>
     );
 }

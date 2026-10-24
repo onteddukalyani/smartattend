@@ -19,6 +19,7 @@ import { sendFacultyNotification, sendBroadcastNotification, sendStudentNotifica
 import { useAuth } from "../../authcontext";
 import { isCourseAssignedToLecturer } from "../../Common/CoursesManager";
 import { normalizeBranchName, isGenericName } from "../../../utils/studentDataHelper";
+import ExcuseFaceVerification from "../../Common/ExcuseFaceVerification";
 import { generateRotatingQrPayload, DEFAULT_ROTATION_INTERVAL, ROTATION_INTERVALS } from "../../../utils/qrCrypto";
 import {
     acquireAccurateLocation,
@@ -151,6 +152,7 @@ function GenerateQR() {
     const [manualExcuseRoll, setManualExcuseRoll] = useState("");
     const [manualExcuseReason, setManualExcuseReason] = useState("Physically verified & excused by lecturer in classroom");
     const [isExcusingManual, setIsExcusingManual] = useState(false);
+    const [pendingFaceExcuse, setPendingFaceExcuse] = useState(null);
     const [rosterFilterTab, setRosterFilterTab] = useState("ALL"); // "ALL" | "PRESENT" | "PENDING" | "VIOLATIONS"
     const [searchTerm, setSearchTerm] = useState("");
 
@@ -223,8 +225,23 @@ function GenerateQR() {
                     ...location,
                     radius: geofenceRadius || 10
                 };
-                setClassroomCoords(coords);
-                setClassroomGpsStatus(isAccurateLocation(coords) ? "ACTIVE" : "ACQUIRING");
+                const isAccurate = isAccurateLocation(coords);
+                setClassroomCoords((prev) => {
+                    if (!prev) return coords;
+                    if (isAccurate) {
+                        const prevAccurate = isAccurateLocation(prev);
+                        if (!prevAccurate || coords.accuracy <= prev.accuracy || (coords.timestamp - prev.timestamp > 15000)) {
+                            return coords;
+                        }
+                    } else if (!isAccurateLocation(prev)) {
+                        if (coords.accuracy < prev.accuracy) return coords;
+                    }
+                    return prev;
+                });
+                setClassroomGpsStatus((prevStatus) => {
+                    if (isAccurate) return "ACTIVE";
+                    return prevStatus === "ACTIVE" ? "ACTIVE" : "ACQUIRING";
+                });
             }
         };
 
@@ -235,25 +252,25 @@ function GenerateQR() {
                     navigator.geolocation.getCurrentPosition(
                         applyHostGps,
                         (err) => console.warn("[Generateqr] Lecturer GPS pre-warm notice:", err?.message || err),
-                        { enableHighAccuracy: false, timeout: 6000, maximumAge: 0 }
+                        { enableHighAccuracy: false, timeout: 6000, maximumAge: 15000 }
                     );
                 },
-                { enableHighAccuracy: true, timeout: 6000, maximumAge: 0 }
+                { enableHighAccuracy: true, timeout: 6000, maximumAge: 15000 }
             );
 
             watchId = navigator.geolocation.watchPosition(
                 applyHostGps,
-                () => {},
-                { enableHighAccuracy: true, maximumAge: 0 }
+                () => { },
+                { enableHighAccuracy: true, maximumAge: 5000, timeout: 8000 }
             );
-        } catch (_) {}
+        } catch (_) { }
 
         return () => {
             if (watchId !== null && typeof navigator !== "undefined" && navigator.geolocation) {
-                try { navigator.geolocation.clearWatch(watchId); } catch (_) {}
+                try { navigator.geolocation.clearWatch(watchId); } catch (_) { }
             }
         };
-    }, []);
+    }, [geofenceRadius, sessionId]);
 
     const myCourses = useMemo(() => {
         return availableCourses.filter((c) => isCourseAssignedToLecturer(c, user, profile));
@@ -432,6 +449,8 @@ function GenerateQR() {
             const finalClassCode = normalizeBranchName(classCode || "CSE");
             const effectiveQr1Sec = Math.max(15, Number(qr1Seconds) || 45);
             const effectiveQr2Sec = Math.max(15, Number(qr2Seconds) || 75);
+            const effectiveTotalSec = effectiveQr1Sec + effectiveQr2Sec;
+            const effectiveDurationMinutes = Math.round((effectiveTotalSec / 60) * 10) / 10;
 
             // Ensure Lecturer Host GPS is locked before initiating session document
             let hostCoords = isAccurateLocation(classroomCoords) ? classroomCoords : null;
@@ -811,30 +830,52 @@ function GenerateQR() {
     };
 
     // 7. Excuse / Reinstate Student Attendance (When student provides a physical valid reason in class)
-    const handleExcuseStudent = async (student, reason = "Physically verified and excused by lecturer in classroom") => {
+    const handleExcuseStudent = async (
+        student,
+        reason = "Physically verified and excused by lecturer in classroom",
+        faceVerified = false,
+        isManual = false
+    ) => {
         const rollNo = (student.rollNo || student.studentUid || student.id || "").toString().trim().toUpperCase();
         const studentId = student.studentUid || student.id || rollNo;
         const studentName = student.studentName || student.fullName || rollNo;
 
+        if (!faceVerified) {
+            if (!window.confirm(`Verify ${studentName} (${rollNo}) by live face scan before excusing and marking Present?`)) return;
+            setPendingFaceExcuse({
+                student: { ...student, rollNo, studentName },
+                reason,
+                isManual
+            });
+            setIsExcusingManual(isManual);
+            return;
+        }
+
         if (!window.confirm(`Excuse violation & mark ${studentName} (${rollNo}) as Present (Approved)?`)) {
+            setIsExcusingManual(false);
             return;
         }
 
         setExcusingStudentId(studentId);
+        setIsExcusingManual(isManual);
         try {
             const lecturerDisplayName = profile?.name || user?.displayName || "Lecturer";
             await excuseAndReinstateAttendance(sessionId, {
                 ...student,
                 rollNo,
                 studentName,
-                studentUid: studentId
+                studentUid: studentId,
+                faceVerified: true
             }, lecturerDisplayName, reason);
             alert(`✅ Attendance for ${studentName} (${rollNo}) has been approved and reinstated as Present!`);
+            setManualExcuseRoll("");
+            setShowManualExcuseModal(false);
         } catch (err) {
             console.error("Failed to excuse student:", err);
             alert("❌ Failed to excuse student: " + (err.message || err));
         } finally {
             setExcusingStudentId(null);
+            setIsExcusingManual(false);
         }
     };
 
@@ -845,24 +886,12 @@ function GenerateQR() {
             alert("Please enter a valid student Roll Number.");
             return;
         }
-        setIsExcusingManual(true);
-        try {
-            const cleanRoll = manualExcuseRoll.trim().toUpperCase();
-            const lecturerDisplayName = profile?.name || user?.displayName || "Lecturer";
-            await excuseAndReinstateAttendance(sessionId, {
-                rollNo: cleanRoll,
-                studentName: cleanRoll,
-                studentUid: cleanRoll
-            }, lecturerDisplayName, manualExcuseReason || "Physically verified and excused by lecturer in classroom");
-            alert(`✅ Attendance for ${cleanRoll} has been restored and marked as Present!`);
-            setManualExcuseRoll("");
-            setShowManualExcuseModal(false);
-        } catch (err) {
-            console.error("Failed to excuse student manually:", err);
-            alert("❌ Failed to reinstate attendance: " + (err.message || err));
-        } finally {
-            setIsExcusingManual(false);
-        }
+        const cleanRoll = manualExcuseRoll.trim().toUpperCase();
+        await handleExcuseStudent({
+            rollNo: cleanRoll,
+            studentName: cleanRoll,
+            studentUid: cleanRoll
+        }, manualExcuseReason || "Physically verified and excused by lecturer in classroom", false, true);
     };
 
     // Dynamic Rotating QR Effect (rotates every rotationIntervalSec, default 10s)
@@ -2962,6 +2991,20 @@ function GenerateQR() {
                         </form>
                     </div>
                 </div>
+            )}
+            {pendingFaceExcuse && (
+                <ExcuseFaceVerification
+                    student={pendingFaceExcuse.student}
+                    onCancel={() => {
+                        setPendingFaceExcuse(null);
+                        setIsExcusingManual(false);
+                    }}
+                    onVerified={() => {
+                        const pending = pendingFaceExcuse;
+                        setPendingFaceExcuse(null);
+                        void handleExcuseStudent(pending.student, pending.reason, true, pending.isManual);
+                    }}
+                />
             )}
         </div>
     );

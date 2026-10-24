@@ -16,8 +16,6 @@ import {
   FaGraduationCap,
   FaQrcode,
   FaHeadset,
-  FaKey,
-  FaUserCheck
 } from "react-icons/fa";
 import { useAuth } from "../authcontext";
 
@@ -37,8 +35,6 @@ const AdminSidebar = ({ isOpen, onClose }) => {
   const menuItems = [
     { path: "/admin", label: "Dashboard", icon: FaHome, end: true },
     { path: "/admin/lecturerpage", label: "Generate QR", icon: FaQrcode },
-    { path: "/admin/manage-reregistration", label: "Re-Registration", icon: FaKey },
-    { path: "/admin/identify-student", label: "Identify Student", icon: FaUserCheck },
     { path: "/admin/admins", label: "Manage Admins", icon: FaUserShield },
     { path: "/admin/lecturers", label: "Manage Lecturers", icon: FaChalkboardTeacher },
     { path: "/admin/students", label: "Manage Students", icon: FaUserGraduate },

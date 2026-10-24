@@ -1165,6 +1165,112 @@ async function resolveAuthoritativeStudent(uid, email) {
   );
 }
 
+async function resolveBiometricEnrollmentIdentity(request) {
+  const uid = request.auth?.uid;
+  if (!uid) {
+    throw new HttpsError("unauthenticated", "Authentication is required to enroll biometrics.");
+  }
+
+  const email = String(request.auth.token.email || "").trim().toLowerCase();
+  const isStaff = await isFaceEnrollmentStaff(request);
+  if (!isStaff) {
+    const student = await resolveAuthoritativeStudent(uid, email);
+    return {
+      ...student,
+      identityType: "STUDENT",
+      staffRole: null,
+      isStaff: false,
+      staffRef: null,
+      staffData: null
+    };
+  }
+
+  const emailPrefix = email ? email.split("@")[0] : "";
+  const ids = [...new Set([uid, email, emailPrefix].filter(Boolean))];
+  const userRef = db.collection("users").doc(uid);
+  const staffRoleFromClaims = String(request.auth.token.role || "").trim().toLowerCase();
+  const adminRoleFromClaims = request.auth.token.admin === true ||
+    ["admin", "administrator", "superadmin"].includes(staffRoleFromClaims);
+
+  const [userSnap, adminSnaps, lecturerSnaps, authorizedSnaps] = await Promise.all([
+    userRef.get(),
+    Promise.all(ids.map((id) => db.collection("admins").doc(id).get())),
+    Promise.all(ids.map((id) => db.collection("lecturers").doc(id).get())),
+    Promise.all(ids.map((id) => db.collection("authorizedUsers").doc(id).get()))
+  ]);
+
+  let staffRole = adminRoleFromClaims ? "ADMIN" : "";
+  let staffSnap = null;
+  const profileSnaps = [userSnap, ...authorizedSnaps].filter((snapshot) => snapshot.exists);
+  if (!staffRole) {
+    const adminSnap = adminSnaps.find((snapshot) => snapshot.exists);
+    if (adminSnap) {
+      staffRole = "ADMIN";
+      staffSnap = adminSnap;
+    }
+  }
+  if (!staffRole && profileSnaps.some((snapshot) => {
+    const data = snapshot.data() || {};
+    return ["admin", "administrator", "superadmin"].includes(
+      String(data.role || data.designation || "").trim().toLowerCase()
+    ) || data.isAdmin === true;
+  })) {
+    staffRole = "ADMIN";
+    staffSnap = profileSnaps.find((snapshot) => {
+      const data = snapshot.data() || {};
+      return ["admin", "administrator", "superadmin"].includes(
+        String(data.role || data.designation || "").trim().toLowerCase()
+      ) || data.isAdmin === true;
+    });
+  }
+  if (!staffRole) {
+    const staffProfile = [...profileSnaps, ...lecturerSnaps].find((snapshot) => {
+      if (!snapshot.exists) return false;
+      const data = snapshot.data() || {};
+      return ["lecturer", "faculty", "professor"].includes(
+        String(data.role || data.designation || "").trim().toLowerCase()
+      );
+    });
+    if (!staffProfile) {
+      throw new HttpsError("permission-denied", "The staff account could not be verified for biometric enrollment.");
+    }
+    staffRole = "LECTURER";
+    staffSnap = lecturerSnaps.find((snapshot) => snapshot.exists) || staffProfile;
+  }
+
+  const userData = userSnap.exists ? userSnap.data() || {} : {};
+  const staffData = staffSnap?.exists ? staffSnap.data() || {} : {};
+  const authorizedData = authorizedSnaps.find((snapshot) => snapshot.exists)?.data() || {};
+  const profile = { ...authorizedData, ...userData, ...staffData };
+  const staffCollection = staffRole === "ADMIN" ? "admins" : "lecturers";
+  const existingStaffSnap = (staffRole === "ADMIN" ? adminSnaps : lecturerSnaps)
+    .find((snapshot) => snapshot.exists);
+  const staffRef = existingStaffSnap
+    ? existingStaffSnap.ref
+    : db.collection(staffCollection).doc(uid);
+  const staffId = String(
+    profile.staffId ||
+    profile.employeeId ||
+    profile.lecturerId ||
+    profile.adminId ||
+    emailPrefix ||
+    uid
+  ).trim().toUpperCase();
+
+  return {
+    uid,
+    rollNo: staffId,
+    name: profile.name || profile.fullName || profile.displayName ||
+      request.auth.token.name || staffId,
+    email: profile.email || email,
+    identityType: "STAFF",
+    staffRole,
+    isStaff: true,
+    staffRef,
+    staffData: profile
+  };
+}
+
 /**
  * Utility: Backward-compatible wrapper
  */
@@ -2898,7 +3004,7 @@ exports.issueBiometricChallenge = onCall(async (request) => {
  * Students self-enroll initial hardware-backed ECDSA P-256 public key (Android Keystore / iOS Secure Enclave).
  * Once enrolled, key cannot be altered or overwritten directly; requires authorized replacement.
  */
-exports.registerInitialBiometricKey = onCall(async (request) => {
+exports.registerInitialBiometricKey = onCall({ cors: true }, async (request) => {
   if (!request.auth || !request.auth.uid) {
     throw new HttpsError("unauthenticated", "Authentication required to enroll biometric key.");
   }
@@ -2907,10 +3013,14 @@ exports.registerInitialBiometricKey = onCall(async (request) => {
   if (!publicKeyDerBase64 || typeof publicKeyDerBase64 !== "string") {
     throw new HttpsError("invalid-argument", "Public key (Base64 DER) is required.");
   }
+  const cleanPlatform = String(platform || "").trim().toLowerCase();
+  if (!["android", "ios"].includes(cleanPlatform)) {
+    throw new HttpsError("invalid-argument", "A supported native platform ('android' or 'ios') is required.");
+  }
 
-  const studentUid = request.auth.uid;
-  const studentEmail = request.auth.token.email || "";
-  const studentProfile = await resolveAuthoritativeStudent(studentUid, studentEmail);
+  const enrollmentIdentity = await resolveBiometricEnrollmentIdentity(request);
+  const studentUid = enrollmentIdentity.uid;
+  const isCallerStaff = enrollmentIdentity.isStaff;
 
   // Validate DER public key format (P-256 SPKI DER is 91 bytes = ~120-128 chars base64)
   const derBuffer = Buffer.from(publicKeyDerBase64.trim(), "base64");
@@ -2928,34 +3038,22 @@ exports.registerInitialBiometricKey = onCall(async (request) => {
 
   // Check if student/user already has an active biometric credential
   const credRef = db.collection("biometric_credentials").doc(studentUid);
-  const existingCredSnap = await credRef.get();
-  const isCallerStaff = await isFaceEnrollmentStaff(request);
   let activePermission = null;
 
-  if (existingCredSnap.exists && existingCredSnap.data().status === "ACTIVE") {
-    if (!isCallerStaff) {
-      const permCheck = await resolveActiveReRegistrationPermission(null, studentProfile.rollNo, "BIOMETRIC");
-      if (!permCheck.hasPermission) {
-        throw new HttpsError(
-          "already-exists",
-          "An active biometric credential is already registered for your account. Direct re-enrollment is prohibited. To replace your credential, ask an authorized lecturer or administrator for re-registration access."
-        );
-      }
-      activePermission = permCheck;
-    }
-  }
-
   // Platform binding check (Option A: Prevent enrolling Android key on iOS-registered account)
-  const studentDocRef = db.collection("students").doc(studentProfile.rollNo);
-  const studentDocSnap = await studentDocRef.get();
-  const authoritativePlatform = studentDocSnap.exists
-    ? studentDocSnap.data()?.registeredPlatform
-    : null;
+  const studentDocRef = isCallerStaff ? null : db.collection("students").doc(enrollmentIdentity.rollNo);
+  const studentDocSnap = studentDocRef ? await studentDocRef.get() : null;
+  const authoritativePlatform = isCallerStaff
+    ? enrollmentIdentity.staffData?.registeredPlatform
+    : (studentDocSnap?.exists ? studentDocSnap.data()?.registeredPlatform : null);
 
-  if (authoritativePlatform === "ios") {
+  if (
+    ["android", "ios"].includes(authoritativePlatform) &&
+    authoritativePlatform !== cleanPlatform
+  ) {
     throw new HttpsError(
       "failed-precondition",
-      "Cannot enroll Android biometric credentials on an account registered as iOS. Please request an authorized device platform change if you switched to an Android device."
+      `Cannot enroll a ${cleanPlatform} biometric credential on an account bound to ${authoritativePlatform}. Please request an authorized device platform change if you switched devices.`
     );
   }
 
@@ -2965,11 +3063,13 @@ exports.registerInitialBiometricKey = onCall(async (request) => {
 
   const credentialRecord = {
     studentUid: studentUid,
-    rollNo: studentProfile.rollNo,
-    studentEmail: studentProfile.email,
+    rollNo: enrollmentIdentity.rollNo,
+    studentEmail: enrollmentIdentity.email,
+    identityType: enrollmentIdentity.identityType,
+    ...(isCallerStaff ? { staffRole: enrollmentIdentity.staffRole } : {}),
     publicKeyDerBase64: publicKeyDerBase64.trim(),
-    platform: platform || "android",
-    keyAlias: keyAlias || `smartattend_p256_${studentProfile.rollNo}`,
+    platform: cleanPlatform,
+    keyAlias: keyAlias || `smartattend_p256_${studentUid}`,
     status: "ACTIVE",
     enrollmentMethod: enrollmentMethod,
     createdAt: FieldValue.serverTimestamp(),
@@ -2977,20 +3077,55 @@ exports.registerInitialBiometricKey = onCall(async (request) => {
   };
 
   await db.runTransaction(async (transaction) => {
+    activePermission = null;
+    credentialRecord.enrollmentMethod = isCallerStaff
+      ? "STAFF_ENROLLMENT"
+      : "STUDENT_SELF_ENROLLMENT";
+    const currentCredSnap = await transaction.get(credRef);
+    if (currentCredSnap.exists && currentCredSnap.data().status === "ACTIVE" && !isCallerStaff) {
+      const permission = await resolveActiveReRegistrationPermission(
+        transaction,
+        enrollmentIdentity.rollNo,
+        "BIOMETRIC"
+      );
+      if (!permission.hasPermission) {
+        throw new HttpsError(
+          "already-exists",
+          "An active biometric credential is already registered for your account. Direct re-enrollment is prohibited. To replace your credential, ask an authorized lecturer or administrator for re-registration access."
+        );
+      }
+      activePermission = permission;
+      credentialRecord.enrollmentMethod = "AUTHORIZED_RE_REGISTRATION";
+    }
     if (activePermission?.permissionDoc) {
       consumeReRegistrationPermission(transaction, activePermission.permissionDoc, activePermission.permissionData);
     }
     transaction.set(credRef, credentialRecord);
-    transaction.set(db.collection("biometric_credentials").doc(studentProfile.rollNo), credentialRecord);
-    if (studentDocSnap.exists) {
+    if (!isCallerStaff) {
+      transaction.set(db.collection("biometric_credentials").doc(enrollmentIdentity.rollNo), credentialRecord);
       transaction.set(studentDocRef, {
         biometricEnrolled: true,
-        registeredPlatform: authoritativePlatform || "android",
-        deviceType: authoritativePlatform || "android",
-        registeredDeviceType: authoritativePlatform || "android",
+        hardwareBiometricEnrolled: true,
+        registeredPlatform: authoritativePlatform || cleanPlatform,
+        deviceType: authoritativePlatform || cleanPlatform,
+        registeredDeviceType: authoritativePlatform || cleanPlatform,
         deviceTypeLocked: true,
-        hardwareBiometricPlatform: platform || "android",
+        hardwareBiometricPlatform: cleanPlatform,
         hardwareBiometricEnrolledAt: FieldValue.serverTimestamp()
+      }, { merge: true });
+    } else {
+      const enrolledAt = FieldValue.serverTimestamp();
+      transaction.set(enrollmentIdentity.staffRef, {
+        hardwareBiometricEnrolled: true,
+        hardwareBiometricPlatform: cleanPlatform,
+        hardwareBiometricEnrolledAt: enrolledAt,
+        updatedAt: enrolledAt
+      }, { merge: true });
+      transaction.set(db.collection("users").doc(studentUid), {
+        hardwareBiometricEnrolled: true,
+        hardwareBiometricPlatform: cleanPlatform,
+        hardwareBiometricEnrolledAt: enrolledAt,
+        updatedAt: enrolledAt
       }, { merge: true });
     }
   });
@@ -2998,8 +3133,10 @@ exports.registerInitialBiometricKey = onCall(async (request) => {
   await db.collection("biometric_audit_logs").add({
     action: activePermission ? "BIOMETRIC_RE_REGISTRATION" : (isCallerStaff ? "STAFF_BIOMETRIC_ENROLLMENT" : "INITIAL_BIOMETRIC_ENROLLMENT"),
     studentUid: studentUid,
-    rollNo: studentProfile.rollNo,
-    platform: platform || "android",
+    rollNo: enrollmentIdentity.rollNo,
+    identityType: enrollmentIdentity.identityType,
+    ...(isCallerStaff ? { staffRole: enrollmentIdentity.staffRole } : {}),
+    platform: cleanPlatform,
     enrolledBy: studentUid,
     isStaff: isCallerStaff,
     timestamp: FieldValue.serverTimestamp()
@@ -3007,8 +3144,8 @@ exports.registerInitialBiometricKey = onCall(async (request) => {
 
   return {
     success: true,
-    rollNo: studentProfile.rollNo,
-    platform: platform || "unknown",
+    rollNo: enrollmentIdentity.rollNo,
+    platform: cleanPlatform,
     status: "ACTIVE",
     message: activePermission
       ? "Hardware biometric credential re-registered successfully under authorized permission."
@@ -3811,14 +3948,14 @@ exports.updateSessionQrInterval = onCall(async (request) => {
  * Issues WebAuthn registration options with RP ID, allowed origins, and single-use challenge token.
  * Strictly resolves and validates requested RP ID and origin against WEBAUTHN_CONFIG allowlist.
  */
-exports.generateWebAuthnRegistrationOptions = onCall(async (request) => {
+exports.generateWebAuthnRegistrationOptions = onCall({ cors: true }, async (request) => {
   if (!request.auth || !request.auth.uid) {
     throw new HttpsError("unauthenticated", "Authentication required to generate WebAuthn options.");
   }
 
-  const studentUid = request.auth.uid;
-  const studentEmail = request.auth.token.email || "";
-  const studentProfile = await resolveAuthoritativeStudent(studentUid, studentEmail);
+  const enrollmentIdentity = await resolveBiometricEnrollmentIdentity(request);
+  const studentUid = enrollmentIdentity.uid;
+  const studentEmail = enrollmentIdentity.email;
 
   const { rpId: requestedRpId, origin: requestedOrigin } = request.data || {};
   const target = resolveWebAuthnTarget(requestedOrigin, requestedRpId);
@@ -3827,8 +3964,8 @@ exports.generateWebAuthnRegistrationOptions = onCall(async (request) => {
     rpName: target.rpName,
     rpID: target.rpId,
     userID: Buffer.from(studentUid, "utf8"),
-    userName: studentProfile.rollNo || studentEmail || studentUid,
-    userDisplayName: studentProfile.name || studentProfile.rollNo || "Student",
+    userName: enrollmentIdentity.rollNo || studentEmail || studentUid,
+    userDisplayName: enrollmentIdentity.name || enrollmentIdentity.rollNo || "Student",
     attestationType: "none",
     authenticatorSelection: {
       authenticatorAttachment: "platform",
@@ -3841,6 +3978,7 @@ exports.generateWebAuthnRegistrationOptions = onCall(async (request) => {
   await db.collection("biometric_challenges").doc(challengeId).set({
     challengeId: challengeId,
     studentUid: studentUid,
+    identityType: enrollmentIdentity.identityType,
     challengeText: options.challenge,
     rpId: target.rpId,
     origin: requestedOrigin || target.expectedOrigins[0],
@@ -3864,7 +4002,7 @@ exports.generateWebAuthnRegistrationOptions = onCall(async (request) => {
  * Enforces multi-RP ID credential isolation: credentials for each domain are stored and mapped
  * under credentialsByRpId and rp_credentials subcollection, preventing cross-domain collision.
  */
-exports.verifyWebAuthnRegistration = onCall(async (request) => {
+exports.verifyWebAuthnRegistration = onCall({ cors: true }, async (request) => {
   if (!request.auth || !request.auth.uid) {
     throw new HttpsError("unauthenticated", "Authentication required to register WebAuthn credential.");
   }
@@ -3881,8 +4019,7 @@ exports.verifyWebAuthnRegistration = onCall(async (request) => {
 
   const chalData = chalDoc.data();
   const studentUid = request.auth.uid;
-  const studentEmail = request.auth.token.email || "";
-  const studentProfile = await resolveAuthoritativeStudent(studentUid, studentEmail);
+  const enrollmentIdentity = await resolveBiometricEnrollmentIdentity(request);
 
   // Authoritatively resolve and validate origin and RP ID against allowlist
   const target = resolveWebAuthnTarget(origin || chalData.origin, rpId || chalData.rpId);
@@ -3927,8 +4064,10 @@ exports.verifyWebAuthnRegistration = onCall(async (request) => {
   const rpIdKey = target.rpId.replace(/\./g, "_");
   const credRecord = {
     studentUid: studentUid,
-    rollNo: studentProfile.rollNo,
-    studentEmail: studentProfile.email,
+    rollNo: enrollmentIdentity.rollNo,
+    studentEmail: enrollmentIdentity.email,
+    identityType: enrollmentIdentity.identityType,
+    ...(enrollmentIdentity.isStaff ? { staffRole: enrollmentIdentity.staffRole } : {}),
     credentialId: credential.id,
     credentialPublicKeyBase64: coseBase64,
     publicKeyDerBase64: spkiDerBase64 || coseBase64,
@@ -3945,7 +4084,10 @@ exports.verifyWebAuthnRegistration = onCall(async (request) => {
   };
 
   const credRef = db.collection("biometric_credentials").doc(studentUid);
-  const rollCredRef = db.collection("biometric_credentials").doc(studentProfile.rollNo);
+  const rollCredRef = enrollmentIdentity.isStaff
+    ? null
+    : db.collection("biometric_credentials").doc(enrollmentIdentity.rollNo);
+  let activePermission = null;
   const isPrimary = target.rpId === "smartattend-ochre.vercel.app";
 
   const rootUpdate = {
@@ -3957,36 +4099,84 @@ exports.verifyWebAuthnRegistration = onCall(async (request) => {
     Object.assign(rootUpdate, credRecord);
   }
 
-  await Promise.all([
-    db.collection("biometric_challenges").doc(challengeId).update({
+  const challengeRef = db.collection("biometric_challenges").doc(challengeId);
+  const auditRef = db.collection("biometric_audit_logs").doc();
+  await db.runTransaction(async (transaction) => {
+    const currentChallenge = await transaction.get(challengeRef);
+    if (!currentChallenge.exists || currentChallenge.data().used === true ||
+      currentChallenge.data().studentUid !== studentUid) {
+      throw new HttpsError("permission-denied", "Invalid or already consumed registration challenge.");
+    }
+    activePermission = null;
+    const currentCredentialSnap = await transaction.get(credRef);
+    const currentCredential = currentCredentialSnap.data() || {};
+    const existingRpCredential = currentCredential.credentialsByRpId?.[rpIdKey] ||
+      (isPrimary && currentCredential.status === "ACTIVE" ? currentCredential : null);
+    if (!enrollmentIdentity.isStaff && existingRpCredential?.status === "ACTIVE") {
+      const permission = await resolveActiveReRegistrationPermission(
+        transaction,
+        enrollmentIdentity.rollNo,
+        "BIOMETRIC"
+      );
+      if (!permission.hasPermission) {
+        throw new HttpsError(
+          "already-exists",
+          "An active biometric credential is already registered for this domain. Authorized re-registration is required."
+        );
+      }
+      activePermission = permission;
+    }
+    if (activePermission?.permissionDoc) {
+      consumeReRegistrationPermission(transaction, activePermission.permissionDoc, activePermission.permissionData);
+    }
+    transaction.update(challengeRef, {
       used: true,
       usedAt: FieldValue.serverTimestamp()
-    }),
-    credRef.set(rootUpdate, { merge: true }),
-    credRef.collection("rp_credentials").doc(rpIdKey).set(credRecord),
-    rollCredRef.set(rootUpdate, { merge: true }),
-    rollCredRef.collection("rp_credentials").doc(rpIdKey).set(credRecord),
-    db.collection("students").doc(studentProfile.rollNo).set({
-      biometricEnrolled: true,
-      hardwareBiometricPlatform: "webauthn",
-      hardwareBiometricEnrolledAt: FieldValue.serverTimestamp()
-    }, { merge: true }),
-    db.collection("biometric_audit_logs").add({
+    });
+    transaction.set(credRef, rootUpdate, { merge: true });
+    transaction.set(credRef.collection("rp_credentials").doc(rpIdKey), credRecord);
+    if (rollCredRef) {
+      transaction.set(rollCredRef, rootUpdate, { merge: true });
+      transaction.set(rollCredRef.collection("rp_credentials").doc(rpIdKey), credRecord);
+      transaction.set(db.collection("students").doc(enrollmentIdentity.rollNo), {
+        biometricEnrolled: true,
+        hardwareBiometricEnrolled: true,
+        hardwareBiometricPlatform: "webauthn",
+        hardwareBiometricEnrolledAt: FieldValue.serverTimestamp()
+      }, { merge: true });
+    } else {
+      const enrolledAt = FieldValue.serverTimestamp();
+      transaction.set(enrollmentIdentity.staffRef, {
+        hardwareBiometricEnrolled: true,
+        hardwareBiometricPlatform: "webauthn",
+        hardwareBiometricEnrolledAt: enrolledAt,
+        updatedAt: enrolledAt
+      }, { merge: true });
+      transaction.set(db.collection("users").doc(studentUid), {
+        hardwareBiometricEnrolled: true,
+        hardwareBiometricPlatform: "webauthn",
+        hardwareBiometricEnrolledAt: enrolledAt,
+        updatedAt: enrolledAt
+      }, { merge: true });
+    }
+    transaction.create(auditRef, {
       action: "WEBAUTHN_BIOMETRIC_REGISTRATION",
-      studentUid: studentUid,
-      rollNo: studentProfile.rollNo,
+      studentUid,
+      rollNo: enrollmentIdentity.rollNo,
+      identityType: enrollmentIdentity.identityType,
+      ...(enrollmentIdentity.isStaff ? { staffRole: enrollmentIdentity.staffRole } : {}),
       credentialId: credential.id,
       rpId: target.rpId,
       platform: "webauthn",
       timestamp: FieldValue.serverTimestamp()
-    })
-  ]);
+    });
+  });
 
   return {
     success: true,
     credentialId: credential.id,
     rpId: target.rpId,
-    rollNo: studentProfile.rollNo,
+    rollNo: enrollmentIdentity.rollNo,
     status: "ACTIVE",
     message: `WebAuthn credential verified and registered successfully for domain ${target.rpId}.`
   };
@@ -4362,7 +4552,7 @@ exports.matchStudentFace = onCall(async (request) => {
  * Staff can close an ambiguous request by requiring a fresh capture or rejecting
  * it. This endpoint intentionally does not provide an approval override.
  */
-exports.resolveFaceEnrollmentReview = onCall(async (request) => {
+exports.resolveFaceEnrollmentReview = onCall({ cors: true }, async (request) => {
   if (!request.auth?.uid) throw new HttpsError("unauthenticated", "Authentication required.");
   if (!(await isFaceEnrollmentStaff(request))) {
     throw new HttpsError("permission-denied", "Only authorized staff can review face enrollment requests.");
@@ -4399,7 +4589,7 @@ exports.resolveFaceEnrollmentReview = onCall(async (request) => {
   return { success: true, status: action };
 });
 
-exports.listFaceEnrollmentReviews = onCall(async (request) => {
+exports.listFaceEnrollmentReviews = onCall({ cors: true }, async (request) => {
   if (!request.auth?.uid) throw new HttpsError("unauthenticated", "Authentication required.");
   if (!(await isFaceEnrollmentStaff(request))) {
     throw new HttpsError("permission-denied", "Only authorized staff can view face enrollment reviews.");

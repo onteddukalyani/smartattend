@@ -181,6 +181,15 @@ export async function enrollHardwareBiometric(studentUid) {
           message: "Biometric sensor prompt was cancelled."
         };
       }
+      if (
+        ["functions/internal", "internal", "functions/unavailable", "functions/not-found"].includes(webAuthnErr.code)
+      ) {
+        return {
+          success: false,
+          platform: "web",
+          message: "The biometric registration service could not be reached or failed internally. Nothing was enrolled; contact an administrator to verify that the latest Cloud Functions are deployed and check their logs."
+        };
+      }
       return {
         success: false,
         platform: "web",
@@ -234,7 +243,10 @@ export async function enrollHardwareBiometric(studentUid) {
           message: regErr.message || "An active biometric credential is already registered for this account. Re-registration requires authorization from your Course Lecturer or Administrator."
         };
       }
-      throw new Error(regErr.message || "Failed to register biometric key with server.");
+      const registrationError = new Error(regErr.message || "Failed to register biometric key with server.");
+      registrationError.code = regErr.code;
+      registrationError.details = regErr.details;
+      throw registrationError;
     }
 
     return {

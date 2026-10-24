@@ -11,6 +11,11 @@ node_modules
 dist
 *.local
 .firebase
+.env
+.env.*
+!.env.example
+*firebase-adminsdk*.json
+service-account*.json
 
 # Editor directories and files
 .vscode/*
@@ -38,3 +43,5 @@ android/app/build/
 !SmartAttend-debug.apk
 !public/SmartAttend-release.apk
 !public/SmartAttend-debug.apk
+.vercel
+.env*

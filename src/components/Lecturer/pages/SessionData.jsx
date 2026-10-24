@@ -12,6 +12,7 @@ import { FiSearch, FiPlusCircle, FiUsers, FiLayers, FiFilter, FiX } from "react-
 import { FaCheckCircle, FaQrcode, FaClock, FaTrashAlt, FaLayerGroup, FaTable, FaUserPlus, FaExclamationTriangle, FaShieldAlt, FaCheck, FaTimes, FaSpinner, FaChalkboardTeacher, FaBookOpen, FaGraduationCap } from "react-icons/fa";
 import StudentDetailModal from "../../Common/StudentDetailModal";
 import MasterAttendanceMatrix from "../../Common/MasterAttendanceMatrix";
+import ExcuseFaceVerification from "../../Common/ExcuseFaceVerification";
 import './AttendanceData.css';
 
 function formatSessionDateTime(rawDate) {
@@ -714,6 +715,7 @@ export function SessionAttendanceData() {
     const [manualRoll, setManualRoll] = useState("");
     const [manualReason, setManualReason] = useState("Physically verified & excused by lecturer in classroom");
     const [isExcusing, setIsExcusing] = useState(false);
+    const [pendingFaceExcuse, setPendingFaceExcuse] = useState(null);
 
     const navigate = useNavigate();
     const { user, profile } = useAuth();
@@ -771,7 +773,11 @@ export function SessionAttendanceData() {
         }
     };
 
-    const handleExcuseStudentFromSession = async (studentOrRoll, reason = "Physically verified & excused by lecturer in classroom") => {
+    const handleExcuseStudentFromSession = async (
+        studentOrRoll,
+        reason = "Physically verified & excused by lecturer in classroom",
+        faceVerified = false
+    ) => {
         if (!isSessionOwner) {
             alert(`❌ Permission Denied: This class belongs to ${session?.lecturerName || "another lecturer"}. Only ${session?.lecturerName || "the assigned lecturer"} or an administrator can excuse violations and mark attendance.`);
             return;
@@ -781,6 +787,16 @@ export function SessionAttendanceData() {
 
         if (!cleanRoll) {
             alert("Please enter a valid Roll Number.");
+            return;
+        }
+
+        if (!faceVerified) {
+            setPendingFaceExcuse({
+                student: typeof studentOrRoll === "string"
+                    ? { rollNo: cleanRoll, name: studentName }
+                    : { ...studentOrRoll, rollNo: cleanRoll, name: studentName },
+                reason
+            });
             return;
         }
 
@@ -798,7 +814,8 @@ export function SessionAttendanceData() {
                 courseCode: session?.courseCode,
                 classCode: session?.classCode,
                 batch: session?.batch,
-                roomNo: session?.roomNo
+                roomNo: session?.roomNo,
+                faceVerified: true
             }, lecturerDisplayName, reason);
 
             alert(`✅ Attendance for ${studentName} (${cleanRoll}) has been successfully restored and marked as Present!`);
@@ -1994,10 +2011,19 @@ export function SessionAttendanceData() {
                     </div>
                 </div>
             )}
+            {pendingFaceExcuse && (
+                <ExcuseFaceVerification
+                    student={pendingFaceExcuse.student}
+                    onCancel={() => setPendingFaceExcuse(null)}
+                    onVerified={() => {
+                        const pending = pendingFaceExcuse;
+                        setPendingFaceExcuse(null);
+                        void handleExcuseStudentFromSession(pending.student, pending.reason, true);
+                    }}
+                />
+            )}
         </div>
     );
 }
 
 export default ClassesData;
-
-

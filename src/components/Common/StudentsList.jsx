@@ -482,6 +482,14 @@ function StudentsList() {
                     <div className="hero-actions">
                         <button
                             type="button"
+                            className="hero-action-btn btn-bulk"
+                            onClick={() => navigate(`${basePath}/identify-student`)}
+                            title="Identify a student by live face scan"
+                        >
+                            <FaUserCheck /> Identify by Face
+                        </button>
+                        <button
+                            type="button"
                             className="hero-action-btn btn-excel"
                             onClick={handleExportStudents}
                             title="Export clean student directory to Excel"

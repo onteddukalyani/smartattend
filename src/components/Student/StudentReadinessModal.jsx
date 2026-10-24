@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
     FaMapMarkerAlt,
@@ -13,6 +13,7 @@ import {
     FaBolt
 } from 'react-icons/fa';
 import { requestAppNotificationPermissions } from '../../services/nativeNotificationService';
+import { locationFromPosition, isAccurateLocation } from '../../utils/location';
 import './StudentReadinessModal.css';
 
 /**
@@ -82,9 +83,15 @@ export function StudentReadinessModal({
 
         setRequestingLocation(true);
         navigator.geolocation.getCurrentPosition(
-            () => {
+            (pos) => {
                 setRequestingLocation(false);
                 setLocationStatus('granted');
+                const loc = locationFromPosition(pos);
+                if (loc && isAccurateLocation(loc)) {
+                    try {
+                        localStorage.setItem('smartattend_student_location', JSON.stringify(loc));
+                    } catch (_) { }
+                }
             },
             (err) => {
                 setRequestingLocation(false);
@@ -96,7 +103,7 @@ export function StudentReadinessModal({
                     setLocationStatus('granted');
                 }
             },
-            { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
+            { enableHighAccuracy: true, timeout: 8000, maximumAge: 15000 }
         );
     };
 

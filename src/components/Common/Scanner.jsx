@@ -51,7 +51,14 @@ import { detectDeviceType, getClientIpAddress, getDeviceDisplayName, isDeviceMat
 import { sendFacultyNotification, sendStudentNotification, reportUserVerificationComplaint } from '../../services/notificationsService';
 import { validateRotatingQrPayload } from '../../utils/qrCrypto';
 import { evaluateGeofence, calculateHaversineDistance, DEFAULT_GEOFENCE_RADIUS_METRES } from '../../utils/geofence';
-import { isFreshLocation, locationFromPosition } from '../../utils/location';
+import {
+    isFreshLocation,
+    isAccurateLocation,
+    locationFromPosition,
+    acquireAccurateLocation,
+    pickBestStudentLocation,
+    MAX_CLASSROOM_LOCATION_ACCURACY_METERS
+} from '../../utils/location';
 import { checkVpnAndNetworkSecurity } from '../../utils/vpnDetection';
 import { verifyHardwareBiometric, prefetchBiometricChallenge } from '../../services/biometricService';
 import { checkForAppUpdate, CURRENT_APP_VERSION, compareVersions } from '../../services/appUpdateService';
@@ -71,6 +78,7 @@ function QrScannerApp() {
     const [searchParams] = useSearchParams();
     const { user, profile, loading } = useAuth();
     const fileInputRef = useRef(null);
+    const scanProcessingRef = useRef(false);
     const sessionTimerRef = useRef(null);
     // Silent camera lock — holds rear camera stream after QR1 to block other apps
     const silentCameraLockRef = useRef(null);
@@ -140,7 +148,7 @@ function QrScannerApp() {
     const [authQr2StartsAt, setAuthQr2StartsAt] = useState(0);
     const [authQr1DurationSec, setAuthQr1DurationSec] = useState(15);
     const [elapsedSeconds, setElapsedSeconds] = useState(0);
-    const [sessionRemaining, setSessionRemaining] = useState(180);
+    const [sessionRemaining, setSessionRemaining] = useState(30);
     const [errorMessage, setErrorMessage] = useState('');
     const [nowTick, setNowTick] = useState(Date.now());
     const geofenceRetriesRef = useRef(0);
@@ -201,33 +209,62 @@ function QrScannerApp() {
     // Continuous GPS Pre-Warming (Dual-stage coarse prime + high-accuracy refinement) & Model Pre-Loading
     useEffect(() => {
         let watchId = null;
+
+        // Instant hydrate from recent local cache if fresh
+        try {
+            const cached = localStorage.getItem('smartattend_student_location');
+            if (cached) {
+                const parsed = JSON.parse(cached);
+                if (isFreshLocation(parsed)) {
+                    prewarmedLocationRef.current = parsed;
+                    setCurrentStudentLocation(parsed);
+                }
+            }
+        } catch (_) { }
+
         if (typeof navigator !== "undefined" && navigator.geolocation) {
+            const applyStudentGps = (pos) => {
+                const locObj = locationFromPosition(pos);
+                if (!locObj) return;
+                const prev = prewarmedLocationRef.current;
+                const isAccurate = isAccurateLocation(locObj);
+                const prevAccurate = prev && isAccurateLocation(prev);
+
+                let shouldUpdate = false;
+                if (!prev) {
+                    shouldUpdate = true;
+                } else if (isAccurate && !prevAccurate) {
+                    shouldUpdate = true; // Upgraded from inaccurate to accurate
+                } else if (isAccurate && prevAccurate) {
+                    shouldUpdate = locObj.accuracy <= prev.accuracy || (locObj.timestamp - prev.timestamp > 15000);
+                } else if (!isAccurate && !prevAccurate) {
+                    shouldUpdate = locObj.accuracy < prev.accuracy;
+                }
+
+                if (shouldUpdate) {
+                    prewarmedLocationRef.current = locObj;
+                    setCurrentStudentLocation(locObj);
+                    if (isAccurate) {
+                        try {
+                            localStorage.setItem('smartattend_student_location', JSON.stringify(locObj));
+                        } catch (_) { }
+                    }
+                }
+            };
+
             try {
-                // 1. Instant GPS prime: Request high-accuracy GNSS fix with quick fallback
+                // 1. Instant GPS prime: Rapid lock accepting recent cache with fast GNSS fallback
                 navigator.geolocation.getCurrentPosition(
-                    (pos) => {
-                        const locObj = locationFromPosition(pos);
-                        if (locObj) {
-                            prewarmedLocationRef.current = locObj;
-                            setCurrentStudentLocation(locObj);
-                        }
-                    },
+                    applyStudentGps,
                     () => { },
-                    { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
+                    { enableHighAccuracy: true, timeout: 5000, maximumAge: 15000 }
                 );
 
                 // 2. Continuous high-accuracy refinement
                 watchId = navigator.geolocation.watchPosition(
-                    (pos) => {
-                        const locObj = locationFromPosition(pos);
-                        const prev = prewarmedLocationRef.current;
-                        if (locObj && (!prev || locObj.timestamp >= prev.timestamp)) {
-                            prewarmedLocationRef.current = locObj;
-                            setCurrentStudentLocation(locObj);
-                        }
-                    },
+                    applyStudentGps,
                     (err) => console.warn('[Scanner] GPS prewarm notice:', err?.message || err),
-                    { enableHighAccuracy: true, maximumAge: 0, timeout: 6000 }
+                    { enableHighAccuracy: true, maximumAge: 5000, timeout: 8000 }
                 );
             } catch (_) { }
         }
@@ -1412,7 +1449,7 @@ function QrScannerApp() {
             // Celebratory visual transition to Step 2 (Face Scan)
             setTimeout(() => {
                 setBiometricComboStep('FACE');
-            }, 850);
+            }, 350);
         } catch (bioErr) {
             console.warn("[Scanner] Hardware biometric notice:", bioErr);
             setFingerprintError(bioErr.message || "Fingerprint authentication error.");
@@ -1541,38 +1578,35 @@ function QrScannerApp() {
         const isGeofenceDisabled = selectedGeofence === 0 || classroomTarget?.enabled === false || sessionData?.geofenceRadius === 0;
 
         // Retrieve student's device location (instant pre-warmer, recent cache, or fast fix)
-        let studentCoords = [prewarmedLocationRef.current, currentStudentLocation]
-            .filter((location) => isFreshLocation(location))
-            .sort((a, b) => Number(b.timestamp) - Number(a.timestamp))[0] || null;
-        if (!studentCoords && !isGeofenceDisabled) {
+        // Fast, accurate candidate selection: gather all candidates across memory & local storage
+        const candidates = [prewarmedLocationRef.current, currentStudentLocation];
+        try {
+            const cached = localStorage.getItem('smartattend_student_location');
+            if (cached) {
+                const parsed = JSON.parse(cached);
+                if (parsed) candidates.push(parsed);
+            }
+        } catch (_) {}
+
+        // Pick best accurate location (prioritizing accuracy <= 45m)
+        let studentCoords = pickBestStudentLocation(candidates);
+
+        // If no accurate location exists yet and geofence is required, rapidly acquire an accurate fix
+        if ((!studentCoords || !isAccurateLocation(studentCoords)) && !isGeofenceDisabled && typeof navigator !== "undefined" && navigator.geolocation) {
             try {
-                const cached = localStorage.getItem('smartattend_student_location');
-                if (cached) {
-                    const parsed = JSON.parse(cached);
-                    if (isFreshLocation(parsed)) {
-                        studentCoords = parsed;
-                    }
-                }
-            } catch (_) {}
-        }
-        if (!studentCoords && !isGeofenceDisabled && typeof navigator !== "undefined" && navigator.geolocation) {
-            try {
-                studentCoords = await new Promise((resolve) => {
-                    navigator.geolocation.getCurrentPosition(
-                        (pos) => {
-                            const locObj = locationFromPosition(pos);
-                            if (locObj && isFreshLocation(locObj)) {
-                                prewarmedLocationRef.current = locObj;
-                                setCurrentStudentLocation(locObj);
-                                resolve(locObj);
-                            } else {
-                                resolve(null);
-                            }
-                        },
-                        () => resolve(null),
-                        { enableHighAccuracy: true, timeout: 2500, maximumAge: 0 }
-                    );
+                const freshFix = await acquireAccurateLocation(navigator.geolocation, {
+                    timeoutMs: 4500,
+                    maxAccuracy: MAX_CLASSROOM_LOCATION_ACCURACY_METERS,
+                    maximumAge: 10000
                 });
+                if (freshFix && isFreshLocation(freshFix)) {
+                    studentCoords = freshFix;
+                    prewarmedLocationRef.current = freshFix;
+                    setCurrentStudentLocation(freshFix);
+                    try {
+                        localStorage.setItem('smartattend_student_location', JSON.stringify(freshFix));
+                    } catch (_) {}
+                }
             } catch (_) {}
         }
 
@@ -1584,6 +1618,7 @@ function QrScannerApp() {
             setErrorMessage('A fresh GPS fix is not ready yet. Keep Location enabled, wait a moment, then scan again.');
             return;
         }
+
         // Store student's scanned location in state and persistent storage
         if (studentCoords) {
             setScannedStudentLocation(studentCoords);
@@ -1698,8 +1733,26 @@ function QrScannerApp() {
         }
 
         if (!isGeofenceDisabled && classroomTarget && calculatedDistance !== null) {
-            const geoEval = evaluateGeofence(studentCoords, classroomTarget, geofenceAttemptsRef.current);
+            let geoEval = evaluateGeofence(studentCoords, classroomTarget, geofenceAttemptsRef.current);
             setGpsTelemetry(geoEval);
+
+            // If precision is still settling, actively refine in background instead of aborting flow
+            if (geoEval.status === "INCONCLUSIVE_RETRY" && typeof navigator !== "undefined" && navigator.geolocation) {
+                try {
+                    const refinedFix = await acquireAccurateLocation(navigator.geolocation, {
+                        timeoutMs: 6000,
+                        maxAccuracy: MAX_CLASSROOM_LOCATION_ACCURACY_METERS,
+                        maximumAge: 0
+                    });
+                    if (refinedFix && isFreshLocation(refinedFix)) {
+                        studentCoords = refinedFix;
+                        prewarmedLocationRef.current = refinedFix;
+                        setCurrentStudentLocation(refinedFix);
+                        geoEval = evaluateGeofence(refinedFix, classroomTarget, geofenceAttemptsRef.current);
+                        setGpsTelemetry(geoEval);
+                    }
+                } catch (_) {}
+            }
 
             if (geoEval.status === "INCONCLUSIVE_RETRY") {
                 setErrorMessage(geoEval.message || 'GPS accuracy is too low to verify attendance. Wait for a better location fix and scan again.');
@@ -1735,11 +1788,11 @@ function QrScannerApp() {
         setGeofenceAttempts(0);
 
         if (payload.qr1Token || payload.phase === '1' || payload.phase === 'PHASE_1') {
-            handleProcessQR1(payload.sessionId, payload.qr1Token, studentCoords, enhancedPayload);
+            await handleProcessQR1(payload.sessionId, payload.qr1Token, studentCoords, enhancedPayload);
         } else if (payload.qr2Token || payload.phase === '2' || payload.phase === 'PHASE_2') {
-            handleProcessQR2(payload.sessionId, payload.qr2Token, enhancedPayload);
+            await handleProcessQR2(payload.sessionId, payload.qr2Token, enhancedPayload);
         } else {
-            handleProcessQR1(payload.sessionId, payload.sessionId, studentCoords, enhancedPayload);
+            await handleProcessQR1(payload.sessionId, payload.sessionId, studentCoords, enhancedPayload);
         }
     };
 
@@ -1768,11 +1821,17 @@ function QrScannerApp() {
     const handleCameraScan = useCallback((result) => {
         if (!result) return;
         const raw = result[0]?.rawValue || (typeof result === 'string' ? result : '');
-        if (raw) {
-            if (processSessionStringRef.current) {
-                processSessionStringRef.current(raw);
-            }
-        }
+        if (!raw || scanProcessingRef.current || !processSessionStringRef.current) return;
+
+        scanProcessingRef.current = true;
+        Promise.resolve(processSessionStringRef.current(raw))
+            .catch((err) => {
+                console.error('[Scanner] QR processing failed:', err);
+                setErrorMessage(err.message || 'Unable to process this QR code. Please try again.');
+            })
+            .finally(() => {
+                scanProcessingRef.current = false;
+            });
     }, []);
 
     const handleCameraError = useCallback((error) => {
@@ -1840,6 +1899,51 @@ function QrScannerApp() {
             // Auto-submit verified attendance
             if (!submittingAttendance) {
                 setSubmittingAttendance(true);
+
+                // Enforce that attendance can only be submitted if device is confirmed within geofence
+                const classroomTarget = activeQr2Payload?.geo || sessionData?.classroomLocation || lecturerLocationRef.current;
+                const selectedGeofence = Number(classroomTarget?.radius ?? classroomTarget?.r ?? sessionData?.geofenceRadius ?? DEFAULT_GEOFENCE_RADIUS_METRES);
+                const isGeofenceDisabled = selectedGeofence === 0 || classroomTarget?.enabled === false || sessionData?.geofenceRadius === 0;
+
+                if (!isGeofenceDisabled && classroomTarget) {
+                    let locForSubmit = pickBestStudentLocation([
+                        scannedStudentLocation,
+                        currentStudentLocation,
+                        prewarmedLocationRef.current
+                    ]);
+
+                    // Fast continuous refinement to guarantee accurate GPS at submission time
+                    if ((!locForSubmit || !isAccurateLocation(locForSubmit)) && typeof navigator !== "undefined" && navigator.geolocation) {
+                        try {
+                            const fresh = await acquireAccurateLocation(navigator.geolocation, {
+                                timeoutMs: 5000,
+                                maxAccuracy: MAX_CLASSROOM_LOCATION_ACCURACY_METERS,
+                                maximumAge: 15000
+                            });
+                            if (fresh && isFreshLocation(fresh)) {
+                                locForSubmit = fresh;
+                                setCurrentStudentLocation(fresh);
+                            }
+                        } catch (_) {}
+                    }
+
+                    if (locForSubmit) {
+                        const geoCheck = evaluateGeofence(locForSubmit, classroomTarget, 0);
+                        setGpsTelemetry(geoCheck);
+                        if (geoCheck.status === "MOCK_DETECTED") {
+                            setSubmittingAttendance(false);
+                            setErrorMessage("🚨 Mock / Fake GPS detected. Attendance submission blocked.");
+                            setScanState("DISQUALIFIED");
+                            return;
+                        }
+                        if (geoCheck.status === "REJECT") {
+                            setSubmittingAttendance(false);
+                            setErrorMessage(`❌ Attendance Submission Blocked: Your device is ${geoCheck.distance}m away (outside classroom boundary of ${geoCheck.radius}m). Attendance can only be submitted within the classroom.`);
+                            return;
+                        }
+                    }
+                }
+
                 releaseAllMediaTracks();
                 try {
                     const submissionResult = await submitVerifiedAttendance(
@@ -3308,7 +3412,7 @@ function QrScannerApp() {
                 {/* Instruction / Status Badge */}
                 <div className="st-scanner-waiting-pill">
                     {isQr2Released ? <FaBolt style={{ color: '#10b981' }} /> : <FaClock style={{ color: '#6366f1' }} />}
-                    <span>{isQr2Released ? 'Phase 2 Live · Point Camera at Screen QR 2' : 'Phase 1 Complete · Waiting for QR 2'}</span>
+                    <span>{isQr2Released ? 'QR 2 Released · Scan the next QR' : 'Phase 1 Complete · Waiting for lecturer to release QR 2'}</span>
                 </div>
 
                 {/* Live GPS & Lecturer Distance Telemetry */}
@@ -3466,28 +3570,25 @@ function QrScannerApp() {
                             <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
                                 <button
                                     type="button"
-                                    onClick={() => {
+                                    onClick={async () => {
                                         setErrorMessage('📍 Recalibrating high-precision GPS lock...');
                                         if (typeof navigator !== "undefined" && navigator.geolocation) {
-                                            navigator.geolocation.getCurrentPosition(
-                                                (pos) => {
-                                                    const locObj = {
-                                                        latitude: pos.coords.latitude,
-                                                        longitude: pos.coords.longitude,
-                                                        lat: pos.coords.latitude,
-                                                        lng: pos.coords.longitude,
-                                                        accuracy: pos.coords.accuracy || 15,
-                                                        timestamp: Date.now()
-                                                    };
-                                                    prewarmedLocationRef.current = locObj;
-                                                    setCurrentStudentLocation(locObj);
+                                            try {
+                                                const loc = await acquireAccurateLocation(navigator.geolocation, {
+                                                    timeoutMs: 6500,
+                                                    maxAccuracy: MAX_CLASSROOM_LOCATION_ACCURACY_METERS
+                                                });
+                                                if (loc && isFreshLocation(loc)) {
+                                                    prewarmedLocationRef.current = loc;
+                                                    setCurrentStudentLocation(loc);
+                                                    try { localStorage.setItem('smartattend_student_location', JSON.stringify(loc)); } catch (_) {}
                                                     setErrorMessage('');
-                                                },
-                                                (err) => {
-                                                    setErrorMessage(`⚠️ GPS refresh failed: ${err?.message || 'Unable to acquire satellite fix'}`);
-                                                },
-                                                { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
-                                            );
+                                                } else {
+                                                    setErrorMessage('⚠️ GPS lock acquired but precision is low. Please move near a window or outdoors and retry.');
+                                                }
+                                            } catch (err) {
+                                                setErrorMessage(`⚠️ GPS refresh failed: ${err?.message || 'Unable to acquire satellite fix'}`);
+                                            }
                                         }
                                     }}
                                     style={{
@@ -3548,8 +3649,6 @@ function QrScannerApp() {
                     <span>Supervised Session Active · Keep in view</span>
                 </div>
 
-                {/* Live GPS & Lecturer Distance Telemetry */}
-                {renderGpsTelemetryCard()}
             </div>
 
             {/* Camera Viewport (Spacious, rounded card) */}
@@ -3685,28 +3784,25 @@ function QrScannerApp() {
                         <div style={{ marginTop: '10px', display: 'flex', gap: '8px' }}>
                             <button
                                 type="button"
-                                onClick={() => {
+                                onClick={async () => {
                                     setErrorMessage('📍 Recalibrating high-precision GPS lock...');
                                     if (typeof navigator !== "undefined" && navigator.geolocation) {
-                                        navigator.geolocation.getCurrentPosition(
-                                            (pos) => {
-                                                const locObj = {
-                                                    latitude: pos.coords.latitude,
-                                                    longitude: pos.coords.longitude,
-                                                    lat: pos.coords.latitude,
-                                                    lng: pos.coords.longitude,
-                                                    accuracy: pos.coords.accuracy || 15,
-                                                    timestamp: Date.now()
-                                                };
-                                                prewarmedLocationRef.current = locObj;
-                                                setCurrentStudentLocation(locObj);
+                                        try {
+                                            const loc = await acquireAccurateLocation(navigator.geolocation, {
+                                                timeoutMs: 6500,
+                                                maxAccuracy: MAX_CLASSROOM_LOCATION_ACCURACY_METERS
+                                            });
+                                            if (loc && isFreshLocation(loc)) {
+                                                prewarmedLocationRef.current = loc;
+                                                setCurrentStudentLocation(loc);
+                                                try { localStorage.setItem('smartattend_student_location', JSON.stringify(loc)); } catch (_) {}
                                                 setErrorMessage('');
-                                            },
-                                            (err) => {
-                                                setErrorMessage(`⚠️ GPS refresh failed: ${err?.message || 'Unable to acquire satellite fix'}`);
-                                            },
-                                            { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
-                                        );
+                                            } else {
+                                                setErrorMessage('⚠️ GPS lock acquired but precision is low. Please move near a window or outdoors and retry.');
+                                            }
+                                        } catch (err) {
+                                            setErrorMessage(`⚠️ GPS refresh failed: ${err?.message || 'Unable to acquire satellite fix'}`);
+                                        }
                                     }
                                 }}
                                 style={{
