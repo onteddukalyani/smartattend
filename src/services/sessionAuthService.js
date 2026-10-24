@@ -204,7 +204,7 @@ export async function authorizeStudentQR1(sessionId, qr1Token, studentProfileOve
   try {
     const cloudPromise = fn(callPayload);
     const timeoutPromise = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error("CLOUD_TIMEOUT")), 1500)
+      setTimeout(() => reject(new Error("CLOUD_TIMEOUT")), 350)
     );
 
     const result = await Promise.race([cloudPromise, timeoutPromise]);
@@ -270,8 +270,9 @@ export async function authorizeStudentQR1(sessionId, qr1Token, studentProfileOve
     ? (typeof session.qr1ExpiresAt.toMillis === "function" ? session.qr1ExpiresAt.toMillis() : Number(session.qr1ExpiresAt))
     : 0;
 
-  if (qr1ExpiresMs > 0 && Date.now() > qr1ExpiresMs) {
-    throw new Error("❌ QR 1 has expired! The 60-second check-in window is closed.");
+  // 15-second network transit grace window prevents false expiration right at the boundary
+  if (qr1ExpiresMs > 0 && Date.now() > (qr1ExpiresMs + 15000)) {
+    throw new Error("❌ QR 1 has expired! The check-in window is closed.");
   }
 
   // Check existing authorization

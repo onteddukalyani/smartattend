@@ -27,7 +27,7 @@ export async function createAttendanceSession(
     const parsedRadius = typeof geofenceRadius === "number" ? geofenceRadius : (typeof timetableOptions?.geofenceRadius === "number" ? timetableOptions.geofenceRadius : 10);
     const qr1Sec = Number(timetableOptions?.qr1DurationSeconds) > 0
         ? Number(timetableOptions.qr1DurationSeconds)
-        : 45;
+        : 60;
     const qr2Sec = Number(timetableOptions?.qr2DurationSeconds) > 0
         ? Number(timetableOptions.qr2DurationSeconds)
         : 75;
@@ -40,7 +40,7 @@ export async function createAttendanceSession(
         lectureHours: parsedHours,
         geofenceRadius: parsedRadius,
         classroomLocation: timetableOptions?.classroomLocation || null,
-        rotationIntervalSec: typeof timetableOptions?.rotationIntervalSec === 'number' ? timetableOptions.rotationIntervalSec : 5,
+        rotationIntervalSec: typeof timetableOptions?.rotationIntervalSec === 'number' ? timetableOptions.rotationIntervalSec : 15,
         durationMinutes: Math.round(((qr1Sec + qr2Sec) / 60) * 10) / 10,
         qr1DurationSeconds: qr1Sec,
         qr2DurationSeconds: qr2Sec,

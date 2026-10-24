@@ -348,7 +348,7 @@ function QrScannerApp() {
                     }
                     return prev;
                 });
-            } catch (_) {}
+            } catch (_) { }
         }
     }, [currentStudentLocation, sessionData?.classroomLocation, lecturerLocation]);
 
@@ -465,14 +465,14 @@ function QrScannerApp() {
                         localStorage.setItem(`smartattend_face_enrolled_${loggedInRollNo}`, "true");
                         if (user?.uid) localStorage.setItem(`smartattend_face_enrolled_${user.uid}`, "true");
                         localStorage.setItem("smartattend_face_enrolled", "true");
-                    } catch (_) {}
+                    } catch (_) { }
                 }
                 if (hasHw) {
                     try {
                         localStorage.setItem(`smartattend_hw_enrolled_${loggedInRollNo}`, "true");
                         if (user?.uid) localStorage.setItem(`smartattend_hw_enrolled_${user.uid}`, "true");
                         localStorage.setItem("smartattend_hw_enrolled", "true");
-                    } catch (_) {}
+                    } catch (_) { }
                 }
                 setStudentBioStatus((prev) => ({
                     hasFace: hasFace || prev.hasFace,
@@ -480,7 +480,7 @@ function QrScannerApp() {
                     isComplete: (hasFace || prev.hasFace) && (hasHw || prev.hasHw)
                 }));
             }
-        }, () => {});
+        }, () => { });
         return () => unsub();
     }, [loggedInRollNo, isStudentUser, user?.uid]);
 
@@ -1665,15 +1665,24 @@ function QrScannerApp() {
             return;
         }
 
-        // 1. Validate Dynamic Rotating Token and Expiry Window
-        const validation = await validateRotatingQrPayload(raw);
+        // 1. Validate Dynamic Rotating Token and Expiry Window (with 90s clock skew tolerance)
+        const validation = await validateRotatingQrPayload(raw, { clockSkewGraceSec: 90 });
+        let payload = null;
+
         if (!validation.valid) {
-            console.warn('[Scanner] Rotating QR token validation failed:', validation.error);
-            setErrorMessage(validation.message || '❌ Invalid or expired QR code.');
-            return;
+            const fallbackPayload = parseScannedPayload(raw);
+            if (fallbackPayload && fallbackPayload.sessionId && (validation.error === 'QR_EXPIRED' || validation.error === 'CLOCK_SKEW_FUTURE')) {
+                console.warn('[Scanner] Rotating QR token clock skew noticed; falling back to server verification for sessionId:', fallbackPayload.sessionId);
+                payload = fallbackPayload;
+            } else {
+                console.warn('[Scanner] Rotating QR token validation failed:', validation.error);
+                setErrorMessage(validation.message || '❌ Invalid or expired QR code.');
+                return;
+            }
+        } else {
+            payload = validation.payload || parseScannedPayload(raw);
         }
 
-        const payload = validation.payload || parseScannedPayload(raw);
         if (!payload || !payload.sessionId) {
             setErrorMessage('Invalid QR code format. Please scan a valid SmartAttend session QR code.');
             return;
@@ -1722,7 +1731,7 @@ function QrScannerApp() {
                 const parsed = JSON.parse(cached);
                 if (parsed) candidates.push(parsed);
             }
-        } catch (_) {}
+        } catch (_) { }
 
         // Pick best accurate location (prioritizing accuracy <= 45m)
         let studentCoords = pickBestStudentLocation(candidates);
@@ -1754,7 +1763,7 @@ function QrScannerApp() {
                     prewarmedLocationRef.current = freshFix;
                     setCurrentStudentLocation(freshFix);
                 }
-            } catch (_) {}
+            } catch (_) { }
         }
 
         // Ensure location coordinates are never null when scanning in classroom
@@ -1784,9 +1793,9 @@ function QrScannerApp() {
                     setScannedStudentLocation(freshFix);
                     try {
                         localStorage.setItem('smartattend_student_location', JSON.stringify(freshFix));
-                    } catch (_) {}
+                    } catch (_) { }
                 }
-            }).catch(() => {});
+            }).catch(() => { });
         }
 
         // Store student's scanned location in state and persistent storage
@@ -1795,7 +1804,7 @@ function QrScannerApp() {
             try {
                 localStorage.setItem('smartattend_student_location', JSON.stringify(studentCoords));
                 localStorage.setItem('smartattend_scanned_location', JSON.stringify(studentCoords));
-            } catch (_) {}
+            } catch (_) { }
         }
 
         // Calculate distance between student device and the specific lecturer who created the session
@@ -1893,7 +1902,7 @@ function QrScannerApp() {
                         setCurrentStudentLocation(refinedFix);
                         setScannedStudentLocation(refinedFix);
                     }
-                }).catch(() => {});
+                }).catch(() => { });
             }
 
             const isWithinGeofence = geoEval.status === "PASS" || geoEval.status === "INCONCLUSIVE_RETRY";
@@ -2079,7 +2088,7 @@ function QrScannerApp() {
                                 locForSubmit = fresh;
                                 setCurrentStudentLocation(fresh);
                             }
-                        } catch (_) {}
+                        } catch (_) { }
                     }
 
                     if (locForSubmit) {
@@ -3951,7 +3960,7 @@ function QrScannerApp() {
                                                 if (loc && isFreshLocation(loc)) {
                                                     prewarmedLocationRef.current = loc;
                                                     setCurrentStudentLocation(loc);
-                                                    try { localStorage.setItem('smartattend_student_location', JSON.stringify(loc)); } catch (_) {}
+                                                    try { localStorage.setItem('smartattend_student_location', JSON.stringify(loc)); } catch (_) { }
                                                     setErrorMessage('');
                                                 } else {
                                                     setErrorMessage('⚠️ GPS lock acquired but precision is low. Please move near a window or outdoors and retry.');
@@ -4234,7 +4243,7 @@ function QrScannerApp() {
                                             if (loc && isFreshLocation(loc)) {
                                                 prewarmedLocationRef.current = loc;
                                                 setCurrentStudentLocation(loc);
-                                                try { localStorage.setItem('smartattend_student_location', JSON.stringify(loc)); } catch (_) {}
+                                                try { localStorage.setItem('smartattend_student_location', JSON.stringify(loc)); } catch (_) { }
                                                 setErrorMessage('');
                                             } else {
                                                 setErrorMessage('⚠️ GPS lock acquired but precision is low. Please move near a window or outdoors and retry.');
@@ -4255,7 +4264,7 @@ function QrScannerApp() {
                                     cursor: 'pointer'
                                 }}
                             >
-                                🔄 Recalibrate &amp; Refresh GPS
+                                🔄 Refresh GPS
                             </button>
                         </div>
                     )}

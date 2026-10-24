@@ -7,8 +7,8 @@
 
 // Supported rotation intervals in seconds: 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60 seconds
 export const ROTATION_INTERVALS = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60];
-export const DEFAULT_ROTATION_INTERVAL = 10; // 10s authoritative default
-export const MAX_CLOCK_SKEW_GRACE_SEC = 15;
+export const DEFAULT_ROTATION_INTERVAL = 10; // 10s stable, authoritative default
+export const MAX_CLOCK_SKEW_GRACE_SEC = 90; // 90s clock skew grace window
 
 /**
  * Web Crypto SHA-256 HMAC generator (works in all modern browsers and WebView)

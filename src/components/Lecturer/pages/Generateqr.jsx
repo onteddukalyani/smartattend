@@ -80,7 +80,7 @@ function GenerateQR() {
     const [batch, setBatch] = useState(searchParams.get("batch") || "2025");
     const [lectureHours, setLectureHours] = useState("1.0"); // Optional lecture duration in hours
     const [timetablePreset, setTimetablePreset] = useState("express"); // "fast" | "express" | "standard" | "extended" | "custom"
-    const [qr1Seconds, setQr1Seconds] = useState(45);   // Phase 1 (QR1 check-in) window
+    const [qr1Seconds, setQr1Seconds] = useState(60);   // Phase 1 (QR1 check-in) window: 60s default
     const [qr2Seconds, setQr2Seconds] = useState(75);  // Phase 2 (QR2 biometric verification) window
     const [sessionDurationMinutes, setSessionDurationMinutes] = useState("0.5");
     const [customDurationMinutes, setCustomDurationMinutes] = useState("0.5");
@@ -2292,7 +2292,9 @@ function GenerateQR() {
                         <span className="qr-corner-bracket br" />
                         <QRCodeCanvas
                             value={activeQrUrl || (sessionId ? `${window.location.origin}/student/mark-attendance?session=${encodeURIComponent(sessionId)}` : "https://smart-attendance-ok.web.app")}
-                            size={250}
+                            size={280}
+                            level="M"
+                            includeMargin={true}
                         />
                     </div>
 
@@ -2601,7 +2603,9 @@ function GenerateQR() {
                             <span className="qr-corner-bracket br" />
                             <QRCodeCanvas
                                 value={activeQrUrl || (sessionId ? `${window.location.origin}/student/mark-attendance?session=${encodeURIComponent(sessionId)}` : "https://smart-attendance-ok.web.app")}
-                                size={isFullscreen ? 320 : 215}
+                                size={isFullscreen ? 450 : 320}
+                                level="M"
+                                includeMargin={true}
                             />
                         </div>
 

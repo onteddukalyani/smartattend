@@ -283,35 +283,47 @@ function NativeQrScanner({
                         } catch (_) { }
                     }
 
-                    // 2. High-performance jsQR fallback (optimized 360px scan frame for ~18ms decode)
+                    // 2. High-performance multi-tier jsQR decoding engine
                     if (!detected && canvasRef.current) {
                         try {
                             const canvas = canvasRef.current;
                             const vW = video.videoWidth || 640;
                             const vH = video.videoHeight || 480;
-                            const targetW = Math.min(360, vW);
-                            const targetH = Math.round(targetW * (vH / vW)) || 270;
-
-                            // Only re-dimension canvas when aspect ratio or resolution genuinely changes
-                            if (canvas.width !== targetW || canvas.height !== targetH) {
-                                canvas.width = targetW;
-                                canvas.height = targetH;
-                            }
-
                             const ctx = canvas.getContext('2d', { willReadFrequently: true });
-                            if (ctx) {
-                                ctx.drawImage(video, 0, 0, targetW, targetH);
-                                const imgData = ctx.getImageData(0, 0, targetW, targetH);
 
-                                // Primary scan: normal contrast (3x faster than attemptBoth)
-                                let code = jsQR(imgData.data, targetW, targetH, {
-                                    inversionAttempts: 'dontInvert'
+                            if (ctx && vW > 0 && vH > 0) {
+                                let code = null;
+
+                                // Pass 1: 1:1 Sensor Center-Crop (No downscaling blur; 8-10 pixels per module)
+                                // Students aim the camera reticle at the QR code on screen.
+                                const cropSize = Math.min(520, Math.min(vW, vH));
+                                const sx = Math.floor((vW - cropSize) / 2);
+                                const sy = Math.floor((vH - cropSize) / 2);
+
+                                if (canvas.width !== cropSize || canvas.height !== cropSize) {
+                                    canvas.width = cropSize;
+                                    canvas.height = cropSize;
+                                }
+
+                                ctx.drawImage(video, sx, sy, cropSize, cropSize, 0, 0, cropSize, cropSize);
+                                const cropImg = ctx.getImageData(0, 0, cropSize, cropSize);
+
+                                code = jsQR(cropImg.data, cropSize, cropSize, {
+                                    inversionAttempts: frameCount % 4 === 0 ? 'attemptBoth' : 'dontInvert'
                                 });
 
-                                // Secondary pass: every 3rd frame try inversion in case of dark mode inversion
-                                if (!code && frameCount % 3 === 0) {
-                                    code = jsQR(imgData.data, targetW, targetH, {
-                                        inversionAttempts: 'attemptBoth'
+                                // Pass 2: High-resolution full-frame scan (720px width) if not in center crop
+                                if (!code && frameCount % 2 === 0) {
+                                    const fullW = Math.min(720, vW);
+                                    const fullH = Math.round(fullW * (vH / vW)) || 480;
+                                    if (canvas.width !== fullW || canvas.height !== fullH) {
+                                        canvas.width = fullW;
+                                        canvas.height = fullH;
+                                    }
+                                    ctx.drawImage(video, 0, 0, fullW, fullH);
+                                    const fullImg = ctx.getImageData(0, 0, fullW, fullH);
+                                    code = jsQR(fullImg.data, fullW, fullH, {
+                                        inversionAttempts: 'dontInvert'
                                     });
                                 }
 
