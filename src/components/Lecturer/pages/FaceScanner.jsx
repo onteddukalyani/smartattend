@@ -420,10 +420,21 @@ function FaceScanner({
       return;
     }
 
+    const targetRoll = (verifiedStudent?.rollNo || rollNo || profile?.rollNo || "").trim().toUpperCase();
     const hasEnrolledFace = Boolean(
       verifiedStudent?.faceRegistered ||
       verifiedStudent?.faceDescriptor ||
-      verifiedStudent?.descriptor
+      verifiedStudent?.descriptor ||
+      verifiedStudent?.biometricEnrolled ||
+      verifiedStudent?.hasFaceRegistered ||
+      (targetRoll && localStorage.getItem(`smartattend_face_enrolled_${targetRoll}`) === "true") ||
+      (profile?.rollNo && localStorage.getItem(`smartattend_face_enrolled_${profile.rollNo}`) === "true") ||
+      (user?.uid && localStorage.getItem(`smartattend_face_enrolled_${user.uid}`) === "true") ||
+      localStorage.getItem("smartattend_face_enrolled") === "true" ||
+      localStorage.getItem("smartattend_student_face_enrolled") === "true" ||
+      profile?.faceRegistered ||
+      profile?.biometricEnrolled ||
+      profile?.hasFaceRegistered
     );
     if (verifiedStudent && !hasEnrolledFace) {
       resetLivenessState();
@@ -565,7 +576,7 @@ function FaceScanner({
               now - lastServerMatchAtRef.current >= 1800
             ) {
               const requestToken = matchRequestTokenRef.current;
-              const targetRollNo = verifiedStudent?.rollNo || rollNo || "";
+              const targetRollNo = (verifiedStudent?.rollNo || rollNo || profile?.rollNo || "").trim().toUpperCase();
               lastServerMatchAtRef.current = now;
               matchInFlightRef.current = true;
               matchStudentFace(Array.from(liveDescriptor), targetRollNo)

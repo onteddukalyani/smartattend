@@ -138,7 +138,8 @@ function QrScannerApp() {
     const isStudentUser = !isStaffCameraUser(profile, user);
     const [showBiometricsRequiredModal, setShowBiometricsRequiredModal] = useState(false);
     const [studentBioStatus, setStudentBioStatus] = useState(() => {
-        const roll = (profile?.rollNo || '').trim().toUpperCase();
+        const emailRoll = (user?.email || '').split('@')[0].trim().toUpperCase();
+        const roll = (profile?.rollNo || emailRoll || '').trim().toUpperCase();
         const uid = user?.uid;
         const profileFaceRemoved = Boolean(
             profile?.faceRemovedAt &&
@@ -147,14 +148,18 @@ function QrScannerApp() {
         const hasFace = Boolean(
             !profileFaceRemoved && (
                 profile?.faceRegistered || profile?.biometricEnrolled || profile?.hasFaceRegistered ||
+                (Array.isArray(profile?.faceDescriptor) && profile.faceDescriptor.length === 128) ||
                 (roll && localStorage.getItem(`smartattend_face_enrolled_${roll}`) === 'true') ||
+                (emailRoll && localStorage.getItem(`smartattend_face_enrolled_${emailRoll}`) === 'true') ||
                 (uid && localStorage.getItem(`smartattend_face_enrolled_${uid}`) === 'true') ||
-                localStorage.getItem('smartattend_face_enrolled') === 'true'
+                localStorage.getItem('smartattend_face_enrolled') === 'true' ||
+                localStorage.getItem('smartattend_student_face_enrolled') === 'true'
             )
         );
         const hasHw = Boolean(
             profile?.hardwareBiometricEnrolled ||
             (roll && localStorage.getItem(`smartattend_hw_enrolled_${roll}`) === 'true') ||
+            (emailRoll && localStorage.getItem(`smartattend_hw_enrolled_${emailRoll}`) === 'true') ||
             (uid && localStorage.getItem(`smartattend_hw_enrolled_${uid}`) === 'true') ||
             localStorage.getItem('smartattend_hw_enrolled') === 'true'
         );
@@ -415,38 +420,41 @@ function QrScannerApp() {
                 setLoadingDbStudent(true);
                 const cleanEmail = (user.email || '').toLowerCase().trim();
                 const cleanUid = user.uid || '';
+                const emailRoll = cleanEmail.split('@')[0].trim().toUpperCase();
                 const cleanProfileRoll = (profile?.rollNo || '').trim().toUpperCase();
+                const primaryRoll = cleanProfileRoll || emailRoll;
 
                 const lookups = [
-                    cleanProfileRoll ? getDoc(doc(db, 'students', cleanProfileRoll)).catch(() => ({ exists: () => false })) : Promise.resolve({ exists: () => false }),
+                    primaryRoll ? getDoc(doc(db, 'students', primaryRoll)).catch(() => ({ exists: () => false })) : Promise.resolve({ exists: () => false }),
+                    primaryRoll ? getDoc(doc(db, 'users', primaryRoll)).catch(() => ({ exists: () => false })) : Promise.resolve({ exists: () => false }),
                     cleanUid ? getDoc(doc(db, 'students', cleanUid)).catch(() => ({ exists: () => false })) : Promise.resolve({ exists: () => false }),
-                    cleanEmail ? getDocs(query(collection(db, 'students'), where('email', '==', cleanEmail))).catch(() => ({ empty: true, docs: [] })) : Promise.resolve({ empty: true, docs: [] }),
-                    cleanUid ? getDocs(query(collection(db, 'students'), where('uid', '==', cleanUid))).catch(() => ({ empty: true, docs: [] })) : Promise.resolve({ empty: true, docs: [] })
+                    cleanUid ? getDoc(doc(db, 'users', cleanUid)).catch(() => ({ exists: () => false })) : Promise.resolve({ exists: () => false }),
+                    cleanEmail ? getDoc(doc(db, 'authorizedUsers', cleanEmail)).catch(() => ({ exists: () => false })) : Promise.resolve({ exists: () => false }),
+                    cleanEmail ? getDocs(query(collection(db, 'students'), where('email', '==', cleanEmail))).catch(() => ({ empty: true, docs: [] })) : Promise.resolve({ empty: true, docs: [] })
                 ];
 
-                const [rollSnap, uidSnap, emailQuerySnap, uidQuerySnap] = await Promise.race([
+                const [rollSnap, userRollSnap, uidSnap, userUidSnap, authSnap, emailQuerySnap] = await Promise.race([
                     Promise.all(lookups),
-                    new Promise((resolve) => setTimeout(() => resolve([{ exists: () => false }, { exists: () => false }, { empty: true }, { empty: true }]), 2000))
+                    new Promise((resolve) => setTimeout(() => resolve(new Array(6).fill({ exists: () => false, empty: true })), 2500))
                 ]);
 
                 let foundData = null;
                 let foundId = '';
 
-                if (emailQuerySnap && !emailQuerySnap.empty && emailQuerySnap.docs?.[0]) {
+                const candidateSnaps = [rollSnap, userRollSnap, uidSnap, userUidSnap, authSnap];
+                for (const snap of candidateSnaps) {
+                    if (snap && snap.exists && snap.exists()) {
+                        foundData = snap.data();
+                        foundId = snap.id;
+                        break;
+                    }
+                }
+                if (!foundData && emailQuerySnap && !emailQuerySnap.empty && emailQuerySnap.docs?.[0]) {
                     foundData = emailQuerySnap.docs[0].data();
                     foundId = emailQuerySnap.docs[0].id;
-                } else if (rollSnap && rollSnap.exists && rollSnap.exists()) {
-                    foundData = rollSnap.data();
-                    foundId = rollSnap.id;
-                } else if (uidSnap && uidSnap.exists && uidSnap.exists()) {
-                    foundData = uidSnap.data();
-                    foundId = uidSnap.id;
-                } else if (uidQuerySnap && !uidQuerySnap.empty && uidQuerySnap.docs?.[0]) {
-                    foundData = uidQuerySnap.docs[0].data();
-                    foundId = uidQuerySnap.docs[0].id;
                 }
 
-                // Casing fallback search across students collection if needed (bounded by 1500ms timeout)
+                // Casing fallback search across students collection if needed
                 if (!foundData && cleanEmail && isStaff) {
                     const allStudentsSnap = await Promise.race([
                         getDocs(collection(db, 'students')).catch(() => ({ docs: [] })),
@@ -463,7 +471,7 @@ function QrScannerApp() {
                 }
 
                 if (isMounted && foundData) {
-                    const studentRoll = String(foundData.rollNo || (!foundId.includes('@') ? foundId : '')).trim().toUpperCase();
+                    const studentRoll = String(foundData.rollNo || (!foundId.includes('@') ? foundId : primaryRoll)).trim().toUpperCase();
                     const studentName = String(foundData.name || foundData.fullName || '').trim();
                     setDbStudent({
                         ...foundData,
@@ -483,16 +491,22 @@ function QrScannerApp() {
         return () => { isMounted = false; };
     }, [user, profile?.rollNo]);
 
-    const rawRollNo = dbStudent?.rollNo || (!String(profile?.rollNo || '').includes('@') && !isGenericName(profile?.rollNo) ? profile?.rollNo : '') || '';
-    const loggedInRollNo = String(rawRollNo).trim().toUpperCase();
+    const emailRoll = (user?.email || '').split('@')[0].trim().toUpperCase();
+    const cleanEmail = (user?.email || '').toLowerCase().trim();
+    const cleanProfileRoll = (!String(profile?.rollNo || '').includes('@') && !isGenericName(profile?.rollNo) ? profile?.rollNo : '').trim().toUpperCase();
+    const activeRollNo = (cleanProfileRoll || dbStudent?.rollNo || emailRoll || '').trim().toUpperCase();
+    const loggedInRollNo = activeRollNo;
     const rawProfileName = dbStudent?.name || dbStudent?.fullName || (!isGenericName(profile?.name, loggedInRollNo, user?.email) ? profile?.name : (profile?.fullName || ''));
     const loggedInName = rawProfileName ? rawProfileName.trim() : (loggedInRollNo ? loggedInRollNo : 'Student');
 
-    // Real-time listener for student biometrics enrollment
+    // Real-time listener for student biometrics enrollment across collections
     useEffect(() => {
-        if (!loggedInRollNo || !isStudentUser) return;
-        const unsub = onSnapshot(doc(db, "students", loggedInRollNo), (snap) => {
-            if (snap.exists()) {
+        if (!activeRollNo && !cleanEmail && !user?.uid) return;
+        if (!isStudentUser) return;
+
+        const unsubs = [];
+        const handleDocUpdate = (snap) => {
+            if (snap && snap.exists && snap.exists()) {
                 const data = snap.data();
                 const hasRemoval = Boolean(
                     data.faceRemovedAt &&
@@ -505,26 +519,32 @@ function QrScannerApp() {
                         (Array.isArray(data.descriptor) && data.descriptor.length === 128))
                 );
                 const hasHw = Boolean(data.hardwareBiometricEnrolled);
+
                 if (hasFace) {
                     try {
-                        localStorage.setItem(`smartattend_face_enrolled_${loggedInRollNo}`, "true");
+                        if (activeRollNo) localStorage.setItem(`smartattend_face_enrolled_${activeRollNo}`, "true");
+                        if (emailRoll) localStorage.setItem(`smartattend_face_enrolled_${emailRoll}`, "true");
                         if (user?.uid) localStorage.setItem(`smartattend_face_enrolled_${user.uid}`, "true");
                         localStorage.setItem("smartattend_face_enrolled", "true");
+                        localStorage.setItem("smartattend_student_face_enrolled", "true");
                     } catch (_) { }
                 } else if (hasRemoval) {
                     try {
-                        localStorage.removeItem(`smartattend_face_enrolled_${loggedInRollNo}`);
+                        if (activeRollNo) localStorage.removeItem(`smartattend_face_enrolled_${activeRollNo}`);
+                        if (emailRoll) localStorage.removeItem(`smartattend_face_enrolled_${emailRoll}`);
                         if (user?.uid) localStorage.removeItem(`smartattend_face_enrolled_${user.uid}`);
                         localStorage.removeItem("smartattend_face_enrolled");
                     } catch (_) { }
                 }
                 if (hasHw) {
                     try {
-                        localStorage.setItem(`smartattend_hw_enrolled_${loggedInRollNo}`, "true");
+                        if (activeRollNo) localStorage.setItem(`smartattend_hw_enrolled_${activeRollNo}`, "true");
+                        if (emailRoll) localStorage.setItem(`smartattend_hw_enrolled_${emailRoll}`, "true");
                         if (user?.uid) localStorage.setItem(`smartattend_hw_enrolled_${user.uid}`, "true");
                         localStorage.setItem("smartattend_hw_enrolled", "true");
                     } catch (_) { }
                 }
+
                 setStudentBioStatus((prev) => {
                     const nextFace = hasRemoval ? false : (hasFace || prev.hasFace);
                     const nextHw = hasHw || prev.hasHw;
@@ -534,14 +554,43 @@ function QrScannerApp() {
                         isComplete: nextFace && nextHw
                     };
                 });
+
+                if (hasFace) {
+                    setVerifiedStudent((prev) => ({
+                        ...(prev || {}),
+                        rollNo: activeRollNo || prev?.rollNo,
+                        name: data.name || data.fullName || loggedInName || prev?.name || 'Student',
+                        faceRegistered: true,
+                        biometricEnrolled: true,
+                        hasFaceRegistered: true,
+                        photoURL: data.photoURL || prev?.photoURL || null
+                    }));
+                }
             }
-        }, () => { });
-        return () => unsub();
-    }, [loggedInRollNo, isStudentUser, user?.uid]);
+        };
+
+        if (activeRollNo) {
+            unsubs.push(onSnapshot(doc(db, "students", activeRollNo), handleDocUpdate, () => { }));
+            unsubs.push(onSnapshot(doc(db, "users", activeRollNo), handleDocUpdate, () => { }));
+        }
+        if (emailRoll && emailRoll !== activeRollNo) {
+            unsubs.push(onSnapshot(doc(db, "students", emailRoll), handleDocUpdate, () => { }));
+        }
+        if (user?.uid && user.uid !== activeRollNo) {
+            unsubs.push(onSnapshot(doc(db, "users", user.uid), handleDocUpdate, () => { }));
+        }
+        if (cleanEmail) {
+            unsubs.push(onSnapshot(doc(db, "authorizedUsers", cleanEmail), handleDocUpdate, () => { }));
+        }
+
+        return () => {
+            unsubs.forEach((u) => u && u());
+        };
+    }, [activeRollNo, emailRoll, cleanEmail, user?.uid, isStudentUser, loggedInName]);
 
     // Synchronize biometrics status whenever student profile, dbStudent, or auth updates
     useEffect(() => {
-        const roll = (loggedInRollNo || profile?.rollNo || dbStudent?.rollNo || '').trim().toUpperCase();
+        const roll = (activeRollNo || loggedInRollNo || profile?.rollNo || dbStudent?.rollNo || emailRoll || '').trim().toUpperCase();
         const uid = user?.uid;
 
         const profileFaceRemoved = Boolean(
@@ -554,20 +603,28 @@ function QrScannerApp() {
         );
         const hasRemoval = profileFaceRemoved || dbFaceRemoved;
 
+        const localEnrolled = Boolean(
+            (roll && localStorage.getItem(`smartattend_face_enrolled_${roll}`) === 'true') ||
+            (emailRoll && localStorage.getItem(`smartattend_face_enrolled_${emailRoll}`) === 'true') ||
+            (uid && localStorage.getItem(`smartattend_face_enrolled_${uid}`) === 'true') ||
+            localStorage.getItem('smartattend_face_enrolled') === 'true' ||
+            localStorage.getItem('smartattend_student_face_enrolled') === 'true'
+        );
+
         const hasFace = Boolean(
             !hasRemoval && (
                 profile?.faceRegistered || profile?.biometricEnrolled || profile?.hasFaceRegistered ||
                 dbStudent?.faceRegistered || dbStudent?.biometricEnrolled || dbStudent?.hasFaceRegistered ||
                 (Array.isArray(dbStudent?.faceDescriptor) && dbStudent.faceDescriptor.length === 128) ||
-                (roll && localStorage.getItem(`smartattend_face_enrolled_${roll}`) === 'true') ||
-                (uid && localStorage.getItem(`smartattend_face_enrolled_${uid}`) === 'true') ||
-                localStorage.getItem('smartattend_face_enrolled') === 'true'
+                (Array.isArray(profile?.faceDescriptor) && profile.faceDescriptor.length === 128) ||
+                localEnrolled
             )
         );
         const hasHw = Boolean(
             profile?.hardwareBiometricEnrolled ||
             dbStudent?.hardwareBiometricEnrolled ||
             (roll && localStorage.getItem(`smartattend_hw_enrolled_${roll}`) === 'true') ||
+            (emailRoll && localStorage.getItem(`smartattend_hw_enrolled_${emailRoll}`) === 'true') ||
             (uid && localStorage.getItem(`smartattend_hw_enrolled_${uid}`) === 'true') ||
             localStorage.getItem('smartattend_hw_enrolled') === 'true'
         );
@@ -575,20 +632,41 @@ function QrScannerApp() {
         if (hasFace) {
             try {
                 if (roll) localStorage.setItem(`smartattend_face_enrolled_${roll}`, 'true');
+                if (emailRoll) localStorage.setItem(`smartattend_face_enrolled_${emailRoll}`, 'true');
                 if (uid) localStorage.setItem(`smartattend_face_enrolled_${uid}`, 'true');
                 localStorage.setItem('smartattend_face_enrolled', 'true');
+                localStorage.setItem('smartattend_student_face_enrolled', 'true');
             } catch (_) { }
         }
         if (hasHw) {
             try {
                 if (roll) localStorage.setItem(`smartattend_hw_enrolled_${roll}`, 'true');
+                if (emailRoll) localStorage.setItem(`smartattend_hw_enrolled_${emailRoll}`, 'true');
                 if (uid) localStorage.setItem(`smartattend_hw_enrolled_${uid}`, 'true');
                 localStorage.setItem('smartattend_hw_enrolled', 'true');
             } catch (_) { }
         }
 
-        setStudentBioStatus({ hasFace, hasHw, isComplete: hasFace && hasHw });
-    }, [profile, dbStudent, user, loggedInRollNo]);
+        setStudentBioStatus((prev) => {
+            const resolvedFace = hasRemoval ? false : (hasFace || prev.hasFace);
+            const resolvedHw = hasHw || prev.hasHw;
+            return {
+                hasFace: resolvedFace,
+                hasHw: resolvedHw,
+                isComplete: resolvedFace && resolvedHw
+            };
+        });
+
+        if (hasFace) {
+            setVerifiedStudent((prev) => ({
+                ...(prev || {}),
+                rollNo: roll || activeRollNo,
+                name: dbStudent?.name || profile?.name || prev?.name || loggedInName || 'Student',
+                faceRegistered: true,
+                photoURL: dbStudent?.photoURL || profile?.photoURL || prev?.photoURL || null
+            }));
+        }
+    }, [profile, dbStudent, user, activeRollNo, loggedInRollNo, emailRoll, loggedInName]);
 
     // Lecturer Emergency PIN Release Modal State
     const [showPinModal, setShowPinModal] = useState(false);
@@ -868,6 +946,13 @@ function QrScannerApp() {
             setLookingUpStudent(false);
         }
     }, [loggedInRollNo, loggedInName, user, profile, dbStudent]);
+
+    // Pre-load student biometrics immediately when component mounts
+    useEffect(() => {
+        if (isStudentUser && (loggedInRollNo || activeRollNo)) {
+            lookupStudentBiometrics(loggedInRollNo || activeRollNo).catch(() => {});
+        }
+    }, [isStudentUser, loggedInRollNo, activeRollNo, lookupStudentBiometrics]);
 
     // Safety Watchdog: Prevent indefinite freeze on VALIDATING_QR2 screen (4000ms safety limit)
     useEffect(() => {
