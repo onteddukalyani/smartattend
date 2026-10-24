@@ -2054,13 +2054,7 @@ function QrScannerApp() {
     const processSessionString = async (raw) => {
         if (!raw) return;
 
-        // STRICT ENFORCEMENT: Students cannot scan any attendance QR without Face biometrics registered
-        if (isStudentUser && !studentBioStatus.hasFace) {
-            alert('⚠️ Face Biometrics Required!\n\nYou must register your Face Biometrics before scanning attendance QR codes.\n\nPlease complete your biometric registration first.');
-            setShowBiometricsRequiredModal(true);
-            setErrorMessage('⚠️ Biometrics Required: Please register your face biometrics before scanning.');
-            return;
-        }
+
 
         // 1. Validate Dynamic Rotating Token and Expiry Window (with 90s clock skew tolerance)
         const validation = await validateRotatingQrPayload(raw, { clockSkewGraceSec: 90 });
@@ -2407,11 +2401,6 @@ function QrScannerApp() {
 
     const handleCameraScan = useCallback((result) => {
         if (!result) return;
-        if (isStudentUser && !studentBioStatus.hasFace) {
-            alert('⚠️ Face Biometrics Required!\n\nYou must register your Face Biometrics before scanning attendance QR codes.\n\nPlease complete your biometric registration first.');
-            setShowBiometricsRequiredModal(true);
-            return;
-        }
         const raw = result[0]?.rawValue || (typeof result === 'string' ? result : '');
         if (!raw || scanProcessingRef.current || !processSessionStringRef.current) return;
 
@@ -2424,7 +2413,7 @@ function QrScannerApp() {
             .finally(() => {
                 scanProcessingRef.current = false;
             });
-    }, [isStudentUser, studentBioStatus]);
+    }, []);
 
     const handleCameraError = useCallback((error) => {
         console.warn('Scanner Error:', error);
@@ -2444,12 +2433,6 @@ function QrScannerApp() {
     const handleFileScan = (e) => {
         const file = e.target.files?.[0];
         if (!file) return;
-
-        if (isStudentUser && !studentBioStatus.hasFace) {
-            alert('⚠️ Face Biometrics Required!\n\nYou must register your Face Biometrics before scanning attendance QR codes.\n\nPlease complete your biometric registration first.');
-            setShowBiometricsRequiredModal(true);
-            return;
-        }
 
         setScanningFile(true);
         setCameraError('');
@@ -4512,49 +4495,7 @@ function QrScannerApp() {
 
             </div>
 
-            {/* Student Biometrics Precondition Banner */}
-            {isStudentUser && !studentBioStatus.hasFace && (
-                <div style={{
-                    margin: '0 0 16px 0',
-                    padding: '16px 18px',
-                    borderRadius: '16px',
-                    background: '#fffbeb',
-                    border: '2px solid #f59e0b',
-                    boxShadow: '0 4px 12px rgba(245, 158, 11, 0.15)',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '10px'
-                }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: '#b45309', fontWeight: 800, fontSize: '0.98rem' }}>
-                        <FaExclamationTriangle style={{ fontSize: '1.25rem', flexShrink: 0 }} />
-                        <span>Face Biometrics Registration Required</span>
-                    </div>
-                    <p style={{ margin: 0, fontSize: '0.86rem', color: '#78350f', lineHeight: 1.45 }}>
-                        You cannot scan attendance until your <strong>Face Biometrics</strong> are registered. Please complete enrollment to enable scanning.
-                    </p>
-                    <button
-                        type="button"
-                        onClick={() => navigate('/student/face-enroll')}
-                        style={{
-                            alignSelf: 'flex-start',
-                            padding: '9px 18px',
-                            borderRadius: '10px',
-                            background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
-                            color: '#ffffff',
-                            border: 'none',
-                            fontWeight: 800,
-                            fontSize: '0.86rem',
-                            cursor: 'pointer',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '8px',
-                            boxShadow: '0 4px 12px rgba(245, 158, 11, 0.25)'
-                        }}
-                    >
-                        <FaCamera /> Register Biometrics Now
-                    </button>
-                </div>
-            )}
+
 
             {/* Camera Viewport (Spacious, rounded card) */}
             <div className="st-camera-viewport-card">
