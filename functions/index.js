@@ -1847,7 +1847,7 @@ exports.transitionToPhase2 = onCall(async (request) => {
     throw new HttpsError("unauthenticated", "Authentication required.");
   }
 
-  const { sessionId } = request.data || {};
+  const { sessionId, now } = request.data || {};
   if (!sessionId) {
     throw new HttpsError("invalid-argument", "Session ID is required.");
   }
@@ -1867,14 +1867,31 @@ exports.transitionToPhase2 = onCall(async (request) => {
     throw new HttpsError("permission-denied", "Only the session lecturer can transition to Phase 2.");
   }
 
+  const serverNow = typeof now === "number" && now > 0 ? now : Date.now();
+
   await sessionRef.update({
-    phase: "PHASE_2"
+    phase: "PHASE_2",
+    qr2Released: true,
+    qr1ExpiresAt: serverNow,
+    qr2StartsAt: serverNow,
+    updatedAt: FieldValue.serverTimestamp()
   });
+
+  if (securitySnap.exists) {
+    await sessionRef.collection("security").doc("tokens").update({
+      phase: "PHASE_2",
+      qr1ExpiresAt: serverNow,
+      qr2StartsAt: serverNow
+    }).catch(() => {});
+  }
 
   return {
     success: true,
     sessionId: sessionId,
-    phase: "PHASE_2"
+    phase: "PHASE_2",
+    qr2Released: true,
+    qr1ExpiresAt: serverNow,
+    qr2StartsAt: serverNow
   };
 });
 
@@ -1960,12 +1977,32 @@ exports.validateQR2 = onCall(async (request) => {
     }
   }
 
-  const isQr1Valid = authSnap.exists && (
+  let isQr1Valid = authSnap.exists && (
     authSnap.data().qr1Verified === true ||
     authSnap.data().status === "QR1_VERIFIED" ||
     authSnap.data().status === "SESSION_AUTHORIZED" ||
     authSnap.data().status === "QR2_VERIFIED"
   );
+
+  let attendeeData = null;
+  if (!isQr1Valid && session && Array.isArray(session.attendees)) {
+    const studentProfile = await resolveTrustedStudent(studentUid, request.auth.token.email);
+    const candidateRoll = (studentProfile?.rollNo || (request.auth.token.email ? request.auth.token.email.split("@")[0] : "")).toUpperCase().trim();
+    const candidateEmail = (request.auth.token.email || "").toLowerCase().trim();
+
+    attendeeData = session.attendees.find((a) => {
+      const aRoll = String(a.rollNo || "").toUpperCase().trim();
+      const aUid = String(a.studentUid || a.uid || "").trim();
+      const aEmail = String(a.email || "").toLowerCase().trim();
+      return (studentUid && aUid === studentUid) ||
+        (candidateRoll && aRoll === candidateRoll) ||
+        (candidateEmail && aEmail === candidateEmail);
+    });
+    if (attendeeData && (attendeeData.qr1Verified === true || attendeeData.status === "QR1_VERIFIED")) {
+      isQr1Valid = true;
+    }
+  }
+
   if (!isQr1Valid) {
     throw new HttpsError(
       "permission-denied",
@@ -1973,7 +2010,7 @@ exports.validateQR2 = onCall(async (request) => {
     );
   }
 
-  const authData = authSnap.data() || {};
+  const authData = (authSnap.exists ? authSnap.data() : attendeeData) || {};
   const studentProfile = await resolveTrustedStudent(studentUid, request.auth.token.email);
   const rollNo = (authData.rollNo || studentProfile?.rollNo || "").toUpperCase().trim();
 
@@ -1991,19 +2028,23 @@ exports.validateQR2 = onCall(async (request) => {
     return (rollNo && fRoll === rollNo) || (studentUid && fUid === studentUid.toUpperCase().trim());
   });
 
+  const isAndroidClient = request.data?.platform === "android" || request.data?.isAndroid === true;
+  const violationThreshold = isAndroidClient ? 2 : 1;
+
+  const authViolations = Math.max(
+    Number(authData.confirmedKioskViolations || authData.violationCount || 0),
+    Number(rollAuthData.confirmedKioskViolations || rollAuthData.violationCount || 0)
+  );
+
   const isDisqualified =
     authData.disqualified === true ||
     rollAuthData.disqualified === true ||
     (sessionFlagged && !sessionFlagged.excused && !sessionFlagged.resolved && (sessionFlagged.disqualified === true || sessionFlagged.status === "FLAGGED_DISQUALIFIED"));
 
   const hasUnexcusedViolation =
-    (authData.hasViolation === true && !authData.excused) ||
-    (authData.violation === 1 && !authData.excused) ||
-    (Number(authData.confirmedKioskViolations || authData.violationCount || 0) >= 1 && !authData.excused) ||
-    (rollAuthData.hasViolation === true && !rollAuthData.excused) ||
-    (rollAuthData.violation === 1 && !rollAuthData.excused) ||
-    (Number(rollAuthData.confirmedKioskViolations || rollAuthData.violationCount || 0) >= 1 && !rollAuthData.excused) ||
-    (sessionFlagged && !sessionFlagged.excused && !sessionFlagged.resolved && Number(sessionFlagged.count || sessionFlagged.violationCount || 0) >= 1);
+    (authData.hasViolation === true && !authData.excused && authViolations >= violationThreshold) ||
+    (authViolations >= violationThreshold && !authData.excused) ||
+    (sessionFlagged && !sessionFlagged.excused && !sessionFlagged.resolved && Number(sessionFlagged.count || sessionFlagged.violationCount || 0) >= violationThreshold);
 
   // Reject if unexcused violation or disqualified
   if (isDisqualified || hasUnexcusedViolation) {
@@ -2160,14 +2201,18 @@ exports.submitAttendance = onCall(async (request) => {
       rollAuthData.disqualified === true ||
       (sessionFlagged && !sessionFlagged.excused && !sessionFlagged.resolved && (sessionFlagged.disqualified === true || sessionFlagged.status === "FLAGGED_DISQUALIFIED"));
 
+    const isAndroidDevice = request.data?.platform === "android" || request.data?.isAndroid === true;
+    const violationThreshold = isAndroidDevice ? 2 : 1;
+
+    const authViolations = Math.max(
+      Number(authData.confirmedKioskViolations || authData.violationCount || 0),
+      Number(rollAuthData.confirmedKioskViolations || rollAuthData.violationCount || 0)
+    );
+
     const hasUnexcusedViolation =
-      (authData.hasViolation === true && !authData.excused) ||
-      (authData.violation === 1 && !authData.excused) ||
-      (Number(authData.confirmedKioskViolations || authData.violationCount || 0) >= 1 && !authData.excused) ||
-      (rollAuthData.hasViolation === true && !rollAuthData.excused) ||
-      (rollAuthData.violation === 1 && !rollAuthData.excused) ||
-      (Number(rollAuthData.confirmedKioskViolations || rollAuthData.violationCount || 0) >= 1 && !rollAuthData.excused) ||
-      (sessionFlagged && !sessionFlagged.excused && !sessionFlagged.resolved && Number(sessionFlagged.count || sessionFlagged.violationCount || 0) >= 1);
+      (authData.hasViolation === true && !authData.excused && authViolations >= violationThreshold) ||
+      (authViolations >= violationThreshold && !authData.excused) ||
+      (sessionFlagged && !sessionFlagged.excused && !sessionFlagged.resolved && Number(sessionFlagged.count || sessionFlagged.violationCount || 0) >= violationThreshold);
 
     // Strict authoritative violation enforcement: reject if unexcused violation or disqualified
     if (isDisqualified || hasUnexcusedViolation) {
@@ -3454,8 +3499,9 @@ exports.recordAttendanceLifecycleEvent = onCall(async (request) => {
 
   const prevCount = Number(authData.confirmedKioskViolations || authData.violationCount || 0);
   const nextCount = prevCount + 1;
-  // Zero-tolerance single-strike disqualification: any confirmed kiosk escape or app leave during kiosk mode disqualifies
-  const isDisqualified = isConfirmedViolation ? true : (nextCount >= 1);
+  const isAndroidClient = platform === "android" || platform === "ANDROID" || (source && source.includes("android"));
+  const violationThreshold = isAndroidClient ? 2 : 1;
+  const isDisqualified = nextCount >= violationThreshold;
 
   const violationEntry = {
     type: eventType || "CONFIRMED_KIOSK_ESCAPE",

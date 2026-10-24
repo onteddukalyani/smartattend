@@ -327,6 +327,9 @@ export async function authorizeStudentQR1(sessionId, qr1Token, studentProfileOve
 
   setDoc(authRef, newAuthRecord, { merge: true })
     .then(() => {
+      if (cleanRoll && cleanRoll !== studentUid) {
+        setDoc(doc(db, "attendance_sessions", sessionId, "authorizations", cleanRoll), newAuthRecord, { merge: true }).catch(() => { });
+      }
       updateDoc(sessionRef, {
         authorizedCount: increment(1),
         attendees: arrayUnion(attendeePayload)
@@ -369,30 +372,36 @@ export async function authorizeStudentQR1(sessionId, qr1Token, studentProfileOve
  * 3. Lecturer: Transition Session to Phase 2 (Generate QR 2)
  */
 export async function transitionSessionToPhase2(sessionId) {
-  try {
-    const fn = httpsCallable(functions, "transitionToPhase2");
-    const result = await fn({ sessionId });
-    if (result && result.data) return result.data;
-  } catch (cloudErr) {
-    console.warn("Cloud function transitionToPhase2 notice:", cloudErr.message || cloudErr);
-  }
-
+  if (!sessionId) return { success: false };
   const now = Date.now();
+
+  // 1. Direct Firestore write for instant zero-latency broadcast to student devices
   try {
     const sessionRef = doc(db, "attendance_sessions", sessionId);
     await updateDoc(sessionRef, {
       phase: "PHASE_2",
+      qr2Released: true,
       qr1ExpiresAt: now,
-      qr2StartsAt: now
+      qr2StartsAt: now,
+      updatedAt: now
     });
   } catch (err) {
-    console.warn("Transition phase notice:", err.message);
+    console.warn("Transition phase direct write notice:", err.message || err);
+  }
+
+  // 2. Also trigger backend function to synchronize server tokens
+  try {
+    const fn = httpsCallable(functions, "transitionToPhase2");
+    await fn({ sessionId, now });
+  } catch (cloudErr) {
+    console.warn("Cloud function transitionToPhase2 notice:", cloudErr.message || cloudErr);
   }
 
   return {
     success: true,
     sessionId: sessionId,
     phase: "PHASE_2",
+    qr2Released: true,
     qr1ExpiresAt: now,
     qr2StartsAt: now
   };
@@ -428,13 +437,16 @@ export async function validateStudentQR2(sessionId, qr2Token, qrPayload = null) 
 
   // 2. Race Cloud Function validateQR2 with 1100ms timeout
   try {
+    const isAndroid = typeof navigator !== "undefined" && /Android/i.test(navigator?.userAgent || "");
     const fn = httpsCallable(functions, "validateQR2");
     const cloudPromise = fn({
       sessionId,
       qr2Token,
       slot: qrPayload?.slot,
       sig: qrPayload?.sig,
-      int: qrPayload?.int
+      int: qrPayload?.int,
+      platform: isAndroid ? "android" : "web",
+      isAndroid
     });
     const timeoutPromise = new Promise((_, reject) =>
       setTimeout(() => reject(new Error("CLOUD_TIMEOUT")), 1100)

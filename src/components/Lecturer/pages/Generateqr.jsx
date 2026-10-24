@@ -412,7 +412,12 @@ function GenerateQR() {
                     closeAttendanceSession(sessionId).catch(() => { });
                 }
             } else if (phase === "PHASE_2" || sessionData?.phase === "PHASE_2" || (qr1ExpiresAt && now >= qr1ExpiresAt)) {
-                setPhase("PHASE_2");
+                if (phase !== "PHASE_2") {
+                    setPhase("PHASE_2");
+                    if (sessionId) {
+                        transitionSessionToPhase2(sessionId).catch(() => { });
+                    }
+                }
             } else {
                 setPhase("PHASE_1");
             }

@@ -182,15 +182,22 @@
 .st-kiosk-hero-card {
     position: relative;
     overflow: hidden;
-    border-radius: 26px;
-    padding: 34px 24px;
-    background: radial-gradient(120% 120% at 50% 0%, #1e1b4b 0%, #0f172a 75%, #090d16 100%);
-    border: 1.5px solid rgba(129, 140, 248, 0.28);
-    box-shadow: 0 20px 50px -15px rgba(15, 23, 42, 0.75), 0 0 35px rgba(99, 102, 241, 0.18);
-    color: #ffffff;
+    border-radius: 24px;
+    padding: 30px 22px;
+    background: linear-gradient(135deg, rgba(99, 102, 241, 0.05) 0%, rgba(139, 92, 246, 0.03) 100%), var(--surface, #ffffff);
+    border: 1.5px solid var(--border, #e2e8f0);
+    box-shadow: 0 16px 36px -12px rgba(99, 102, 241, 0.12), 0 0 20px rgba(0, 0, 0, 0.03);
+    color: var(--text-main, #0f172a);
     text-align: center;
     margin-bottom: 24px;
     animation: stCardEntrance 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+[data-theme="dark"] .st-kiosk-hero-card,
+[data-theme="midnight"] .st-kiosk-hero-card {
+    background: linear-gradient(135deg, rgba(99, 102, 241, 0.12) 0%, rgba(15, 23, 42, 0.9) 100%), var(--surface, #1e293b);
+    border-color: rgba(99, 102, 241, 0.3);
+    color: #f8fafc;
 }
 
 .st-kiosk-glow-orb {
@@ -200,7 +207,7 @@
     transform: translateX(-50%);
     width: 260px;
     height: 140px;
-    background: radial-gradient(circle, rgba(99, 102, 241, 0.35) 0%, rgba(99, 102, 241, 0) 70%);
+    background: radial-gradient(circle, rgba(99, 102, 241, 0.15) 0%, rgba(99, 102, 241, 0) 70%);
     filter: blur(28px);
     pointer-events: none;
     z-index: 0;
@@ -214,20 +221,20 @@
     gap: 8px;
     padding: 7px 18px;
     border-radius: 999px;
-    background: rgba(16, 185, 129, 0.16);
-    border: 1.5px solid rgba(52, 211, 153, 0.4);
-    color: #34d399;
+    background: rgba(16, 185, 129, 0.1);
+    border: 1.5px solid rgba(16, 185, 129, 0.3);
+    color: #059669;
     font-size: 0.86rem;
     font-weight: 800;
     letter-spacing: 0.02em;
     margin-bottom: 14px;
-    box-shadow: 0 4px 14px rgba(16, 185, 129, 0.15);
+    box-shadow: 0 4px 14px rgba(16, 185, 129, 0.1);
     animation: stPopBadge 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 .st-success-check-icon {
     font-size: 1rem;
-    color: #34d399;
+    color: #059669;
 }
 
 .st-kiosk-session-title {
@@ -235,17 +242,22 @@
     z-index: 1;
     font-size: 1.35rem;
     font-weight: 850;
-    color: #f8fafc;
+    color: var(--text-main, #0f172a);
     margin-bottom: 4px;
     letter-spacing: -0.01em;
+}
+
+[data-theme="dark"] .st-kiosk-session-title,
+[data-theme="midnight"] .st-kiosk-session-title {
+    color: #f8fafc;
 }
 
 .st-kiosk-session-sub {
     position: relative;
     z-index: 1;
     font-size: 0.88rem;
-    color: #94a3b8;
-    margin-bottom: 24px;
+    color: var(--text-muted, #64748b);
+    margin-bottom: 22px;
     font-weight: 550;
 }
 
@@ -270,7 +282,7 @@
 
 .st-timer-bg-circle {
     fill: none;
-    stroke: rgba(255, 255, 255, 0.08);
+    stroke: rgba(99, 102, 241, 0.12);
     stroke-width: 9;
 }
 
@@ -294,7 +306,7 @@
 
 .st-timer-icon-wrap {
     margin-bottom: 4px;
-    color: #818cf8;
+    color: var(--accent, #6366f1);
     font-size: 1.05rem;
 }
 
@@ -308,15 +320,20 @@
     font-weight: 900;
     line-height: 1;
     letter-spacing: 0.04em;
-    color: #ffffff;
-    text-shadow: 0 0 20px rgba(99, 102, 241, 0.7), 0 0 40px rgba(6, 182, 212, 0.4);
+    color: var(--text-main, #0f172a);
     margin-bottom: 6px;
+}
+
+[data-theme="dark"] .st-timer-digital,
+[data-theme="midnight"] .st-timer-digital {
+    color: #ffffff;
+    text-shadow: 0 0 20px rgba(99, 102, 241, 0.7);
 }
 
 .st-timer-subtext {
     font-size: 0.72rem;
     font-weight: 800;
-    color: #818cf8;
+    color: var(--accent, #6366f1);
     letter-spacing: 0.08em;
     text-transform: uppercase;
 }
@@ -365,24 +382,54 @@
     display: inline-flex;
     align-items: center;
     gap: 8px;
-    margin: -10px auto 22px auto;
+    margin: -10px auto 12px auto;
     padding: 7px 18px;
     border-radius: 999px;
-    background: rgba(99, 102, 241, 0.14);
-    border: 1px solid rgba(129, 140, 248, 0.4);
-    color: #c7d2fe;
+    background: rgba(99, 102, 241, 0.08);
+    border: 1px solid rgba(99, 102, 241, 0.25);
+    color: var(--accent-strong, #4338ca);
     font-size: 0.78rem;
     font-weight: 750;
     letter-spacing: 0.02em;
-    box-shadow: 0 4px 14px rgba(99, 102, 241, 0.18);
+}
+
+[data-theme="dark"] .st-turning-loader-badge,
+[data-theme="midnight"] .st-turning-loader-badge {
+    background: rgba(99, 102, 241, 0.18);
+    color: #c7d2fe;
+}
+
+.st-early-switch-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    width: 100%;
+    max-width: 340px;
+    margin: 8px auto 18px auto;
+    padding: 12px 18px;
+    border-radius: 14px;
+    background: linear-gradient(135deg, #4f46e5 0%, #6366f1 50%, #8b5cf6 100%);
+    color: #ffffff;
+    font-size: 0.88rem;
+    font-weight: 800;
+    border: none;
+    cursor: pointer;
+    box-shadow: 0 6px 18px rgba(99, 102, 241, 0.28);
+    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.st-early-switch-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(99, 102, 241, 0.38);
 }
 
 .st-turning-dot-pulse {
     width: 8px;
     height: 8px;
     border-radius: 50%;
-    background: #38bdf8;
-    box-shadow: 0 0 8px #38bdf8;
+    background: #6366f1;
+    box-shadow: 0 0 8px #6366f1;
     animation: stPulseGlow 1.2s ease-in-out infinite alternate;
 }
 
@@ -403,12 +450,16 @@
     z-index: 1;
     border-radius: 18px;
     padding: 16px 18px;
-    background: rgba(15, 23, 42, 0.65);
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
+    background: var(--surface-soft, #f8fafc);
+    border: 1.5px solid var(--border, #e2e8f0);
     margin-bottom: 18px;
     text-align: left;
+}
+
+[data-theme="dark"] .st-camera-paused-card,
+[data-theme="midnight"] .st-camera-paused-card {
+    background: rgba(15, 23, 42, 0.65);
+    border-color: rgba(255, 255, 255, 0.12);
 }
 
 .st-paused-header {
@@ -424,17 +475,17 @@
     gap: 6px;
     font-size: 0.8rem;
     font-weight: 800;
-    color: #fca5a5;
-    background: rgba(239, 68, 68, 0.15);
+    color: #dc2626;
+    background: rgba(239, 68, 68, 0.1);
     padding: 4px 10px;
     border-radius: 999px;
-    border: 1px solid rgba(239, 68, 68, 0.3);
+    border: 1px solid rgba(239, 68, 68, 0.25);
 }
 
 .st-paused-desc {
     margin: 0;
     font-size: 0.84rem;
-    color: #cbd5e1;
+    color: var(--text-muted, #64748b);
     line-height: 1.45;
     font-weight: 500;
 }

@@ -178,6 +178,7 @@ function QrScannerApp() {
     const [kioskEndsAt, setKioskEndsAt] = useState(0);
     const [authQr2StartsAt, setAuthQr2StartsAt] = useState(0);
     const [authQr1DurationSec, setAuthQr1DurationSec] = useState(15);
+    const [forceQr2Unlocked, setForceQr2Unlocked] = useState(false);
     const [elapsedSeconds, setElapsedSeconds] = useState(0);
     const [sessionRemaining, setSessionRemaining] = useState(30);
     const [errorMessage, setErrorMessage] = useState('');
@@ -225,12 +226,14 @@ function QrScannerApp() {
 
     // Helper to evaluate if Lecturer has officially released Phase 2 (QR 2)
     const isQr2Released = Boolean(
+        forceQr2Unlocked ||
         (sessionData && (
             sessionData.phase === 'PHASE_2' ||
             sessionData.phase === '2' ||
             sessionData.qr2Released === true
         )) ||
-        (!sessionData && authQr2StartsAt > 0 && authQr2StartsAt <= nowTick)
+        (effectiveQr2TargetMs > 0 && effectiveQr2TargetMs <= nowTick) ||
+        (authQr2StartsAt > 0 && authQr2StartsAt <= nowTick)
     );
 
     const qr2TargetMs = effectiveQr2TargetMs;
@@ -1906,16 +1909,20 @@ function QrScannerApp() {
             const isQR2 = Boolean(payload.qr2Token || payload.phase === '2' || payload.phase === 'PHASE_2' || (sessionData?.phase === 'PHASE_2' && payload.sessionId === activeSessionId));
             const isQR1 = Boolean(payload.qr1Token || payload.phase === '1' || payload.phase === 'PHASE_1');
 
+            if (isQR2) {
+                console.log('[Scanner] Phase 2 (QR 2) scanned successfully. Proceeding to biometrics...');
+                setForceQr2Unlocked(true);
+                handleProcessQR2(payload.sessionId || activeSessionId, payload.qr2Token || payload.sessionId, enhancedPayload);
+                return;
+            }
+
             if (!isQr2Released) {
                 console.log('[Scanner] QR scan blocked: Phase 2 has not been released yet.');
                 setErrorMessage('🔒 Scanning is locked. Please wait for the countdown to finish before scanning QR 2.');
                 return;
             }
 
-            if (isQR2) {
-                console.log('[Scanner] Phase 2 (QR 2) scanned successfully. Proceeding to biometrics...');
-                handleProcessQR2(payload.sessionId || activeSessionId, payload.qr2Token || payload.sessionId, enhancedPayload);
-            } else if (isQR1) {
+            if (isQR1) {
                 // QR 1 is explicitly blocked from re-scanning!
                 console.log('[Scanner] QR 1 ignored. Student already completed Phase 1 check-in. Waiting for Lecturer to display QR 2.');
                 setErrorMessage('You have already scanned QR 1. Please scan QR 2 displayed on the screen.');
@@ -2161,7 +2168,7 @@ function QrScannerApp() {
                         }
                         if (geoCheck.status === "REJECT") {
                             setSubmittingAttendance(false);
-                            setErrorMessage(`❌ Attendance Submission Blocked: Your device is ${geoCheck.distance}m away (outside classroom boundary of ${geoCheck.radius}m). Attendance can only be submitted within the classroom.`);
+                            setErrorMessage(`❌ Attendance Submission Blocked: Your device is outside the classroom boundary. Attendance can only be submitted within the classroom.`);
                             return;
                         }
                     }
@@ -3021,15 +3028,15 @@ function QrScannerApp() {
         }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
                 <span style={{ fontSize: '0.82rem', fontWeight: 800, color: 'var(--text-muted, #475569)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <FaMapMarkerAlt style={{ color: '#6366f1' }} /> GPS Proximity &amp; Distance
+                    <FaMapMarkerAlt style={{ color: '#6366f1' }} /> GPS Classroom Verification
                 </span>
                 {gpsTelemetry?.status === 'PASS' ? (
                     <span style={{ fontSize: '0.74rem', fontWeight: 800, color: '#059669', background: 'rgba(16, 185, 129, 0.12)', padding: '2px 8px', borderRadius: '6px' }}>
-                        ✓ Within Classroom ({gpsTelemetry.distance <= 1.5 ? '< 1m' : `${gpsTelemetry.distance}m`})
+                        ✓ Inside Classroom Boundary
                     </span>
                 ) : gpsTelemetry?.status === 'REJECT' ? (
                     <span style={{ fontSize: '0.74rem', fontWeight: 800, color: '#dc2626', background: 'rgba(239, 68, 68, 0.12)', padding: '2px 8px', borderRadius: '6px' }}>
-                        ✕ Outside Limit ({gpsTelemetry.distance}m)
+                        ✕ Outside Classroom Limit
                     </span>
                 ) : (
                     <span style={{ fontSize: '0.74rem', fontWeight: 700, color: '#4f46e5', display: 'flex', alignItems: 'center', gap: '4px' }}>
@@ -3041,7 +3048,7 @@ function QrScannerApp() {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '8px', fontSize: '0.78rem' }}>
                 <div style={{ padding: '8px 10px', background: 'var(--bg-subtle, #f8fafc)', borderRadius: '10px' }}>
                     <div style={{ color: '#64748b', fontSize: '0.7rem', fontWeight: 600 }}>
-                        {scannedStudentLocation ? '📍 Scanned Device Location' : 'Student Location'}
+                        {scannedStudentLocation ? '📍 Device Position' : 'Student Position'}
                     </div>
                     <div style={{ fontWeight: 750, color: 'var(--text-main, #0f172a)' }}>
                         {(scannedStudentLocation || currentStudentLocation)
@@ -3056,21 +3063,17 @@ function QrScannerApp() {
                 </div>
 
                 <div style={{ padding: '8px 10px', background: 'var(--bg-subtle, #f8fafc)', borderRadius: '10px' }}>
-                    <div style={{ color: '#64748b', fontSize: '0.7rem', fontWeight: 600 }}>Distance to Lecturer</div>
+                    <div style={{ color: '#64748b', fontSize: '0.7rem', fontWeight: 600 }}>Classroom Proximity Status</div>
                     <div style={{
                         fontWeight: 800,
                         fontSize: '0.88rem',
-                        color: (gpsTelemetry?.distance !== undefined && gpsTelemetry?.distance !== null)
-                            ? ((gpsTelemetry.status === 'PASS' || gpsTelemetry.distance <= (gpsTelemetry.radius || 10)) ? '#059669' : '#dc2626')
-                            : '#4338ca'
+                        color: gpsTelemetry?.status === 'PASS' ? '#059669' : (gpsTelemetry?.status === 'REJECT' ? '#dc2626' : '#4338ca')
                     }}>
-                        {gpsTelemetry?.distance !== undefined && gpsTelemetry?.distance !== null
-                            ? (gpsTelemetry.status === 'PASS'
-                                ? (gpsTelemetry.distance <= 1.5
-                                    ? `< 1m (Co-located · Verified)`
-                                    : `${gpsTelemetry.distance}m (In Classroom Range)`)
-                                : `${gpsTelemetry.distance} metres`)
-                            : (gpsTelemetry?.locationAcquiring ? 'Measuring distance...' : 'Scan QR on screen')}
+                        {gpsTelemetry?.status === 'PASS'
+                            ? '✓ Verified In Classroom'
+                            : (gpsTelemetry?.status === 'REJECT'
+                                ? '✕ Outside Boundary'
+                                : (gpsTelemetry?.locationAcquiring ? 'Verifying location...' : 'Ready for Classroom Scan'))}
                     </div>
                     <div style={{
                         fontSize: '0.68rem',
@@ -3078,8 +3081,8 @@ function QrScannerApp() {
                         fontWeight: gpsTelemetry?.status === 'PASS' ? 700 : 500
                     }}>
                         {gpsTelemetry?.status === 'PASS'
-                            ? `✓ Within Classroom Limit (≤ ${gpsTelemetry.radius || 10}m)`
-                            : (gpsTelemetry?.radius ? `Boundary: ≤ ${gpsTelemetry.radius}m` : 'Classroom Geofence')}
+                            ? '✓ Classroom Presence Confirmed'
+                            : 'Classroom Geofence Active'}
                     </div>
                 </div>
             </div>
@@ -3837,18 +3840,26 @@ function QrScannerApp() {
                     </div>
                 )}
 
-                {/* Supervised Bar */}
+                {/* Supervised Bar with Dynamic Session Timer */}
                 <div className="st-supervised-bar">
                     <div className="st-supervised-bar-left">
                         <FaLock /> Lock Mode Active ({loggedInRollNo})
                     </div>
-                    <button
-                        type="button"
-                        onClick={() => setShowPinModal(true)}
-                        className="st-supervised-release-btn"
-                    >
-                        Release
-                    </button>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        {kioskEndsAt && kioskEndsAt > nowTick && (
+                            <span style={{ fontSize: '0.78rem', background: 'rgba(255, 255, 255, 0.22)', padding: '3px 8px', borderRadius: '8px', fontWeight: 800 }}>
+                                ⏳ Closes in {Math.floor(Math.max(0, Math.ceil((kioskEndsAt - nowTick) / 1000)) / 60)}:
+                                {String(Math.max(0, Math.ceil((kioskEndsAt - nowTick) / 1000)) % 60).padStart(2, '0')}
+                            </span>
+                        )}
+                        <button
+                            type="button"
+                            onClick={() => setShowPinModal(true)}
+                            className="st-supervised-release-btn"
+                        >
+                            Release
+                        </button>
+                    </div>
                 </div>
 
                 {/* Instruction / Status Badge */}
@@ -3965,6 +3976,23 @@ function QrScannerApp() {
                             <span>Actively synchronizing session · Auto-loading Phase 2 QR</span>
                         </div>
 
+                        {/* Interactive Instant Switcher for Early Phase 2 Release */}
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setForceQr2Unlocked(true);
+                                setScannerActive(true);
+                                if (activeSessionId) {
+                                    getDoc(doc(db, "attendance_sessions", activeSessionId)).then((snap) => {
+                                        if (snap.exists()) setSessionData(snap.data());
+                                    }).catch(() => { });
+                                }
+                            }}
+                            className="st-early-switch-btn"
+                        >
+                            <FaBolt /> Lecturer Switched to QR 2? Tap to Scan Now
+                        </button>
+
                         {/* Strict Camera Paused / Locked Indicator */}
                         <div className="st-camera-paused-card">
                             <div className="st-paused-header">
@@ -3990,6 +4018,12 @@ function QrScannerApp() {
                             <span className="st-sync-dot" style={{ background: '#ffffff', boxShadow: '0 0 10px #ffffff' }}></span>
                             <FaBolt />
                             <span>⚡ Phase 2 Live · Scan QR 2 on Screen Now</span>
+                            {kioskEndsAt && kioskEndsAt > nowTick && (
+                                <span style={{ marginLeft: 'auto', fontSize: '0.78rem', fontWeight: 800, background: 'rgba(255, 255, 255, 0.25)', padding: '2px 8px', borderRadius: '6px' }}>
+                                    Time Left: {Math.floor(Math.max(0, Math.ceil((kioskEndsAt - nowTick) / 1000)) / 60)}:
+                                    {String(Math.max(0, Math.ceil((kioskEndsAt - nowTick) / 1000)) % 60).padStart(2, '0')}
+                                </span>
+                            )}
                         </div>
 
                         <div className="st-camera-viewport-card active-phase2">
