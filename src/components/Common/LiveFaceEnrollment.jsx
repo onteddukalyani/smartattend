@@ -265,7 +265,16 @@ export function LiveFaceEnrollment({
                     },
                     audio: false
                 },
-                { video: { facingMode: { exact: requestedFacingMode } }, audio: false }
+                { video: { facingMode: { exact: requestedFacingMode } }, audio: false },
+                {
+                    video: {
+                        facingMode: { ideal: requestedFacingMode },
+                        width: { ideal: 640, min: 320 },
+                        height: { ideal: 480, min: 240 }
+                    },
+                    audio: false
+                },
+                { video: true, audio: false }
             ];
 
             let stream = null;

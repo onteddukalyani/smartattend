@@ -92,6 +92,15 @@ const getCameraStream = async (requestedFacingMode = "user", maxRetries = 3) => 
       }] : []),
       {
         video: {
+          facingMode: { exact: facingMode },
+          width: { ideal: 640, max: 1280 },
+          height: { ideal: 480, max: 720 },
+          frameRate: { ideal: 30, max: 30 }
+        },
+        audio: false
+      },
+      {
+        video: {
           facingMode: { ideal: facingMode },
           width: { ideal: 640, max: 1280 },
           height: { ideal: 480, max: 720 },
@@ -320,6 +329,16 @@ function FaceScanner({
       console.error("Camera access error:", camErr);
       const isDenied = camErr.name === "NotAllowedError" || camErr.name === "PermissionDeniedError";
       const isInUse = camErr.name === "NotReadableError" || camErr.name === "TrackStartError";
+
+      // If rear camera was requested on a device without a rear camera (e.g. laptop webcam), smoothly revert to front camera
+      if (activeFacing === "environment" && !isDenied) {
+        console.warn("Rear camera not available on this device; automatically reverting to front camera.");
+        setFacingMode("user");
+        setTimeout(() => {
+          initCameraAndModels("user");
+        }, 250);
+        return;
+      }
 
       if (isDenied) {
         setCameraError("Camera permission denied. Please allow camera access in your browser / app settings.");

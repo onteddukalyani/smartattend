@@ -47,7 +47,7 @@ import { isIOSDevice, isGuidedAccessEnabled, addAppSwitchListener, addScreenCapt
 import { getApkDownloadUrl } from '../../utils/apkUrl';
 import GuidedAccessRequired, { GuidedAccessExitNotice } from '../GuidedAccessRequired';
 import { isGenericName } from '../../utils/studentDataHelper';
-import { detectDeviceType, getClientIpAddress, getDeviceDisplayName, isDeviceMatching, isBrowserCameraAllowed } from '../../utils/deviceDetection';
+import { detectDeviceType, getClientIpAddress, getDeviceDisplayName, isDeviceMatching, isBrowserCameraAllowed, isStaffCameraUser } from '../../utils/deviceDetection';
 import { sendFacultyNotification, sendStudentNotification, reportUserVerificationComplaint } from '../../services/notificationsService';
 import { validateRotatingQrPayload } from '../../utils/qrCrypto';
 import { evaluateGeofence, calculateHaversineDistance, DEFAULT_GEOFENCE_RADIUS_METRES } from '../../utils/geofence';
@@ -131,7 +131,13 @@ function QrScannerApp() {
     const lifecycleViolationSessionRef = useRef(null);
 
     // Camera & Scanner State
+    const isStaff = isStaffCameraUser(profile, user);
     const [facingMode, setFacingMode] = useState('environment');
+    // Students strictly use rear camera for QR scanning; lecturers have full front/rear toggle
+    const effectiveFacingMode = isStaff ? facingMode : 'environment';
+    const handleToggleFacingMode = isStaff ? () => {
+        setFacingMode((prev) => (prev === 'environment' ? 'user' : 'environment'));
+    } : undefined;
     const [retryKey, setRetryKey] = useState(0);
     const [cameraError, setCameraError] = useState('');
     const [permissionDenied, setPermissionDenied] = useState(false);
@@ -3513,10 +3519,11 @@ function QrScannerApp() {
                         <div className="st-camera-viewport-card active-phase2">
                             {isCameraAllowed ? (
                                 <NativeQrScanner
-                                    key={`waiting-${retryKey}-environment`}
+                                    key={`waiting-${retryKey}-${effectiveFacingMode}`}
                                     onScan={handleCameraScan}
                                     onError={handleCameraError}
-                                    facingMode="environment"
+                                    facingMode={effectiveFacingMode}
+                                    onToggleFacingMode={handleToggleFacingMode}
                                     active={scanState === 'KIOSK_WAITING_QR2' && isQr2Released}
                                 />
                             ) : (
@@ -3646,10 +3653,11 @@ function QrScannerApp() {
             <div className="st-camera-viewport-card">
                 {isCameraAllowed && scannerActive ? (
                     <NativeQrScanner
-                        key={`${retryKey}-environment`}
+                        key={`${retryKey}-${effectiveFacingMode}`}
                         onScan={handleCameraScan}
                         onError={handleCameraError}
-                        facingMode="environment"
+                        facingMode={effectiveFacingMode}
+                        onToggleFacingMode={handleToggleFacingMode}
                         active={scannerActive}
                     />
                 ) : !isCameraAllowed ? (

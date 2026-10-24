@@ -112,23 +112,43 @@ function NativeQrScanner({
             return;
         }
 
-        // Check if device enumeration can find the rear camera deviceId directly
-        let rearDeviceId = null;
+        // Check if device enumeration can find the target camera deviceId directly
+        let targetDeviceId = null;
         try {
             if (navigator?.mediaDevices?.enumerateDevices) {
                 const devs = await navigator.mediaDevices.enumerateDevices();
                 const videoDevs = devs.filter((d) => d.kind === 'videoinput');
-                const rearDev = videoDevs.find((d) =>
-                    /back|rear|environment|world/i.test(d.label)
+                const matchedDev = videoDevs.find((d) =>
+                    facingMode === 'user'
+                        ? /front|user|selfie|face/i.test(d.label)
+                        : /back|rear|environment|world/i.test(d.label)
                 );
-                if (rearDev?.deviceId) {
-                    rearDeviceId = rearDev.deviceId;
+                if (matchedDev?.deviceId) {
+                    targetDeviceId = matchedDev.deviceId;
                 }
             }
         } catch (_) { }
 
         const progressiveConstraints = [
-            // Tier 1: Optimized HD/VGA rear camera with portrait-friendly ideal constraints
+            // Tier 0: Direct target hardware deviceId if discovered
+            ...(targetDeviceId ? [{
+                video: {
+                    deviceId: { exact: targetDeviceId },
+                    width: { ideal: 1280, min: 480 },
+                    height: { ideal: 720, min: 360 }
+                },
+                audio: false
+            }] : []),
+            // Tier 1: Exact facingMode
+            {
+                video: {
+                    facingMode: { exact: facingMode || 'environment' },
+                    width: { ideal: 1280, min: 480 },
+                    height: { ideal: 720, min: 360 }
+                },
+                audio: false
+            },
+            // Tier 2: Ideal facingMode
             {
                 video: {
                     facingMode: { ideal: facingMode || 'environment' },
@@ -137,12 +157,12 @@ function NativeQrScanner({
                 },
                 audio: false
             },
-            // Tier 2: Direct facingMode fallback
+            // Tier 3: Direct facingMode fallback
             {
                 video: { facingMode: facingMode || 'environment' },
                 audio: false
             },
-            // Tier 3: Universal fallback
+            // Tier 4: Universal fallback for laptops / single webcam devices
             {
                 video: true,
                 audio: false
@@ -476,7 +496,7 @@ function NativeQrScanner({
                         `}</style>
                     </div>
 
-                    {/* Camera Badge: Rear Camera Active Indicator */}
+                    {/* Camera Badge: Rear/Front Camera Active Indicator */}
                     <div style={{
                         position: 'absolute',
                         top: '12px',
@@ -495,10 +515,10 @@ function NativeQrScanner({
                         zIndex: 5
                     }}>
                         <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: '#10b981', boxShadow: '0 0 6px #10b981' }}></span>
-                        Rear Camera · Scanning QR
+                        {facingMode === 'user' ? 'Front Camera' : 'Rear Camera'} · Scanning QR
                     </div>
 
-                    {/* Camera Control Action Buttons: Torch / Flashlight */}
+                    {/* Camera Control Action Buttons: Camera Switch (Lecturers) & Torch / Flashlight */}
                     <div style={{
                         position: 'absolute',
                         top: '12px',
@@ -508,6 +528,28 @@ function NativeQrScanner({
                         pointerEvents: 'auto',
                         zIndex: 5
                     }}>
+                        {onToggleFacingMode && (
+                            <button
+                                type="button"
+                                onClick={onToggleFacingMode}
+                                title={`Switch to ${facingMode === 'user' ? 'Rear' : 'Front'} Camera`}
+                                style={{
+                                    width: '38px',
+                                    height: '38px',
+                                    borderRadius: '50%',
+                                    background: 'rgba(15, 23, 42, 0.75)',
+                                    color: '#ffffff',
+                                    border: '1px solid rgba(255, 255, 255, 0.25)',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    cursor: 'pointer',
+                                    backdropFilter: 'blur(6px)'
+                                }}
+                            >
+                                <FaSyncAlt style={{ fontSize: '0.9rem' }} />
+                            </button>
+                        )}
                         {torchAvailable && (
                             <button
                                 type="button"
