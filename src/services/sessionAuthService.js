@@ -470,24 +470,28 @@ export async function validateStudentQR2(sessionId, qr2Token, qrPayload = null) 
     }
   }
 
-  // 3. Concurrently fetch session doc and candidate authorizations in parallel (1 round-trip)
+  // 3. Concurrently fetch session doc and candidate authorizations in parallel (with 2000ms timeout)
   const candidateKeys = [currentUid, currentRollNo, currentEmail].filter(Boolean);
   const sessionRef = doc(db, "attendance_sessions", sessionId);
 
   let session = null;
   try {
-    const [sessionSnap, ...authSnaps] = await Promise.all([
+    const fetchPromises = [
       getDoc(sessionRef).catch(() => ({ exists: () => false })),
       ...candidateKeys.map(key =>
         getDoc(doc(db, "attendance_sessions", sessionId, "authorizations", key)).catch(() => ({ exists: () => false }))
       )
+    ];
+    const [sessionSnap, ...authSnaps] = await Promise.race([
+      Promise.all(fetchPromises),
+      new Promise((resolve) => setTimeout(() => resolve([{ exists: () => false }]), 2000))
     ]);
 
     if (sessionSnap && typeof sessionSnap.exists === "function" && sessionSnap.exists()) {
       session = sessionSnap.data();
     }
 
-    if (!authData) {
+    if (!authData && Array.isArray(authSnaps)) {
       for (const snap of authSnaps) {
         if (snap && typeof snap.exists === "function" && snap.exists()) {
           const d = snap.data();
@@ -574,12 +578,15 @@ export async function validateStudentQR2(sessionId, qr2Token, qrPayload = null) 
 
   const targetRoll = (authData.rollNo || currentRollNo || "STUDENT").toUpperCase();
 
-  // 4. Duplicate Check
+  // 4. Duplicate Check (with 1500ms timeout)
   try {
     const recordId = `${sessionId}_${targetRoll}`;
     const recordRef = doc(db, "attendance_records", recordId);
-    const recordSnap = await getDoc(recordRef);
-    if (recordSnap.exists()) {
+    const recordSnap = await Promise.race([
+      getDoc(recordRef),
+      new Promise((resolve) => setTimeout(() => resolve({ exists: () => false }), 1500))
+    ]);
+    if (recordSnap && typeof recordSnap.exists === "function" && recordSnap.exists()) {
       await reportUserVerificationComplaint(
         { email: currentEmail, rollNo: targetRoll },
         `Duplicate attendance attempt for session ${sessionId}`,

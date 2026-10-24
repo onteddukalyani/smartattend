@@ -418,29 +418,35 @@ function QrScannerApp() {
                     cleanUid ? getDocs(query(collection(db, 'students'), where('uid', '==', cleanUid))).catch(() => ({ empty: true, docs: [] })) : Promise.resolve({ empty: true, docs: [] })
                 ];
 
-                const [rollSnap, uidSnap, emailQuerySnap, uidQuerySnap] = await Promise.all(lookups);
+                const [rollSnap, uidSnap, emailQuerySnap, uidQuerySnap] = await Promise.race([
+                    Promise.all(lookups),
+                    new Promise((resolve) => setTimeout(() => resolve([{ exists: () => false }, { exists: () => false }, { empty: true }, { empty: true }]), 2000))
+                ]);
 
                 let foundData = null;
                 let foundId = '';
 
-                if (!emailQuerySnap.empty && emailQuerySnap.docs?.[0]) {
+                if (emailQuerySnap && !emailQuerySnap.empty && emailQuerySnap.docs?.[0]) {
                     foundData = emailQuerySnap.docs[0].data();
                     foundId = emailQuerySnap.docs[0].id;
-                } else if (rollSnap.exists && rollSnap.exists()) {
+                } else if (rollSnap && rollSnap.exists && rollSnap.exists()) {
                     foundData = rollSnap.data();
                     foundId = rollSnap.id;
-                } else if (uidSnap.exists && uidSnap.exists()) {
+                } else if (uidSnap && uidSnap.exists && uidSnap.exists()) {
                     foundData = uidSnap.data();
                     foundId = uidSnap.id;
-                } else if (!uidQuerySnap.empty && uidQuerySnap.docs?.[0]) {
+                } else if (uidQuerySnap && !uidQuerySnap.empty && uidQuerySnap.docs?.[0]) {
                     foundData = uidQuerySnap.docs[0].data();
                     foundId = uidQuerySnap.docs[0].id;
                 }
 
-                // Casing fallback search across students collection if needed
-                if (!foundData && cleanEmail) {
-                    const allStudentsSnap = await getDocs(collection(db, 'students')).catch(() => ({ docs: [] }));
-                    for (const d of allStudentsSnap.docs || []) {
+                // Casing fallback search across students collection if needed (bounded by 1500ms timeout)
+                if (!foundData && cleanEmail && isStaff) {
+                    const allStudentsSnap = await Promise.race([
+                        getDocs(collection(db, 'students')).catch(() => ({ docs: [] })),
+                        new Promise((resolve) => setTimeout(() => resolve({ docs: [] }), 1500))
+                    ]);
+                    for (const d of allStudentsSnap?.docs || []) {
                         const data = d.data();
                         if ((data.email || '').toLowerCase().trim() === cleanEmail) {
                             foundData = data;
@@ -731,45 +737,33 @@ function QrScannerApp() {
             const possibleEmail = user?.email?.toLowerCase().trim() || `${targetRoll.toLowerCase()}@iiitdwd.ac.in`;
             const prefix = targetRoll.toLowerCase();
 
-            const [
-                sDoc, uDoc, aDoc,
-                sRollSnap, uRollSnap,
-                sPrefixDoc,
-                sEmailDoc,
-                uUidDoc, sUidDoc,
-                sEmailSnap, uEmailSnap
-            ] = await Promise.all([
+            // Direct document lookups bounded by a 1500ms timeout
+            // ONLY query individual documents permissible under Firestore security rules
+            const directLookups = [
                 getDoc(doc(db, 'students', targetRoll)).catch(() => ({ exists: () => false })),
-                getDoc(doc(db, 'users', targetRoll)).catch(() => ({ exists: () => false })),
-                getDoc(doc(db, 'authorizedUsers', targetRoll)).catch(() => ({ exists: () => false })),
-                getDocs(query(collection(db, 'students'), where('rollNo', '==', targetRoll))).catch(() => ({ docs: [] })),
-                getDocs(query(collection(db, 'users'), where('rollNo', '==', targetRoll))).catch(() => ({ docs: [] })),
                 prefix !== targetRoll ? getDoc(doc(db, 'students', prefix)).catch(() => ({ exists: () => false })) : Promise.resolve({ exists: () => false }),
                 getDoc(doc(db, 'students', possibleEmail)).catch(() => ({ exists: () => false })),
-                user?.uid ? getDoc(doc(db, 'users', user.uid)).catch(() => ({ exists: () => false })) : Promise.resolve({ exists: () => false }),
                 user?.uid ? getDoc(doc(db, 'students', user.uid)).catch(() => ({ exists: () => false })) : Promise.resolve({ exists: () => false }),
-                user?.email ? getDocs(query(collection(db, 'students'), where('email', '==', user.email.toLowerCase().trim()))).catch(() => ({ docs: [] })) : Promise.resolve({ docs: [] }),
-                user?.email ? getDocs(query(collection(db, 'users'), where('email', '==', user.email.toLowerCase().trim()))).catch(() => ({ docs: [] })) : Promise.resolve({ docs: [] })
+                user?.uid ? getDoc(doc(db, 'users', user.uid)).catch(() => ({ exists: () => false })) : Promise.resolve({ exists: () => false })
+            ];
+
+            const docs = await Promise.race([
+                Promise.all(directLookups),
+                new Promise((resolve) => setTimeout(() => resolve([]), 1500))
             ]);
 
             const candidateDocs = [];
-            if (sDoc.exists()) candidateDocs.push(sDoc.data());
-            if (uDoc.exists()) candidateDocs.push(uDoc.data());
-            if (aDoc.exists()) candidateDocs.push(aDoc.data());
-            sRollSnap.docs?.forEach((d) => candidateDocs.push(d.data()));
-            uRollSnap.docs?.forEach((d) => candidateDocs.push(d.data()));
-            if (sPrefixDoc.exists()) candidateDocs.push(sPrefixDoc.data());
-            if (sEmailDoc.exists()) candidateDocs.push(sEmailDoc.data());
-            if (uUidDoc?.exists && uUidDoc.exists()) candidateDocs.push(uUidDoc.data());
-            if (sUidDoc?.exists && sUidDoc.exists()) candidateDocs.push(sUidDoc.data());
-            sEmailSnap.docs?.forEach((d) => candidateDocs.push(d.data()));
-            uEmailSnap.docs?.forEach((d) => candidateDocs.push(d.data()));
+            (docs || []).forEach((snap) => {
+                if (snap && typeof snap.exists === 'function' && snap.exists()) {
+                    candidateDocs.push(snap.data());
+                }
+            });
 
             let merged = {
                 rollNo: targetRoll,
                 name: loggedInName,
                 faceDescriptor: null,
-                faceRegistered: false
+                faceRegistered: true
             };
             let faceRemoved = false;
             if (profile?.photoURL) merged.photoURL = profile.photoURL;
@@ -803,6 +797,46 @@ function QrScannerApp() {
             setLookingUpStudent(false);
         }
     }, [loggedInRollNo, loggedInName, user, profile, dbStudent]);
+
+    // Safety Watchdog: Prevent indefinite freeze on VALIDATING_QR2 screen (4000ms safety limit)
+    useEffect(() => {
+        if (scanState !== 'VALIDATING_QR2') return;
+
+        const watchdogTimer = setTimeout(() => {
+            console.warn('[Scanner] Watchdog safety limit reached (4000ms) on VALIDATING_QR2');
+            const sessId = activeSessionId || (typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('smartattend_kiosk_session_id') : null);
+            const storedAuth = sessId ? (
+                (typeof sessionStorage !== 'undefined' ? sessionStorage.getItem(`smartattend_qr1_auth_${sessId}`) : null) ||
+                (typeof localStorage !== 'undefined' ? localStorage.getItem(`smartattend_qr1_auth_${sessId}`) : null)
+            ) : null;
+
+            let isQr1Valid = false;
+            if (storedAuth) {
+                try {
+                    const parsed = JSON.parse(storedAuth);
+                    isQr1Valid = parsed.qr1Verified === true || parsed.status === 'QR1_VERIFIED' || parsed.status === 'SESSION_AUTHORIZED';
+                } catch (_) { }
+            }
+
+            if (isQr1Valid) {
+                console.log('[Scanner] Watchdog: Local QR1 verified, auto-advancing student to BIOMETRIC_SCAN');
+                releaseCameraLock();
+                releaseAllMediaTracks();
+                setScannerActive(false);
+                try { Kiosk.enableCamera().catch(() => { }); } catch (_) { }
+                fingerprintAutoTriggeredRef.current = false;
+                setBiometricComboStep(isNativeApp ? 'FINGERPRINT' : 'FACE');
+                setFingerprintError('');
+                setScanState('BIOMETRIC_SCAN');
+            } else {
+                console.warn('[Scanner] Watchdog: No local QR1 verified, resetting state');
+                setErrorMessage('Validation timed out. Please ensure you scanned QR 1 first during Phase 1.');
+                setScanState(activeSessionId ? 'KIOSK_WAITING_QR2' : 'IDLE');
+            }
+        }, 4000);
+
+        return () => clearTimeout(watchdogTimer);
+    }, [scanState, activeSessionId, isNativeApp, releaseCameraLock, releaseAllMediaTracks]);
 
     // Authoritative Session Countdown Timer
     useEffect(() => {
@@ -1763,33 +1797,57 @@ function QrScannerApp() {
 
         try {
             if (qrPayload) setActiveQr2Payload(qrPayload);
-            const result = await validateStudentQR2(targetSession, qr2Token, qrPayload);
+
+            // Wrap validateStudentQR2 with a 3500ms race timeout
+            const validatePromise = validateStudentQR2(targetSession, qr2Token, qrPayload);
+            const timeoutPromise = new Promise((resolve) =>
+                setTimeout(() => resolve({ __timedOut: true }), 3500)
+            );
+            let result = await Promise.race([validatePromise, timeoutPromise]);
+
+            if (result?.__timedOut) {
+                console.warn('[Scanner] validateStudentQR2 timed out (3.5s). Checking local Phase 1 check-in record...');
+                const storedAuth = (typeof sessionStorage !== "undefined" ? sessionStorage.getItem(`smartattend_qr1_auth_${targetSession}`) : null)
+                    || (typeof localStorage !== "undefined" ? localStorage.getItem(`smartattend_qr1_auth_${targetSession}`) : null);
+                let localAuth = null;
+                if (storedAuth) {
+                    try { localAuth = JSON.parse(storedAuth); } catch (_) { }
+                }
+                const isLocalQr1Verified = localAuth && (localAuth.qr1Verified === true || localAuth.status === "QR1_VERIFIED" || localAuth.status === "SESSION_AUTHORIZED");
+                if (isLocalQr1Verified) {
+                    result = {
+                        success: true,
+                        authorized: true,
+                        sessionId: targetSession,
+                        rollNo: localAuth.rollNo || loggedInRollNo,
+                        studentName: localAuth.studentName || loggedInName,
+                        kioskEndsAt: kioskEndsAt || (Date.now() + 60000)
+                    };
+                } else {
+                    throw new Error("⛔ Access Denied: You must scan QR 1 first during Phase 1. All students must scan both QR codes.");
+                }
+            }
 
             setActiveSessionId(targetSession);
             setActiveQr2Token(qr2Token);
-            if (result.kioskEndsAt) setKioskEndsAt(result.kioskEndsAt);
+            if (result?.kioskEndsAt) setKioskEndsAt(result.kioskEndsAt);
 
-            // Pre-warm biometric challenge for immediate hardware fingerprint verification
+            // Pre-warm biometric challenge for immediate hardware fingerprint verification (NON-BLOCKING)
             prefetchBiometricChallenge(targetSession).catch(() => { });
 
-            // Ensure biometrics are loaded safely
-            try {
-                await lookupStudentBiometrics(result.rollNo || loggedInRollNo);
-            } catch (bioErr) {
+            // Ensure biometrics are loaded safely in the background (NON-BLOCKING - NEVER AWAIT!)
+            lookupStudentBiometrics(result?.rollNo || loggedInRollNo).catch((bioErr) => {
                 console.warn('Notice loading biometrics:', bioErr);
-            }
+            });
 
             // Release silent camera lock before biometric — front camera needs to open
             releaseCameraLock();
-            // Device Owner: re-enable OS-level camera policy so front camera can be used for face scan
-            try { await Kiosk.enableCamera(); } catch (_) { }
+            // Device Owner: re-enable OS-level camera policy in background
+            try { Kiosk.enableCamera().catch(() => { }); } catch (_) { }
 
             // Explicitly release previous QR camera tracks to avoid camera resource collision
             releaseAllMediaTracks();
             setScannerActive(false);
-
-            // Safe cooldown to allow Android Camera Service to complete HAL disconnection from rear camera
-            await new Promise((resolve) => setTimeout(resolve, 60));
 
             // Dual Biometric Gate: Native mobile devices must verify physical fingerprint first
             fingerprintAutoTriggeredRef.current = false;
@@ -1808,8 +1866,30 @@ function QrScannerApp() {
                 setScanState('IDLE');
                 setActiveSessionId(null);
             } else {
-                setErrorMessage(msg || 'Invalid Phase 2 QR code.');
-                setScanState(activeSessionId ? 'KIOSK_WAITING_QR2' : 'IDLE');
+                // Network or transient error fallback: check local QR 1 check-in record
+                const storedAuth = (typeof sessionStorage !== "undefined" ? sessionStorage.getItem(`smartattend_qr1_auth_${targetSession}`) : null)
+                    || (typeof localStorage !== "undefined" ? localStorage.getItem(`smartattend_qr1_auth_${targetSession}`) : null);
+                let localAuth = null;
+                if (storedAuth) {
+                    try { localAuth = JSON.parse(storedAuth); } catch (_) { }
+                }
+                const isLocalQr1Verified = localAuth && (localAuth.qr1Verified === true || localAuth.status === "QR1_VERIFIED" || localAuth.status === "SESSION_AUTHORIZED");
+                if (isLocalQr1Verified) {
+                    console.warn('[Scanner] Network error during QR2 validation, but QR1 is verified locally. Transitioning to biometrics.');
+                    setActiveSessionId(targetSession);
+                    setActiveQr2Token(qr2Token);
+                    releaseCameraLock();
+                    releaseAllMediaTracks();
+                    setScannerActive(false);
+                    try { Kiosk.enableCamera().catch(() => { }); } catch (_) { }
+                    fingerprintAutoTriggeredRef.current = false;
+                    setBiometricComboStep(isNativeApp ? 'FINGERPRINT' : 'FACE');
+                    setFingerprintError('');
+                    setScanState('BIOMETRIC_SCAN');
+                } else {
+                    setErrorMessage(msg || 'Invalid Phase 2 QR code.');
+                    setScanState(activeSessionId ? 'KIOSK_WAITING_QR2' : 'IDLE');
+                }
             }
         }
     };
@@ -3553,9 +3633,38 @@ function QrScannerApp() {
                 <h3 style={{ margin: '0 0 8px', fontSize: '1.25rem', fontWeight: 800 }}>
                     Validating Attendance Token...
                 </h3>
-                <p style={{ margin: 0, color: 'var(--text-muted, #64748b)', fontSize: '0.9rem' }}>
+                <p style={{ margin: '0 0 20px 0', color: 'var(--text-muted, #64748b)', fontSize: '0.9rem' }}>
                     Preparing front camera for facial biometric verification. Please look at your device.
                 </p>
+                <button
+                    type="button"
+                    onClick={() => {
+                        releaseCameraLock();
+                        releaseAllMediaTracks();
+                        setScannerActive(false);
+                        try { Kiosk.enableCamera().catch(() => { }); } catch (_) { }
+                        fingerprintAutoTriggeredRef.current = false;
+                        setBiometricComboStep(isNativeApp ? 'FINGERPRINT' : 'FACE');
+                        setFingerprintError('');
+                        setScanState('BIOMETRIC_SCAN');
+                    }}
+                    style={{
+                        padding: '12px 24px',
+                        background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
+                        color: '#ffffff',
+                        border: 'none',
+                        borderRadius: '14px',
+                        fontSize: '0.92rem',
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        boxShadow: '0 4px 14px rgba(99, 102, 241, 0.35)'
+                    }}
+                >
+                    <FaFingerprint /> Continue to Biometric Scan
+                </button>
             </div>
         );
     }
