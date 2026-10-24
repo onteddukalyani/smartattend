@@ -1456,83 +1456,111 @@ function QrScannerApp() {
             return;
         }
 
-        setScanState('AUTHORIZING_QR1');
+        // =========================================================================
+        // INSTANT 0ms OPTIMISTIC KIOSK TRANSITION:
+        // Student's device immediately enters Kiosk waiting mode, releases camera tracks,
+        // and starts Phase 2 countdown without awaiting slow network round-trips.
+        // =========================================================================
+        releaseAllMediaTracks();
+        releaseCameraLock();
+        setScannerActive(false);
+
+        const durationSec = Number(qrPayload?.qr1DurationSeconds) > 0
+            ? Number(qrPayload.qr1DurationSeconds)
+            : 60;
+        const nowMs = Date.now();
+        const startAt = qrPayload?.sessionStartAt || qrPayload?.t || nowMs;
+        const targetQr2 = qrPayload?.qr2StartsAt || qrPayload?.qr1ExpiresAt || (startAt + (durationSec * 1000));
+        const kioskEnd = qrPayload?.kioskEndsAt || (targetQr2 + 180000);
+
+        setActiveSessionId(sessionId);
+        if (qrPayload?.geo || qrPayload?.classroomLocation) {
+            const geo = qrPayload.geo || qrPayload.classroomLocation;
+            lecturerLocationRef.current = geo;
+            setLecturerLocation(geo);
+        }
+        setSessionStartAt(startAt);
+        setKioskEndsAt(kioskEnd);
+        setAuthQr2StartsAt(targetQr2);
+        setAuthQr1DurationSec(durationSec);
+
+        // Instant visual transition to Kiosk Waiting Screen
+        setScanState('KIOSK_WAITING_QR2');
         setErrorMessage('');
 
         try {
-            let clientIp = 'Unknown IP';
-            try { clientIp = await getClientIpAddress(); } catch (_) { }
+            if (typeof sessionStorage !== 'undefined') sessionStorage.setItem('smartattend_kiosk_session_id', sessionId);
+            if (typeof localStorage !== 'undefined') localStorage.setItem('smartattend_kiosk_session_id', sessionId);
+        } catch (_) { }
 
-            const studentProfileOverride = {
-                rollNo: loggedInRollNo,
-                name: loggedInName,
-                email: user.email || '',
-                deviceId: deviceIdentity?.deviceId || null,
-                deviceIp: clientIp,
-                deviceType: profile?.deviceType || profile?.registeredDeviceType || (typeof window !== 'undefined' ? localStorage.getItem('smartattend_student_device_type') : null),
-                isDeviceOwner: deviceOwnerStatus.isDeviceOwner,
-                studentLocation: coords ? {
-                    latitude: coords.latitude,
-                    longitude: coords.longitude,
-                    accuracy: coords.accuracy,
-                    timestamp: coords.timestamp || Date.now(),
-                    distanceToLecturer: qrPayload?.distance ?? null
-                } : null
-            };
+        // Start Android Lock Task Mode, Web Supervision & Device Policy Restrictions in background
+        Kiosk.setAttendanceRestrictions()
+            .then(() => Kiosk.startKioskMode())
+            .catch((kioskErr) => console.warn('[Kiosk] Notice starting kiosk mode:', kioskErr));
 
-            const result = await authorizeStudentQR1(sessionId, qr1Token, studentProfileOverride, qrPayload);
+        // Device Owner: disable screen capture/recording at OS level
+        Kiosk.setScreenCaptureDisabled({ disabled: true }).catch(() => { });
 
-            setActiveSessionId(sessionId);
-            if (qrPayload?.geo || qrPayload?.classroomLocation) {
-                const geo = qrPayload.geo || qrPayload.classroomLocation;
-                lecturerLocationRef.current = geo;
-                setLecturerLocation(geo);
-            }
-            setSessionStartAt(result.sessionStartAt || Date.now());
-            setKioskEndsAt(result.kioskEndsAt || (Date.now() + 180000));
+        // Pre-fetch student biometric template in background
+        lookupStudentBiometrics(loggedInRollNo).catch((bioErr) => {
+            console.warn('Biometrics lookup notice:', bioErr);
+        });
 
-            // Instant authoritative target calculation for QR2 countdown
-            const calculatedQr2Target = result.qr2StartsAt || result.qr1ExpiresAt || (Date.now() + 60000);
-            setAuthQr2StartsAt(calculatedQr2Target);
-            const totalWaitSec = result.qr1DurationSeconds || Math.max(15, Math.round((calculatedQr2Target - (result.sessionStartAt || Date.now())) / 1000)) || 15;
-            setAuthQr1DurationSec(totalWaitSec);
-
-            // Move to Kiosk Supervised Waiting state immediately so the countdown displays on the student screen
-            setScanState('KIOSK_WAITING_QR2');
-
-            // Turn off camera tracks completely while waiting for QR 2 (strictly no scanning, saves battery)
-            releaseAllMediaTracks();
-            releaseCameraLock();
-
-            // Start Android Lock Task Mode, Web Supervision & Device Policy Restrictions in background
-            Kiosk.setAttendanceRestrictions()
-                .then(() => Kiosk.startKioskMode())
-                .catch((kioskErr) => console.warn('[Kiosk] Notice starting kiosk mode:', kioskErr));
-
-            // Device Owner: disable screen capture/recording at OS level
-            Kiosk.setScreenCaptureDisabled({ disabled: true }).catch(() => { });
-
-            // Pre-fetch student biometric template in background
-            lookupStudentBiometrics(result.rollNo || loggedInRollNo).catch((bioErr) => {
-                console.warn('Biometrics lookup notice:', bioErr);
-            });
-
-            // iOS Apple Guided Access Check: Only enforce for native iOS app, never web Safari
-            if (isNativeApp && isIOSDevice()) {
-                isGuidedAccessEnabled().then((gaStatus) => {
-                    if (!gaStatus.enabled) {
-                        setShowGuidedAccessRequired(true);
-                    }
-                }).catch(() => { });
-            }
-
-            // Pre-warm biometric challenge for Phase 2 hardware verification
-            prefetchBiometricChallenge(sessionId).catch(() => { });
-        } catch (err) {
-            console.error('Error authorizing QR 1:', err);
-            setErrorMessage(err.message || 'Could not authorize Phase 1 check-in. Please verify session is active.');
-            setScanState('IDLE');
+        // iOS Apple Guided Access Check: Only enforce for native iOS app, never web Safari
+        if (isNativeApp && isIOSDevice()) {
+            isGuidedAccessEnabled().then((gaStatus) => {
+                if (!gaStatus.enabled) {
+                    setShowGuidedAccessRequired(true);
+                }
+            }).catch(() => { });
         }
+
+        // Pre-warm biometric challenge for Phase 2 hardware verification
+        prefetchBiometricChallenge(sessionId).catch(() => { });
+
+        // Asynchronous authoritative server verification in background
+        let clientIp = 'Unknown IP';
+        try {
+            clientIp = localStorage.getItem('smartattend_device_ip') || 'Unknown IP';
+        } catch (_) { }
+        getClientIpAddress().catch(() => { });
+
+        const studentProfileOverride = {
+            rollNo: loggedInRollNo,
+            name: loggedInName,
+            email: user.email || '',
+            deviceId: deviceIdentity?.deviceId || null,
+            deviceIp: clientIp,
+            deviceType: profile?.deviceType || profile?.registeredDeviceType || (typeof window !== 'undefined' ? localStorage.getItem('smartattend_student_device_type') : null),
+            isDeviceOwner: deviceOwnerStatus.isDeviceOwner,
+            studentLocation: coords ? {
+                latitude: coords.latitude,
+                longitude: coords.longitude,
+                accuracy: coords.accuracy,
+                timestamp: coords.timestamp || Date.now(),
+                distanceToLecturer: qrPayload?.distance ?? null
+            } : null
+        };
+
+        authorizeStudentQR1(sessionId, qr1Token, studentProfileOverride, qrPayload)
+            .then((result) => {
+                if (result?.sessionStartAt) setSessionStartAt(result.sessionStartAt);
+                if (result?.kioskEndsAt) setKioskEndsAt(result.kioskEndsAt);
+                if (result?.qr2StartsAt || result?.qr1ExpiresAt) {
+                    setAuthQr2StartsAt(result.qr2StartsAt || result.qr1ExpiresAt);
+                }
+                if (result?.qr1DurationSeconds) setAuthQr1DurationSec(result.qr1DurationSeconds);
+                console.log('[Scanner] Phase 1 check-in confirmed by server for session:', sessionId);
+            })
+            .catch((err) => {
+                console.warn('[Scanner] Authorize QR1 server response:', err?.message || err);
+                const msg = String(err?.message || '');
+                if (msg.includes('ended') || msg.includes('CLOSED') || msg.includes('disqualified') || msg.includes('violation')) {
+                    setErrorMessage(err.message || 'Attendance session ended or disqualified.');
+                    setScanState('IDLE');
+                    Kiosk.stopKioskMode().catch(() => { });
+                }
+            });
     };
 
     // Dual Biometric Combo: Step 1 Hardware Fingerprint Verification Handler

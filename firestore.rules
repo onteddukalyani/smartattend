@@ -520,7 +520,7 @@ service cloud.firestore {
           isSignedIn() &&
           (request.auth.uid == authDocId || (resource.data.studentUid != null && resource.data.studentUid == request.auth.uid)) &&
           request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-            'lastHeartbeat', 'clientTimestamp', 'detectedPlatform', 'deviceIp', 'userAgent', 'studentLocation', 'status', 'qr2Verified', 'attendanceSubmittedAt', 'submittedAt', 'biometricVerified', 'deviceAuthMode'
+            'lastHeartbeat', 'clientTimestamp', 'detectedPlatform', 'deviceIp', 'userAgent', 'studentLocation', 'status', 'qr1Verified', 'qr2Verified', 'attendanceSubmittedAt', 'submittedAt', 'biometricVerified', 'deviceAuthMode', 'deviceId', 'isDeviceOwner', 'releaseStatus', 'released', 'authorizedAt', 'verifiedAt', 'kioskEndsAt', 'sessionStartAt', 'qr1ExpiresAt', 'qr2StartsAt', 'qr1DurationSeconds', 'rollNo', 'studentName', 'studentEmail', 'sessionId', 'studentUid'
           ]) &&
           (resource.data.hasViolation != true || request.resource.data.hasViolation == true) &&
           (resource.data.disqualified != true || request.resource.data.disqualified == true)

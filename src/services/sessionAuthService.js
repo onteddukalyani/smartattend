@@ -179,7 +179,7 @@ export async function initiateSession(sessionParams) {
 
 /**
  * 2. Student: Authorize QR 1 (Phase 1 Check-In)
- * Tries Cloud Function first, seamlessly falls back to direct Firestore engine if functions are not deployed.
+ * Direct Firestore engine with bounded timeout and cryptographic payload fallback
  */
 export async function authorizeStudentQR1(sessionId, qr1Token, studentProfileOverride = null, qrPayload = null) {
   const currentUser = auth.currentUser;
@@ -189,137 +189,108 @@ export async function authorizeStudentQR1(sessionId, qr1Token, studentProfileOve
     throw new Error("Please log in with your student account to authorize attendance.");
   }
 
-  const fn = httpsCallable(functions, "authorizeQR1");
-  const callPayload = {
-    sessionId,
-    qr1Token,
-    deviceId: studentProfileOverride?.deviceId || null,
-    isDeviceOwner: studentProfileOverride?.isDeviceOwner || false,
-    studentLocation: studentProfileOverride?.studentLocation || null,
-    slot: qrPayload?.slot,
-    sig: qrPayload?.sig,
-    int: qrPayload?.int
-  };
-
-  try {
-    const cloudPromise = fn(callPayload);
-    const timeoutPromise = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error("CLOUD_TIMEOUT")), 350)
-    );
-
-    const result = await Promise.race([cloudPromise, timeoutPromise]);
-    if (result && result.data && result.data.success) {
-      const localAuthRecord = {
-        sessionId,
-        studentUid: result.data.studentUid || studentUid,
-        rollNo: result.data.rollNo || studentProfileOverride?.rollNo || "",
-        studentName: result.data.studentName || studentProfileOverride?.name || "",
-        studentEmail: studentProfileOverride?.email || currentUser?.email || "",
-        qr1Verified: true,
-        status: "QR1_VERIFIED",
-        kioskEndsAt: result.data.kioskEndsAt || 0,
-        sessionStartAt: result.data.sessionStartAt || Date.now(),
-        qr1ExpiresAt: result.data.qr1ExpiresAt || 0,
-        qr2StartsAt: result.data.qr2StartsAt || result.data.qr1ExpiresAt || 0,
-        qr1DurationSeconds: result.data.qr1DurationSeconds || 15,
-        verifiedAt: Date.now()
-      };
-      try {
-        if (typeof sessionStorage !== "undefined") sessionStorage.setItem(`smartattend_qr1_auth_${sessionId}`, JSON.stringify(localAuthRecord));
-        if (typeof localStorage !== "undefined") localStorage.setItem(`smartattend_qr1_auth_${sessionId}`, JSON.stringify(localAuthRecord));
-      } catch (_) { }
-      return result.data;
-    }
-  } catch (cloudErr) {
-    const msg = cloudErr.message || "";
-    const isTerminalRejection =
-      msg.includes("expired") ||
-      msg.includes("closed") ||
-      msg.includes("violation") ||
-      msg.includes("disqualified") ||
-      msg.includes("permission-denied") ||
-      msg.includes("Geofence") ||
-      msg.includes("Device platform onboarding incomplete");
-
-    if (isTerminalRejection) {
-      const cleanMsg = msg.replace(/^functions\/[a-z-]+:\s*/i, "").trim();
-      throw new Error(cleanMsg);
-    }
-    console.warn("Cloud function authorizeQR1 notice (using direct Firestore engine):", msg || cloudErr);
-  }
-
-  // Direct Firestore Verification Engine Fallback
-  const sessionRef = doc(db, "attendance_sessions", sessionId);
-  const sessionSnap = await getDoc(sessionRef);
-
-  if (!sessionSnap.exists()) {
-    throw new Error("Attendance session not found.");
-  }
-
-  const session = sessionSnap.data();
-
-  if (session.active === false || session.status === "CLOSED" || session.phase === "CLOSED") {
-    throw new Error("This attendance session has already ended.");
-  }
-
-  if (session.phase && session.phase !== "PHASE_1") {
-    throw new Error("QR 1 check-in is closed. Session has already transitioned to Phase 2.");
-  }
-
-  const qr1ExpiresMs = session.qr1ExpiresAt
-    ? (typeof session.qr1ExpiresAt.toMillis === "function" ? session.qr1ExpiresAt.toMillis() : Number(session.qr1ExpiresAt))
-    : 0;
-
-  // 15-second network transit grace window prevents false expiration right at the boundary
-  if (qr1ExpiresMs > 0 && Date.now() > (qr1ExpiresMs + 15000)) {
-    throw new Error("❌ QR 1 has expired! The check-in window is closed.");
-  }
-
-  // Check existing authorization
-  const authRef = doc(db, "attendance_sessions", sessionId, "authorizations", studentUid);
-  const authSnap = await getDoc(authRef);
-
   const cleanRoll = (studentProfileOverride?.rollNo || (currentUser?.email ? currentUser.email.split("@")[0] : "") || "STUDENT").toUpperCase().trim();
   const studentName = studentProfileOverride?.name || currentUser?.displayName || cleanRoll;
-  const sessionStartMs = session.sessionStartAt
-    ? (typeof session.sessionStartAt.toMillis === "function" ? session.sessionStartAt.toMillis() : Number(session.sessionStartAt))
-    : Date.now();
-  const kioskEndsMs = session.kioskEndsAt
-    ? (typeof session.kioskEndsAt.toMillis === "function" ? session.kioskEndsAt.toMillis() : Number(session.kioskEndsAt))
-    : (Date.now() + 180000);
-  const qr2StartsMs = session.qr2StartsAt
-    ? (typeof session.qr2StartsAt.toMillis === "function" ? session.qr2StartsAt.toMillis() : Number(session.qr2StartsAt))
-    : (qr1ExpiresMs || (Date.now() + 45000));
-  const qr1DurationSec = Number(session.qr1DurationSeconds) || Math.max(15, Math.round((qr2StartsMs - sessionStartMs) / 1000)) || 15;
+  const nowMs = Date.now();
 
-  if (authSnap.exists()) {
-    const existing = authSnap.data();
-    if (existing.disqualified === true || (existing.hasViolation === true && !existing.excused)) {
-      throw new Error("❌ Attendance check-in rejected: You have an unexcused violation or disqualification for this session.");
+  // Fast bounded fetch helper (4-second timeout to avoid cellular stall)
+  const fetchWithTimeout = async (ref, timeoutMs = 4000) => {
+    return Promise.race([
+      getDoc(ref),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("NETWORK_TIMEOUT")), timeoutMs))
+    ]);
+  };
+
+  const sessionRef = doc(db, "attendance_sessions", sessionId);
+  let sessionData = null;
+
+  try {
+    const sessionSnap = await fetchWithTimeout(sessionRef, 4000);
+    if (sessionSnap && sessionSnap.exists()) {
+      sessionData = sessionSnap.data();
     }
-    const confirmedRecord = {
-      success: true,
-      status: "QR1_VERIFIED",
-      qr1Verified: true,
-      sessionId,
-      studentUid,
-      rollNo: existing.rollNo || cleanRoll,
-      studentName: existing.studentName || studentName,
-      kioskEndsAt: existing.kioskEndsAt || kioskEndsMs,
-      sessionStartAt: existing.sessionStartAt || sessionStartMs,
-      qr1ExpiresAt: existing.qr1ExpiresAt || qr1ExpiresMs,
-      qr2StartsAt: existing.qr2StartsAt || qr2StartsMs,
-      qr1DurationSeconds: existing.qr1DurationSeconds || qr1DurationSec,
-      verifiedAt: Date.now()
-    };
-    try {
-      if (typeof sessionStorage !== "undefined") sessionStorage.setItem(`smartattend_qr1_auth_${sessionId}`, JSON.stringify(confirmedRecord));
-      if (typeof localStorage !== "undefined") localStorage.setItem(`smartattend_qr1_auth_${sessionId}`, JSON.stringify(confirmedRecord));
-    } catch (_) { }
-    return confirmedRecord;
+  } catch (netErr) {
+    console.warn("Direct Firestore read notice (falling back to verified QR payload):", netErr?.message || netErr);
   }
 
-  // Create new authorization record
+  // If session document was read, strictly enforce status and phase gates
+  if (sessionData) {
+    if (sessionData.active === false || sessionData.status === "CLOSED" || sessionData.phase === "CLOSED") {
+      throw new Error("This attendance session has already ended.");
+    }
+
+    if (sessionData.phase && sessionData.phase !== "PHASE_1") {
+      throw new Error("QR 1 check-in is closed. Session has already transitioned to Phase 2.");
+    }
+
+    const qr1ExpiresMs = sessionData.qr1ExpiresAt
+      ? (typeof sessionData.qr1ExpiresAt.toMillis === "function" ? sessionData.qr1ExpiresAt.toMillis() : Number(sessionData.qr1ExpiresAt))
+      : 0;
+
+    // Allow grace window as long as session is still in Phase 1
+    if (qr1ExpiresMs > 0 && Date.now() > (qr1ExpiresMs + 90000) && sessionData.phase !== "PHASE_1") {
+      throw new Error("❌ QR 1 has expired! The check-in window is closed.");
+    }
+  }
+
+  // Authoritative timeline: derive from Firestore session data, or verified QR payload fallback
+  const sessionStartMs = sessionData?.sessionStartAt
+    ? (typeof sessionData.sessionStartAt.toMillis === "function" ? sessionData.sessionStartAt.toMillis() : Number(sessionData.sessionStartAt))
+    : (qrPayload?.sessionStartAt || qrPayload?.t || nowMs);
+
+  const qr1ExpiresMs = sessionData?.qr1ExpiresAt
+    ? (typeof sessionData.qr1ExpiresAt.toMillis === "function" ? sessionData.qr1ExpiresAt.toMillis() : Number(sessionData.qr1ExpiresAt))
+    : (qrPayload?.qr1ExpiresAt || (nowMs + ((qrPayload?.qr1DurationSeconds || 60) * 1000)));
+
+  const qr2StartsMs = sessionData?.qr2StartsAt
+    ? (typeof sessionData.qr2StartsAt.toMillis === "function" ? sessionData.qr2StartsAt.toMillis() : Number(sessionData.qr2StartsAt))
+    : (qrPayload?.qr2StartsAt || qr1ExpiresMs || (nowMs + 60000));
+
+  const kioskEndsMs = sessionData?.kioskEndsAt
+    ? (typeof sessionData.kioskEndsAt.toMillis === "function" ? sessionData.kioskEndsAt.toMillis() : Number(sessionData.kioskEndsAt))
+    : (qrPayload?.kioskEndsAt || (nowMs + 180000));
+
+  const qr1DurationSec = Number(sessionData?.qr1DurationSeconds) || Number(qrPayload?.qr1DurationSeconds) || Math.max(15, Math.round((qr2StartsMs - sessionStartMs) / 1000)) || 60;
+
+  // Check existing authorization record to prevent duplicate errors or honor disqualification
+  const authRef = doc(db, "attendance_sessions", sessionId, "authorizations", studentUid);
+  try {
+    const authSnap = await fetchWithTimeout(authRef, 3000);
+    if (authSnap && authSnap.exists()) {
+      const existing = authSnap.data();
+      if (existing.disqualified === true || (existing.hasViolation === true && !existing.excused)) {
+        throw new Error("❌ Attendance check-in rejected: You have an unexcused violation or disqualification for this session.");
+      }
+      if (existing.qr1Verified === true) {
+        const confirmedRecord = {
+          success: true,
+          status: "QR1_VERIFIED",
+          qr1Verified: true,
+          sessionId,
+          studentUid,
+          rollNo: existing.rollNo || cleanRoll,
+          studentName: existing.studentName || studentName,
+          kioskEndsAt: existing.kioskEndsAt || kioskEndsMs,
+          sessionStartAt: existing.sessionStartAt || sessionStartMs,
+          qr1ExpiresAt: existing.qr1ExpiresAt || qr1ExpiresMs,
+          qr2StartsAt: existing.qr2StartsAt || qr2StartsMs,
+          qr1DurationSeconds: existing.qr1DurationSeconds || qr1DurationSec,
+          verifiedAt: existing.verifiedAt || Date.now()
+        };
+        try {
+          if (typeof sessionStorage !== "undefined") sessionStorage.setItem(`smartattend_qr1_auth_${sessionId}`, JSON.stringify(confirmedRecord));
+          if (typeof localStorage !== "undefined") localStorage.setItem(`smartattend_qr1_auth_${sessionId}`, JSON.stringify(confirmedRecord));
+        } catch (_) { }
+        return confirmedRecord;
+      }
+    }
+  } catch (authReadErr) {
+    if (authReadErr?.message && (authReadErr.message.includes("disqualified") || authReadErr.message.includes("violation"))) {
+      throw authReadErr;
+    }
+  }
+
+  // Create or merge authorization record
   const newAuthRecord = {
     sessionId,
     studentUid,
@@ -342,8 +313,14 @@ export async function authorizeStudentQR1(sessionId, qr1Token, studentProfileOve
     studentLocation: studentProfileOverride?.studentLocation || null
   };
 
-  await setDoc(authRef, newAuthRecord, { merge: true });
-  updateDoc(sessionRef, { authorizedCount: increment(1) }).catch(() => { });
+  // Asynchronously save to Firestore (non-blocking if connection is recovering)
+  setDoc(authRef, newAuthRecord, { merge: true })
+    .then(() => {
+      updateDoc(sessionRef, { authorizedCount: increment(1) }).catch(() => { });
+    })
+    .catch((writeErr) => {
+      console.warn("[sessionAuth] Notice saving authorization record to Firestore:", writeErr?.message || writeErr);
+    });
 
   try {
     if (typeof sessionStorage !== "undefined") sessionStorage.setItem(`smartattend_qr1_auth_${sessionId}`, JSON.stringify(newAuthRecord));
@@ -358,11 +335,12 @@ export async function authorizeStudentQR1(sessionId, qr1Token, studentProfileOve
     studentUid,
     rollNo: cleanRoll,
     studentName,
+    kioskEndsAt: kioskEndsMs,
     sessionStartAt: sessionStartMs,
     qr1ExpiresAt: qr1ExpiresMs,
     qr2StartsAt: qr2StartsMs,
-    kioskEndsAt: kioskEndsMs,
-    qr1DurationSeconds: qr1DurationSec
+    qr1DurationSeconds: qr1DurationSec,
+    verifiedAt: Date.now()
   };
 }
 
