@@ -155,57 +155,6 @@ function QrScannerApp() {
         return { hasFace, hasHw, isComplete: hasFace && hasHw };
     });
 
-    // Real-time listener for student biometrics enrollment
-    useEffect(() => {
-        if (!loggedInRollNo || !isStudentUser) return;
-        const unsub = onSnapshot(doc(db, "students", loggedInRollNo), (snap) => {
-            if (snap.exists()) {
-                const data = snap.data();
-                const hasFace = Boolean(!data.faceRemovedAt && (data.faceRegistered || data.biometricEnrolled || data.hasFaceRegistered));
-                const hasHw = Boolean(data.hardwareBiometricEnrolled);
-                if (hasFace) {
-                    try {
-                        localStorage.setItem(`smartattend_face_enrolled_${loggedInRollNo}`, "true");
-                        if (user?.uid) localStorage.setItem(`smartattend_face_enrolled_${user.uid}`, "true");
-                        localStorage.setItem("smartattend_face_enrolled", "true");
-                    } catch (_) {}
-                }
-                if (hasHw) {
-                    try {
-                        localStorage.setItem(`smartattend_hw_enrolled_${loggedInRollNo}`, "true");
-                        if (user?.uid) localStorage.setItem(`smartattend_hw_enrolled_${user.uid}`, "true");
-                        localStorage.setItem("smartattend_hw_enrolled", "true");
-                    } catch (_) {}
-                }
-                setStudentBioStatus((prev) => ({
-                    hasFace: hasFace || prev.hasFace,
-                    hasHw: hasHw || prev.hasHw,
-                    isComplete: (hasFace || prev.hasFace) && (hasHw || prev.hasHw)
-                }));
-            }
-        }, () => {});
-        return () => unsub();
-    }, [loggedInRollNo, isStudentUser, user?.uid]);
-
-    // Synchronize biometrics status whenever student profile or auth updates
-    useEffect(() => {
-        const roll = (profile?.rollNo || loggedInRollNo || '').trim().toUpperCase();
-        const uid = user?.uid;
-        const hasFace = Boolean(
-            (!profile?.faceRemovedAt && (profile?.faceRegistered || profile?.biometricEnrolled || profile?.hasFaceRegistered)) ||
-            (roll && localStorage.getItem(`smartattend_face_enrolled_${roll}`) === 'true') ||
-            (uid && localStorage.getItem(`smartattend_face_enrolled_${uid}`) === 'true') ||
-            localStorage.getItem('smartattend_face_enrolled') === 'true'
-        );
-        const hasHw = Boolean(
-            profile?.hardwareBiometricEnrolled ||
-            (roll && localStorage.getItem(`smartattend_hw_enrolled_${roll}`) === 'true') ||
-            (uid && localStorage.getItem(`smartattend_hw_enrolled_${uid}`) === 'true') ||
-            localStorage.getItem('smartattend_hw_enrolled') === 'true'
-        );
-        setStudentBioStatus({ hasFace, hasHw, isComplete: hasFace && hasHw });
-    }, [profile, user, loggedInRollNo]);
-
     // Camera & Scanner State
     const isStaff = isStaffCameraUser(profile, user);
     const [facingMode, setFacingMode] = useState('environment');
@@ -502,6 +451,57 @@ function QrScannerApp() {
     const loggedInRollNo = String(rawRollNo).trim().toUpperCase();
     const rawProfileName = dbStudent?.name || dbStudent?.fullName || (!isGenericName(profile?.name, loggedInRollNo, user?.email) ? profile?.name : (profile?.fullName || ''));
     const loggedInName = rawProfileName ? rawProfileName.trim() : (loggedInRollNo ? loggedInRollNo : 'Student');
+
+    // Real-time listener for student biometrics enrollment
+    useEffect(() => {
+        if (!loggedInRollNo || !isStudentUser) return;
+        const unsub = onSnapshot(doc(db, "students", loggedInRollNo), (snap) => {
+            if (snap.exists()) {
+                const data = snap.data();
+                const hasFace = Boolean(!data.faceRemovedAt && (data.faceRegistered || data.biometricEnrolled || data.hasFaceRegistered));
+                const hasHw = Boolean(data.hardwareBiometricEnrolled);
+                if (hasFace) {
+                    try {
+                        localStorage.setItem(`smartattend_face_enrolled_${loggedInRollNo}`, "true");
+                        if (user?.uid) localStorage.setItem(`smartattend_face_enrolled_${user.uid}`, "true");
+                        localStorage.setItem("smartattend_face_enrolled", "true");
+                    } catch (_) {}
+                }
+                if (hasHw) {
+                    try {
+                        localStorage.setItem(`smartattend_hw_enrolled_${loggedInRollNo}`, "true");
+                        if (user?.uid) localStorage.setItem(`smartattend_hw_enrolled_${user.uid}`, "true");
+                        localStorage.setItem("smartattend_hw_enrolled", "true");
+                    } catch (_) {}
+                }
+                setStudentBioStatus((prev) => ({
+                    hasFace: hasFace || prev.hasFace,
+                    hasHw: hasHw || prev.hasHw,
+                    isComplete: (hasFace || prev.hasFace) && (hasHw || prev.hasHw)
+                }));
+            }
+        }, () => {});
+        return () => unsub();
+    }, [loggedInRollNo, isStudentUser, user?.uid]);
+
+    // Synchronize biometrics status whenever student profile or auth updates
+    useEffect(() => {
+        const roll = (profile?.rollNo || loggedInRollNo || '').trim().toUpperCase();
+        const uid = user?.uid;
+        const hasFace = Boolean(
+            (!profile?.faceRemovedAt && (profile?.faceRegistered || profile?.biometricEnrolled || profile?.hasFaceRegistered)) ||
+            (roll && localStorage.getItem(`smartattend_face_enrolled_${roll}`) === 'true') ||
+            (uid && localStorage.getItem(`smartattend_face_enrolled_${uid}`) === 'true') ||
+            localStorage.getItem('smartattend_face_enrolled') === 'true'
+        );
+        const hasHw = Boolean(
+            profile?.hardwareBiometricEnrolled ||
+            (roll && localStorage.getItem(`smartattend_hw_enrolled_${roll}`) === 'true') ||
+            (uid && localStorage.getItem(`smartattend_hw_enrolled_${uid}`) === 'true') ||
+            localStorage.getItem('smartattend_hw_enrolled') === 'true'
+        );
+        setStudentBioStatus({ hasFace, hasHw, isComplete: hasFace && hasHw });
+    }, [profile, user, loggedInRollNo]);
 
     // Lecturer Emergency PIN Release Modal State
     const [showPinModal, setShowPinModal] = useState(false);

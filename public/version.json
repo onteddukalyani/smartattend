@@ -4,8 +4,8 @@
   "releaseDate": "2026-10-23",
   "minRequiredVersion": "1.0.1",
   "apkUrl": "https://raw.githubusercontent.com/onteddukalyani/smartattend/main/SmartAttend-release.apk",
-  "sha256Checksum": "6e9256f5815fa0bc0449169f654d5ba9cd0e6e946529472f411a1ab3afed7edb",
-  "fileSizeBytes": 15575247,
+  "sha256Checksum": "cec0fa6452ed4ea23f12069c96c88a1cec964b5ce2f467b246a2d2551adaac68",
+  "fileSizeBytes": 15575280,
   "title": "SmartAttend Release (v1.0.4)",
   "releaseNotes": [
     "Classroom attendance waits up to 15 seconds for an accurate live GPS fix.",
