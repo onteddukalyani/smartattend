@@ -1497,21 +1497,20 @@ function QrScannerApp() {
             const totalWaitSec = result.qr1DurationSeconds || Math.max(15, Math.round((calculatedQr2Target - (result.sessionStartAt || Date.now())) / 1000)) || 15;
             setAuthQr1DurationSec(totalWaitSec);
 
+            // Move to Kiosk Supervised Waiting state immediately so the countdown displays on the student screen
+            setScanState('KIOSK_WAITING_QR2');
+
             // Turn off camera tracks completely while waiting for QR 2 (strictly no scanning, saves battery)
             releaseAllMediaTracks();
             releaseCameraLock();
 
-            // Start Android Lock Task Mode, Web Supervision & Device Policy Restrictions
-            try {
-                console.log('[Kiosk] Activating Native Android Lock Task / Dedicated Kiosk mode for Student...');
-                await Kiosk.setAttendanceRestrictions();
-                await Kiosk.startKioskMode();
-            } catch (kioskErr) {
-                console.warn('[Kiosk] Notice starting kiosk mode:', kioskErr);
-            }
+            // Start Android Lock Task Mode, Web Supervision & Device Policy Restrictions in background
+            Kiosk.setAttendanceRestrictions()
+                .then(() => Kiosk.startKioskMode())
+                .catch((kioskErr) => console.warn('[Kiosk] Notice starting kiosk mode:', kioskErr));
 
             // Device Owner: disable screen capture/recording at OS level
-            try { await Kiosk.setScreenCaptureDisabled({ disabled: true }); } catch (_) { }
+            Kiosk.setScreenCaptureDisabled({ disabled: true }).catch(() => { });
 
             // Pre-fetch student biometric template in background
             lookupStudentBiometrics(result.rollNo || loggedInRollNo).catch((bioErr) => {
@@ -1520,19 +1519,15 @@ function QrScannerApp() {
 
             // iOS Apple Guided Access Check: Only enforce for native iOS app, never web Safari
             if (isNativeApp && isIOSDevice()) {
-                const gaStatus = await isGuidedAccessEnabled();
-                if (!gaStatus.enabled) {
-                    console.log('[GuidedAccess] iOS native app detected with Guided Access OFF. Displaying lock requirement screen.');
-                    setShowGuidedAccessRequired(true);
-                    return;
-                }
+                isGuidedAccessEnabled().then((gaStatus) => {
+                    if (!gaStatus.enabled) {
+                        setShowGuidedAccessRequired(true);
+                    }
+                }).catch(() => { });
             }
 
             // Pre-warm biometric challenge for Phase 2 hardware verification
             prefetchBiometricChallenge(sessionId).catch(() => { });
-
-            // Move to Kiosk Supervised Waiting state (QR 1 is now permanently closed for this session)
-            setScanState('KIOSK_WAITING_QR2');
         } catch (err) {
             console.error('Error authorizing QR 1:', err);
             setErrorMessage(err.message || 'Could not authorize Phase 1 check-in. Please verify session is active.');
@@ -1939,10 +1934,12 @@ function QrScannerApp() {
         }
     };
 
+    const autoCheckedUrlRef = useRef(false);
     // Auto-check URL search params on mount (e.g. if student opened link directly)
     useEffect(() => {
         if (loading) return;
         if (!user) return;
+        if (autoCheckedUrlRef.current) return;
 
         const urlSession = searchParams.get('session');
         const urlQr1 = searchParams.get('qr1Token');
@@ -1950,8 +1947,12 @@ function QrScannerApp() {
         const urlPhase = searchParams.get('phase');
 
         if (urlSession && (urlQr1 || urlPhase === '1')) {
+            autoCheckedUrlRef.current = true;
+            try { window.history.replaceState({}, '', window.location.pathname); } catch (_) { }
             handleProcessQR1(urlSession, urlQr1 || urlSession);
         } else if (urlSession && (urlQr2 || urlPhase === '2')) {
+            autoCheckedUrlRef.current = true;
+            try { window.history.replaceState({}, '', window.location.pathname); } catch (_) { }
             handleProcessQR2(urlSession, urlQr2 || urlSession);
         }
     }, [searchParams, loading, user]);
@@ -4147,18 +4148,42 @@ function QrScannerApp() {
             {scanState === 'AUTHORIZING_QR1' && (
                 <div style={{
                     marginTop: '16px',
-                    padding: '12px',
-                    borderRadius: '12px',
+                    padding: '14px',
+                    borderRadius: '14px',
                     background: 'rgba(99, 102, 241, 0.1)',
+                    border: '1.5px solid rgba(99, 102, 241, 0.25)',
                     color: '#4338ca',
                     fontWeight: 800,
                     display: 'flex',
+                    flexDirection: 'column',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    gap: '8px'
+                    gap: '10px'
                 }}>
-                    <FaSpinner className="fa-spin" />
-                    <span>Verifying Phase 1 Check-In &amp; Starting Kiosk Mode...</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <FaSpinner className="fa-spin" style={{ fontSize: '1.2rem' }} />
+                        <span>Verifying Phase 1 Check-In &amp; Starting Kiosk Mode...</span>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={() => {
+                            setScanState('IDLE');
+                            setErrorMessage('');
+                            scanProcessingRef.current = false;
+                        }}
+                        style={{
+                            padding: '6px 14px',
+                            borderRadius: '8px',
+                            background: '#fee2e2',
+                            color: '#b91c1c',
+                            border: '1px solid #fca5a5',
+                            fontWeight: 700,
+                            fontSize: '0.82rem',
+                            cursor: 'pointer'
+                        }}
+                    >
+                        ✕ Cancel &amp; Scan Again
+                    </button>
                 </div>
             )}
 

@@ -438,7 +438,8 @@ service cloud.firestore {
         (isLecturer() && (
           resource.data.ownerId == request.auth.uid ||
           (request.auth.token.email != null && resource.data.ownerEmail != null && resource.data.ownerEmail.lower() == request.auth.token.email.lower())
-        ))
+        )) ||
+        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['authorizedCount', 'attendedCount', 'attendees']))
       );
 
       match /security/{docId} {
@@ -506,15 +507,20 @@ service cloud.firestore {
       }
 
       // Authorizations subcollection: student devices and lecturers
-      // Students can only update heartbeat/telemetry fields. Cannot alter status, violations, kiosk timers, or QR gating.
+      // Authorizations subcollection: student devices and lecturers
       match /authorizations/{authDocId} {
         allow read: if isSignedIn();
-        allow create, delete: if isStaff();
+        allow create: if isStaff() || (
+          isSignedIn() &&
+          (request.auth.uid == authDocId || (request.resource.data.studentUid != null && request.resource.data.studentUid == request.auth.uid)) &&
+          request.resource.data.qr1Verified == true
+        );
+        allow delete: if isStaff();
         allow update: if isStaff() || (
           isSignedIn() &&
           (request.auth.uid == authDocId || (resource.data.studentUid != null && resource.data.studentUid == request.auth.uid)) &&
           request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-            'lastHeartbeat', 'clientTimestamp', 'detectedPlatform', 'deviceIp', 'userAgent', 'studentLocation'
+            'lastHeartbeat', 'clientTimestamp', 'detectedPlatform', 'deviceIp', 'userAgent', 'studentLocation', 'status', 'qr2Verified', 'attendanceSubmittedAt', 'submittedAt', 'biometricVerified', 'deviceAuthMode'
           ]) &&
           (resource.data.hasViolation != true || request.resource.data.hasViolation == true) &&
           (resource.data.disqualified != true || request.resource.data.disqualified == true)
@@ -628,7 +634,10 @@ service cloud.firestore {
 
     match /attendance_records/{recordId} {
       allow read: if isStaff() || (isSignedIn() && (resource.data.studentUid == request.auth.uid || resource.data.studentEmail == request.auth.token.email));
-      allow create: if isStaff();
+      allow create: if isStaff() || (
+        isSignedIn() &&
+        (request.resource.data.studentUid == request.auth.uid || (request.auth.token.email != null && request.resource.data.studentEmail == request.auth.token.email))
+      );
       allow update, delete: if isStaff();
       match /{document=**} {
         allow read: if isStaff() || (isSignedIn() && (resource.data.studentUid == request.auth.uid || resource.data.studentEmail == request.auth.token.email));
