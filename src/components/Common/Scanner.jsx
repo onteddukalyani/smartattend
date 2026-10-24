@@ -924,7 +924,17 @@ function QrScannerApp() {
             if (raw) {
                 const parsed = JSON.parse(raw);
                 const hasValidTimer = (parsed.autoReleaseAt && parsed.autoReleaseAt > Date.now()) || (parsed.kioskEndsAt && parsed.kioskEndsAt > Date.now());
-                if (parsed && parsed.sessionId && hasValidTimer) {
+                const storedQr1 = (typeof sessionStorage !== 'undefined' ? sessionStorage.getItem(`smartattend_qr1_auth_${parsed?.sessionId}`) : null)
+                    || (typeof localStorage !== 'undefined' ? localStorage.getItem(`smartattend_qr1_auth_${parsed?.sessionId}`) : null);
+                let hasQr1Verified = false;
+                if (storedQr1) {
+                    try {
+                        const parsedQr1 = JSON.parse(storedQr1);
+                        if (parsedQr1.qr1Verified === true) hasQr1Verified = true;
+                    } catch (_) { }
+                }
+
+                if (parsed && parsed.sessionId && hasValidTimer && (hasQr1Verified || parsed.qr1Verified === true)) {
                     console.log('[Kiosk] Resuming active attendance session after app launch/restart:', parsed);
                     setActiveSessionId(parsed.sessionId);
                     setSessionStartAt(parsed.sessionStartAt);
@@ -943,9 +953,40 @@ function QrScannerApp() {
                     // Re-enforce native Lock Task Mode & DevicePolicyManager restrictions
                     Kiosk.startKioskMode().catch(() => { });
                     Kiosk.setAttendanceRestrictions().catch(() => { });
+
+                    // Concurrently check Firestore to ensure session is genuinely active
+                    getDoc(doc(db, 'attendance_sessions', parsed.sessionId)).then((snap) => {
+                        if (snap && typeof snap.exists === 'function' && snap.exists()) {
+                            const sData = snap.data();
+                            if (sData.active === false || sData.status === 'CLOSED' || sData.phase === 'CLOSED' || (sData.kioskEndsAt && Date.now() > sData.kioskEndsAt)) {
+                                console.log('[Kiosk] Session is closed in Firestore; releasing kiosk lock.');
+                                localStorage.removeItem('smartattend_kiosk_session_state');
+                                Kiosk.stopKioskMode().catch(() => { });
+                                Kiosk.clearAttendanceRestrictions().catch(() => { });
+                                setScanState('IDLE');
+                                setActiveSessionId(null);
+                            }
+                        } else {
+                            localStorage.removeItem('smartattend_kiosk_session_state');
+                            Kiosk.stopKioskMode().catch(() => { });
+                            Kiosk.clearAttendanceRestrictions().catch(() => { });
+                            setScanState('IDLE');
+                            setActiveSessionId(null);
+                        }
+                    }).catch(() => { });
                 } else {
                     localStorage.removeItem('smartattend_kiosk_session_state');
+                    Kiosk.stopKioskMode().catch(() => { });
+                    Kiosk.clearAttendanceRestrictions().catch(() => { });
                 }
+            } else {
+                // Ensure device is not stuck in kiosk mode if no active session in storage
+                Kiosk.isKioskActive().then((kState) => {
+                    if (kState?.active && !activeSessionId) {
+                        Kiosk.stopKioskMode().catch(() => { });
+                        Kiosk.clearAttendanceRestrictions().catch(() => { });
+                    }
+                }).catch(() => { });
             }
         } catch (e) {
             console.warn('Notice restoring session:', e);
@@ -1639,6 +1680,35 @@ function QrScannerApp() {
             return;
         }
 
+        const targetSession = sessionId || activeSessionId;
+        if (!targetSession) {
+            setErrorMessage("No active attendance session identified.");
+            return;
+        }
+
+        // STRICT REQUIREMENT: No student attendance accepted without scanning QR 1 first
+        let hasQr1Record = false;
+        try {
+            const stored = (typeof sessionStorage !== 'undefined' ? sessionStorage.getItem(`smartattend_qr1_auth_${targetSession}`) : null)
+                || (typeof localStorage !== 'undefined' ? localStorage.getItem(`smartattend_qr1_auth_${targetSession}`) : null);
+            if (stored) {
+                const parsed = JSON.parse(stored);
+                const matchUid = !user?.uid || parsed.studentUid === user.uid;
+                const matchRoll = !loggedInRollNo || parsed.rollNo?.toUpperCase() === loggedInRollNo;
+                if ((parsed.qr1Verified === true || parsed.status === 'QR1_VERIFIED' || parsed.status === 'SESSION_AUTHORIZED') && parsed.sessionId === targetSession && (matchUid || matchRoll)) {
+                    hasQr1Record = true;
+                }
+            }
+        } catch (_) { }
+
+        if (!hasQr1Record && scanState !== 'KIOSK_WAITING_QR2') {
+            console.warn('[Scanner] Rejected QR 2: Student has not scanned QR 1 for session:', targetSession);
+            setErrorMessage('⛔ Access Denied: You must scan QR 1 first during Phase 1. All students must scan both QR codes. Attendance cannot be accepted without scanning QR 1.');
+            setScanState('IDLE');
+            setActiveSessionId(null);
+            return;
+        }
+
         // Strictly block QR 2 validation if student is disqualified or exceeded allowed violations
         const isAndroidStudent = isNativeApp ? !isIOSDevice() : (typeof navigator !== 'undefined' && /Android/i.test(navigator?.userAgent || ''));
         const maxViolationsAllowed = isAndroidStudent ? 2 : 1;
@@ -1648,7 +1718,7 @@ function QrScannerApp() {
         }
 
         // Strictly verify device platform integrity before validating QR2
-        const deviceValid = await verifyDeviceIntegrity(sessionId);
+        const deviceValid = await verifyDeviceIntegrity(targetSession);
         if (!deviceValid) return;
 
         // Prevent redundant QR 2 validations if already scanning biometrics or submitted
@@ -1664,10 +1734,6 @@ function QrScannerApp() {
         setErrorMessage('');
 
         try {
-            const targetSession = sessionId || activeSessionId;
-            if (!targetSession) {
-                throw new Error("No active attendance session identified.");
-            }
             if (qrPayload) setActiveQr2Payload(qrPayload);
             const result = await validateStudentQR2(targetSession, qr2Token, qrPayload);
 
@@ -1706,8 +1772,9 @@ function QrScannerApp() {
                 setScanState('DISQUALIFIED');
                 setSupervisionViolation(true);
             } else if (msg.includes('QR 1') || msg.includes('Access denied') || msg.includes('Access Denied')) {
-                setErrorMessage('⛔ Access Denied: You did not scan QR 1 during Phase 1 (0:00 - 1:00). You cannot mark attendance for this session.');
-                setScanState(activeSessionId ? 'KIOSK_WAITING_QR2' : 'IDLE');
+                setErrorMessage('⛔ Access Denied: You must scan QR 1 first during Phase 1. All students must scan both QR codes. Attendance cannot be accepted without scanning QR 1.');
+                setScanState('IDLE');
+                setActiveSessionId(null);
             } else {
                 setErrorMessage(msg || 'Invalid Phase 2 QR code.');
                 setScanState(activeSessionId ? 'KIOSK_WAITING_QR2' : 'IDLE');
@@ -2003,6 +2070,26 @@ function QrScannerApp() {
         if (payload.qr1Token || payload.phase === '1' || payload.phase === 'PHASE_1') {
             await handleProcessQR1(payload.sessionId, payload.qr1Token, studentCoords, enhancedPayload);
         } else if (payload.qr2Token || payload.phase === '2' || payload.phase === 'PHASE_2') {
+            // STRICT 2-PHASE GATE: Student MUST have verified QR 1 during Phase 1
+            let hasValidQr1 = false;
+            try {
+                const storedQr1 = (typeof sessionStorage !== 'undefined' ? sessionStorage.getItem(`smartattend_qr1_auth_${payload.sessionId}`) : null)
+                    || (typeof localStorage !== 'undefined' ? localStorage.getItem(`smartattend_qr1_auth_${payload.sessionId}`) : null);
+                if (storedQr1) {
+                    const parsed = JSON.parse(storedQr1);
+                    const matchUid = !user?.uid || parsed.studentUid === user.uid;
+                    const matchRoll = !loggedInRollNo || parsed.rollNo?.toUpperCase() === loggedInRollNo;
+                    if ((parsed.qr1Verified === true || parsed.status === 'QR1_VERIFIED' || parsed.status === 'SESSION_AUTHORIZED') && parsed.sessionId === payload.sessionId && (matchUid || matchRoll)) {
+                        hasValidQr1 = true;
+                    }
+                }
+            } catch (_) { }
+
+            if (!hasValidQr1 && scanState !== 'KIOSK_WAITING_QR2') {
+                console.warn('[Scanner] Rejected QR 2 scan: Student did not scan QR 1 for session:', payload.sessionId);
+                setErrorMessage('⛔ Access Denied: You must scan QR 1 first during Phase 1. All students must scan both QR codes. Attendance cannot be accepted without scanning QR 1.');
+                return;
+            }
             await handleProcessQR2(payload.sessionId, payload.qr2Token, enhancedPayload);
         } else {
             await handleProcessQR1(payload.sessionId, payload.sessionId, studentCoords, enhancedPayload);
@@ -2028,6 +2115,19 @@ function QrScannerApp() {
         } else if (urlSession && (urlQr2 || urlPhase === '2')) {
             autoCheckedUrlRef.current = true;
             try { window.history.replaceState({}, '', window.location.pathname); } catch (_) { }
+            let hasValidQr1 = false;
+            try {
+                const stored = sessionStorage.getItem(`smartattend_qr1_auth_${urlSession}`) || localStorage.getItem(`smartattend_qr1_auth_${urlSession}`);
+                if (stored) {
+                    const parsed = JSON.parse(stored);
+                    if (parsed.qr1Verified === true && parsed.sessionId === urlSession) hasValidQr1 = true;
+                }
+            } catch (_) { }
+
+            if (!hasValidQr1) {
+                setErrorMessage('⛔ Access Denied: You must scan QR 1 first during Phase 1. All students must scan both QR codes. Attendance cannot be accepted without scanning QR 1.');
+                return;
+            }
             handleProcessQR2(urlSession, urlQr2 || urlSession);
         }
     }, [searchParams, loading, user]);

@@ -22,6 +22,12 @@ const NativeKioskPlugin = registerPlugin('KioskPlugin', {
     setScreenCaptureDisabled: async (options) => {
       return { success: true, disabled: Boolean(options?.disabled), isWebFallback: true };
     },
+    disableCamera: async () => {
+      return { success: true, isDeviceOwner: false, cameraDisabled: false, isWebFallback: true };
+    },
+    enableCamera: async () => {
+      return { success: true, isDeviceOwner: false, cameraEnabled: true, isWebFallback: true };
+    },
     canDrawOverlays: async () => {
       return { canDrawOverlays: false, isWebFallback: true };
     },
@@ -169,10 +175,49 @@ export const Kiosk = {
     try {
       const isNative = Capacitor.isNativePlatform();
       if (!isNative) return { success: true, disabled: Boolean(options?.disabled), isWebFallback: true };
-      const result = await NativeKioskPlugin.setScreenCaptureDisabled(options);
-      return result || { success: true };
+      if (typeof NativeKioskPlugin?.setScreenCaptureDisabled === 'function') {
+        const result = await NativeKioskPlugin.setScreenCaptureDisabled(options);
+        return result || { success: true };
+      }
+      return { success: true, disabled: Boolean(options?.disabled) };
     } catch (err) {
       console.warn('[Kiosk] setScreenCaptureDisabled notice:', err);
+      return { success: false, error: err.message || String(err) };
+    }
+  },
+
+  /**
+   * Device Owner: Disable camera system-wide during attendance session
+   */
+  async disableCamera() {
+    try {
+      const isNative = Capacitor.isNativePlatform();
+      if (!isNative) return { success: true, isDeviceOwner: false, cameraDisabled: false, isWebFallback: true };
+      if (typeof NativeKioskPlugin?.disableCamera === 'function') {
+        const result = await NativeKioskPlugin.disableCamera();
+        return result || { success: true };
+      }
+      return { success: true, isDeviceOwner: false };
+    } catch (err) {
+      console.warn('[Kiosk] disableCamera notice:', err);
+      return { success: false, error: err.message || String(err) };
+    }
+  },
+
+  /**
+   * Device Owner: Re-enable camera system-wide after attendance session ends
+   */
+  async enableCamera() {
+    try {
+      const isNative = Capacitor.isNativePlatform();
+      if (!isNative) return { success: true, isDeviceOwner: false, cameraEnabled: true, isWebFallback: true };
+      if (typeof NativeKioskPlugin?.enableCamera === 'function') {
+        const result = await NativeKioskPlugin.enableCamera();
+        return result || { success: true };
+      }
+      return { success: true, isDeviceOwner: false };
+    } catch (err) {
+      console.warn('[Kiosk] enableCamera notice:', err);
       return { success: false, error: err.message || String(err) };
     }
   },

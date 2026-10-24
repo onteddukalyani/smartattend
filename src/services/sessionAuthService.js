@@ -509,7 +509,7 @@ export async function validateStudentQR2(sessionId, qr2Token, qrPayload = null) 
           (currentUid && aUid === currentUid) ||
           (currentEmail && aEmail === currentEmail);
       });
-      if (matchAttendee) {
+      if (matchAttendee && (matchAttendee.qr1Verified === true || matchAttendee.status === "QR1_VERIFIED")) {
         authData = {
           ...matchAttendee,
           qr1Verified: true,
@@ -535,7 +535,7 @@ export async function validateStudentQR2(sessionId, qr2Token, qrPayload = null) 
       "Attempted Phase 2 QR 2 validation without Phase 1 QR 1 check-in",
       "ATTENDANCE_PHASE_GATE"
     );
-    throw new Error("⛔ Access Denied: You did not scan QR 1 during Phase 1 (0:00 - 1:00). You cannot mark attendance for this session.");
+    throw new Error("⛔ Access Denied: You did not scan QR 1 during Phase 1. You cannot mark attendance for this session without scanning QR 1 first.");
   }
 
   // 3.5 Check for unexcused violations or disqualification (Android: 2 strikes allowed; Web/iOS: 1 strike)

@@ -2170,17 +2170,33 @@ exports.submitAttendance = onCall(async (request) => {
       }
     }
 
-    const isQr1Valid = authSnap.exists && (
+    let isQr1Valid = authSnap.exists && (
       authSnap.data().qr1Verified === true ||
       authSnap.data().status === "QR1_VERIFIED" ||
       authSnap.data().status === "SESSION_AUTHORIZED" ||
       authSnap.data().status === "QR2_VERIFIED"
     );
+
+    let attendeeData = null;
+    if (!isQr1Valid && session && Array.isArray(session.attendees)) {
+      attendeeData = session.attendees.find((a) => {
+        const aRoll = String(a.rollNo || "").toUpperCase().trim();
+        const aUid = String(a.studentUid || a.uid || "").trim();
+        const aEmail = String(a.email || "").toLowerCase().trim();
+        return (studentUid && aUid === studentUid) ||
+          (rollNo && aRoll === rollNo) ||
+          (studentEmail && aEmail === studentEmail);
+      });
+      if (attendeeData && (attendeeData.qr1Verified === true || attendeeData.status === "QR1_VERIFIED")) {
+        isQr1Valid = true;
+      }
+    }
+
     if (!isQr1Valid) {
       throw new HttpsError("permission-denied", "⛔ Access denied. You must scan QR 1 first.");
     }
 
-    const authData = authSnap.data() || {};
+    const authData = (authSnap.exists ? authSnap.data() : attendeeData) || {};
 
     let rollAuthData = {};
     if (rollNo && rollNo !== studentUid) {

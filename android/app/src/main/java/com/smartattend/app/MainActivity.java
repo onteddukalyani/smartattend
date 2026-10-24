@@ -34,7 +34,6 @@ public class MainActivity extends BridgeActivity {
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
-        setTheme(R.style.AppTheme_NoActionBar);
         sInstance = this;
         registerPlugin(KioskPlugin.class);
         registerPlugin(BiometricPlugin.class);
@@ -44,22 +43,29 @@ public class MainActivity extends BridgeActivity {
         // Enable Chrome remote debugging for WebView
         WebView.setWebContentsDebuggingEnabled(true);
 
-        // Explicitly request runtime permissions on launch: Camera, Fine & Coarse Location, and Notifications
-        java.util.List<String> neededPermissions = new java.util.ArrayList<>();
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
-            neededPermissions.add(Manifest.permission.CAMERA);
-        }
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            neededPermissions.add(Manifest.permission.ACCESS_FINE_LOCATION);
-            neededPermissions.add(Manifest.permission.ACCESS_COARSE_LOCATION);
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-            neededPermissions.add(Manifest.permission.POST_NOTIFICATIONS);
-        }
-        if (!neededPermissions.isEmpty()) {
-            ActivityCompat.requestPermissions(this, neededPermissions.toArray(new String[0]), 100);
-        }
+        // Smoothly request runtime permissions after WebView has rendered initial frame (prevents APK launch blank freeze)
+        mainHandler.postDelayed(() -> {
+            try {
+                if (isFinishing() || isDestroyed()) return;
+                java.util.List<String> neededPermissions = new java.util.ArrayList<>();
+                if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+                    neededPermissions.add(Manifest.permission.CAMERA);
+                }
+                if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+                    neededPermissions.add(Manifest.permission.ACCESS_FINE_LOCATION);
+                    neededPermissions.add(Manifest.permission.ACCESS_COARSE_LOCATION);
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                    ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                    neededPermissions.add(Manifest.permission.POST_NOTIFICATIONS);
+                }
+                if (!neededPermissions.isEmpty()) {
+                    ActivityCompat.requestPermissions(this, neededPermissions.toArray(new String[0]), 100);
+                }
+            } catch (Throwable t) {
+                android.util.Log.w("MainActivity", "Permission request notice: " + t.getMessage());
+            }
+        }, 1200);
 
         try {
             if (getBridge() != null && getBridge().getWebView() != null) {
@@ -70,8 +76,6 @@ public class MainActivity extends BridgeActivity {
         } catch (Throwable t) {
             android.util.Log.w("MainActivity", "WebView geolocation config notice: " + t.getMessage());
         }
-
-
     }
 
     public void bringToFront() {

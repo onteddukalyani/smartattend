@@ -119,7 +119,15 @@ public class KioskWatchdogService extends Service {
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .build();
 
-        startForeground(NOTIFICATION_ID, notification);
+        try {
+            if (Build.VERSION.SDK_INT >= 34) {
+                startForeground(NOTIFICATION_ID, notification, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE);
+            } else {
+                startForeground(NOTIFICATION_ID, notification);
+            }
+        } catch (Throwable t) {
+            Log.w(TAG, "Notice starting foreground notification: " + t.getMessage());
+        }
     }
 
     private void enforceForeground() {
