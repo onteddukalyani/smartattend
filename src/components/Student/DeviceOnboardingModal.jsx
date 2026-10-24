@@ -55,6 +55,13 @@ export function DeviceOnboardingModal({ isOpen, onClose }) {
     });
 
     const [currentIp, setCurrentIp] = useState("Detecting IP...");
+    const hasFace = Boolean(
+        (!profile?.faceRemovedAt || (profile?.faceEnrolledAt && profile.faceEnrolledAt > profile.faceRemovedAt)) &&
+        (profile?.faceRegistered || profile?.biometricEnrolled || profile?.hasFaceRegistered ||
+            (roll && localStorage.getItem(`smartattend_face_enrolled_${roll}`) === 'true') ||
+            (user?.uid && localStorage.getItem(`smartattend_face_enrolled_${user.uid}`) === 'true') ||
+            localStorage.getItem('smartattend_face_enrolled') === 'true')
+    );
     const [gaVerified, setGaVerified] = useState(false);
     const [gaCheckLoading, setGaCheckLoading] = useState(false);
     const [saving, setSaving] = useState(false);
@@ -301,41 +308,49 @@ export function DeviceOnboardingModal({ isOpen, onClose }) {
                     </div>
                 </div>
 
-                {/* Mandatory In-App Dual Biometrics Banner */}
+                {/* Biometrics Status Banner */}
                 <div style={{
                     margin: '16px 0',
                     padding: '13px 16px',
                     borderRadius: '16px',
-                    background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.08) 0%, rgba(79, 70, 229, 0.04) 100%)',
-                    border: '1.5px solid rgba(99, 102, 241, 0.25)',
+                    background: hasFace ? 'rgba(16, 185, 129, 0.08)' : 'linear-gradient(135deg, rgba(99, 102, 241, 0.08) 0%, rgba(79, 70, 229, 0.04) 100%)',
+                    border: hasFace ? '1.5px solid rgba(16, 185, 129, 0.3)' : '1.5px solid rgba(99, 102, 241, 0.25)',
                     display: 'flex',
                     alignItems: 'center',
                     gap: '12px'
                 }}>
-                    <FaFingerprint style={{ fontSize: '1.8rem', color: '#6366f1', flexShrink: 0 }} />
+                    {hasFace ? (
+                        <FaCheckCircle style={{ fontSize: '1.8rem', color: '#10b981', flexShrink: 0 }} />
+                    ) : (
+                        <FaFingerprint style={{ fontSize: '1.8rem', color: '#6366f1', flexShrink: 0 }} />
+                    )}
                     <div style={{ flex: 1, fontSize: '0.84rem', color: '#334155' }}>
-                        <strong style={{ color: '#4338ca', display: 'block', marginBottom: '2px' }}>
-                            100% In-App Dual Biometrics Required
+                        <strong style={{ color: hasFace ? '#065f46' : '#4338ca', display: 'block', marginBottom: '2px' }}>
+                            {hasFace ? 'Biometrics Registered & Protected ✓' : '100% In-App Face Biometrics Required'}
                         </strong>
-                        Both 3D Face Biometrics and Device Fingerprint are registered directly inside SmartAttend.
+                        {hasFace
+                            ? 'Your facial biometrics are active and locked to your student account.'
+                            : 'Both 3D Face Biometrics and Device Fingerprint are registered directly inside SmartAttend.'}
                     </div>
-                    <Link
-                        to="/student/face-enroll"
-                        onClick={onClose}
-                        style={{
-                            padding: '7px 14px',
-                            borderRadius: '10px',
-                            background: '#6366f1',
-                            color: '#ffffff',
-                            fontWeight: '700',
-                            fontSize: '0.8rem',
-                            textDecoration: 'none',
-                            whiteSpace: 'nowrap',
-                            boxShadow: '0 2px 8px rgba(99, 102, 241, 0.3)'
-                        }}
-                    >
-                        Register In-App
-                    </Link>
+                    {!hasFace && (
+                        <Link
+                            to="/student/face-enroll"
+                            onClick={onClose}
+                            style={{
+                                padding: '7px 14px',
+                                borderRadius: '10px',
+                                background: '#6366f1',
+                                color: '#ffffff',
+                                fontWeight: '700',
+                                fontSize: '0.8rem',
+                                textDecoration: 'none',
+                                whiteSpace: 'nowrap',
+                                boxShadow: '0 2px 8px rgba(99, 102, 241, 0.3)'
+                            }}
+                        >
+                            Register In-App
+                        </Link>
+                    )}
                 </div>
 
                 {hasDeviceMismatch && (

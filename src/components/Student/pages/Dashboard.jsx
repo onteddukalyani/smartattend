@@ -50,7 +50,7 @@ import DeviceOnboardingModal from "../DeviceOnboardingModal";
 import StudentReadinessModal from "../StudentReadinessModal";
 import { requestAppNotificationPermissions } from "../../../services/nativeNotificationService";
 import { subscribeToStudentNotifications, markNotificationAsRead, sendFacultyNotification, sendStudentNotification, reportUserVerificationComplaint, getTimestampMs } from "../../../services/notificationsService";
-import { detectDeviceType, getClientIpAddress, getDeviceDisplayName, isDeviceMatching } from "../../../utils/deviceDetection";
+import { detectDeviceType, getClientIpAddress, getDeviceDisplayName, isDeviceMatching, isStaffCameraUser } from "../../../utils/deviceDetection";
 import { locationFromPosition, isAccurateLocation } from "../../../utils/location";
 import { Capacitor } from "@capacitor/core";
 import { KioskPlugin } from "../../../plugins/kiosk";
@@ -375,6 +375,32 @@ export default function StudentDashboard() {
         localStorage.getItem("smartattend_hw_enrolled") === "true"
     );
     const isDualBioRegistered = hasFaceRegistered && hasHwRegistered;
+    const isStaff = isStaffCameraUser(profile, user);
+    const [reRegPermission, setReRegPermission] = useState(null);
+
+    // Live subscription to student re-registration permissions granted by lecturer/admin
+    useEffect(() => {
+        if (!activeRollNo) return;
+        const unsubPerm = onSnapshot(doc(db, "biometric_reregistration_permissions", activeRollNo), (snap) => {
+            if (snap.exists()) {
+                setReRegPermission(snap.data());
+            } else {
+                setReRegPermission(null);
+            }
+        }, () => {});
+        return () => unsubPerm();
+    }, [activeRollNo]);
+
+    const isPermActive = Boolean(
+        reRegPermission &&
+        reRegPermission.status === "active" &&
+        (reRegPermission.remainingUses === undefined || reRegPermission.remainingUses === null || reRegPermission.remainingUses > 0) &&
+        (!reRegPermission.expiresAt || reRegPermission.expiresAt > Date.now())
+    );
+
+    const canReEnrollFace = isStaff || !hasFaceRegistered || (
+        isPermActive && (reRegPermission.registrationType === "face" || reRegPermission.registrationType === "both")
+    );
 
     // Device Resolution & Mismatch Guard
     const registeredDevice = fetchedStudentData?.deviceType || fetchedStudentData?.registeredDeviceType || profile?.deviceType || profile?.registeredDeviceType || currentDeviceType;
@@ -604,8 +630,8 @@ export default function StudentDashboard() {
     const handleEnrollStudentFace = async (enrollData) => {
         if (!enrollData || !enrollData.faceDescriptor || !activeRollNo) return;
 
-        if (hasFaceRegistered) {
-            alert("🔒 Biometrics Locked:\n\nYour facial biometrics are already enrolled and permanently protected. Students cannot re-enroll or edit biometrics.\n\nPlease contact your Course Lecturer or Administrator if an authorized reset is needed.");
+        if (hasFaceRegistered && !canReEnrollFace) {
+            alert("🔒 Biometrics Locked:\n\nYour facial biometrics are already enrolled and permanently protected. Students cannot re-enroll or edit biometrics without an authorized pass.\n\nPlease contact your Course Lecturer or Administrator if a re-registration pass is needed.");
             return;
         }
 
@@ -1161,25 +1187,15 @@ export default function StudentDashboard() {
 
 
 
-            {/* Dual In-App Biometrics Pending Banner */}
-            {!isDualBioRegistered && (
+            {/* Face Biometrics Pending Banner: Only displayed if student has not enrolled their face yet */}
+            {!hasFaceRegistered && (
                 <div className="face-pending-alert-banner">
                     <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
                         <FaExclamationTriangle className="face-pending-icon" />
                         <div>
-                            <h4>
-                                {!hasFaceRegistered && !hasHwRegistered
-                                    ? "100% In-App Dual Biometrics Required"
-                                    : !hasFaceRegistered
-                                        ? "In-App Face Biometrics Required"
-                                        : "In-App Device Fingerprint Required"}
-                            </h4>
+                            <h4>In-App Face Biometrics Required</h4>
                             <p>
-                                {!hasFaceRegistered && !hasHwRegistered
-                                    ? "Register both your 3D Face and Device Fingerprint directly inside the SmartAttend app before attending class sessions."
-                                    : !hasFaceRegistered
-                                        ? "Complete your live 3D Face scan in-app to verify your identity for attendance."
-                                        : "Touch your fingerprint sensor in-app to bind this phone to your account."}
+                                Complete your live 3D Face scan in-app to verify your identity for attendance.
                             </p>
                         </div>
                     </div>
@@ -1222,7 +1238,7 @@ export default function StudentDashboard() {
                                 whiteSpace: "nowrap"
                             }}
                         >
-                            <FaFingerprint /> Complete Biometrics In-App
+                            <FaFingerprint /> Complete Face Enrollment
                         </Link>
                     </div>
                 </div>
@@ -1591,41 +1607,49 @@ export default function StudentDashboard() {
                                 ✅ Your 128-dimensional facial biometric vectors are officially registered under Roll Number <strong style={{ color: "#6366f1" }}>{activeRollNo}</strong> for attendance authentication.
                             </p>
                             <p style={{ margin: 0, color: "var(--text-muted, #64748b)" }}>
-                                🔒 <strong>Institutional Security Policy:</strong> To protect attendance integrity, students cannot alter or re-record registered facial biometric vectors. If your biometrics need updating, please contact your Course Lecturer or System Administrator.
+                                🔒 <strong>Institutional Security Policy:</strong> To protect attendance integrity, students cannot alter or re-record registered facial biometric vectors. If your biometrics need updating, your Course Lecturer must grant a Re-Registration Pass or enroll you directly.
                             </p>
+                            {canReEnrollFace && (
+                                <p style={{ margin: "10px 0 0", color: "#059669", fontWeight: 700 }}>
+                                    ✨ <strong>Lecturer Access Granted:</strong> You have an active re-registration pass to update your face biometrics.
+                                </p>
+                            )}
                         </div>
 
                         <div style={{ display: "flex", gap: "10px", marginTop: "16px", flexWrap: "wrap" }}>
-                            <button
-                                type="button"
-                                onClick={() => {
-                                    setShowLockedFaceModal(false);
-                                    setShowFaceModal(true);
-                                }}
-                                style={{
-                                    flex: 1,
-                                    minWidth: "160px",
-                                    padding: "11px 16px",
-                                    borderRadius: "12px",
-                                    background: "linear-gradient(135deg, #6366f1, #4f46e5)",
-                                    color: "#ffffff",
-                                    border: "none",
-                                    fontWeight: 700,
-                                    fontSize: "0.9rem",
-                                    cursor: "pointer",
-                                    display: "inline-flex",
-                                    alignItems: "center",
-                                    justifyContent: "center",
-                                    gap: "8px",
-                                    boxShadow: "0 4px 12px rgba(99, 102, 241, 0.25)"
-                                }}
-                            >
-                                <FaCamera /> Re-enroll Face Camera
-                            </button>
+                            {canReEnrollFace && (
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setShowLockedFaceModal(false);
+                                        setShowFaceModal(true);
+                                    }}
+                                    style={{
+                                        flex: 1,
+                                        minWidth: "160px",
+                                        padding: "11px 16px",
+                                        borderRadius: "12px",
+                                        background: "linear-gradient(135deg, #6366f1, #4f46e5)",
+                                        color: "#ffffff",
+                                        border: "none",
+                                        fontWeight: 700,
+                                        fontSize: "0.9rem",
+                                        cursor: "pointer",
+                                        display: "inline-flex",
+                                        alignItems: "center",
+                                        justifyContent: "center",
+                                        gap: "8px",
+                                        boxShadow: "0 4px 12px rgba(99, 102, 241, 0.25)"
+                                    }}
+                                >
+                                    <FaCamera /> Re-enroll Face Camera
+                                </button>
+                            )}
                             <button
                                 type="button"
                                 onClick={() => setShowLockedFaceModal(false)}
                                 style={{
+                                    flex: canReEnrollFace ? undefined : 1,
                                     padding: "11px 20px",
                                     borderRadius: "12px",
                                     background: "var(--surface-soft, #f1f5f9)",

@@ -1969,11 +1969,11 @@ function QrScannerApp() {
     const processSessionString = async (raw) => {
         if (!raw) return;
 
-        // STRICT ENFORCEMENT: Students cannot scan any attendance QR without both Face and Fingerprint biometrics registered
-        if (isStudentUser && !studentBioStatus.isComplete) {
-            alert('⚠️ Biometrics Required!\n\nYou must register both Face and Fingerprint before scanning attendance QR codes.\n\nPlease complete your biometric registration first.');
+        // STRICT ENFORCEMENT: Students cannot scan any attendance QR without Face biometrics registered
+        if (isStudentUser && !studentBioStatus.hasFace) {
+            alert('⚠️ Face Biometrics Required!\n\nYou must register your Face Biometrics before scanning attendance QR codes.\n\nPlease complete your biometric registration first.');
             setShowBiometricsRequiredModal(true);
-            setErrorMessage('⚠️ Biometrics Required: Please register your face and fingerprint biometrics before scanning.');
+            setErrorMessage('⚠️ Biometrics Required: Please register your face biometrics before scanning.');
             return;
         }
 
@@ -2322,8 +2322,8 @@ function QrScannerApp() {
 
     const handleCameraScan = useCallback((result) => {
         if (!result) return;
-        if (isStudentUser && !studentBioStatus.isComplete) {
-            alert('⚠️ Biometrics Required!\n\nYou must register both Face and Fingerprint before scanning attendance QR codes.\n\nPlease complete your biometric registration first.');
+        if (isStudentUser && !studentBioStatus.hasFace) {
+            alert('⚠️ Face Biometrics Required!\n\nYou must register your Face Biometrics before scanning attendance QR codes.\n\nPlease complete your biometric registration first.');
             setShowBiometricsRequiredModal(true);
             return;
         }
@@ -2360,8 +2360,8 @@ function QrScannerApp() {
         const file = e.target.files?.[0];
         if (!file) return;
 
-        if (isStudentUser && !studentBioStatus.isComplete) {
-            alert('⚠️ Biometrics Required!\n\nYou must register both Face and Fingerprint before scanning attendance QR codes.\n\nPlease complete your biometric registration first.');
+        if (isStudentUser && !studentBioStatus.hasFace) {
+            alert('⚠️ Face Biometrics Required!\n\nYou must register your Face Biometrics before scanning attendance QR codes.\n\nPlease complete your biometric registration first.');
             setShowBiometricsRequiredModal(true);
             return;
         }
@@ -2688,10 +2688,10 @@ function QrScannerApp() {
                         <FaUserCheck />
                     </div>
                     <h3 style={{ fontSize: '1.35rem', fontWeight: 800, color: '#92400e', margin: '0 0 10px 0' }}>
-                        Biometrics Registration Required
+                        Face Biometrics Required
                     </h3>
                     <p style={{ fontSize: '0.92rem', color: '#334155', lineHeight: 1.5, margin: '0 0 16px 0' }}>
-                        To ensure physical presence and prevent proxy attendance, all students must enroll both <strong>Face Biometrics</strong> and <strong>Device Fingerprint</strong> before scanning.
+                        To ensure physical presence and prevent proxy attendance, students must complete initial <strong>Face Biometrics</strong> enrollment before scanning attendance QR codes.
                     </p>
                     <div style={{
                         textAlign: 'left',
@@ -2708,13 +2708,13 @@ function QrScannerApp() {
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                             {studentBioStatus.hasFace ? <FaCheckCircle style={{ color: '#10b981' }} /> : <FaExclamationTriangle style={{ color: '#f59e0b' }} />}
                             <span style={{ color: studentBioStatus.hasFace ? '#15803d' : '#b45309', fontWeight: 700 }}>
-                                Face Biometrics: {studentBioStatus.hasFace ? 'Enrolled' : 'Not Registered'}
+                                Face Biometrics: {studentBioStatus.hasFace ? 'Enrolled & Active' : 'Not Registered (Required)'}
                             </span>
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            {studentBioStatus.hasHw ? <FaCheckCircle style={{ color: '#10b981' }} /> : <FaExclamationTriangle style={{ color: '#f59e0b' }} />}
-                            <span style={{ color: studentBioStatus.hasHw ? '#15803d' : '#b45309', fontWeight: 700 }}>
-                                Device Fingerprint: {studentBioStatus.hasHw ? 'Enrolled' : 'Not Registered'}
+                            {studentBioStatus.hasHw ? <FaCheckCircle style={{ color: '#10b981' }} /> : <FaCheckCircle style={{ color: '#64748b' }} />}
+                            <span style={{ color: studentBioStatus.hasHw ? '#15803d' : '#64748b', fontWeight: 600 }}>
+                                Device Fingerprint: {studentBioStatus.hasHw ? 'Enrolled' : 'Optional (In-App Linked)'}
                             </span>
                         </div>
                     </div>
@@ -4428,7 +4428,7 @@ function QrScannerApp() {
             </div>
 
             {/* Student Biometrics Precondition Banner */}
-            {isStudentUser && !studentBioStatus.isComplete && (
+            {isStudentUser && !studentBioStatus.hasFace && (
                 <div style={{
                     margin: '0 0 16px 0',
                     padding: '16px 18px',
@@ -4442,10 +4442,10 @@ function QrScannerApp() {
                 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: '#b45309', fontWeight: 800, fontSize: '0.98rem' }}>
                         <FaExclamationTriangle style={{ fontSize: '1.25rem', flexShrink: 0 }} />
-                        <span>Biometrics Registration Required</span>
+                        <span>Face Biometrics Registration Required</span>
                     </div>
                     <p style={{ margin: 0, fontSize: '0.86rem', color: '#78350f', lineHeight: 1.45 }}>
-                        You cannot scan attendance until your <strong>Face</strong> and <strong>Fingerprint</strong> biometrics are registered. Please complete enrollment to enable scanning.
+                        You cannot scan attendance until your <strong>Face Biometrics</strong> are registered. Please complete enrollment to enable scanning.
                     </p>
                     <button
                         type="button"

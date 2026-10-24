@@ -278,9 +278,16 @@ export default function FaceEnrollPage() {
                     ribbonClass: "status-permission-granted"
                 };
             }
+            if (hasFaceRegistered) {
+                return {
+                    code: "COMPLETED",
+                    label: hasHwRegistered ? "All Biometrics Registered & Locked" : "Biometrics Registered & Locked",
+                    ribbonClass: "status-registered"
+                };
+            }
             return {
                 code: "PARTIALLY_REGISTERED",
-                label: hasFaceRegistered ? "Face Enrolled • Fingerprint Pending" : "Fingerprint Enrolled • Face Pending",
+                label: "Fingerprint Enrolled • Face Pending",
                 ribbonClass: "status-pending"
             };
         }
@@ -660,7 +667,7 @@ export default function FaceEnrollPage() {
                                         className="bio-locked-switch-btn"
                                         onClick={() => setActiveTab("fingerprint")}
                                     >
-                                        <FaFingerprint /> Next Step: Register Device Fingerprint
+                                        <FaFingerprint /> Optional: Link Device Fingerprint
                                     </button>
                                 )}
                             </div>

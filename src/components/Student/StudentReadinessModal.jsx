@@ -137,10 +137,10 @@ export function StudentReadinessModal({
         setGrantingAll(false);
     };
 
-    const isDualBioRegistered = hasFaceRegistered && hasHwRegistered;
+    const isBiometricEnrolled = Boolean(hasFaceRegistered);
     const isLocationGranted = locationStatus === 'granted';
     const isNotifGranted = notifStatus === 'granted';
-    const allCompleted = isLocationGranted && isNotifGranted && isDualBioRegistered;
+    const allCompleted = isLocationGranted && isNotifGranted && isBiometricEnrolled;
 
     if (!isOpen) return null;
 
@@ -234,27 +234,23 @@ export function StudentReadinessModal({
                     </div>
 
                     {/* Item 3: Biometrics Registration */}
-                    <div className={`readiness-item-card ${isDualBioRegistered ? 'granted' : 'action-needed'}`}>
-                        <div className={`readiness-item-icon ${isDualBioRegistered ? 'success' : 'biometric'}`}>
-                            {isDualBioRegistered ? <FaCheckCircle /> : <FaFingerprint />}
+                    <div className={`readiness-item-card ${isBiometricEnrolled ? 'granted' : 'action-needed'}`}>
+                        <div className={`readiness-item-icon ${isBiometricEnrolled ? 'success' : 'biometric'}`}>
+                            {isBiometricEnrolled ? <FaCheckCircle /> : <FaFingerprint />}
                         </div>
                         <div className="readiness-item-info">
                             <div className="readiness-item-top">
                                 <h3 className="readiness-item-title">Biometric Enrollment</h3>
-                                <span className={`readiness-status-badge ${isDualBioRegistered ? 'badge-success' : 'badge-pending'}`}>
-                                    {isDualBioRegistered ? 'Registered ✓' : 'Action Required'}
+                                <span className={`readiness-status-badge ${isBiometricEnrolled ? 'badge-success' : 'badge-pending'}`}>
+                                    {isBiometricEnrolled ? 'Registered & Locked ✓' : 'Action Required'}
                                 </span>
                             </div>
                             <p className="readiness-item-desc">
-                                {isDualBioRegistered
-                                    ? "3D Face Biometrics and Device Fingerprint are active and locked to your account."
-                                    : !hasFaceRegistered && !hasHwRegistered
-                                        ? "Register both your 3D Face and Device Fingerprint to mark attendance in class sessions."
-                                        : !hasFaceRegistered
-                                            ? "Live 3D Face enrollment is required to verify identity during Phase 2 QR scanning."
-                                            : "Touch your fingerprint sensor in-app to bind this phone to your account."}
+                                {isBiometricEnrolled
+                                    ? "Your facial biometrics are officially registered and locked. Attendance verification is ready."
+                                    : "Live 3D Face enrollment is required to verify identity during attendance scanning."}
                             </p>
-                            {!isDualBioRegistered && (
+                            {!isBiometricEnrolled && (
                                 <button
                                     type="button"
                                     onClick={() => {
@@ -284,7 +280,7 @@ export function StudentReadinessModal({
                             {grantingAll ? <FaSpinner className="fa-spin" /> : <FaBolt />}
                             <span>{grantingAll ? 'Enabling Permissions...' : 'Grant All Required Permissions'}</span>
                         </button>
-                    ) : !isDualBioRegistered ? (
+                    ) : !isBiometricEnrolled ? (
                         <button
                             type="button"
                             onClick={() => {
