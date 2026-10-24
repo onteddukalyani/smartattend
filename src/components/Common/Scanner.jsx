@@ -215,6 +215,15 @@ function QrScannerApp() {
         if (sessionData.qr1DurationSeconds) {
             setAuthQr1DurationSec(Number(sessionData.qr1DurationSeconds));
         }
+        if (sessionData.kioskEndsAt) {
+            const ends = typeof sessionData.kioskEndsAt.toMillis === 'function' ? sessionData.kioskEndsAt.toMillis() : Number(sessionData.kioskEndsAt);
+            if (ends > 0) setKioskEndsAt(ends);
+        }
+        // If lecturer transitions early or releases QR 2, immediately unlock and activate camera
+        if (sessionData.phase === 'PHASE_2' || sessionData.phase === '2' || sessionData.qr2Released === true) {
+            setForceQr2Unlocked(true);
+            setScannerActive(true);
+        }
     }, [sessionData]);
 
     // Authoritative target time for Phase 2 QR unlock (immediate from auth response + real-time Firestore sync)
@@ -242,12 +251,16 @@ function QrScannerApp() {
         ? Math.max(0, Math.ceil((effectiveQr2TargetMs - nowTick) / 1000))
         : null;
 
-    // Explicitly disable and release camera hardware during waiting phase to save battery and protect privacy
+    // Explicitly manage camera hardware during waiting phase vs QR2 release
     useEffect(() => {
-        if (scanState === 'KIOSK_WAITING_QR2' && !isQr2Released) {
-            releaseAllMediaTracks();
-            releaseCameraLock();
-            setScannerActive(false);
+        if (scanState === 'KIOSK_WAITING_QR2') {
+            if (!isQr2Released) {
+                releaseAllMediaTracks();
+                releaseCameraLock();
+                setScannerActive(false);
+            } else {
+                setScannerActive(true);
+            }
         }
     }, [scanState, isQr2Released]);
 
@@ -1289,10 +1302,25 @@ function QrScannerApp() {
                 setSessionStartAt(startMs);
             }
             if (data.kioskEndsAt) {
-                const endMs = typeof data.kioskEndsAt.toMillis === 'function' ? data.kioskEndsAt.toMillis() : data.kioskEndsAt;
+                const endMs = typeof data.kioskEndsAt.toMillis === 'function' ? data.kioskEndsAt.toMillis() : Number(data.kioskEndsAt);
                 if (endMs && endMs !== kioskEndsAt) {
                     setKioskEndsAt(endMs);
                 }
+            }
+            const qr2Target = data.qr2StartsAt
+                ? (typeof data.qr2StartsAt.toMillis === 'function' ? data.qr2StartsAt.toMillis() : Number(data.qr2StartsAt))
+                : (data.qr1ExpiresAt
+                    ? (typeof data.qr1ExpiresAt.toMillis === 'function' ? data.qr1ExpiresAt.toMillis() : Number(data.qr1ExpiresAt))
+                    : 0);
+            if (qr2Target > 0) {
+                setAuthQr2StartsAt(qr2Target);
+            }
+            if (data.qr1DurationSeconds) {
+                setAuthQr1DurationSec(Number(data.qr1DurationSeconds));
+            }
+            if (data.phase === 'PHASE_2' || data.phase === '2' || data.qr2Released === true) {
+                setForceQr2Unlocked(true);
+                setScannerActive(true);
             }
             // If lecturer ends the session in real-time or releases student
             const cleanRoll = (loggedInRollNo || '').trim().toUpperCase();
@@ -1744,8 +1772,12 @@ function QrScannerApp() {
             // Pre-warm biometric challenge for immediate hardware fingerprint verification
             prefetchBiometricChallenge(targetSession).catch(() => { });
 
-            // Ensure biometrics are loaded
-            await lookupStudentBiometrics(result.rollNo || loggedInRollNo);
+            // Ensure biometrics are loaded safely
+            try {
+                await lookupStudentBiometrics(result.rollNo || loggedInRollNo);
+            } catch (bioErr) {
+                console.warn('Notice loading biometrics:', bioErr);
+            }
 
             // Release silent camera lock before biometric — front camera needs to open
             releaseCameraLock();
@@ -3962,67 +3994,29 @@ function QrScannerApp() {
                     </div>
                 </div>
 
-                {/* Instruction / Status Badge */}
-                <div className="st-scanner-waiting-pill">
-                    {isQr2Released ? <FaBolt style={{ color: '#10b981' }} /> : <FaClock style={{ color: '#6366f1' }} />}
-                    <span>{isQr2Released ? 'QR 2 Released · Scan the next QR' : 'Phase 1 Complete · Waiting for lecturer to release QR 2'}</span>
-                </div>
-
-                {/* Live GPS & Lecturer Distance Telemetry */}
-                {renderGpsTelemetryCard()}
-
-                {/* Explicit Attendance Policy Warning Banner */}
-                <div style={{
-                    margin: '0 0 16px 0',
-                    padding: '10px 14px',
-                    borderRadius: '14px',
-                    background: 'rgba(239, 68, 68, 0.1)',
-                    border: '1.5px solid rgba(239, 68, 68, 0.3)',
-                    color: '#fca5a5',
-                    fontSize: '0.82rem',
-                    fontWeight: 700,
-                    lineHeight: 1.45,
-                    textAlign: 'left',
-                    display: 'flex',
-                    alignItems: 'flex-start',
-                    gap: '10px'
-                }}>
-                    <FaExclamationTriangle style={{ color: '#ef4444', fontSize: '1.1rem', flexShrink: 0, marginTop: '2px' }} />
-                    <div>
-                        <strong style={{ color: '#f87171' }}>Security Policy:</strong> Leaving SmartAttend, opening notifications, or switching apps is strictly monitored.
-                        {isNativeApp && !isIOSDevice() ? (
-                            <span style={{ display: 'block', marginTop: '2px', color: '#fde047' }}>
-                                📱 Android: Strike 1 gives a warning chance; Strike 2 permanently forfeits your attendance!
-                            </span>
-                        ) : (
-                            <span style={{ display: 'block', marginTop: '2px', color: '#fde047' }}>
-                                ⚠️ Zero Tolerance: Even 1 violation will immediately disqualify your attendance!
-                            </span>
-                        )}
-                    </div>
-                </div>
-
                 {!isQr2Released ? (
-                    /* Hero Supervised Waiting & Countdown Card (Strictly No Scanning) */
-                    <div className="st-kiosk-hero-card">
+                    /* Hero Supervised Waiting & Countdown Card: Compact, zero-scroll, directly linked to Lecturer */
+                    <div className="st-kiosk-hero-card st-compact-transition-card">
                         <div className="st-kiosk-glow-orb" />
 
-                        {/* Phase 1 Recorded Badge */}
-                        <div className="st-phase1-success-badge">
-                            <FaCheckCircle className="st-success-check-icon" />
-                            <span>Phase 1 Check-In Recorded</span>
+                        {/* Session & Phase 1 Header Ribbon */}
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px', flexWrap: 'wrap', gap: '6px' }}>
+                            <div style={{ textAlign: 'left' }}>
+                                <div style={{ fontSize: '1.08rem', fontWeight: 850, color: 'inherit', letterSpacing: '-0.01em' }}>
+                                    {sessionData?.courseCode || 'Classroom Attendance'}
+                                </div>
+                                <div style={{ fontSize: '0.78rem', color: '#94a3b8', fontWeight: 600 }}>
+                                    {sessionData?.roomNo ? `Room ${sessionData.roomNo}` : loggedInRollNo} · {sessionData?.lecturerName || 'Live Session'}
+                                </div>
+                            </div>
+                            <div className="st-phase1-success-badge" style={{ margin: 0, padding: '4px 12px', fontSize: '0.76rem' }}>
+                                <FaCheckCircle className="st-success-check-icon" style={{ fontSize: '0.82rem' }} />
+                                <span>Phase 1 Verified</span>
+                            </div>
                         </div>
 
-                        <div className="st-kiosk-session-title">
-                            {sessionData?.courseCode || 'Classroom Attendance'}
-                        </div>
-                        <div className="st-kiosk-session-sub">
-                            {sessionData?.lecturerName ? `Lecturer: ${sessionData.lecturerName}` : 'Session Active'} · {sessionData?.roomNo ? `Room ${sessionData.roomNo}` : loggedInRollNo}
-                        </div>
-
-                        {/* Circular SVG Animated Countdown Ring */}
-                        <div className="st-timer-ring-container">
-                            {/* Dynamic Rotating Orbit Spinner & Radar Sweep */}
+                        {/* High-Impact Centered Countdown Ring & Clock */}
+                        <div className="st-timer-ring-container st-compact-timer-ring">
                             <div className="st-timer-orbit-spinner" />
                             <div className="st-timer-radar-sweep" />
 
@@ -4034,12 +4028,7 @@ function QrScannerApp() {
                                         <stop offset="100%" stopColor="#c084fc" />
                                     </linearGradient>
                                 </defs>
-                                <circle
-                                    className="st-timer-bg-circle"
-                                    cx="90"
-                                    cy="90"
-                                    r="74"
-                                />
+                                <circle className="st-timer-bg-circle" cx="90" cy="90" r="74" />
                                 <circle
                                     className="st-timer-progress-circle"
                                     cx="90"
@@ -4051,10 +4040,7 @@ function QrScannerApp() {
                             </svg>
 
                             <div className="st-timer-center-content">
-                                <div className="st-timer-icon-wrap">
-                                    <FaSyncAlt className="st-timer-turning-sync-icon" />
-                                </div>
-                                <div className="st-timer-digital">
+                                <div className="st-timer-digital" style={{ fontSize: '2.1rem', marginBottom: '2px' }}>
                                     {secondsUntilQr2 !== null && secondsUntilQr2 > 0 ? (
                                         <>
                                             {String(Math.floor(secondsUntilQr2 / 60)).padStart(2, '0')}:
@@ -4064,16 +4050,16 @@ function QrScannerApp() {
                                         '00:00'
                                     )}
                                 </div>
-                                <div className="st-timer-subtext">
-                                    LOADING PHASE 2 QR
+                                <div className="st-timer-subtext" style={{ fontSize: '0.68rem', letterSpacing: '0.06em' }}>
+                                    QR 2 INCOMING
                                 </div>
                             </div>
                         </div>
 
-                        {/* Live Turning Loading Badge */}
-                        <div className="st-turning-loader-badge">
+                        {/* Real-time Lecturer Sync Status */}
+                        <div className="st-turning-loader-badge" style={{ margin: '0 auto 10px auto', padding: '5px 14px', fontSize: '0.75rem' }}>
                             <span className="st-turning-dot-pulse" />
-                            <span>Actively synchronizing session · Auto-loading Phase 2 QR</span>
+                            <span>⚡ Live-synced with Lecturer · Waiting for QR 2</span>
                         </div>
 
                         {/* Interactive Instant Switcher for Early Phase 2 Release */}
@@ -4089,26 +4075,27 @@ function QrScannerApp() {
                                 }
                             }}
                             className="st-early-switch-btn"
+                            style={{ margin: '0 auto 10px auto', padding: '10px 16px', fontSize: '0.84rem' }}
                         >
-                            <FaBolt /> Lecturer Switched to QR 2? Tap to Scan Now
+                            <FaBolt /> Lecturer Showing QR 2? Tap to Scan Now
                         </button>
 
-                        {/* Strict Camera Paused / Locked Indicator */}
-                        <div className="st-camera-paused-card">
-                            <div className="st-paused-header">
-                                <span className="st-paused-lock-pill">
-                                    <FaLock /> Camera Paused &amp; Scanning Locked
-                                </span>
-                            </div>
-                            <p className="st-paused-desc">
-                                All scanning is paused to conserve battery and enforce integrity. Please attend to your lecture. Your camera will automatically reactivate the moment Phase 2 begins.
-                            </p>
-                        </div>
-
-                        {/* Live Sync Status */}
-                        <div className="st-live-sync-indicator">
-                            <span className="st-sync-dot"></span>
-                            <span>Connected to Lecturer's Session · Listening for QR 2 broadcast</span>
+                        {/* Compact Security Monitor Notice */}
+                        <div style={{
+                            padding: '6px 12px',
+                            borderRadius: '10px',
+                            background: 'rgba(239, 68, 68, 0.08)',
+                            border: '1px solid rgba(239, 68, 68, 0.22)',
+                            color: '#fca5a5',
+                            fontSize: '0.74rem',
+                            fontWeight: 700,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '6px'
+                        }}>
+                            <FaExclamationTriangle style={{ color: '#ef4444', fontSize: '0.8rem', flexShrink: 0 }} />
+                            <span>Kiosk Monitored: Switching apps forfeits attendance.</span>
                         </div>
                     </div>
                 ) : (

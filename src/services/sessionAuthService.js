@@ -523,8 +523,13 @@ export async function validateStudentQR2(sessionId, qr2Token, qrPayload = null) 
   }
 
   const now = Date.now();
-  if (session && now > ((session.kioskEndsAt || session.expiresAt || 0) + 15000)) {
-    throw new Error("❌ Attendance session has closed. 3-minute deadline elapsed.");
+  const sessionEndsMs = session ? (
+    (typeof session.kioskEndsAt?.toMillis === "function" ? session.kioskEndsAt.toMillis() : Number(session.kioskEndsAt)) ||
+    (typeof session.expiresAt?.toMillis === "function" ? session.expiresAt.toMillis() : Number(session.expiresAt)) ||
+    0
+  ) : 0;
+  if (sessionEndsMs > 0 && now > (sessionEndsMs + 15000)) {
+    throw new Error("❌ Attendance session has closed. Session deadline elapsed.");
   }
 
   // 3. STRICT GATE: If student never checked in with QR 1, reject immediately & log security complaint

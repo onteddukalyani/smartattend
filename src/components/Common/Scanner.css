@@ -991,3 +991,14 @@
     }
 }
 
+.st-compact-transition-card {
+    padding: 18px 16px;
+    margin-bottom: 12px;
+}
+
+.st-compact-timer-ring {
+    width: 150px;
+    height: 150px;
+    margin: 6px auto 14px;
+}
+
