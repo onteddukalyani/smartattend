@@ -158,8 +158,10 @@ public class MainActivity extends BridgeActivity {
                 keyCode == KeyEvent.KEYCODE_HOME ||
                 keyCode == KeyEvent.KEYCODE_VOLUME_UP ||
                 keyCode == KeyEvent.KEYCODE_VOLUME_DOWN ||
-                keyCode == KeyEvent.KEYCODE_POWER) {
-                return true; // Block hardware keys during active kiosk session
+                keyCode == KeyEvent.KEYCODE_POWER ||
+                keyCode == KeyEvent.KEYCODE_CAMERA ||
+                keyCode == KeyEvent.KEYCODE_FOCUS) {
+                return true; // Block hardware keys and camera shutter triggers during active kiosk session
             }
         }
         return super.dispatchKeyEvent(event);
@@ -171,7 +173,19 @@ public class MainActivity extends BridgeActivity {
         if (KioskPlugin.isKioskEnforced) {
             if (hasFocus) {
                 KioskPlugin.applyImmersiveMode(this);
-            } else if (isPaused) {
+            } else {
+                // Instantly collapse notification pull-down / close dialogs and re-assert front
+                try {
+                    Intent closeDialogs = new Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS);
+                    sendBroadcast(closeDialogs);
+                } catch (Exception ignored) {}
+                try {
+                    Object statusBarService = getSystemService("statusbar");
+                    if (statusBarService != null) {
+                        java.lang.reflect.Method collapse = statusBarService.getClass().getMethod("collapsePanels");
+                        collapse.invoke(statusBarService);
+                    }
+                } catch (Exception ignored) {}
                 bringToFront();
             }
         }

@@ -573,13 +573,13 @@ export default function FaceEnrollPage() {
                                                 gap: "8px",
                                                 padding: "10px 18px",
                                                 borderRadius: "10px",
-                                                background: "linear-gradient(135deg, #10b981 0%, #059669 100%)",
+                                                background: "linear-gradient(135deg, #2563eb 0%, #4f46e5 100%)",
                                                 color: "#ffffff",
                                                 border: "none",
                                                 fontWeight: 700,
                                                 fontSize: "0.88rem",
                                                 cursor: "pointer",
-                                                boxShadow: "0 4px 12px rgba(16, 185, 129, 0.25)"
+                                                boxShadow: "0 4px 12px rgba(37, 99, 235, 0.25)"
                                             }}
                                         >
                                             <FaRedo /> {isStaff ? "Re-Enroll Face Biometrics" : "Re-Enroll Face Biometrics (Pass Active)"}

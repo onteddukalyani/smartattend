@@ -458,14 +458,16 @@ export const AuthProvider = ({ children }) => {
             setUser(currentUser);
             setProfile(enrichedProfile);
 
-            // Auto-bind device for all roles (Student, Lecturer, Admin) so it shows registered everywhere
-            registerUserDevice({
-              role: enrichedProfile.role,
-              id: enrichedProfile.id,
-              rollNo: enrichedProfile.rollNo,
-              user: currentUser,
-              profile: enrichedProfile
-            }).catch(() => {});
+            // If user already exists in database, give immediate access without re-storing or re-writing to database
+            if (!enrichedProfile.isDeviceRegistered && !registeredUser.deviceType && !registeredUser.deviceTypeLocked) {
+              registerUserDevice({
+                role: enrichedProfile.role,
+                id: enrichedProfile.id,
+                rollNo: enrichedProfile.rollNo,
+                user: currentUser,
+                profile: enrichedProfile
+              }).catch(() => {});
+            }
           }
 
         } catch (error) {

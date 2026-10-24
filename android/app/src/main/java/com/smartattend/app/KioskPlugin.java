@@ -616,6 +616,14 @@ public class KioskPlugin extends Plugin {
                         } catch (Exception e) {
                             Log.w(TAG, "Device Owner configuration notice: " + e.getMessage());
                         }
+                    } else {
+                        // Standard Android Screen Pinning for personal BYOD devices
+                        try {
+                            activity.startLockTask();
+                            Log.i(TAG, "Initiated Android Screen Pinning for personal device kiosk.");
+                        } catch (Exception e) {
+                            Log.w(TAG, "Screen pinning notice: " + e.getMessage());
+                        }
                     }
 
                     // 3. Apply immersive sticky fullscreen
@@ -798,6 +806,15 @@ public class KioskPlugin extends Plugin {
                     }
 
                     applyImmersiveMode(activity);
+
+                    ActivityManager am = (ActivityManager) activity.getSystemService(Context.ACTIVITY_SERVICE);
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && am != null) {
+                        if (am.getLockTaskModeState() == ActivityManager.LOCK_TASK_MODE_NONE) {
+                            try {
+                                activity.startLockTask();
+                            } catch (Exception ignored) {}
+                        }
+                    }
                 } catch (Exception ignored) {}
             });
         } catch (Exception ignored) {}

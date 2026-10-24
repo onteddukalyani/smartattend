@@ -1300,21 +1300,25 @@ function GenerateQR() {
                 (Array.isArray(st.violations) && st.violations.length > 0 ? (st.violations[st.violations.length - 1].reason || st.violations[0].reason) : null) ||
                 (isDisqualified ? "Attendance forfeited: 2 confirmed kiosk exits" : "App switch detected");
 
+            const qr2Scanned = Boolean(st.qr2Scanned === true || st.status === "QR2_SCANNED" || st.verificationStage === "BIOMETRIC_VERIFYING" || st.verificationStage === "BIOMETRICS_IN_PROGRESS");
+
             return {
                 ...st,
                 isAttended,
                 isDisqualified,
                 hasViolation,
                 violationReason,
-                isExcused
+                isExcused,
+                qr2Scanned
             };
         });
     }, [uniqueStudentsList, attendeesSet, flaggedMap, sessionData?.flaggedViolations]);
 
-    // Live Metrics: Total scanned QR 1, Reached QR 2 (Attended), Pending QR 2, and Violations Count
-    const { totalScannedQR1, reachedQR2Count, pendingQR2Count, violationsCount } = useMemo(() => {
+    // Live Metrics: Total scanned QR 1, Waiting QR 2, Scanned QR 2 (Pending Verification), Reached QR 2 (Attended), and Violations Count
+    const { totalScannedQR1, waitingQR2Count, scannedQR2PendingCount, reachedQR2Count, pendingQR2Count, violationsCount } = useMemo(() => {
         let reachedQR2 = 0;
-        let pendingQR2 = 0;
+        let scannedQR2Pending = 0;
+        let waitingQR2 = 0;
         let violations = 0;
 
         enrichedStudentsList.forEach((st) => {
@@ -1322,15 +1326,19 @@ function GenerateQR() {
                 reachedQR2++;
             } else if (st.isDisqualified || st.hasViolation) {
                 violations++;
+            } else if (st.qr2Scanned) {
+                scannedQR2Pending++;
             } else {
-                pendingQR2++;
+                waitingQR2++;
             }
         });
 
         return {
             totalScannedQR1: enrichedStudentsList.length,
+            waitingQR2Count: waitingQR2,
+            scannedQR2PendingCount: scannedQR2Pending,
             reachedQR2Count: reachedQR2,
-            pendingQR2Count: pendingQR2,
+            pendingQR2Count: waitingQR2,
             violationsCount: violations
         };
     }, [enrichedStudentsList]);
@@ -1339,7 +1347,8 @@ function GenerateQR() {
     const filteredRoster = useMemo(() => {
         return enrichedStudentsList.filter((st) => {
             if (rosterFilterTab === "PRESENT" && !st.isAttended) return false;
-            if (rosterFilterTab === "PENDING" && (st.isAttended || st.isDisqualified || st.hasViolation)) return false;
+            if (rosterFilterTab === "SCANNED_QR2" && (st.isAttended || st.isDisqualified || st.hasViolation || !st.qr2Scanned)) return false;
+            if (rosterFilterTab === "PENDING" && (st.isAttended || st.isDisqualified || st.hasViolation || st.qr2Scanned)) return false;
             if (rosterFilterTab === "VIOLATIONS" && (!st.isDisqualified && !st.hasViolation || st.isAttended)) return false;
 
             if (searchTerm.trim()) {
@@ -2017,8 +2026,8 @@ function GenerateQR() {
                 </button>
             </div>
 
-            {/* 4-Metric Summary Cards */}
-            <div className="qr-metrics-grid" style={{ gridTemplateColumns: isCompact ? undefined : "repeat(auto-fit, minmax(220px, 1fr))" }}>
+            {/* 5-Metric Summary Cards */}
+            <div className="qr-metrics-grid" style={{ gridTemplateColumns: isCompact ? undefined : "repeat(auto-fit, minmax(200px, 1fr))" }}>
                 {/* Metric 1: Total Scanned QR 1 */}
                 <div className="qr-kpi-card qr-kpi-scanned">
                     <div className="qr-kpi-icon indigo">
@@ -2031,31 +2040,43 @@ function GenerateQR() {
                     </div>
                 </div>
 
-                {/* Metric 2: Reached QR 2 (Attendance Completed) */}
-                <div className="qr-kpi-card qr-kpi-attended">
-                    <div className="qr-kpi-icon emerald">
-                        <FaCheckCircle />
-                    </div>
-                    <div className="qr-kpi-data">
-                        <span className="qr-kpi-label">Present (Verified / Excused)</span>
-                        <span className="qr-kpi-val">{reachedQR2Count}</span>
-                        <span className="qr-kpi-sub">Attendance approved</span>
-                    </div>
-                </div>
-
-                {/* Metric 3: Pending QR 2 */}
+                {/* Metric 2: Waiting QR 2 */}
                 <div className="qr-kpi-card qr-kpi-pending">
                     <div className="qr-kpi-icon amber">
                         <FaClock />
                     </div>
                     <div className="qr-kpi-data">
-                        <span className="qr-kpi-label">Pending QR 2 (In-Class)</span>
-                        <span className="qr-kpi-val">{pendingQR2Count}</span>
+                        <span className="qr-kpi-label">Waiting QR 2</span>
+                        <span className="qr-kpi-val">{waitingQR2Count}</span>
                         <span className="qr-kpi-sub">Checked-in, waiting QR 2</span>
                     </div>
                 </div>
 
-                {/* Metric 4: Flagged Violations / Disqualified */}
+                {/* Metric 3: Scanned QR 2 (Not Verified Yet) */}
+                <div className="qr-kpi-card" style={{ borderLeft: "4px solid #8b5cf6" }}>
+                    <div className="qr-kpi-icon" style={{ background: "rgba(139, 92, 246, 0.12)", color: "#7c3aed" }}>
+                        <FaClock />
+                    </div>
+                    <div className="qr-kpi-data">
+                        <span className="qr-kpi-label">Scanned QR 2 (Not Verified)</span>
+                        <span className="qr-kpi-val" style={{ color: "#7c3aed" }}>{scannedQR2PendingCount}</span>
+                        <span className="qr-kpi-sub">Verifying face biometrics</span>
+                    </div>
+                </div>
+
+                {/* Metric 4: Present (Verified / Excused) */}
+                <div className="qr-kpi-card qr-kpi-attended">
+                    <div className="qr-kpi-icon emerald">
+                        <FaCheckCircle />
+                    </div>
+                    <div className="qr-kpi-data">
+                        <span className="qr-kpi-label">Present (Verified)</span>
+                        <span className="qr-kpi-val">{reachedQR2Count}</span>
+                        <span className="qr-kpi-sub">Attendance approved</span>
+                    </div>
+                </div>
+
+                {/* Metric 5: Flagged Violations / Disqualified */}
                 <div className="qr-kpi-card" style={{ borderLeft: "4px solid #ef4444" }}>
                     <div className="qr-kpi-icon" style={{ background: "rgba(239, 68, 68, 0.12)", color: "#dc2626" }}>
                         <FaExclamationTriangle />
@@ -2139,6 +2160,23 @@ function GenerateQR() {
                     </button>
                     <button
                         type="button"
+                        onClick={() => setRosterFilterTab("SCANNED_QR2")}
+                        style={{
+                            padding: "6px 14px",
+                            borderRadius: "8px",
+                            border: "1.5px solid",
+                            borderColor: rosterFilterTab === "SCANNED_QR2" ? "#8b5cf6" : "var(--border, #cbd5e1)",
+                            background: rosterFilterTab === "SCANNED_QR2" ? "rgba(139, 92, 246, 0.1)" : "transparent",
+                            color: rosterFilterTab === "SCANNED_QR2" ? "#7c3aed" : "var(--text-main, #475569)",
+                            fontWeight: 700,
+                            fontSize: "0.82rem",
+                            cursor: "pointer"
+                        }}
+                    >
+                        Scanned QR 2 (Verifying) ({scannedQR2PendingCount})
+                    </button>
+                    <button
+                        type="button"
                         onClick={() => setRosterFilterTab("PENDING")}
                         style={{
                             padding: "6px 14px",
@@ -2152,7 +2190,7 @@ function GenerateQR() {
                             cursor: "pointer"
                         }}
                     >
-                        Pending QR 2 ({pendingQR2Count})
+                        Waiting QR 2 ({waitingQR2Count})
                     </button>
                     <button
                         type="button"
@@ -2261,9 +2299,13 @@ function GenerateQR() {
                                                         {student.violationReason}
                                                     </span>
                                                 </div>
+                                            ) : student.qr2Scanned ? (
+                                                <span className="qr-tag-pending" style={{ background: "rgba(139, 92, 246, 0.12)", color: "#7c3aed", border: "1px solid rgba(139, 92, 246, 0.3)" }}>
+                                                    <FaClock /> QR 2 Scanned (Verifying Face...)
+                                                </span>
                                             ) : (
                                                 <span className="qr-tag-pending">
-                                                    <FaClock /> Pending QR 2
+                                                    <FaClock /> Waiting QR 2
                                                 </span>
                                             )}
                                         </td>
@@ -2846,12 +2888,16 @@ function GenerateQR() {
                         <span className="qr-hero-kpi-label">Checked In (QR1)</span>
                     </div>
                     <div className="qr-hero-kpi">
-                        <span className="qr-hero-kpi-val" style={{ color: "#10b981" }}>{reachedQR2Count}</span>
-                        <span className="qr-hero-kpi-label">Verified Present</span>
+                        <span className="qr-hero-kpi-val" style={{ color: "#f59e0b" }}>{waitingQR2Count}</span>
+                        <span className="qr-hero-kpi-label">Waiting QR 2</span>
                     </div>
                     <div className="qr-hero-kpi">
-                        <span className="qr-hero-kpi-val" style={{ color: "#f59e0b" }}>{pendingQR2Count}</span>
-                        <span className="qr-hero-kpi-label">Waiting QR 2</span>
+                        <span className="qr-hero-kpi-val" style={{ color: "#8b5cf6" }}>{scannedQR2PendingCount}</span>
+                        <span className="qr-hero-kpi-label">Scanned QR 2 (Verifying)</span>
+                    </div>
+                    <div className="qr-hero-kpi">
+                        <span className="qr-hero-kpi-val" style={{ color: "#10b981" }}>{reachedQR2Count}</span>
+                        <span className="qr-hero-kpi-label">Verified Present</span>
                     </div>
                     <div className="qr-hero-kpi">
                         <span className="qr-hero-kpi-val" style={{ color: violationsCount > 0 ? "#ef4444" : "#64748b" }}>{violationsCount}</span>

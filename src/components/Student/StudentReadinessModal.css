@@ -1,4 +1,4 @@
-﻿/* ==========================================================================
+/* ==========================================================================
    Student Classroom Readiness & Post-Login Permissions Modal Styling
    ========================================================================== */
 
@@ -315,8 +315,8 @@
 }
 
 .readiness-main-btn.success-btn {
-    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-    box-shadow: 0 6px 18px rgba(16, 185, 129, 0.35);
+    background: linear-gradient(135deg, #2563eb 0%, #4f46e5 100%);
+    box-shadow: 0 6px 18px rgba(37, 99, 235, 0.35);
 }
 
 .readiness-skip-btn {

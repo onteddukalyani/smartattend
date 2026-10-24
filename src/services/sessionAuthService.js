@@ -600,6 +600,18 @@ export async function validateStudentQR2(sessionId, qr2Token, qrPayload = null) 
     }
   }
 
+  // Live real-time sync to lecturer: record QR 2 scanned status
+  try {
+    const authRef = doc(db, "attendance_sessions", sessionId, "authorizations", targetRoll);
+    setDoc(authRef, {
+      qr2Scanned: true,
+      qr2ScannedAt: Date.now(),
+      status: "QR2_SCANNED",
+      verificationStage: "BIOMETRIC_VERIFYING",
+      lastActiveAt: Date.now()
+    }, { merge: true }).catch(() => {});
+  } catch (_) {}
+
   return {
     success: true,
     authorized: true,

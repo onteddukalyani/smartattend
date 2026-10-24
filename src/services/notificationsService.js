@@ -538,6 +538,8 @@ export async function approveDeviceResetAction(studentRollNo, approvedByName = "
     const userDocRef = doc(db, "users", cleanRoll);
     const resetFields = {
       isDeviceRegistered: false,
+      deviceTypeLocked: false,
+      deviceType: null,
       deviceFingerprint: null,
       hardwareBiometricEnrolled: false,
       hardwareBiometricPlatform: null,
@@ -545,15 +547,15 @@ export async function approveDeviceResetAction(studentRollNo, approvedByName = "
       biometricKeyAlias: null,
       registeredPlatform: null,
       registeredDevice: null,
-      deviceType: null,
       deviceModel: null,
       deviceUUID: null,
+      deviceResetAt: Date.now(),
       lastDeviceResetAt: serverTimestamp(),
       lastDeviceResetBy: approvedByName
     };
 
-    await updateDoc(studentDocRef, resetFields);
-    await updateDoc(userDocRef, resetFields).catch(() => {});
+    await setDoc(studentDocRef, resetFields, { merge: true });
+    await setDoc(userDocRef, resetFields, { merge: true }).catch(() => {});
 
     // Notify Student
     await sendStudentNotification(

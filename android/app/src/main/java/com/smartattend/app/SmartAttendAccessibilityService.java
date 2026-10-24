@@ -49,13 +49,15 @@ public class SmartAttendAccessibilityService extends AccessibilityService {
     protected boolean onKeyEvent(KeyEvent event) {
         if (KioskPlugin.isKioskEnforced) {
             int keyCode = event.getKeyCode();
-            // Block Recents / App Switcher, Home, and Back navigation across the entire OS
+            // Block Recents / App Switcher, Home, Back navigation, and Camera hardware keys across entire OS
             if (keyCode == KeyEvent.KEYCODE_APP_SWITCH 
                 || keyCode == KeyEvent.KEYCODE_HOME 
                 || keyCode == KeyEvent.KEYCODE_BACK
                 || keyCode == KeyEvent.KEYCODE_WINDOW
-                || keyCode == KeyEvent.KEYCODE_ALL_APPS) {
-                Log.d(TAG, "Blocked system navigation key: " + keyCode);
+                || keyCode == KeyEvent.KEYCODE_ALL_APPS
+                || keyCode == KeyEvent.KEYCODE_CAMERA
+                || keyCode == KeyEvent.KEYCODE_FOCUS) {
+                Log.d(TAG, "Blocked system navigation / camera key: " + keyCode);
                 relaunchMainActivity();
                 return true; // Consume event completely
             }
@@ -81,6 +83,12 @@ public class SmartAttendAccessibilityService extends AccessibilityService {
                 // If the foreground window belongs to another app or system UI (except SmartAttend)
                 if (!ourPackage.equals(topPackage)) {
                     Log.w(TAG, "Unauthorized window change detected: " + topPackage + ". Re-asserting SmartAttend Kiosk...");
+                    // Dismiss notification shade pull-down immediately
+                    if ("com.android.systemui".equals(topPackage)) {
+                        try {
+                            performGlobalAction(GLOBAL_ACTION_BACK);
+                        } catch (Exception ignored) {}
+                    }
                     relaunchMainActivity();
                 }
             }
@@ -93,6 +101,14 @@ public class SmartAttendAccessibilityService extends AccessibilityService {
         try {
             Intent closeDialogs = new Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS);
             sendBroadcast(closeDialogs);
+        } catch (Exception ignored) {}
+
+        try {
+            Object statusBarService = getSystemService("statusbar");
+            if (statusBarService != null) {
+                java.lang.reflect.Method collapse = statusBarService.getClass().getMethod("collapsePanels");
+                collapse.invoke(statusBarService);
+            }
         } catch (Exception ignored) {}
 
         try {

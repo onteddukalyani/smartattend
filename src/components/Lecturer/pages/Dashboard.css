@@ -238,17 +238,17 @@
 }
 
 .lecturer-badge.pill-apk {
-    background: linear-gradient(135deg, #10b981, #059669);
+    background: linear-gradient(135deg, #2563eb, #4f46e5);
     color: #ffffff !important;
     font-weight: 750;
     border: none;
-    box-shadow: 0 4px 12px rgba(16, 185, 129, 0.35);
+    box-shadow: 0 4px 12px rgba(37, 99, 235, 0.35);
     transition: all 0.22s ease;
 }
 
 .lecturer-badge.pill-apk:hover {
     transform: translateY(-2px);
-    box-shadow: 0 6px 18px rgba(16, 185, 129, 0.5);
+    box-shadow: 0 6px 18px rgba(37, 99, 235, 0.5);
 }
 
 .lecturer-hero-quick-widget {

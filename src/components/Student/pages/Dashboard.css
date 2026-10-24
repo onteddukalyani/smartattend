@@ -349,7 +349,7 @@
 }
 
 .download-export-btn {
-    background: #10b981;
+    background: #2563eb;
     color: #ffffff;
     border: none;
     padding: 8px 16px;
@@ -360,12 +360,14 @@
     align-items: center;
     gap: 6px;
     cursor: pointer;
+    box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25);
     transition: all 0.15s ease;
 }
 
 .download-export-btn:hover {
-    background: #059669;
+    background: #1d4ed8;
     transform: translateY(-1px);
+    box-shadow: 0 6px 16px rgba(37, 99, 235, 0.35);
 }
 
 .dashboard-refresh-btn {

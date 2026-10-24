@@ -2049,6 +2049,21 @@ function QrScannerApp() {
             setBiometricComboStep(isNativeApp ? 'FINGERPRINT' : 'FACE');
             setFingerprintError('');
             setScanState('BIOMETRIC_SCAN');
+
+            // Live status sync to Lecturer: QR 2 Scanned (Pending Face Verification)
+            try {
+                const targetRoll = (result?.rollNo || loggedInRollNo || '').trim().toUpperCase();
+                if (targetSession && targetRoll) {
+                    const authDocRef = doc(db, 'attendance_sessions', targetSession, 'authorizations', targetRoll);
+                    setDoc(authDocRef, {
+                        qr2Scanned: true,
+                        qr2ScannedAt: Date.now(),
+                        status: 'QR2_SCANNED',
+                        verificationStage: 'BIOMETRIC_VERIFYING',
+                        lastActiveAt: Date.now()
+                    }, { merge: true }).catch(() => {});
+                }
+            } catch (_) {}
         } catch (err) {
             console.error('Error validating QR 2:', err);
             const msg = err.message || '';

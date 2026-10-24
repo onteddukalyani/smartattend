@@ -1238,7 +1238,7 @@ function Settings() {
                                     style={{
                                         padding: "10px 22px",
                                         borderRadius: "10px",
-                                        background: "linear-gradient(135deg, #10b981, #059669)",
+                                        background: "linear-gradient(135deg, #2563eb, #4f46e5)",
                                         color: "#ffffff",
                                         border: "none",
                                         fontWeight: 700,
@@ -1247,7 +1247,7 @@ function Settings() {
                                         display: "inline-flex",
                                         alignItems: "center",
                                         gap: "8px",
-                                        boxShadow: "0 4px 14px rgba(16, 185, 129, 0.3)"
+                                        boxShadow: "0 4px 14px rgba(37, 99, 235, 0.3)"
                                     }}
                                 >
                                     {savingSemester ? <FaSpinner className="fa-spin" /> : <><FaCheck /> Save Semester</>}
