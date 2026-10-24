@@ -169,8 +169,12 @@ const StudentDetailModal = ({ student, onClose, onUpdate }) => {
   const totalAttended = attendanceRecords.length;
   const uniqueCourses = new Set(attendanceRecords.map(r => r.session?.courseId || r.courseId).filter(Boolean)).size;
 
+  const hasFaceRemoval = Boolean(
+    currentStudent?.faceRemovedAt &&
+    (!currentStudent?.faceEnrolledAt || currentStudent.faceRemovedAt > currentStudent.faceEnrolledAt)
+  );
   const isFaceEnrolled = Boolean(
-    !currentStudent?.faceRemovedAt &&
+    !hasFaceRemoval &&
     (currentStudent?.faceRegistered ||
      currentStudent?.biometricEnrolled ||
      currentStudent?.hasFaceRegistered ||

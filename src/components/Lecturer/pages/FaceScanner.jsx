@@ -196,8 +196,10 @@ function FaceScanner({
   onEnrollRequest = null,
   allowRearCamera = false
 }) {
-  const { profile, user } = useAuth();
-  const canUseRearCamera = allowRearCamera || isStaffCameraUser(profile, user);
+  const { user, profile } = useAuth();
+  const isLecturerOrAdmin = isStaffCameraUser(profile, user) ||
+    (typeof window !== "undefined" && (window.location.pathname.includes("/lecturer") || window.location.pathname.includes("/admin")));
+  const canUseRearCamera = allowRearCamera || isLecturerOrAdmin;
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const canvasRef = useRef(null);

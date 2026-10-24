@@ -137,9 +137,15 @@ export default function FaceEnrollPage() {
 
         const handleDocUpdate = (data) => {
             if (!data) return;
+            const hasFaceRemoval = Boolean(
+                data.faceRemovedAt &&
+                (!data.faceEnrolledAt || data.faceRemovedAt > data.faceEnrolledAt)
+            );
             const faceEnrolled = Boolean(
-                !data.faceRemovedAt &&
-                (data.faceRegistered || data.biometricEnrolled || data.hasFaceRegistered)
+                !hasFaceRemoval &&
+                (data.faceRegistered === true || data.biometricEnrolled === true || data.hasFaceRegistered === true ||
+                    (Array.isArray(data.faceDescriptor) && data.faceDescriptor.length === 128) ||
+                    (Array.isArray(data.descriptor) && data.descriptor.length === 128))
             );
             if (faceEnrolled) {
                 setHasFaceRegistered(true);
@@ -147,6 +153,13 @@ export default function FaceEnrollPage() {
                     localStorage.setItem(`smartattend_face_enrolled_${activeRollNo}`, "true");
                     if (user?.uid) localStorage.setItem(`smartattend_face_enrolled_${user.uid}`, "true");
                     localStorage.setItem("smartattend_face_enrolled", "true");
+                } catch (_) {}
+            } else if (hasFaceRemoval) {
+                setHasFaceRegistered(false);
+                try {
+                    localStorage.removeItem(`smartattend_face_enrolled_${activeRollNo}`);
+                    if (user?.uid) localStorage.removeItem(`smartattend_face_enrolled_${user.uid}`);
+                    localStorage.removeItem("smartattend_face_enrolled");
                 } catch (_) {}
             }
 
@@ -299,6 +312,11 @@ export default function FaceEnrollPage() {
             const rawVector = enrollData.faceDescriptor;
             const cleanVector = Array.isArray(rawVector) ? rawVector : Array.from(rawVector);
             await registerStudentFace(activeRollNo, cleanVector);
+            try {
+                if (activeRollNo) localStorage.setItem(`smartattend_face_enrolled_${activeRollNo}`, "true");
+                if (user?.uid) localStorage.setItem(`smartattend_face_enrolled_${user.uid}`, "true");
+                localStorage.setItem("smartattend_face_enrolled", "true");
+            } catch (_) { }
             setHasFaceRegistered(true);
             setIsReEnrolling(false);
             setShowFaceTest(false);

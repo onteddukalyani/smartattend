@@ -163,10 +163,8 @@ export const AuthProvider = ({ children }) => {
         ).trim();
 
         const hasFaceRemoval = Boolean(
-          matchedStudentDoc.faceRemovedAt ||
-          matchedStudentDoc.faceRegistered === false ||
-          matchedStudentDoc.biometricEnrolled === false ||
-          matchedStudentDoc.hasFaceRegistered === false
+          matchedStudentDoc.faceRemovedAt &&
+          (!matchedStudentDoc.faceEnrolledAt || matchedStudentDoc.faceRemovedAt > matchedStudentDoc.faceEnrolledAt)
         );
 
         const hasValidFace = Boolean(
@@ -195,7 +193,7 @@ export const AuthProvider = ({ children }) => {
           faceRegistered: hasValidFace,
           biometricEnrolled: hasValidFace,
           hasFaceRegistered: hasValidFace,
-          faceRemovedAt: matchedStudentDoc.faceRemovedAt || (hasFaceRemoval ? Date.now() : null)
+          faceRemovedAt: hasFaceRemoval ? matchedStudentDoc.faceRemovedAt : null
         };
       }
 
@@ -243,7 +241,7 @@ export const AuthProvider = ({ children }) => {
           if (!authoritativeBranch && c.branch && String(c.branch).toLowerCase() !== "general") {
             authoritativeBranch = String(c.branch).trim();
           }
-          if (c.faceRemovedAt || c.faceRegistered === false || c.biometricEnrolled === false || c.hasFaceRegistered === false) {
+          if (c.faceRemovedAt && (!c.faceEnrolledAt || c.faceRemovedAt > c.faceEnrolledAt)) {
             isExplicitlyFaceRemoved = true;
             if (typeof c.faceRemovedAt === "number" && c.faceRemovedAt > mostRecentRemovalTime) {
               mostRecentRemovalTime = c.faceRemovedAt;
@@ -339,12 +337,10 @@ export const AuthProvider = ({ children }) => {
       ? ""
       : (dbPhoto || currentUser.photoURL || currentUser.providerData?.[0]?.photoURL || "");
 
-    // Strict biometrics check: If removed by admin or invalid vector, immediately mark false
+    // Strict biometrics check: Only mark false if explicitly removed by admin
     const hasFaceRemoval = Boolean(
-      registeredUser.faceRemovedAt ||
-      registeredUser.faceRegistered === false ||
-      registeredUser.biometricEnrolled === false ||
-      registeredUser.hasFaceRegistered === false
+      registeredUser.faceRemovedAt &&
+      (!registeredUser.faceEnrolledAt || registeredUser.faceRemovedAt > registeredUser.faceEnrolledAt)
     );
 
     const hasValidFace = Boolean(

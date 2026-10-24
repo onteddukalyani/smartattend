@@ -714,6 +714,7 @@ function StudentForm() {
                             verifiedStudent={verifiedStudent}
                             lookingUp={lookingUp}
                             rollNo={formData.rollNo}
+                            allowRearCamera={true}
                             onVerificationChange={handleFaceVerificationChange}
                         />
                     </div>

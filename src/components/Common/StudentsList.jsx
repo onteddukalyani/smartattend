@@ -113,7 +113,11 @@ function StudentsList() {
     // Face descriptors are server-only; use enrollment flags for the client-visible status.
     const checkHasFace = (student) => {
         if (!student) return false;
-        if (student.faceRemovedAt) return false;
+        const hasFaceRemoval = Boolean(
+            student.faceRemovedAt &&
+            (!student.faceEnrolledAt || student.faceRemovedAt > student.faceEnrolledAt)
+        );
+        if (hasFaceRemoval) return false;
         const fd = student.faceDescriptor || student.descriptor;
         return Boolean(
             student.faceRegistered ||

@@ -271,11 +271,35 @@ export default function StudentDashboard() {
                         ? String(d.semester).trim()
                         : (prev?.semester || "1");
 
-                    const hasFace = Boolean(
-                        !d.faceRemovedAt &&
-                        (d.faceRegistered || d.biometricEnrolled || d.hasFaceRegistered ||
-                            prev?.faceRegistered || prev?.biometricEnrolled || prev?.hasFaceRegistered)
+                    const docFaceRemoved = Boolean(
+                        d.faceRemovedAt &&
+                        (!d.faceEnrolledAt || d.faceRemovedAt > d.faceEnrolledAt)
                     );
+
+                    const hasFace = Boolean(
+                        !docFaceRemoved &&
+                        (d.faceRegistered === true || d.biometricEnrolled === true || d.hasFaceRegistered === true ||
+                            (Array.isArray(d.faceDescriptor) && d.faceDescriptor.length === 128) ||
+                            (Array.isArray(d.descriptor) && d.descriptor.length === 128) ||
+                            (prev && (prev.faceRegistered || prev.biometricEnrolled || prev.hasFaceRegistered)))
+                    );
+
+                    if (hasFace) {
+                        try {
+                            if (activeRollNo) localStorage.setItem(`smartattend_face_enrolled_${activeRollNo}`, "true");
+                            if (user?.uid) localStorage.setItem(`smartattend_face_enrolled_${user.uid}`, "true");
+                            localStorage.setItem("smartattend_face_enrolled", "true");
+                        } catch (_) {}
+                    }
+
+                    const hasHw = Boolean(d.hardwareBiometricEnrolled || prev?.hardwareBiometricEnrolled);
+                    if (hasHw) {
+                        try {
+                            if (activeRollNo) localStorage.setItem(`smartattend_hw_enrolled_${activeRollNo}`, "true");
+                            if (user?.uid) localStorage.setItem(`smartattend_hw_enrolled_${user.uid}`, "true");
+                            localStorage.setItem("smartattend_hw_enrolled", "true");
+                        } catch (_) {}
+                    }
 
                     return {
                         ...(prev || {}),
@@ -288,7 +312,7 @@ export default function StudentDashboard() {
                         faceRegistered: hasFace,
                         biometricEnrolled: hasFace,
                         hasFaceRegistered: hasFace,
-                        faceRemovedAt: d.faceRemovedAt || null,
+                        faceRemovedAt: docFaceRemoved ? d.faceRemovedAt : null,
                         faceDescriptor: null,
                         descriptor: null
                     };
@@ -322,12 +346,25 @@ export default function StudentDashboard() {
         ? String(fetchedStudentData.semester).trim()
         : (profile?.semester ? String(profile.semester).trim() : "1");
 
+    const profileFaceRemoved = Boolean(
+        profile?.faceRemovedAt &&
+        (!profile?.faceEnrolledAt || profile.faceRemovedAt > profile.faceEnrolledAt)
+    );
+    const fetchedFaceRemoved = Boolean(
+        fetchedStudentData?.faceRemovedAt &&
+        (!fetchedStudentData?.faceEnrolledAt || fetchedStudentData.faceRemovedAt > fetchedStudentData.faceEnrolledAt)
+    );
+    const hasRemoval = profileFaceRemoved || fetchedFaceRemoved;
+
     const hasFaceRegistered = Boolean(
-        (!fetchedStudentData?.faceRemovedAt && (fetchedStudentData?.faceRegistered || fetchedStudentData?.biometricEnrolled || fetchedStudentData?.hasFaceRegistered)) ||
-        (!profile?.faceRemovedAt && (profile?.faceRegistered || profile?.biometricEnrolled || profile?.hasFaceRegistered)) ||
-        (activeRollNo && localStorage.getItem(`smartattend_face_enrolled_${activeRollNo}`) === "true") ||
-        (user?.uid && localStorage.getItem(`smartattend_face_enrolled_${user.uid}`) === "true") ||
-        localStorage.getItem("smartattend_face_enrolled") === "true"
+        !hasRemoval && (
+            fetchedStudentData?.faceRegistered || fetchedStudentData?.biometricEnrolled || fetchedStudentData?.hasFaceRegistered ||
+            (Array.isArray(fetchedStudentData?.faceDescriptor) && fetchedStudentData.faceDescriptor.length === 128) ||
+            profile?.faceRegistered || profile?.biometricEnrolled || profile?.hasFaceRegistered ||
+            (activeRollNo && localStorage.getItem(`smartattend_face_enrolled_${activeRollNo}`) === "true") ||
+            (user?.uid && localStorage.getItem(`smartattend_face_enrolled_${user.uid}`) === "true") ||
+            localStorage.getItem("smartattend_face_enrolled") === "true"
+        )
     );
 
     const hasHwRegistered = Boolean(

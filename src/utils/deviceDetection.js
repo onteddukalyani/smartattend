@@ -120,6 +120,7 @@ export function isDeviceMatching(registeredType, currentType) {
 }
 
 export function isStaffCameraUser(profile = {}, user = {}) {
+  // 1. Direct profile / user object roles & flags
   const roleValues = [
     profile?.role,
     profile?.designation,
@@ -127,18 +128,47 @@ export function isStaffCameraUser(profile = {}, user = {}) {
     user?.claims?.role,
     user?.customClaims?.role
   ].map((value) => String(value || "").trim().toLowerCase());
-  return roleValues.some((role) =>
+
+  if (roleValues.some((role) =>
     ["admin", "administrator", "superadmin", "lecturer", "faculty", "professor", "teacher", "instructor", "staff"].includes(role)
   ) || profile?.isAdmin === true || profile?.isLecturer === true ||
-    user?.isAdmin === true || user?.isLecturer === true;
+    user?.isAdmin === true || user?.isLecturer === true) {
+    return true;
+  }
+
+  // 2. Local storage / session storage role cached at login
+  try {
+    const cachedRole = (
+      (typeof localStorage !== "undefined" ? (localStorage.getItem("smartattend_user_role") || localStorage.getItem("user_role") || localStorage.getItem("role")) : "") ||
+      (typeof sessionStorage !== "undefined" ? (sessionStorage.getItem("smartattend_user_role") || sessionStorage.getItem("user_role") || sessionStorage.getItem("role")) : "")
+    ).toLowerCase().trim();
+    if (["admin", "administrator", "superadmin", "lecturer", "faculty", "professor", "teacher", "instructor", "staff"].includes(cachedRole)) {
+      return true;
+    }
+  } catch (_) { }
+
+  // 3. Current active route pathname (Lecturer and Admin sections)
+  if (typeof window !== "undefined" && window.location?.pathname) {
+    const path = window.location.pathname.toLowerCase();
+    if (path.includes("/lecturer") || path.includes("/admin")) {
+      return true;
+    }
+  }
+
+  // 4. Staff email pattern detection (e.g. staff keywords or non-student domain)
+  const email = String(profile?.email || user?.email || "").toLowerCase().trim();
+  if (email && (email.includes("lecturer") || email.includes("faculty") || email.includes("admin") || email.includes("prof"))) {
+    return true;
+  }
+
+  return false;
 }
 
 /**
  * Enforces browser camera authorization policy:
  * - Native Mobile App (Capacitor APK): Camera is available.
  * - Browser (!Capacitor.isNativePlatform()):
- *   * Lecturer: Camera IS available.
- *   * Admin: Camera IS available.
+ *   * Lecturer / Admin: Camera IS available across all devices (front + rear switch).
  *   * iPhone / iOS Users: Camera IS available (Safari/PWA + Guided Access).
  *   * Android / PC Web Students: Camera is NOT available in browser!
  *     (Must use official SmartAttend Android App (.apk) with Lock Task Kiosk mode).
@@ -180,6 +210,11 @@ export function isBrowserCameraAllowed(profile = {}, user = {}) {
     user?.isAdmin === true
   ) {
     return { allowed: true, reason: "admin" };
+  }
+
+  // Lecturer & Admin: Camera is always allowed in browser on all devices
+  if (isStaffCameraUser(profile, user)) {
+    return { allowed: true, reason: "lecturer" };
   }
 
   // iPhone / iPad (iOS): Camera is allowed in browser (iOS uses Safari/PWA + Guided Access)

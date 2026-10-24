@@ -79,9 +79,15 @@ export default function Statistics() {
                         ? String(d.semester).trim()
                         : (prev?.semester || "1");
 
+                    const docFaceRemoved = Boolean(
+                        d.faceRemovedAt &&
+                        (!d.faceEnrolledAt || d.faceRemovedAt > d.faceEnrolledAt)
+                    );
                     const hasFace = Boolean(
-                        !d.faceRemovedAt &&
-                        (d.faceRegistered || d.biometricEnrolled || d.hasFaceRegistered ||
+                        !docFaceRemoved &&
+                        (d.faceRegistered === true || d.biometricEnrolled === true || d.hasFaceRegistered === true ||
+                            (Array.isArray(d.faceDescriptor) && d.faceDescriptor.length === 128) ||
+                            (Array.isArray(d.descriptor) && d.descriptor.length === 128) ||
                             prev?.faceRegistered || prev?.biometricEnrolled || prev?.hasFaceRegistered)
                     );
                     const photo = hasFace ? (d.photoURL || prev?.photoURL || d.photo || d.image || "") : "";
@@ -97,7 +103,7 @@ export default function Statistics() {
                         faceRegistered: hasFace,
                         biometricEnrolled: hasFace,
                         hasFaceRegistered: hasFace,
-                        faceRemovedAt: d.faceRemovedAt || null,
+                        faceRemovedAt: docFaceRemoved ? d.faceRemovedAt : null,
                         faceDescriptor: null
                     };
                 });
@@ -128,9 +134,25 @@ export default function Statistics() {
         : (profile?.semester ? String(profile.semester).trim() : "1");
 
     // Face biometric registration status detection
+    const profileFaceRemoved = Boolean(
+        profile?.faceRemovedAt &&
+        (!profile?.faceEnrolledAt || profile.faceRemovedAt > profile.faceEnrolledAt)
+    );
+    const fetchedFaceRemoved = Boolean(
+        fetchedStudentData?.faceRemovedAt &&
+        (!fetchedStudentData?.faceEnrolledAt || fetchedStudentData.faceRemovedAt > fetchedStudentData.faceEnrolledAt)
+    );
+    const hasRemoval = profileFaceRemoved || fetchedFaceRemoved;
+
     const hasFaceRegistered = Boolean(
-        (!fetchedStudentData?.faceRemovedAt && (fetchedStudentData?.faceRegistered || fetchedStudentData?.biometricEnrolled || fetchedStudentData?.hasFaceRegistered)) ||
-        (!profile?.faceRemovedAt && (profile?.faceRegistered || profile?.biometricEnrolled || profile?.hasFaceRegistered))
+        !hasRemoval && (
+            fetchedStudentData?.faceRegistered || fetchedStudentData?.biometricEnrolled || fetchedStudentData?.hasFaceRegistered ||
+            (Array.isArray(fetchedStudentData?.faceDescriptor) && fetchedStudentData.faceDescriptor.length === 128) ||
+            profile?.faceRegistered || profile?.biometricEnrolled || profile?.hasFaceRegistered ||
+            (activeRollNo && localStorage.getItem(`smartattend_face_enrolled_${activeRollNo}`) === "true") ||
+            (user?.uid && localStorage.getItem(`smartattend_face_enrolled_${user.uid}`) === "true") ||
+            localStorage.getItem("smartattend_face_enrolled") === "true"
+        )
     );
 
     // Build candidate roll numbers for matching
