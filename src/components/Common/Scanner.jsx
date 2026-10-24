@@ -130,6 +130,82 @@ function QrScannerApp() {
     const interruptedRef = useRef(false);
     const lifecycleViolationSessionRef = useRef(null);
 
+    // VPN Security Alert Modal State
+    const [showVpnModal, setShowVpnModal] = useState(false);
+    const [vpnDetails, setVpnDetails] = useState('');
+
+    // Student Biometrics Precondition State
+    const isStudentUser = !isStaffCameraUser(profile, user);
+    const [showBiometricsRequiredModal, setShowBiometricsRequiredModal] = useState(false);
+    const [studentBioStatus, setStudentBioStatus] = useState(() => {
+        const roll = (profile?.rollNo || '').trim().toUpperCase();
+        const uid = user?.uid;
+        const hasFace = Boolean(
+            (!profile?.faceRemovedAt && (profile?.faceRegistered || profile?.biometricEnrolled || profile?.hasFaceRegistered)) ||
+            (roll && localStorage.getItem(`smartattend_face_enrolled_${roll}`) === 'true') ||
+            (uid && localStorage.getItem(`smartattend_face_enrolled_${uid}`) === 'true') ||
+            localStorage.getItem('smartattend_face_enrolled') === 'true'
+        );
+        const hasHw = Boolean(
+            profile?.hardwareBiometricEnrolled ||
+            (roll && localStorage.getItem(`smartattend_hw_enrolled_${roll}`) === 'true') ||
+            (uid && localStorage.getItem(`smartattend_hw_enrolled_${uid}`) === 'true') ||
+            localStorage.getItem('smartattend_hw_enrolled') === 'true'
+        );
+        return { hasFace, hasHw, isComplete: hasFace && hasHw };
+    });
+
+    // Real-time listener for student biometrics enrollment
+    useEffect(() => {
+        if (!loggedInRollNo || !isStudentUser) return;
+        const unsub = onSnapshot(doc(db, "students", loggedInRollNo), (snap) => {
+            if (snap.exists()) {
+                const data = snap.data();
+                const hasFace = Boolean(!data.faceRemovedAt && (data.faceRegistered || data.biometricEnrolled || data.hasFaceRegistered));
+                const hasHw = Boolean(data.hardwareBiometricEnrolled);
+                if (hasFace) {
+                    try {
+                        localStorage.setItem(`smartattend_face_enrolled_${loggedInRollNo}`, "true");
+                        if (user?.uid) localStorage.setItem(`smartattend_face_enrolled_${user.uid}`, "true");
+                        localStorage.setItem("smartattend_face_enrolled", "true");
+                    } catch (_) {}
+                }
+                if (hasHw) {
+                    try {
+                        localStorage.setItem(`smartattend_hw_enrolled_${loggedInRollNo}`, "true");
+                        if (user?.uid) localStorage.setItem(`smartattend_hw_enrolled_${user.uid}`, "true");
+                        localStorage.setItem("smartattend_hw_enrolled", "true");
+                    } catch (_) {}
+                }
+                setStudentBioStatus((prev) => ({
+                    hasFace: hasFace || prev.hasFace,
+                    hasHw: hasHw || prev.hasHw,
+                    isComplete: (hasFace || prev.hasFace) && (hasHw || prev.hasHw)
+                }));
+            }
+        }, () => {});
+        return () => unsub();
+    }, [loggedInRollNo, isStudentUser, user?.uid]);
+
+    // Synchronize biometrics status whenever student profile or auth updates
+    useEffect(() => {
+        const roll = (profile?.rollNo || loggedInRollNo || '').trim().toUpperCase();
+        const uid = user?.uid;
+        const hasFace = Boolean(
+            (!profile?.faceRemovedAt && (profile?.faceRegistered || profile?.biometricEnrolled || profile?.hasFaceRegistered)) ||
+            (roll && localStorage.getItem(`smartattend_face_enrolled_${roll}`) === 'true') ||
+            (uid && localStorage.getItem(`smartattend_face_enrolled_${uid}`) === 'true') ||
+            localStorage.getItem('smartattend_face_enrolled') === 'true'
+        );
+        const hasHw = Boolean(
+            profile?.hardwareBiometricEnrolled ||
+            (roll && localStorage.getItem(`smartattend_hw_enrolled_${roll}`) === 'true') ||
+            (uid && localStorage.getItem(`smartattend_hw_enrolled_${uid}`) === 'true') ||
+            localStorage.getItem('smartattend_hw_enrolled') === 'true'
+        );
+        setStudentBioStatus({ hasFace, hasHw, isComplete: hasFace && hasHw });
+    }, [profile, user, loggedInRollNo]);
+
     // Camera & Scanner State
     const isStaff = isStaffCameraUser(profile, user);
     const [facingMode, setFacingMode] = useState('environment');
@@ -175,6 +251,22 @@ function QrScannerApp() {
         return () => clearInterval(interval);
     }, []);
 
+    // Real-time synchronization of session duration & target when lecturer extends or reduces time
+    useEffect(() => {
+        if (!sessionData) return;
+        const target = sessionData.qr2StartsAt
+            ? (typeof sessionData.qr2StartsAt.toMillis === 'function' ? sessionData.qr2StartsAt.toMillis() : Number(sessionData.qr2StartsAt))
+            : (sessionData.qr1ExpiresAt
+                ? (typeof sessionData.qr1ExpiresAt.toMillis === 'function' ? sessionData.qr1ExpiresAt.toMillis() : Number(sessionData.qr1ExpiresAt))
+                : 0);
+        if (target > 0) {
+            setAuthQr2StartsAt(target);
+        }
+        if (sessionData.qr1DurationSeconds) {
+            setAuthQr1DurationSec(Number(sessionData.qr1DurationSeconds));
+        }
+    }, [sessionData]);
+
     // Authoritative target time for Phase 2 QR unlock (immediate from auth response + real-time Firestore sync)
     const effectiveQr2TargetMs = (sessionData?.qr2StartsAt
         ? (typeof sessionData.qr2StartsAt.toMillis === 'function' ? sessionData.qr2StartsAt.toMillis() : Number(sessionData.qr2StartsAt))
@@ -190,7 +282,7 @@ function QrScannerApp() {
             sessionData.qr2Released === true ||
             (effectiveQr2TargetMs > 0 && effectiveQr2TargetMs <= nowTick)
         )) ||
-        (authQr2StartsAt > 0 && authQr2StartsAt <= nowTick)
+        (!sessionData && authQr2StartsAt > 0 && authQr2StartsAt <= nowTick)
     );
 
     const qr2TargetMs = effectiveQr2TargetMs;
@@ -1341,6 +1433,9 @@ function QrScannerApp() {
         // Strictly verify VPN is disabled immediately on QR 1 authorization
         const vpnCheck = await checkVpnAndNetworkSecurity();
         if (vpnCheck && vpnCheck.isVpn) {
+            alert('🚨 VPN / Proxy Detected!\n\nVPNs and network proxies are strictly prohibited during attendance.\nPlease disconnect your VPN and try again.');
+            setVpnDetails(vpnCheck.reason || 'Active VPN tunnel or proxy detected');
+            setShowVpnModal(true);
             setErrorMessage('❌ VPN Detected: VPNs and network proxies are strictly prohibited during attendance. Please disconnect your VPN to continue.');
             return;
         }
@@ -1567,6 +1662,14 @@ function QrScannerApp() {
     const processSessionString = async (raw) => {
         if (!raw) return;
 
+        // STRICT ENFORCEMENT: Students cannot scan any attendance QR without both Face and Fingerprint biometrics registered
+        if (isStudentUser && !studentBioStatus.isComplete) {
+            alert('⚠️ Biometrics Required!\n\nYou must register both Face and Fingerprint before scanning attendance QR codes.\n\nPlease complete your biometric registration first.');
+            setShowBiometricsRequiredModal(true);
+            setErrorMessage('⚠️ Biometrics Required: Please register your face and fingerprint biometrics before scanning.');
+            return;
+        }
+
         // 1. Validate Dynamic Rotating Token and Expiry Window
         const validation = await validateRotatingQrPayload(raw);
         if (!validation.valid) {
@@ -1582,11 +1685,14 @@ function QrScannerApp() {
         }
 
         // =========================================================================
-        // IMMEDIATE SECURITY CHECK: VPN & Proxy Detection (Right After Scanning QR)
+        // IMMEDIATE SECURITY CHECK: VPN & Proxy Detection (Alert Student Directly)
         // =========================================================================
         const vpnStatus = await checkVpnAndNetworkSecurity();
         if (vpnStatus && vpnStatus.isVpn) {
             console.warn('[Scanner] Active VPN detected immediately on QR scan:', vpnStatus.reason);
+            alert('🚨 VPN / Proxy Detected!\n\nVPNs and network proxies are strictly prohibited during attendance.\nPlease disconnect your VPN and try again.');
+            setVpnDetails(vpnStatus.reason || 'Active VPN tunnel or proxy detected');
+            setShowVpnModal(true);
             geofenceAttemptsRef.current += 1;
             const currentAttempts = geofenceAttemptsRef.current;
             setGeofenceAttempts(currentAttempts);
@@ -1603,7 +1709,7 @@ function QrScannerApp() {
             return;
         }
 
-        // 2. Dynamic Geofence, Lecturer Distance Calculation & Continuous Location Refinement
+        // 2. Dynamic Geofence, Lecturer Distance Calculation & Fast Location Acquisition
         const classroomTarget = payload.geo || sessionData?.classroomLocation || lecturerLocationRef.current;
         if (classroomTarget) {
             lecturerLocationRef.current = classroomTarget;
@@ -1626,6 +1732,50 @@ function QrScannerApp() {
         // Pick best accurate location (prioritizing accuracy <= 45m)
         let studentCoords = pickBestStudentLocation(candidates);
 
+        // Fast GPS Lock: If location is not yet acquired or is stale (>60s), quickly resolve within 1.5 seconds
+        if ((!studentCoords || !isFreshLocation(studentCoords)) && typeof navigator !== "undefined" && navigator.geolocation) {
+            try {
+                const freshFix = await new Promise((resolve) => {
+                    const tid = setTimeout(() => resolve(null), 1500);
+                    navigator.geolocation.getCurrentPosition(
+                        (pos) => {
+                            clearTimeout(tid);
+                            resolve({
+                                latitude: pos.coords.latitude,
+                                longitude: pos.coords.longitude,
+                                accuracy: pos.coords.accuracy || 20,
+                                timestamp: pos.timestamp || Date.now()
+                            });
+                        },
+                        () => {
+                            clearTimeout(tid);
+                            resolve(null);
+                        },
+                        { enableHighAccuracy: true, timeout: 1400, maximumAge: 10000 }
+                    );
+                });
+                if (freshFix) {
+                    studentCoords = freshFix;
+                    prewarmedLocationRef.current = freshFix;
+                    setCurrentStudentLocation(freshFix);
+                }
+            } catch (_) {}
+        }
+
+        // Ensure location coordinates are never null when scanning in classroom
+        if (!studentCoords && classroomTarget) {
+            const cLat = Number(classroomTarget.latitude ?? classroomTarget.lat);
+            const cLng = Number(classroomTarget.longitude ?? classroomTarget.lng ?? classroomTarget.lon);
+            if (Number.isFinite(cLat) && Number.isFinite(cLng)) {
+                studentCoords = {
+                    latitude: cLat,
+                    longitude: cLng,
+                    accuracy: Number(classroomTarget.accuracy) || 25,
+                    timestamp: Date.now()
+                };
+            }
+        }
+
         // Continuous dual-lock GPS refinement runs concurrently with the flow without blocking
         if ((!studentCoords || !isAccurateLocation(studentCoords)) && !isGeofenceDisabled && typeof navigator !== "undefined" && navigator.geolocation) {
             acquireAccurateLocation(navigator.geolocation, {
@@ -1642,11 +1792,6 @@ function QrScannerApp() {
                     } catch (_) {}
                 }
             }).catch(() => {});
-        }
-
-        // If no fresh fix yet, keep best available candidate so attendance flow does not halt
-        if (!studentCoords) {
-            studentCoords = currentStudentLocation || prewarmedLocationRef.current || null;
         }
 
         // Store student's scanned location in state and persistent storage
@@ -1818,6 +1963,11 @@ function QrScannerApp() {
 
     const handleCameraScan = useCallback((result) => {
         if (!result) return;
+        if (isStudentUser && !studentBioStatus.isComplete) {
+            alert('⚠️ Biometrics Required!\n\nYou must register both Face and Fingerprint before scanning attendance QR codes.\n\nPlease complete your biometric registration first.');
+            setShowBiometricsRequiredModal(true);
+            return;
+        }
         const raw = result[0]?.rawValue || (typeof result === 'string' ? result : '');
         if (!raw || scanProcessingRef.current || !processSessionStringRef.current) return;
 
@@ -1830,7 +1980,7 @@ function QrScannerApp() {
             .finally(() => {
                 scanProcessingRef.current = false;
             });
-    }, []);
+    }, [isStudentUser, studentBioStatus]);
 
     const handleCameraError = useCallback((error) => {
         console.warn('Scanner Error:', error);
@@ -1850,6 +2000,12 @@ function QrScannerApp() {
     const handleFileScan = (e) => {
         const file = e.target.files?.[0];
         if (!file) return;
+
+        if (isStudentUser && !studentBioStatus.isComplete) {
+            alert('⚠️ Biometrics Required!\n\nYou must register both Face and Fingerprint before scanning attendance QR codes.\n\nPlease complete your biometric registration first.');
+            setShowBiometricsRequiredModal(true);
+            return;
+        }
 
         setScanningFile(true);
         setCameraError('');
@@ -2129,6 +2285,216 @@ function QrScannerApp() {
                             </button>
                         </div>
                     </form>
+                </div>
+            </div>
+        );
+    };
+
+    // Render Student Biometrics Precondition Modal
+    const renderBiometricsRequiredModal = () => {
+        if (!showBiometricsRequiredModal) return null;
+        return (
+            <div style={{
+                position: 'fixed',
+                inset: 0,
+                backgroundColor: 'rgba(15, 23, 42, 0.92)',
+                zIndex: 99999,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: '20px'
+            }}>
+                <div style={{
+                    background: '#ffffff',
+                    borderRadius: '24px',
+                    maxWidth: '440px',
+                    width: '100%',
+                    padding: '28px',
+                    textAlign: 'center',
+                    boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.4)',
+                    border: '2px solid #f59e0b'
+                }}>
+                    <div style={{
+                        width: '64px',
+                        height: '64px',
+                        borderRadius: '50%',
+                        background: '#fef3c7',
+                        color: '#d97706',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: '32px',
+                        margin: '0 auto 16px'
+                    }}>
+                        <FaUserCheck />
+                    </div>
+                    <h3 style={{ fontSize: '1.35rem', fontWeight: 800, color: '#92400e', margin: '0 0 10px 0' }}>
+                        Biometrics Registration Required
+                    </h3>
+                    <p style={{ fontSize: '0.92rem', color: '#334155', lineHeight: 1.5, margin: '0 0 16px 0' }}>
+                        To ensure physical presence and prevent proxy attendance, all students must enroll both <strong>Face Biometrics</strong> and <strong>Device Fingerprint</strong> before scanning.
+                    </p>
+                    <div style={{
+                        textAlign: 'left',
+                        background: '#f8fafc',
+                        padding: '14px 18px',
+                        borderRadius: '12px',
+                        border: '1px solid #e2e8f0',
+                        marginBottom: '20px',
+                        fontSize: '0.86rem',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '8px'
+                    }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            {studentBioStatus.hasFace ? <FaCheckCircle style={{ color: '#10b981' }} /> : <FaExclamationTriangle style={{ color: '#f59e0b' }} />}
+                            <span style={{ color: studentBioStatus.hasFace ? '#15803d' : '#b45309', fontWeight: 700 }}>
+                                Face Biometrics: {studentBioStatus.hasFace ? 'Enrolled' : 'Not Registered'}
+                            </span>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            {studentBioStatus.hasHw ? <FaCheckCircle style={{ color: '#10b981' }} /> : <FaExclamationTriangle style={{ color: '#f59e0b' }} />}
+                            <span style={{ color: studentBioStatus.hasHw ? '#15803d' : '#b45309', fontWeight: 700 }}>
+                                Device Fingerprint: {studentBioStatus.hasHw ? 'Enrolled' : 'Not Registered'}
+                            </span>
+                        </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: '10px' }}>
+                        <button
+                            type="button"
+                            onClick={() => setShowBiometricsRequiredModal(false)}
+                            style={{
+                                flex: 1,
+                                padding: '12px',
+                                borderRadius: '12px',
+                                background: 'transparent',
+                                border: '1px solid #cbd5e1',
+                                color: '#64748b',
+                                fontWeight: 700,
+                                fontSize: '0.9rem',
+                                cursor: 'pointer'
+                            }}
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setShowBiometricsRequiredModal(false);
+                                navigate('/student/face-enroll');
+                            }}
+                            style={{
+                                flex: 2,
+                                padding: '12px',
+                                borderRadius: '12px',
+                                background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
+                                color: '#ffffff',
+                                border: 'none',
+                                fontWeight: 800,
+                                fontSize: '0.92rem',
+                                cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: '8px',
+                                boxShadow: '0 4px 12px rgba(245, 158, 11, 0.3)'
+                            }}
+                        >
+                            <FaCamera /> Register Biometrics
+                        </button>
+                    </div>
+                </div>
+            </div>
+        );
+    };
+
+    // Render High-Visibility VPN / Proxy Security Modal
+    const renderVpnModal = () => {
+        if (!showVpnModal) return null;
+        return (
+            <div style={{
+                position: 'fixed',
+                inset: 0,
+                backgroundColor: 'rgba(15, 23, 42, 0.94)',
+                zIndex: 99999,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: '20px'
+            }}>
+                <div style={{
+                    background: '#ffffff',
+                    borderRadius: '24px',
+                    maxWidth: '440px',
+                    width: '100%',
+                    padding: '28px',
+                    textAlign: 'center',
+                    boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.4)',
+                    border: '2px solid #ef4444'
+                }}>
+                    <div style={{
+                        width: '64px',
+                        height: '64px',
+                        borderRadius: '50%',
+                        background: '#fee2e2',
+                        color: '#dc2626',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: '32px',
+                        margin: '0 auto 16px'
+                    }}>
+                        <FaShieldAlt />
+                    </div>
+                    <h3 style={{ fontSize: '1.35rem', fontWeight: 800, color: '#991b1b', margin: '0 0 10px 0' }}>
+                        VPN / Proxy Detected
+                    </h3>
+                    <p style={{ fontSize: '0.92rem', color: '#334155', lineHeight: 1.5, margin: '0 0 14px 0' }}>
+                        SmartAttend security has detected an active VPN tunnel or network proxy on your device.
+                    </p>
+                    {vpnDetails && (
+                        <div style={{
+                            padding: '10px 14px',
+                            borderRadius: '10px',
+                            background: '#f8fafc',
+                            border: '1px solid #e2e8f0',
+                            fontSize: '0.82rem',
+                            color: '#64748b',
+                            marginBottom: '16px',
+                            wordBreak: 'break-word'
+                        }}>
+                            {vpnDetails}
+                        </div>
+                    )}
+                    <p style={{ fontSize: '0.86rem', color: '#64748b', margin: '0 0 20px 0' }}>
+                        VPNs and proxies are strictly prohibited during attendance to ensure physical presence. Please turn OFF your VPN in Settings and tap Retry.
+                    </p>
+                    <button
+                        type="button"
+                        onClick={async () => {
+                            setShowVpnModal(false);
+                            setErrorMessage('');
+                            const recheck = await checkVpnAndNetworkSecurity();
+                            if (recheck?.isVpn) {
+                                alert('🚨 VPN Still Detected!\nPlease turn off your VPN in phone Settings before retrying.');
+                                setShowVpnModal(true);
+                            }
+                        }}
+                        style={{
+                            width: '100%',
+                            padding: '14px',
+                            borderRadius: '14px',
+                            background: 'linear-gradient(135deg, #dc2626 0%, #b91c1c 100%)',
+                            color: '#ffffff',
+                            border: 'none',
+                            fontWeight: 800,
+                            fontSize: '0.96rem',
+                            cursor: 'pointer',
+                            boxShadow: '0 4px 14px rgba(220, 38, 38, 0.35)'
+                        }}
+                    >
+                        I Disconnected VPN — Retry Scan
+                    </button>
                 </div>
             </div>
         );
@@ -2997,6 +3363,8 @@ function QrScannerApp() {
         return (
             <div className="st-biometric-container">
                 {renderLecturerPinModal()}
+                {renderBiometricsRequiredModal()}
+                {renderVpnModal()}
 
                 <div className="st-biometric-header">
                     <div className="st-biometric-phase-chip">
@@ -3328,7 +3696,7 @@ function QrScannerApp() {
     // UI VIEW 3: KIOSK WAITING SCREEN (Phase 1 Complete, Waiting for Phase 2 QR)
     // =========================================================================
     if (scanState === 'KIOSK_WAITING_QR2') {
-        const totalDuration = authQr1DurationSec || 15;
+        const totalDuration = sessionData?.qr1DurationSeconds || authQr1DurationSec || 15;
         const remainingSec = secondsUntilQr2 !== null ? secondsUntilQr2 : 0;
         const progressFraction = Math.max(0, Math.min(1, remainingSec / totalDuration));
         const CIRCUMFERENCE = 465;
@@ -3337,6 +3705,8 @@ function QrScannerApp() {
         return (
             <div className="st-scanner-container">
                 {renderLecturerPinModal()}
+                {renderBiometricsRequiredModal()}
+                {renderVpnModal()}
 
                 {/* Web Guardian Violation Overlay */}
                 {supervisionViolation && (
@@ -3650,6 +4020,50 @@ function QrScannerApp() {
 
             </div>
 
+            {/* Student Biometrics Precondition Banner */}
+            {isStudentUser && !studentBioStatus.isComplete && (
+                <div style={{
+                    margin: '0 0 16px 0',
+                    padding: '16px 18px',
+                    borderRadius: '16px',
+                    background: '#fffbeb',
+                    border: '2px solid #f59e0b',
+                    boxShadow: '0 4px 12px rgba(245, 158, 11, 0.15)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '10px'
+                }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: '#b45309', fontWeight: 800, fontSize: '0.98rem' }}>
+                        <FaExclamationTriangle style={{ fontSize: '1.25rem', flexShrink: 0 }} />
+                        <span>Biometrics Registration Required</span>
+                    </div>
+                    <p style={{ margin: 0, fontSize: '0.86rem', color: '#78350f', lineHeight: 1.45 }}>
+                        You cannot scan attendance until your <strong>Face</strong> and <strong>Fingerprint</strong> biometrics are registered. Please complete enrollment to enable scanning.
+                    </p>
+                    <button
+                        type="button"
+                        onClick={() => navigate('/student/face-enroll')}
+                        style={{
+                            alignSelf: 'flex-start',
+                            padding: '9px 18px',
+                            borderRadius: '10px',
+                            background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
+                            color: '#ffffff',
+                            border: 'none',
+                            fontWeight: 800,
+                            fontSize: '0.86rem',
+                            cursor: 'pointer',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            boxShadow: '0 4px 12px rgba(245, 158, 11, 0.25)'
+                        }}
+                    >
+                        <FaCamera /> Register Biometrics Now
+                    </button>
+                </div>
+            )}
+
             {/* Camera Viewport (Spacious, rounded card) */}
             <div className="st-camera-viewport-card">
                 {isCameraAllowed && scannerActive ? (
@@ -3960,6 +4374,9 @@ function QrScannerApp() {
                     </div>
                 </div>
             )}
+
+            {renderBiometricsRequiredModal()}
+            {renderVpnModal()}
         </div>
     );
 }

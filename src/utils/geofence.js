@@ -192,7 +192,7 @@ export function evaluateGeofence(studentCoordsRaw, classroomCoordsRaw, retryCoun
   }
 
   const studentAccuracy = accuracy;
-  const classroomAccuracy = Math.max(0, Math.round(Number(classroom.accuracy) || 0));
+  const classroomAccuracy = Math.max(0, Math.round(Number(classroom.accuracy ?? classroom.acc) || 0));
 
   let uncertaintyAllowance;
   if (classroomAccuracy > 10) {

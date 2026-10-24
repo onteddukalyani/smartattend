@@ -176,7 +176,7 @@ function evaluateServerGeofence(studentCoords, classroomCoords, radiusMetres, se
   }
 
   const studentAccuracy = accuracy;
-  const classroomAccuracy = Math.max(0, Math.round(Number(classroomCoords.accuracy) || 0));
+  const classroomAccuracy = Math.max(0, Math.round(Number(classroomCoords.accuracy ?? classroomCoords.acc) || 0));
 
   let uncertaintyAllowance;
   if (classroomAccuracy > 10) {

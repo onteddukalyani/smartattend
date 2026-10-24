@@ -501,7 +501,9 @@ function GenerateQR() {
             }
 
             const effectiveGeofenceRadius = hostCoords ? geofenceRadius : 0;
-            const activeClassroomCoords = effectiveGeofenceRadius > 0 ? { ...hostCoords, radius: effectiveGeofenceRadius } : null;
+            const activeClassroomCoords = effectiveGeofenceRadius > 0
+                ? { ...hostCoords, radius: effectiveGeofenceRadius, accuracy: hostCoords.accuracy || 35 }
+                : null;
 
             const result = await createAttendanceSession(
                 finalClassCode,
