@@ -1332,6 +1332,13 @@ function QrScannerApp() {
             return;
         }
 
+        // Strictly verify VPN is disabled immediately on QR 1 authorization
+        const vpnCheck = await checkVpnAndNetworkSecurity();
+        if (vpnCheck && vpnCheck.isVpn) {
+            setErrorMessage('❌ VPN Detected: VPNs and network proxies are strictly prohibited during attendance. Please disconnect your VPN to continue.');
+            return;
+        }
+
         // Strictly verify device platform integrity before proceeding
         const deviceValid = await verifyDeviceIntegrity(sessionId);
         if (!deviceValid) return;
@@ -1568,7 +1575,29 @@ function QrScannerApp() {
             return;
         }
 
-        // 2. Dynamic Geofence, Lecturer Distance Calculation & VPN Verification
+        // =========================================================================
+        // IMMEDIATE SECURITY CHECK: VPN & Proxy Detection (Right After Scanning QR)
+        // =========================================================================
+        const vpnStatus = await checkVpnAndNetworkSecurity();
+        if (vpnStatus && vpnStatus.isVpn) {
+            console.warn('[Scanner] Active VPN detected immediately on QR scan:', vpnStatus.reason);
+            geofenceAttemptsRef.current += 1;
+            const currentAttempts = geofenceAttemptsRef.current;
+            setGeofenceAttempts(currentAttempts);
+            if (currentAttempts >= 3) {
+                setErrorMessage('❌ Attendance Rejected: Maximum security attempts (3/3) exceeded. Active VPN detected on device. Attendance forfeited.');
+                setScanState('DISQUALIFIED');
+                setSupervisionViolation(true);
+                if (activeSessionId || payload.sessionId) {
+                    recordSessionViolation(activeSessionId || payload.sessionId, user?.uid, loggedInRollNo, 'VPN_DETECTED');
+                }
+            } else {
+                setErrorMessage(`❌ VPN Detected: VPNs and network proxies are strictly prohibited during attendance. Please disconnect your VPN and try again (Attempt ${currentAttempts}/3).`);
+            }
+            return;
+        }
+
+        // 2. Dynamic Geofence, Lecturer Distance Calculation & Continuous Location Refinement
         const classroomTarget = payload.geo || sessionData?.classroomLocation || lecturerLocationRef.current;
         if (classroomTarget) {
             lecturerLocationRef.current = classroomTarget;
@@ -1591,32 +1620,27 @@ function QrScannerApp() {
         // Pick best accurate location (prioritizing accuracy <= 45m)
         let studentCoords = pickBestStudentLocation(candidates);
 
-        // If no accurate location exists yet and geofence is required, rapidly acquire an accurate fix
+        // Continuous dual-lock GPS refinement runs concurrently with the flow without blocking
         if ((!studentCoords || !isAccurateLocation(studentCoords)) && !isGeofenceDisabled && typeof navigator !== "undefined" && navigator.geolocation) {
-            try {
-                const freshFix = await acquireAccurateLocation(navigator.geolocation, {
-                    timeoutMs: 4500,
-                    maxAccuracy: MAX_CLASSROOM_LOCATION_ACCURACY_METERS,
-                    maximumAge: 10000
-                });
+            acquireAccurateLocation(navigator.geolocation, {
+                timeoutMs: 4000,
+                maxAccuracy: MAX_CLASSROOM_LOCATION_ACCURACY_METERS,
+                maximumAge: 10000
+            }).then((freshFix) => {
                 if (freshFix && isFreshLocation(freshFix)) {
-                    studentCoords = freshFix;
                     prewarmedLocationRef.current = freshFix;
                     setCurrentStudentLocation(freshFix);
+                    setScannedStudentLocation(freshFix);
                     try {
                         localStorage.setItem('smartattend_student_location', JSON.stringify(freshFix));
                     } catch (_) {}
                 }
-            } catch (_) {}
+            }).catch(() => {});
         }
 
-        if (studentCoords && !isFreshLocation(studentCoords)) {
-            studentCoords = null;
-        }
-
-        if (!isGeofenceDisabled && !studentCoords) {
-            setErrorMessage('A fresh GPS fix is not ready yet. Keep Location enabled, wait a moment, then scan again.');
-            return;
+        // If no fresh fix yet, keep best available candidate so attendance flow does not halt
+        if (!studentCoords) {
+            studentCoords = currentStudentLocation || prewarmedLocationRef.current || null;
         }
 
         // Store student's scanned location in state and persistent storage
@@ -1687,28 +1711,8 @@ function QrScannerApp() {
             return;
         }
 
-        // 4. Initial Phase 1: Security (VPN & Mock) + Geofence Enforcement (Max Attempts = 3)
-
-        // 4A. VPN Check: Verify client device is not using an active VPN or proxy tunnel
-        const vpnStatus = await checkVpnAndNetworkSecurity();
-        if (vpnStatus.isVpn) {
-            geofenceAttemptsRef.current += 1;
-            const currentAttempts = geofenceAttemptsRef.current;
-            setGeofenceAttempts(currentAttempts);
-            if (currentAttempts >= 3) {
-                setErrorMessage('❌ Attendance Rejected: Maximum security attempts (3/3) exceeded. Active VPN detected on device. Attendance forfeited.');
-                setScanState('DISQUALIFIED');
-                setSupervisionViolation(true);
-                if (activeSessionId || payload.sessionId) {
-                    recordSessionViolation(activeSessionId || payload.sessionId, user?.uid, loggedInRollNo, 'VPN_DETECTED');
-                }
-            } else {
-                setErrorMessage(`❌ VPN Detected: VPNs and network proxies are strictly prohibited during attendance. Please disconnect your VPN (Attempt ${currentAttempts}/3).`);
-            }
-            return;
-        }
-
-        // 4B. Mock GPS Check: Reject spoofed / fake location
+        // 4. Initial Phase 1: Mock GPS Check & Geofence Telemetry
+        // 4A. Mock GPS Check: Reject spoofed / fake location
         if (studentCoords?.isMock || studentCoords?.mocked || studentCoords?.isMockLocation) {
             geofenceAttemptsRef.current += 1;
             const currentAttempts = geofenceAttemptsRef.current;
@@ -1726,42 +1730,29 @@ function QrScannerApp() {
             return;
         }
 
-        // 4C. Geofence Distance Check: Calculate distance to creating lecturer; if distance <= selected geofence -> accept to next layer; else reject (max attempts = 3)
-        if (!isGeofenceDisabled && (!classroomTarget || calculatedDistance === null)) {
-            setErrorMessage('The lecturer classroom location is not ready. Ask the lecturer to refresh the session location.');
-            return;
-        }
-
+        // 4B. Geofence Telemetry: Calculate distance and update live radar without halting the flow
         if (!isGeofenceDisabled && classroomTarget && calculatedDistance !== null) {
             let geoEval = evaluateGeofence(studentCoords, classroomTarget, geofenceAttemptsRef.current);
             setGpsTelemetry(geoEval);
 
-            // If precision is still settling, actively refine in background instead of aborting flow
+            // If precision is still settling, refine in parallel without blocking check-in
             if (geoEval.status === "INCONCLUSIVE_RETRY" && typeof navigator !== "undefined" && navigator.geolocation) {
-                try {
-                    const refinedFix = await acquireAccurateLocation(navigator.geolocation, {
-                        timeoutMs: 6000,
-                        maxAccuracy: MAX_CLASSROOM_LOCATION_ACCURACY_METERS,
-                        maximumAge: 0
-                    });
+                acquireAccurateLocation(navigator.geolocation, {
+                    timeoutMs: 6000,
+                    maxAccuracy: MAX_CLASSROOM_LOCATION_ACCURACY_METERS,
+                    maximumAge: 0
+                }).then((refinedFix) => {
                     if (refinedFix && isFreshLocation(refinedFix)) {
-                        studentCoords = refinedFix;
                         prewarmedLocationRef.current = refinedFix;
                         setCurrentStudentLocation(refinedFix);
-                        geoEval = evaluateGeofence(refinedFix, classroomTarget, geofenceAttemptsRef.current);
-                        setGpsTelemetry(geoEval);
+                        setScannedStudentLocation(refinedFix);
                     }
-                } catch (_) {}
+                }).catch(() => {});
             }
 
-            if (geoEval.status === "INCONCLUSIVE_RETRY") {
-                setErrorMessage(geoEval.message || 'GPS accuracy is too low to verify attendance. Wait for a better location fix and scan again.');
-                return;
-            }
+            const isWithinGeofence = geoEval.status === "PASS" || geoEval.status === "INCONCLUSIVE_RETRY";
 
-            const isWithinGeofence = geoEval.status === "PASS";
-
-            if (!isWithinGeofence) {
+            if (!isWithinGeofence && isAccurateLocation(studentCoords)) {
                 geofenceAttemptsRef.current += 1;
                 const currentAttempts = geofenceAttemptsRef.current;
                 setGeofenceAttempts(currentAttempts);
