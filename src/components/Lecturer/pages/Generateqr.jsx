@@ -105,9 +105,14 @@ function GenerateQR() {
     const [geofenceRadius, setGeofenceRadius] = useState(10); // Mandatory default: 10 metres standard, adjustable live by lecturer (0 = disabled)
     const [classroomCoords, setClassroomCoords] = useState(null);
     const [classroomGpsStatus, setClassroomGpsStatus] = useState("IDLE"); // "IDLE" | "ACTIVE" | "UNAVAILABLE" | "DISABLED"
+    
+    // Laptop / Desktop detection: laptops do not have satellite GPS hardware and rely on Wi-Fi positioning (±50m - 200m)
+    const isMobileDevice = typeof navigator !== "undefined" && /Android|iPhone|iPad|iPod|Mobile/i.test(navigator?.userAgent || "");
+    const maxHostAccuracy = isMobileDevice ? MAX_CLASSROOM_LOCATION_ACCURACY_METERS : 250;
     const classroomGpsReady =
-        classroomGpsStatus === "ACTIVE" &&
-        Number(classroomCoords?.accuracy) <= MAX_CLASSROOM_LOCATION_ACCURACY_METERS;
+        geofenceRadius === 0 ||
+        (classroomGpsStatus === "ACTIVE" && Number(classroomCoords?.accuracy) <= maxHostAccuracy) ||
+        (!isMobileDevice && Boolean(classroomCoords?.latitude && classroomCoords?.longitude));
 
     const [sessionData, setSessionData] = useState(null);
     const [authorizedStudents, setAuthorizedStudents] = useState([]);
@@ -225,43 +230,44 @@ function GenerateQR() {
                     ...location,
                     radius: geofenceRadius || 10
                 };
-                const isAccurate = isAccurateLocation(coords);
+                const isAccurate = isAccurateLocation(coords, Date.now(), maxHostAccuracy);
                 setClassroomCoords((prev) => {
                     if (!prev) return coords;
                     if (isAccurate) {
-                        const prevAccurate = isAccurateLocation(prev);
+                        const prevAccurate = isAccurateLocation(prev, Date.now(), maxHostAccuracy);
                         if (!prevAccurate || coords.accuracy <= prev.accuracy || (coords.timestamp - prev.timestamp > 15000)) {
                             return coords;
                         }
-                    } else if (!isAccurateLocation(prev)) {
+                    } else if (!isAccurateLocation(prev, Date.now(), maxHostAccuracy)) {
                         if (coords.accuracy < prev.accuracy) return coords;
                     }
                     return prev;
                 });
                 setClassroomGpsStatus((prevStatus) => {
-                    if (isAccurate) return "ACTIVE";
+                    if (isAccurate || (!isMobileDevice && coords.latitude)) return "ACTIVE";
                     return prevStatus === "ACTIVE" ? "ACTIVE" : "ACQUIRING";
                 });
             }
         };
 
         try {
+            // On laptops/desktops, enableHighAccuracy: false uses fast Wi-Fi BSSID geolocation instead of hanging on non-existent GNSS
             navigator.geolocation.getCurrentPosition(
                 applyHostGps,
                 () => {
                     navigator.geolocation.getCurrentPosition(
                         applyHostGps,
                         (err) => console.warn("[Generateqr] Lecturer GPS pre-warm notice:", err?.message || err),
-                        { enableHighAccuracy: false, timeout: 6000, maximumAge: 15000 }
+                        { enableHighAccuracy: false, timeout: 6000, maximumAge: 30000 }
                     );
                 },
-                { enableHighAccuracy: true, timeout: 6000, maximumAge: 15000 }
+                { enableHighAccuracy: isMobileDevice, timeout: 6000, maximumAge: 30000 }
             );
 
             watchId = navigator.geolocation.watchPosition(
                 applyHostGps,
                 () => { },
-                { enableHighAccuracy: true, maximumAge: 5000, timeout: 8000 }
+                { enableHighAccuracy: isMobileDevice, maximumAge: 10000, timeout: 8000 }
             );
         } catch (_) { }
 
@@ -270,7 +276,7 @@ function GenerateQR() {
                 try { navigator.geolocation.clearWatch(watchId); } catch (_) { }
             }
         };
-    }, [geofenceRadius, sessionId]);
+    }, [geofenceRadius, sessionId, maxHostAccuracy, isMobileDevice]);
 
     const myCourses = useMemo(() => {
         return availableCourses.filter((c) => isCourseAssignedToLecturer(c, user, profile));
@@ -453,32 +459,49 @@ function GenerateQR() {
             const effectiveDurationMinutes = Math.round((effectiveTotalSec / 60) * 10) / 10;
 
             // Ensure Lecturer Host GPS is locked before initiating session document
-            let hostCoords = isAccurateLocation(classroomCoords) ? classroomCoords : null;
+            let hostCoords = isAccurateLocation(classroomCoords, Date.now(), maxHostAccuracy) ? classroomCoords : null;
             if (!hostCoords && geofenceRadius > 0 && typeof navigator !== "undefined" && navigator.geolocation) {
                 setClassroomGpsStatus("ACQUIRING");
                 try {
-                    const location = await acquireAccurateLocation(navigator.geolocation);
+                    const location = await acquireAccurateLocation(navigator.geolocation, {
+                        timeoutMs: isMobileDevice ? 10000 : 4000,
+                        maxAccuracy: maxHostAccuracy,
+                        maximumAge: 30000
+                    });
                     hostCoords = location ? { ...location, radius: geofenceRadius } : null;
                     if (hostCoords) {
                         setClassroomCoords(hostCoords);
-                        setClassroomGpsStatus(isAccurateLocation(hostCoords) ? "ACTIVE" : "UNAVAILABLE");
+                        setClassroomGpsStatus(isAccurateLocation(hostCoords, Date.now(), maxHostAccuracy) ? "ACTIVE" : "UNAVAILABLE");
                     }
                 } catch (error) {
+                    console.warn("[Generateqr] Lecturer device GPS acquisition notice:", error?.message || error);
+                    if (!isMobileDevice) {
+                        console.info("[Generateqr] Laptop location unavailable. Proceeding with geofence disabled for this session.");
+                    } else {
+                        setClassroomGpsStatus("UNAVAILABLE");
+                        throw new Error(`Could not read the lecturer device's GPS location: ${error.message || error}`);
+                    }
+                }
+            }
+
+            if (geofenceRadius > 0 && !isAccurateLocation(hostCoords, Date.now(), maxHostAccuracy)) {
+                if (!isMobileDevice) {
+                    // On laptop/desktop, if location fix is unavailable or too coarse, automatically proceed with geofence disabled (0m)
+                    // so the lecturer is NEVER blocked from launching their session on their laptop!
+                    console.warn("[Generateqr] Laptop location unavailable or coarse. Launching session with Geofence 0m (Off).");
+                    hostCoords = null;
+                } else {
                     setClassroomGpsStatus("UNAVAILABLE");
-                    throw new Error(`Could not read the lecturer device's GPS location: ${error.message || error}`);
+                    const accuracy = Number(hostCoords?.accuracy);
+                    if (Number.isFinite(accuracy) && accuracy > 0) {
+                        throw new Error(`The lecturer device's GPS is currently accurate to about ${Math.round(accuracy)}m; attendance requires ${MAX_CLASSROOM_LOCATION_ACCURACY_METERS}m or better. Keep Location enabled, move near a window or outdoors, then retry (or select '0m (Off)' under Geofence).`);
+                    }
+                    throw new Error("Could not get a fresh classroom GPS fix. Enable Location and allow browser location access, then retry (or select '0m (Off)' under Geofence).");
                 }
             }
 
-            if (geofenceRadius > 0 && !isAccurateLocation(hostCoords)) {
-                setClassroomGpsStatus("UNAVAILABLE");
-                const accuracy = Number(hostCoords?.accuracy);
-                if (Number.isFinite(accuracy) && accuracy > 0) {
-                    throw new Error(`The lecturer device's GPS is currently accurate to about ${Math.round(accuracy)}m; attendance requires ${MAX_CLASSROOM_LOCATION_ACCURACY_METERS}m or better. Keep Location enabled, move near a window or outdoors, then retry.`);
-                }
-                throw new Error("Could not get a fresh classroom GPS fix. Enable Location and allow browser location access, then retry.");
-            }
-
-            const activeClassroomCoords = geofenceRadius > 0 ? { ...hostCoords, radius: geofenceRadius } : null;
+            const effectiveGeofenceRadius = hostCoords ? geofenceRadius : 0;
+            const activeClassroomCoords = effectiveGeofenceRadius > 0 ? { ...hostCoords, radius: effectiveGeofenceRadius } : null;
 
             const result = await createAttendanceSession(
                 finalClassCode,
@@ -654,23 +677,28 @@ function GenerateQR() {
             setClassroomGpsStatus("ACQUIRING");
             let location;
             try {
-                location = await acquireAccurateLocation(navigator.geolocation);
+                location = await acquireAccurateLocation(navigator.geolocation, {
+                    timeoutMs: isMobileDevice ? 10000 : 5000,
+                    maxAccuracy: maxHostAccuracy,
+                    maximumAge: 15000
+                });
             } catch (error) {
                 setClassroomGpsStatus("UNAVAILABLE");
-                alert(`Could not retrieve an accurate GPS fix. Check Location permission and try again.\nError: ${error.message || error}`);
+                alert(`Could not retrieve location. Check browser location permissions.\nError: ${error.message || error}`);
                 return;
             }
             if (location) {
                 const bestFix = { ...location, radius: targetRadius };
                 setClassroomCoords(bestFix);
-                if (!isAccurateLocation(bestFix)) {
+                if (!isAccurateLocation(bestFix, Date.now(), maxHostAccuracy)) {
                     setClassroomGpsStatus("UNAVAILABLE");
-                    alert(`GPS accuracy is currently about ${Math.round(bestFix.accuracy)}m; ${MAX_CLASSROOM_LOCATION_ACCURACY_METERS}m or better is required. Keep Location enabled, move near a window or outdoors, then retry.`);
+                    alert(`Location accuracy is currently about ±${Math.round(bestFix.accuracy)}m; ${maxHostAccuracy}m or better is required. You can also select '0m (Off)' under Geofence.`);
                     return;
                 }
+                setClassroomGpsStatus("ACTIVE");
             } else {
                 setClassroomGpsStatus("UNAVAILABLE");
-                alert("Could not retrieve GPS coordinates. Ensure Location is enabled and browser location access is allowed, then try again.");
+                alert("Could not retrieve GPS coordinates. Ensure Location is enabled in Windows and browser, or select '0m (Off)'.");
                 return;
             }
 
@@ -1641,7 +1669,24 @@ function GenerateQR() {
                             </div>
 
                             {/* Live Host GPS Telemetry Card */}
-                            {classroomGpsReady ? (
+                            {geofenceRadius === 0 ? (
+                                <div style={{
+                                    marginTop: "10px",
+                                    padding: "8px 12px",
+                                    borderRadius: "8px",
+                                    background: "rgba(99, 102, 241, 0.08)",
+                                    border: "1px solid rgba(99, 102, 241, 0.25)",
+                                    fontSize: "0.78rem",
+                                    color: "#4338ca",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "space-between",
+                                    gap: "6px"
+                                }}>
+                                    <span>🌐 <strong>Geofence Disabled:</strong> Attendance open to all scanned devices without GPS radius restrictions.</span>
+                                    <span style={{ fontWeight: 800, color: "#4f46e5" }}>✓ Ready</span>
+                                </div>
+                            ) : classroomGpsReady && classroomCoords ? (
                                 <div style={{
                                     marginTop: "10px",
                                     padding: "8px 12px",
@@ -1655,7 +1700,7 @@ function GenerateQR() {
                                     justifyContent: "space-between",
                                     gap: "6px"
                                 }}>
-                                    <span>📍 <strong>Host GPS Locked:</strong> {classroomCoords.latitude?.toFixed(5)}, {classroomCoords.longitude?.toFixed(5)} (±{Math.round(classroomCoords.accuracy || 15)}m)</span>
+                                    <span>📍 <strong>Host GPS Locked:</strong> {classroomCoords?.latitude?.toFixed(5)}, {classroomCoords?.longitude?.toFixed(5)} (±{Math.round(classroomCoords?.accuracy || 15)}m{!isMobileDevice ? " • Laptop Wi-Fi" : ""})</span>
                                     <span style={{ fontWeight: 800, color: "#059669" }}>✓ Ready</span>
                                 </div>
                             ) : (
@@ -1675,26 +1720,46 @@ function GenerateQR() {
                                     <span>
                                         📍 <strong>GPS:</strong>{" "}
                                         {classroomCoords?.accuracy
-                                            ? `Accuracy is ±${Math.round(classroomCoords.accuracy)}m; ${MAX_CLASSROOM_LOCATION_ACCURACY_METERS}m or better is required.`
+                                            ? `Accuracy is ±${Math.round(classroomCoords.accuracy)}m; ${maxHostAccuracy}m or better is required.`
                                             : classroomGpsStatus === "ACQUIRING"
-                                                ? "Acquiring an accurate classroom location..."
-                                                : "Waiting for accurate classroom location..."}
+                                                ? "Acquiring classroom location..."
+                                                : (!isMobileDevice ? "Wi-Fi location not acquired on laptop." : "Waiting for classroom location...")}
                                     </span>
-                                    <button
-                                        type="button"
-                                        onClick={handleRecalibrateGps}
-                                        style={{
-                                            background: "transparent",
-                                            border: "none",
-                                            color: "#b45309",
-                                            fontWeight: 800,
-                                            textDecoration: "underline",
-                                            cursor: "pointer",
-                                            padding: 0
-                                        }}
-                                    >
-                                        Re-try Now
-                                    </button>
+                                    <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                                        <button
+                                            type="button"
+                                            onClick={handleRecalibrateGps}
+                                            style={{
+                                                background: "transparent",
+                                                border: "none",
+                                                color: "#b45309",
+                                                fontWeight: 800,
+                                                textDecoration: "underline",
+                                                cursor: "pointer",
+                                                padding: 0
+                                            }}
+                                        >
+                                            Re-try
+                                        </button>
+                                        {!isMobileDevice && (
+                                            <button
+                                                type="button"
+                                                onClick={() => handleUpdateGeofenceRadius(0)}
+                                                style={{
+                                                    background: "rgba(180, 83, 9, 0.15)",
+                                                    border: "1px solid rgba(180, 83, 9, 0.3)",
+                                                    color: "#78350f",
+                                                    fontWeight: 700,
+                                                    borderRadius: "4px",
+                                                    padding: "2px 6px",
+                                                    fontSize: "0.72rem",
+                                                    cursor: "pointer"
+                                                }}
+                                            >
+                                                Use 0m (Off)
+                                            </button>
+                                        )}
+                                    </div>
                                 </div>
                             )}
                         </div>
