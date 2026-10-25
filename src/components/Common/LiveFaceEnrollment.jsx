@@ -34,9 +34,10 @@ export function LiveFaceEnrollment({
     targetName = ""
 }) {
     const { user, profile } = useAuth();
+    const canSwitchCamera = isStaffCameraUser(profile, user) ||
+        (typeof window !== "undefined" && (window.location.pathname.includes("/lecturer") || window.location.pathname.includes("/admin")));
     const browserCameraAuth = isBrowserCameraAllowed(profile, user);
-    const isCameraAllowed = browserCameraAuth.allowed;
-    const canSwitchCamera = isStaffCameraUser(profile, user);
+    const isCameraAllowed = canSwitchCamera ? true : browserCameraAuth.allowed;
 
     const videoRef = useRef(null);
     const streamRef = useRef(null);
@@ -291,6 +292,16 @@ export function LiveFaceEnrollment({
                     if (err?.name === "NotAllowedError" || err?.name === "PermissionDeniedError") {
                         throw err;
                     }
+                }
+            }
+            if (!stream) {
+                // If rear camera was requested on a device with only one camera (e.g. laptop or PC webcam), gracefully fallback to front
+                if (requestedFacingMode === "environment") {
+                    console.warn("Rear camera not found on this device; automatically falling back to front camera stream.");
+                    setCameraFacingMode("user");
+                    try {
+                        stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+                    } catch (_) { }
                 }
             }
 
@@ -652,6 +663,65 @@ export function LiveFaceEnrollment({
                                 display: cameraActive ? "block" : "none"
                             }}
                         />
+
+                        {/* Staff Camera Controls (Floating switch button & front/rear badge for lecturers and admins) */}
+                        {canSwitchCamera && cameraActive && !enrolledPhoto && (
+                            <>
+                                <div
+                                    className="lfe-camera-badge"
+                                    style={{
+                                        position: "absolute",
+                                        top: "12px",
+                                        left: "12px",
+                                        zIndex: 25,
+                                        display: "flex",
+                                        alignItems: "center",
+                                        gap: "6px",
+                                        padding: "6px 12px",
+                                        borderRadius: "20px",
+                                        background: "rgba(15, 23, 42, 0.75)",
+                                        color: "#f8fafc",
+                                        border: "1px solid rgba(255, 255, 255, 0.15)",
+                                        backdropFilter: "blur(8px)",
+                                        fontSize: "0.74rem",
+                                        fontWeight: 700,
+                                        boxShadow: "0 2px 8px rgba(0, 0, 0, 0.25)"
+                                    }}
+                                >
+                                    <span style={{ width: "7px", height: "7px", borderRadius: "50%", background: "#10b981", boxShadow: "0 0 6px #10b981" }}></span>
+                                    <span>{cameraFacingMode === "user" ? "Front Camera" : "Rear Camera"}</span>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={handleCameraSwitch}
+                                    disabled={cameraLoading}
+                                    title={`Switch to ${cameraFacingMode === "user" ? "Rear" : "Front"} Camera`}
+                                    className="lfe-floating-camera-toggle"
+                                    style={{
+                                        position: "absolute",
+                                        top: "12px",
+                                        right: "12px",
+                                        zIndex: 25,
+                                        display: "flex",
+                                        alignItems: "center",
+                                        gap: "6px",
+                                        padding: "7px 13px",
+                                        borderRadius: "20px",
+                                        background: "rgba(15, 23, 42, 0.82)",
+                                        color: "#ffffff",
+                                        border: "1px solid rgba(255, 255, 255, 0.25)",
+                                        backdropFilter: "blur(8px)",
+                                        cursor: "pointer",
+                                        fontSize: "0.78rem",
+                                        fontWeight: 700,
+                                        boxShadow: "0 4px 12px rgba(0, 0, 0, 0.3)"
+                                    }}
+                                >
+                                    <FaSyncAlt style={{ fontSize: "0.85rem" }} />
+                                    <span>{cameraFacingMode === "user" ? "Rear Cam" : "Front Cam"}</span>
+                                </button>
+                            </>
+                        )}
 
                         {/* Standby Camera Box */}
                         {!cameraActive && (

@@ -352,9 +352,14 @@ function NativeQrScanner({
         };
 
         animRef.current = requestAnimationFrame(scanFrame);
-    }, [active, stopStream]);
+    }, [active, facingMode, stopStream]);
 
+    const activeFacingModeRef = useRef(facingMode);
     useEffect(() => {
+        if (activeFacingModeRef.current !== facingMode) {
+            activeFacingModeRef.current = facingMode;
+            stopStream();
+        }
         if (active) {
             startCamera();
         } else {
@@ -363,7 +368,7 @@ function NativeQrScanner({
         return () => {
             stopStream();
         };
-    }, [active, startCamera, stopStream]);
+    }, [active, facingMode, startCamera, stopStream]);
 
     const toggleTorch = async () => {
         if (!streamRef.current || !torchAvailable) return;
@@ -401,7 +406,7 @@ function NativeQrScanner({
                     width: '100%',
                     height: '100%',
                     objectFit: 'cover',
-                    transform: 'none',
+                    transform: facingMode === 'user' ? 'scaleX(-1)' : 'none',
                     display: loading || errorMsg ? 'none' : 'block'
                 }}
             />
@@ -420,7 +425,7 @@ function NativeQrScanner({
                     gap: '12px'
                 }}>
                     <FaSpinner className="fa-spin" style={{ fontSize: '2.2rem', color: '#6366f1' }} />
-                    <span style={{ fontSize: '0.9rem', fontWeight: 700, color: '#c7d2fe' }}>Starting rear camera...</span>
+                    <span style={{ fontSize: '0.9rem', fontWeight: 700, color: '#c7d2fe' }}>Starting {facingMode === 'user' ? 'front' : 'rear'} camera...</span>
                 </div>
             )}
 

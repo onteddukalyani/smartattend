@@ -3047,7 +3047,7 @@ test("34. Anti-Proxy VPN & Mock GPS Check: Rejects mock location and active prox
 });
 
 test("35. Browser Camera Authorization: Only lecturer, admin, and iPhone users can access camera in browser; Android web students blocked", () => {
-  // Case A: Lecturer in browser
+  // Case A: Lecturer in browser on ANY device (Android, PC, iOS)
   const lecturerBrowser = isBrowserCameraAllowed({ role: "lecturer" }, { uid: "lec_1" });
   assert.strictEqual(lecturerBrowser.allowed, true);
   assert.strictEqual(lecturerBrowser.reason, "lecturer");
@@ -3056,7 +3056,11 @@ test("35. Browser Camera Authorization: Only lecturer, admin, and iPhone users c
   assert.strictEqual(facultyBrowser.allowed, true);
   assert.strictEqual(facultyBrowser.reason, "lecturer");
 
-  // Case B: Admin in browser
+  const lecturerAndroid = isBrowserCameraAllowed({ role: "lecturer", deviceType: "android" });
+  assert.strictEqual(lecturerAndroid.allowed, true);
+  assert.strictEqual(lecturerAndroid.reason, "lecturer");
+
+  // Case B: Admin in browser on ANY device (Android, PC, iOS)
   const adminBrowser = isBrowserCameraAllowed({ role: "admin" }, { uid: "adm_1" });
   assert.strictEqual(adminBrowser.allowed, true);
   assert.strictEqual(adminBrowser.reason, "admin");
@@ -3064,6 +3068,10 @@ test("35. Browser Camera Authorization: Only lecturer, admin, and iPhone users c
   const superAdminBrowser = isBrowserCameraAllowed({ role: "superadmin" });
   assert.strictEqual(superAdminBrowser.allowed, true);
   assert.strictEqual(superAdminBrowser.reason, "admin");
+
+  const adminAndroid = isBrowserCameraAllowed({ role: "admin", deviceType: "android" });
+  assert.strictEqual(adminAndroid.allowed, true);
+  assert.strictEqual(adminAndroid.reason, "admin");
 
   // Case C: iPhone / iOS student in browser
   const iosStudent = isBrowserCameraAllowed({ role: "student", deviceType: "ios" });
@@ -3097,6 +3105,10 @@ test("Staff camera switching is enabled for admins and lecturers only", () => {
   assert.equal(isStaffCameraUser({ role: "lecturer" }), true);
   assert.equal(isStaffCameraUser({ role: "faculty" }), true);
   assert.equal(isStaffCameraUser({ designation: "administrator" }), true);
+  assert.equal(isStaffCameraUser({ role: "admin" }), true);
+  assert.equal(isStaffCameraUser({ isAdmin: true }), true);
+  assert.equal(isStaffCameraUser({ isLecturer: true }), true);
+  assert.equal(isStaffCameraUser({ userType: "lecturer" }), true);
   assert.equal(isStaffCameraUser({ role: "student" }), false);
 });
 

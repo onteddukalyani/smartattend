@@ -124,6 +124,8 @@ export function isStaffCameraUser(profile = {}, user = {}) {
   const roleValues = [
     profile?.role,
     profile?.designation,
+    profile?.userType,
+    profile?.type,
     user?.role,
     user?.claims?.role,
     user?.customClaims?.role
@@ -139,8 +141,8 @@ export function isStaffCameraUser(profile = {}, user = {}) {
   // 2. Local storage / session storage role cached at login
   try {
     const cachedRole = (
-      (typeof localStorage !== "undefined" ? (localStorage.getItem("smartattend_user_role") || localStorage.getItem("user_role") || localStorage.getItem("role")) : "") ||
-      (typeof sessionStorage !== "undefined" ? (sessionStorage.getItem("smartattend_user_role") || sessionStorage.getItem("user_role") || sessionStorage.getItem("role")) : "")
+      (typeof localStorage !== "undefined" ? (localStorage.getItem("smartattend_user_role") || localStorage.getItem("user_role") || localStorage.getItem("role") || localStorage.getItem("smartattend_role")) : "") ||
+      (typeof sessionStorage !== "undefined" ? (sessionStorage.getItem("smartattend_user_role") || sessionStorage.getItem("user_role") || sessionStorage.getItem("role") || sessionStorage.getItem("smartattend_role")) : "")
     ).toLowerCase().trim();
     if (["admin", "administrator", "superadmin", "lecturer", "faculty", "professor", "teacher", "instructor", "staff"].includes(cachedRole)) {
       return true;
@@ -150,14 +152,14 @@ export function isStaffCameraUser(profile = {}, user = {}) {
   // 3. Current active route pathname (Lecturer and Admin sections)
   if (typeof window !== "undefined" && window.location?.pathname) {
     const path = window.location.pathname.toLowerCase();
-    if (path.includes("/lecturer") || path.includes("/admin")) {
+    if (path.includes("/lecturer") || path.includes("/admin") || path.includes("/faculty") || path.includes("/staff")) {
       return true;
     }
   }
 
   // 4. Staff email pattern detection (e.g. staff keywords or non-student domain)
   const email = String(profile?.email || user?.email || "").toLowerCase().trim();
-  if (email && (email.includes("lecturer") || email.includes("faculty") || email.includes("admin") || email.includes("prof"))) {
+  if (email && (email.includes("lecturer") || email.includes("faculty") || email.includes("admin") || email.includes("prof") || email.includes("teacher") || email.includes("staff"))) {
     return true;
   }
 
@@ -168,7 +170,7 @@ export function isStaffCameraUser(profile = {}, user = {}) {
  * Enforces browser camera authorization policy:
  * - Native Mobile App (Capacitor APK): Camera is available.
  * - Browser (!Capacitor.isNativePlatform()):
- *   * Lecturer / Admin: Camera IS available across all devices (front + rear switch).
+ *   * Lecturer / Admin: Camera IS available across ALL devices (front + rear switch).
  *   * iPhone / iOS Users: Camera IS available (Safari/PWA + Guided Access).
  *   * Android / PC Web Students: Camera is NOT available in browser!
  *     (Must use official SmartAttend Android App (.apk) with Lock Task Kiosk mode).
@@ -186,12 +188,14 @@ export function isBrowserCameraAllowed(profile = {}, user = {}) {
   const roleValues = [
     profile?.role,
     profile?.designation,
+    profile?.userType,
+    profile?.type,
     user?.role,
     user?.claims?.role,
     user?.customClaims?.role
   ].map((value) => String(value || "").trim().toLowerCase());
 
-  // Lecturer: Camera is allowed in browser
+  // Lecturer: Camera is allowed in browser across any device
   const isLecturer = roleValues.some((role) =>
     ["lecturer", "faculty", "professor", "teacher", "instructor", "staff"].includes(role)
   ) || profile?.isLecturer === true || user?.isLecturer === true;
@@ -199,18 +203,17 @@ export function isBrowserCameraAllowed(profile = {}, user = {}) {
     return { allowed: true, reason: "lecturer" };
   }
 
-  // Admin: Camera is allowed in browser
-  if (
-    roleValues.some((role) => ["admin", "administrator", "superadmin"].includes(role)) ||
-    profile?.isAdmin === true ||
-    user?.isAdmin === true
-  ) {
+  // Admin: Camera is allowed in browser across any device
+  const isAdmin = roleValues.some((role) =>
+    ["admin", "administrator", "superadmin"].includes(role)
+  ) || profile?.isAdmin === true || user?.isAdmin === true;
+  if (isAdmin) {
     return { allowed: true, reason: "admin" };
   }
 
-  // Lecturer & Admin: Camera is always allowed in browser on all devices
+  // Lecturer & Admin: Camera is always allowed in browser on all devices (Android, iOS, PC, Mac, tablets)
   if (isStaffCameraUser(profile, user)) {
-    return { allowed: true, reason: "lecturer" };
+    return { allowed: true, reason: isAdmin ? "admin" : "lecturer" };
   }
 
   // iPhone / iPad (iOS): Camera is allowed in browser (iOS uses Safari/PWA + Guided Access)

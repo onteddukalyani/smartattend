@@ -87,10 +87,11 @@ function QrScannerApp() {
     // Platform & App Detection
     const isNativeApp = Capacitor.isNativePlatform();
     const isAndroidDevice = typeof navigator !== 'undefined' && (/Android/i.test(navigator.userAgent) || detectDeviceType() === 'android');
-    const isStaff = isStaffCameraUser(profile, user);
+    const isStaff = isStaffCameraUser(profile, user) ||
+        (typeof window !== "undefined" && (window.location.pathname.includes("/lecturer") || window.location.pathname.includes("/admin")));
     const isAndroidWebStudent = !isNativeApp && isAndroidDevice && !isStaff;
     const browserCameraAuth = isBrowserCameraAllowed(profile, user);
-    const isCameraAllowed = isNativeApp || (isStaff && browserCameraAuth.allowed) || (!isAndroidDevice && browserCameraAuth.allowed);
+    const isCameraAllowed = isStaff ? true : (isNativeApp || (!isAndroidDevice && browserCameraAuth.allowed));
     const [showAppBanner, setShowAppBanner] = useState(false);
     const [dismissedAppBanner, setDismissedAppBanner] = useState(false);
     const [deviceOwnerStatus, setDeviceOwnerStatus] = useState({ checked: false, isDeviceOwner: true, isWeb: false });
@@ -3371,7 +3372,7 @@ function QrScannerApp() {
     // UI COMPONENT: ANDROID WEB BROWSER ADVISORY BANNER (Non-blocking)
     // =========================================================================
     const renderAndroidWebBanner = () => {
-        if (isNativeApp || !isAndroidDevice || dismissedAppBanner) return null;
+        if (isNativeApp || !isAndroidDevice || isStaff || dismissedAppBanner) return null;
         return (
             <div style={{
                 maxWidth: '640px',
@@ -4798,7 +4799,7 @@ function QrScannerApp() {
 
             {renderAndroidWebBanner()}
 
-            {!isNativeApp && isIOSDevice() && (
+            {!isNativeApp && isIOSDevice() && !isStaff && (
                 <div style={{
                     maxWidth: '640px',
                     margin: '0 auto 16px',
@@ -4818,6 +4819,69 @@ function QrScannerApp() {
                     <span>
                         iPhone Safari Scanning Active. Ensure camera permissions are allowed in Safari. If prompted during the session, please activate Guided Access (triple-click Side Button).
                     </span>
+                </div>
+            )}
+
+            {isStaff && (
+                <div style={{
+                    maxWidth: '640px',
+                    margin: '0 auto 16px',
+                    padding: '12px 18px',
+                    background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.08) 0%, rgba(79, 70, 229, 0.12) 100%)',
+                    border: '1.5px solid #a5b4fc',
+                    borderRadius: '14px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: '12px',
+                    textAlign: 'left'
+                }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <div style={{
+                            width: '34px',
+                            height: '34px',
+                            borderRadius: '8px',
+                            background: '#6366f1',
+                            color: '#ffffff',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontSize: '1rem',
+                            flexShrink: 0
+                        }}>
+                            <FaShieldAlt />
+                        </div>
+                        <div>
+                            <div style={{ fontSize: '0.86rem', fontWeight: 800, color: '#312e81' }}>
+                                Staff Camera Access Active
+                            </div>
+                            <div style={{ fontSize: '0.76rem', color: '#4338ca' }}>
+                                Lecturers and Admins have unrestricted camera access (Front &amp; Rear) across all devices.
+                            </div>
+                        </div>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={handleToggleFacingMode}
+                        style={{
+                            padding: '8px 14px',
+                            borderRadius: '8px',
+                            background: '#6366f1',
+                            color: '#ffffff',
+                            border: 'none',
+                            fontWeight: 800,
+                            fontSize: '0.78rem',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            flexShrink: 0,
+                            boxShadow: '0 2px 8px rgba(99, 102, 241, 0.3)'
+                        }}
+                    >
+                        <FaSyncAlt />
+                        <span>{effectiveFacingMode === 'user' ? 'Switch to Rear' : 'Switch to Front'}</span>
+                    </button>
                 </div>
             )}
 
