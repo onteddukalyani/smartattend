@@ -9,25 +9,23 @@
   <title>SmartAttend</title>
   <script>
     (function() {
-      function showStartupError(msg) {
-        console.error('[SmartAttendStartupError]', msg);
-        var root = document.getElementById('root');
-        if (root) {
-          root.innerHTML = '<div style="padding: 24px; font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif; background: #0f172a; color: #fff; min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center;">' +
-            '<div style="max-width: 420px; width: 90%; padding: 26px 20px; background: #1e293b; border-radius: 18px; border: 1.5px solid #ef4444; box-shadow: 0 10px 30px rgba(0,0,0,0.5);">' +
-            '<div style="font-size: 2.2rem; margin-bottom: 8px;">⚠️</div>' +
-            '<h3 style="color: #ef4444; margin: 0 0 10px 0; font-size: 1.2rem;">SmartAttend Startup Notice</h3>' +
-            '<p style="color: #94a3b8; font-size: 0.88rem; line-height: 1.5; margin: 0 0 18px 0;">' + (msg || 'An unexpected error occurred during application initialization.') + '</p>' +
-            '<button onclick="window.location.reload()" style="width: 100%; padding: 12px 20px; background: #3b82f6; color: #fff; border: none; border-radius: 10px; cursor: pointer; font-weight: bold; font-size: 0.92rem;">Reload SmartAttend</button>' +
-            '</div></div>';
-        }
-      }
+      // Diagnostic logging without disrupting DOM rendering
       window.addEventListener('error', function(e) {
-        showStartupError(e.message || (e.error && e.error.message) || 'Script execution error');
+        console.error('[SmartAttendStartupNotice] Script error:', e.message || (e.error && e.error.message) || e);
       });
       window.addEventListener('unhandledrejection', function(e) {
-        showStartupError((e.reason && (e.reason.message || e.reason)) || 'Unhandled promise rejection');
+        console.warn('[SmartAttendStartupNotice] Handled promise warning:', (e.reason && (e.reason.message || e.reason)) || e);
       });
+      // Safety fail-safe: if the app-initial-loader is STILL in the DOM after 12 seconds, provide a gentle reload option
+      setTimeout(function() {
+        var loader = document.getElementById('app-initial-loader');
+        if (loader) {
+          var p = loader.querySelector('p');
+          if (p) {
+            p.innerHTML = 'Connecting to SmartAttend services...<br/><a href="javascript:window.location.reload()" style="display:inline-block;margin-top:12px;color:#60a5fa;text-decoration:underline;font-weight:600;font-size:0.85rem;">Tap to refresh if loading takes too long</a>';
+          }
+        }
+      }, 12000);
     })();
   </script>
 </head>

@@ -128,7 +128,7 @@ function GenerateQR() {
 
     // Laptop / Desktop detection: laptops do not have satellite GPS hardware and rely on Wi-Fi positioning (±50m - 200m)
     const isMobileDevice = typeof navigator !== "undefined" && /Android|iPhone|iPad|iPod|Mobile/i.test(navigator?.userAgent || "");
-    const maxHostAccuracy = isMobileDevice ? MAX_CLASSROOM_LOCATION_ACCURACY_METERS : 250;
+    const maxHostAccuracy = isMobileDevice ? 80 : 250;
     const classroomGpsReady =
         geofenceRadius === 0 ||
         (classroomGpsStatus === "ACTIVE" && Number(classroomCoords?.accuracy) <= maxHostAccuracy) ||

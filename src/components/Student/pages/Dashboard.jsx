@@ -176,7 +176,22 @@ export default function StudentDashboard() {
                             } catch (_) { }
                         }
                     },
-                    () => { },
+                    () => {
+                        try {
+                            navigator.geolocation.getCurrentPosition(
+                                (pos) => {
+                                    const loc = locationFromPosition(pos);
+                                    if (loc) {
+                                        try {
+                                            localStorage.setItem('smartattend_student_location', JSON.stringify(loc));
+                                        } catch (_) { }
+                                    }
+                                },
+                                () => { },
+                                { enableHighAccuracy: false, timeout: 6000, maximumAge: 30000 }
+                            );
+                        } catch (_) { }
+                    },
                     { enableHighAccuracy: true, timeout: 8000, maximumAge: 15000 }
                 );
             }

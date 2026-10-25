@@ -347,10 +347,19 @@ function QrScannerApp() {
             };
 
             try {
-                // 1. Instant GPS prime: Rapid lock accepting recent cache with fast GNSS fallback
+                // 1. Instant GPS prime: Rapid lock with fast GNSS fallback
                 navigator.geolocation.getCurrentPosition(
                     applyStudentGps,
-                    () => { },
+                    () => {
+                        // Indoor fallback: network/Wi-Fi positioning if GNSS satellite lock is delayed indoors
+                        try {
+                            navigator.geolocation.getCurrentPosition(
+                                applyStudentGps,
+                                (err) => console.warn('[Scanner] Network GPS prewarm notice:', err?.message || err),
+                                { enableHighAccuracy: false, timeout: 6000, maximumAge: 30000 }
+                            );
+                        } catch (_) { }
+                    },
                     { enableHighAccuracy: true, timeout: 5000, maximumAge: 15000 }
                 );
 
@@ -2195,26 +2204,36 @@ function QrScannerApp() {
         // Pick best accurate location (prioritizing accuracy <= 45m)
         let studentCoords = pickBestStudentLocation(candidates);
 
-        // Fast GPS Lock: If location is not yet acquired or is stale (>60s), quickly resolve within 1.5 seconds
+        // Fast GPS Lock: If location is not yet acquired or is stale (>60s), quickly resolve with concurrent fallback
         if ((!studentCoords || !isFreshLocation(studentCoords)) && typeof navigator !== "undefined" && navigator.geolocation) {
             try {
                 const freshFix = await new Promise((resolve) => {
-                    const tid = setTimeout(() => resolve(null), 1500);
+                    const tid = setTimeout(() => resolve(null), 3000);
+                    let resolved = false;
+                    const onPos = (pos) => {
+                        if (resolved) return;
+                        resolved = true;
+                        clearTimeout(tid);
+                        const loc = locationFromPosition(pos);
+                        resolve(loc || null);
+                    };
                     navigator.geolocation.getCurrentPosition(
-                        (pos) => {
-                            clearTimeout(tid);
-                            resolve({
-                                latitude: pos.coords.latitude,
-                                longitude: pos.coords.longitude,
-                                accuracy: pos.coords.accuracy || 20,
-                                timestamp: pos.timestamp || Date.now()
-                            });
-                        },
+                        onPos,
                         () => {
-                            clearTimeout(tid);
-                            resolve(null);
+                            // If high-accuracy GNSS fails or times out indoors, query coarse location immediately
+                            navigator.geolocation.getCurrentPosition(
+                                onPos,
+                                () => {
+                                    if (!resolved) {
+                                        resolved = true;
+                                        clearTimeout(tid);
+                                        resolve(null);
+                                    }
+                                },
+                                { enableHighAccuracy: false, timeout: 2000, maximumAge: 30000 }
+                            );
                         },
-                        { enableHighAccuracy: true, timeout: 1400, maximumAge: 10000 }
+                        { enableHighAccuracy: true, timeout: 2500, maximumAge: 15000 }
                     );
                 });
                 if (freshFix) {
@@ -3413,7 +3432,29 @@ function QrScannerApp() {
                     <div style={{ fontWeight: 750, color: 'var(--text-main, #0f172a)' }}>
                         {(scannedStudentLocation || currentStudentLocation)
                             ? `${(scannedStudentLocation || currentStudentLocation).latitude.toFixed(4)}, ${(scannedStudentLocation || currentStudentLocation).longitude.toFixed(4)}`
-                            : 'Acquiring satellite lock...'}
+                            : (
+                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                                    <span>Acquiring satellite lock...</span>
+                                    <button
+                                        type="button"
+                                        onClick={async (e) => {
+                                            e.stopPropagation();
+                                            if (typeof navigator !== "undefined" && navigator.geolocation) {
+                                                try {
+                                                    const loc = await acquireAccurateLocation(navigator.geolocation, { timeoutMs: 5000 });
+                                                    if (loc) {
+                                                        prewarmedLocationRef.current = loc;
+                                                        setCurrentStudentLocation(loc);
+                                                    }
+                                                } catch (_) { }
+                                            }
+                                        }}
+                                        style={{ background: '#3b82f6', color: '#fff', border: 'none', borderRadius: '4px', padding: '2px 7px', fontSize: '0.65rem', cursor: 'pointer', fontWeight: 600 }}
+                                    >
+                                        Refresh
+                                    </button>
+                                </span>
+                            )}
                     </div>
                     {(scannedStudentLocation || currentStudentLocation) && (
                         <div style={{ fontSize: '0.68rem', color: '#10b981', fontWeight: 600 }}>

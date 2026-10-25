@@ -94,13 +94,28 @@ export function StudentReadinessModal({
                 }
             },
             (err) => {
-                setRequestingLocation(false);
-                console.warn('[ReadinessModal] Location permission denied or error:', err);
                 if (err.code === 1) { // PERMISSION_DENIED
+                    setRequestingLocation(false);
                     setLocationStatus('denied');
                 } else {
-                    // Position unavailable or timeout, but permission may be granted
-                    setLocationStatus('granted');
+                    // Position timeout or unavailable GNSS: attempt fast network/Wi-Fi positioning fallback
+                    navigator.geolocation.getCurrentPosition(
+                        (fallbackPos) => {
+                            setRequestingLocation(false);
+                            setLocationStatus('granted');
+                            const loc = locationFromPosition(fallbackPos);
+                            if (loc) {
+                                try {
+                                    localStorage.setItem('smartattend_student_location', JSON.stringify(loc));
+                                } catch (_) { }
+                            }
+                        },
+                        () => {
+                            setRequestingLocation(false);
+                            setLocationStatus('granted'); // System permission was granted, satellite signal just settling
+                        },
+                        { enableHighAccuracy: false, timeout: 6000, maximumAge: 30000 }
+                    );
                 }
             },
             { enableHighAccuracy: true, timeout: 8000, maximumAge: 15000 }

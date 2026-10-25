@@ -147,12 +147,25 @@ export function acquireAccurateLocation(
       }
     };
 
-    // Fast-path 1: Parallel getCurrentPosition for rapid one-shot GNSS prime
+    // Fast-path 1: Parallel getCurrentPosition with high accuracy, falling back to network positioning
     if (typeof geolocation.getCurrentPosition === "function") {
       try {
         geolocation.getCurrentPosition(
           handlePosition,
-          () => {},
+          () => {
+            // Concurrent indoor fallback: query network/Wi-Fi positioning (succeeds quickly indoors)
+            try {
+              geolocation.getCurrentPosition(
+                handlePosition,
+                () => {},
+                {
+                  enableHighAccuracy: false,
+                  timeout: Math.max(4000, timeoutMs),
+                  maximumAge: typeof maximumAge === "number" ? Math.max(maximumAge, 15000) : 15000
+                }
+              );
+            } catch (_) {}
+          },
           {
             enableHighAccuracy: true,
             timeout: timeoutMs,
@@ -167,7 +180,13 @@ export function acquireAccurateLocation(
       try {
         watchId = geolocation.watchPosition(
           handlePosition,
-          () => finish(bestLocation),
+          () => {
+            // If watch position reports a temporary satellite search error,
+            // only finish if we already have a suitable fix, otherwise let the timeout finish
+            if (bestLocation && isAccurateLocation(bestLocation, Date.now(), maxAccuracy)) {
+              finish(bestLocation);
+            }
+          },
           {
             enableHighAccuracy: true,
             timeout: timeoutMs,

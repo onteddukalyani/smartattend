@@ -67,6 +67,16 @@ public class MainActivity extends BridgeActivity {
                 settings.setCacheMode(android.webkit.WebSettings.LOAD_DEFAULT);
                 settings.setLoadWithOverviewMode(true);
                 settings.setUseWideViewPort(true);
+
+                // Pre-allow geolocation in WebView for local and production origins
+                try {
+                    android.webkit.GeolocationPermissions.getInstance().allow("https://localhost");
+                    android.webkit.GeolocationPermissions.getInstance().allow("http://localhost");
+                    android.webkit.GeolocationPermissions.getInstance().allow("https://smartattend.vercel.app");
+                    android.webkit.GeolocationPermissions.getInstance().allow("https://smartattend-app.vercel.app");
+                    android.webkit.GeolocationPermissions.getInstance().allow("https://smart-attendance-ok.web.app");
+                    android.webkit.GeolocationPermissions.getInstance().allow("https://smart-attendance-ok.firebaseapp.com");
+                } catch (Throwable ignored) {}
             }
         } catch (Throwable t) {
             android.util.Log.w("MainActivity", "WebView config notice: " + t.getMessage());
@@ -217,6 +227,15 @@ public class MainActivity extends BridgeActivity {
         if (KioskPlugin.isKioskEnforced) {
             KioskPlugin.reEnforceKiosk(this);
         }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        try {
+            android.webkit.GeolocationPermissions.getInstance().allow("https://localhost");
+            android.webkit.GeolocationPermissions.getInstance().allow("http://localhost");
+        } catch (Throwable ignored) {}
     }
 
     @Override
