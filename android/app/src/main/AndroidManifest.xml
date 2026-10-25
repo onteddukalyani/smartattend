@@ -43,7 +43,13 @@
                 <data android:scheme="https" android:host="smartattend-app.vercel.app" />
                 <data android:scheme="https" android:host="smartattend-project.vercel.app" />
                 <data android:scheme="https" android:host="smartattend-ochre.vercel.app" />
+                <data android:scheme="https" android:host="smart-attendance-ok.web.app" />
+                <data android:scheme="https" android:host="smart-attendance-ok.firebaseapp.com" />
+                <data android:scheme="https" android:host="smartattend.app" />
                 <data android:scheme="http" android:host="smartattend.vercel.app" />
+                <data android:scheme="http" android:host="smart-attendance-ok.web.app" />
+                <data android:scheme="http" android:host="smart-attendance-ok.firebaseapp.com" />
+                <data android:scheme="http" android:host="smartattend.app" />
             </intent-filter>
 
         </activity>

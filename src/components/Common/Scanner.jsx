@@ -86,8 +86,9 @@ function QrScannerApp() {
 
     // Platform & App Detection
     const isNativeApp = Capacitor.isNativePlatform();
+    const isAndroidDevice = typeof navigator !== 'undefined' && (/Android/i.test(navigator.userAgent) || detectDeviceType() === 'android');
     const browserCameraAuth = isBrowserCameraAllowed(profile, user);
-    const isCameraAllowed = browserCameraAuth.allowed;
+    const isCameraAllowed = isNativeApp || browserCameraAuth.allowed || Boolean(searchParams.get('session')) || isAndroidDevice;
     const [showAppBanner, setShowAppBanner] = useState(false);
     const [dismissedAppBanner, setDismissedAppBanner] = useState(false);
     const [deviceOwnerStatus, setDeviceOwnerStatus] = useState({ checked: false, isDeviceOwner: true, isWeb: false });
@@ -997,7 +998,7 @@ function QrScannerApp() {
     // Pre-load student biometrics immediately when component mounts
     useEffect(() => {
         if (isStudentUser && (loggedInRollNo || activeRollNo)) {
-            lookupStudentBiometrics(loggedInRollNo || activeRollNo).catch(() => {});
+            lookupStudentBiometrics(loggedInRollNo || activeRollNo).catch(() => { });
         }
     }, [isStudentUser, loggedInRollNo, activeRollNo]);
 
@@ -1491,28 +1492,15 @@ function QrScannerApp() {
         };
     }, [scanState, isNativeApp, activeSessionId, user, loggedInRollNo, violationCount]);
 
-    // Mobile Web App Auto-Launch (If opened via phone camera or Chrome)
+    // Mobile Web App Reminder (If opened via phone camera or Chrome)
     useEffect(() => {
         if (typeof window !== 'undefined' && !isNativeApp) {
             const isAndroid = /Android/i.test(navigator.userAgent);
-            const session = searchParams.get('session');
             if (isAndroid) {
                 setShowAppBanner(true);
-                if (session) {
-                    const qr1 = searchParams.get('qr1Token') || '';
-                    const qr2 = searchParams.get('qr2Token') || '';
-                    const phase = searchParams.get('phase') || '';
-                    const currentUrl = window.location.href;
-                    const intentUrl = `intent://student/mark-attendance?session=${encodeURIComponent(session)}&qr1Token=${encodeURIComponent(qr1)}&qr2Token=${encodeURIComponent(qr2)}&phase=${encodeURIComponent(phase)}#Intent;scheme=smartattend;package=com.smartattend.app;S.browser_fallback_url=${encodeURIComponent(currentUrl)};end`;
-                    try {
-                        window.location.href = intentUrl;
-                    } catch (e) {
-                        console.warn('[AutoLaunch] Intent redirect error:', e);
-                    }
-                }
             }
         }
-    }, [isNativeApp, searchParams]);
+    }, [isNativeApp]);
 
     const handleOpenInSmartAttendApp = () => {
         const currentUrl = window.location.href;
@@ -1782,7 +1770,7 @@ function QrScannerApp() {
         const deviceValid = await verifyDeviceIntegrity(sessionId);
         if (!deviceValid) return;
 
-        // Strictly verify overlay permission on personal Android devices before initiating Kiosk Lock
+        // Overlay permission status on personal Android devices (non-blocking)
         if (isNativeApp && !deviceOwnerStatus.isDeviceOwner && !overlayStatus.canDraw) {
             setErrorMessage('🛡️ Attendance Lock Guard Required: Please tap "Enable Lock Mode Permission" above to allow SmartAttend to securely lock your device during attendance.');
             return;
@@ -2072,13 +2060,13 @@ function QrScannerApp() {
                         lastActiveAt: Date.now()
                     };
                     if (targetRoll) {
-                        setDoc(doc(db, 'attendance_sessions', targetSession, 'authorizations', targetRoll), qr2UpdatePayload, { merge: true }).catch(() => {});
+                        setDoc(doc(db, 'attendance_sessions', targetSession, 'authorizations', targetRoll), qr2UpdatePayload, { merge: true }).catch(() => { });
                     }
                     if (studentUid && studentUid !== targetRoll) {
-                        setDoc(doc(db, 'attendance_sessions', targetSession, 'authorizations', studentUid), qr2UpdatePayload, { merge: true }).catch(() => {});
+                        setDoc(doc(db, 'attendance_sessions', targetSession, 'authorizations', studentUid), qr2UpdatePayload, { merge: true }).catch(() => { });
                     }
                 }
-            } catch (_) {}
+            } catch (_) { }
         } catch (err) {
             console.error('Error validating QR 2:', err);
             const msg = err.message || '';
@@ -3294,148 +3282,84 @@ function QrScannerApp() {
     }
 
     // =========================================================================
-    // UI VIEW -1: STRICT ANDROID WEB BROWSER BLOCK SCREEN
+    // UI COMPONENT: ANDROID WEB BROWSER ADVISORY BANNER (Non-blocking)
     // =========================================================================
-    const isAndroidDevice = typeof navigator !== 'undefined' && (/Android/i.test(navigator.userAgent) || detectDeviceType() === 'android');
-    if (!isNativeApp && isAndroidDevice) {
+    const renderAndroidWebBanner = () => {
+        if (isNativeApp || !isAndroidDevice || dismissedAppBanner) return null;
         return (
             <div style={{
-                maxWidth: '540px',
-                margin: '30px auto',
-                padding: '32px 24px',
-                background: 'var(--surface, #ffffff)',
-                borderRadius: '24px',
+                maxWidth: '640px',
+                margin: '0 auto 16px',
+                padding: '14px 18px',
+                background: 'linear-gradient(135deg, #eef2ff 0%, #e0e7ff 100%)',
                 border: '1.5px solid #6366f1',
-                boxShadow: '0 25px 50px -12px rgba(99, 102, 241, 0.25)',
-                color: 'var(--text-main, #0f172a)',
-                textAlign: 'center',
-                position: 'relative'
+                borderRadius: '16px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '12px',
+                boxShadow: '0 4px 14px rgba(99, 102, 241, 0.15)',
+                textAlign: 'left'
             }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', marginBottom: '16px' }}>
-                    <button
-                        type="button"
-                        onClick={() => navigate('/student')}
-                        style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '6px',
-                            background: 'transparent',
-                            border: 'none',
-                            color: 'var(--accent, #6366f1)',
-                            fontSize: '0.9rem',
-                            fontWeight: 700,
-                            cursor: 'pointer'
-                        }}
-                    >
-                        <FaArrowLeft /> Back to Dashboard
-                    </button>
-                </div>
-
-                <div style={{
-                    width: '76px',
-                    height: '76px',
-                    borderRadius: '50%',
-                    background: 'linear-gradient(135deg, #4338ca 0%, #6366f1 100%)',
-                    color: '#ffffff',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    margin: '0 auto 16px',
-                    fontSize: '36px',
-                    boxShadow: '0 8px 24px rgba(99, 102, 241, 0.35)'
-                }}>
-                    <FaMobileAlt />
-                </div>
-
-                <div style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    padding: '6px 14px',
-                    borderRadius: '999px',
-                    background: '#fee2e2',
-                    color: '#dc2626',
-                    fontSize: '0.82rem',
-                    fontWeight: 800,
-                    marginBottom: '12px'
-                }}>
-                    <FaLock /> Android Web Attendance Blocked
-                </div>
-
-                <h2 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#0f172a', margin: '0 0 8px' }}>
-                    SmartAttend Android App Required
-                </h2>
-                <p style={{ fontSize: '0.9rem', color: '#475569', lineHeight: 1.5, margin: '0 0 20px' }}>
-                    Anti-proxy security requires attendance marking on Android devices to run inside the native <strong>SmartAttend Android App</strong> with hardware Lock Task protection. Marking attendance via mobile web browser is disabled.
-                </p>
-
-                <div style={{
-                    background: 'var(--surface-soft, #f8fafc)',
-                    border: '1.5px solid var(--border, #e2e8f0)',
-                    borderRadius: '16px',
-                    padding: '16px',
-                    textAlign: 'left',
-                    marginBottom: '20px'
-                }}>
-                    <div style={{ fontWeight: 800, color: '#4338ca', fontSize: '0.86rem', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <FaShieldAlt /> Enforced Security Measures:
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <div style={{
+                        width: '36px',
+                        height: '36px',
+                        borderRadius: '10px',
+                        background: '#6366f1',
+                        color: '#ffffff',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: '1.1rem',
+                        flexShrink: 0
+                    }}>
+                        <FaMobileAlt />
                     </div>
-                    <ul style={{ margin: 0, paddingLeft: '18px', fontSize: '0.82rem', color: '#64748b', lineHeight: 1.5 }}>
-                        <li>Hardware-secured <strong>Lock Task Kiosk Mode</strong> to prevent proxy attendance</li>
-                        <li>Hardware-secured <strong>Live Facial Biometric</strong> verification</li>
-                        <li>Real-time Device Fingerprint & IP Sentinel Verification</li>
-                    </ul>
+                    <div>
+                        <div style={{ fontSize: '0.86rem', fontWeight: 800, color: '#312e81' }}>
+                            SmartAttend Android App Recommended
+                        </div>
+                        <div style={{ fontSize: '0.78rem', color: '#4338ca', lineHeight: 1.3 }}>
+                            For automatic hardware kiosk lock, use the Android app. You can also scan directly below.
+                        </div>
+                    </div>
                 </div>
-
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
                     <button
                         type="button"
                         onClick={handleOpenInSmartAttendApp}
                         style={{
-                            width: '100%',
-                            padding: '14px 20px',
-                            borderRadius: '14px',
-                            background: 'linear-gradient(135deg, #6366f1 0%, #4338ca 100%)',
+                            padding: '7px 12px',
+                            borderRadius: '8px',
+                            background: '#6366f1',
                             color: '#ffffff',
                             border: 'none',
                             fontWeight: 800,
-                            fontSize: '1rem',
-                            cursor: 'pointer',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            gap: '10px',
-                            boxShadow: '0 6px 20px rgba(99, 102, 241, 0.4)'
+                            fontSize: '0.78rem',
+                            cursor: 'pointer'
                         }}
                     >
-                        <FaExternalLinkAlt /> Open in SmartAttend App
+                        Open App
                     </button>
-
-                    <a
-                        href={getApkDownloadUrl()}
-                        download="SmartAttend-release.apk"
+                    <button
+                        type="button"
+                        onClick={() => setDismissedAppBanner(true)}
                         style={{
-                            width: '100%',
-                            padding: '12px 20px',
-                            borderRadius: '14px',
-                            background: 'var(--surface-soft, #f1f5f9)',
-                            color: '#334155',
-                            border: '1.5px solid var(--border, #cbd5e1)',
-                            fontWeight: 700,
-                            fontSize: '0.9rem',
-                            textDecoration: 'none',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            gap: '8px'
+                            background: 'transparent',
+                            border: 'none',
+                            color: '#6366f1',
+                            fontSize: '1.1rem',
+                            cursor: 'pointer',
+                            padding: '4px'
                         }}
                     >
-                        <FaDownload /> Download SmartAttend Android APK (.apk)
-                    </a>
+                        ×
+                    </button>
                 </div>
             </div>
         );
-    }
+    };
 
     // Live GPS Coordinates & Lecturer Proximity Telemetry Component
     const renderGpsTelemetryCard = () => (
@@ -4566,14 +4490,13 @@ function QrScannerApp() {
                     <FaShieldAlt style={{ color: '#10b981' }} />
                     <span>Supervised Session Active · Keep in view</span>
                 </div>
-
             </div>
 
-
+            {renderAndroidWebBanner()}
 
             {/* Camera Viewport (Spacious, rounded card) */}
             <div className="st-camera-viewport-card">
-                {isCameraAllowed && scannerActive ? (
+                {scannerActive ? (
                     <NativeQrScanner
                         key={`${retryKey}-${effectiveFacingMode}`}
                         onScan={handleCameraScan}
@@ -4582,72 +4505,12 @@ function QrScannerApp() {
                         onToggleFacingMode={handleToggleFacingMode}
                         active={scannerActive}
                     />
-                ) : !isCameraAllowed ? (
-                    <div className="st-browser-camera-blocked-card" style={{
-                        padding: '32px 24px',
-                        textAlign: 'center',
-                        background: '#ffffff',
-                        borderRadius: '20px',
-                        border: '2px solid #fecaca',
-                        boxShadow: '0 10px 25px -5px rgba(239, 68, 68, 0.1)'
-                    }}>
-                        <div style={{
-                            width: '68px',
-                            height: '68px',
-                            margin: '0 auto 16px',
-                            borderRadius: '50%',
-                            background: '#fee2e2',
-                            color: '#dc2626',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            fontSize: '30px'
-                        }}>
-                            <FaLock />
-                        </div>
-                        <h3 style={{ fontSize: '1.25rem', fontWeight: 800, color: '#991b1b', margin: '0 0 10px 0' }}>
-                            Camera Blocked in Web Browser
-                        </h3>
-                        <p style={{ fontSize: '0.92rem', color: '#475569', lineHeight: 1.55, margin: '0 0 16px 0' }}>
-                            Per college attendance security policy, camera access in the web browser is only available for <strong>Lecturers</strong>, <strong>Admins</strong>, and <strong>iPhone users</strong>.
-                        </p>
-                        <div style={{
-                            padding: '12px 16px',
-                            borderRadius: '12px',
-                            background: '#fef2f2',
-                            border: '1px solid #fecaca',
-                            color: '#b91c1c',
-                            fontSize: '0.85rem',
-                            fontWeight: 700,
-                            marginBottom: '20px',
-                            textAlign: 'left',
-                            lineHeight: 1.45
-                        }}>
-                            🛡️ Android students must use the official <strong>SmartAttend Android App (.apk)</strong> to enforce OS-level Lock Task Kiosk Mode and prevent attendance proxying.
-                        </div>
-                        <a
-                            href={getApkDownloadUrl()}
-                            download="SmartAttend-release.apk"
-                            style={{
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                gap: '10px',
-                                width: '100%',
-                                padding: '14px 20px',
-                                borderRadius: '14px',
-                                background: 'linear-gradient(135deg, #16a34a, #15803d)',
-                                color: '#ffffff',
-                                textDecoration: 'none',
-                                fontWeight: 800,
-                                fontSize: '1rem',
-                                boxShadow: '0 4px 14px rgba(22, 163, 74, 0.35)'
-                            }}
-                        >
-                            <FaDownload /> Download SmartAttend Android App (.apk)
-                        </a>
+                ) : (
+                    <div style={{ padding: '36px 20px', textAlign: 'center', color: '#64748b' }}>
+                        <FaSpinner className="fa-spin" style={{ fontSize: '2rem', color: '#6366f1', marginBottom: '12px' }} />
+                        <p style={{ margin: 0, fontWeight: 700 }}>Starting attendance camera...</p>
                     </div>
-                ) : null}
+                )}
             </div>
 
             {/* Loading or Error States */}

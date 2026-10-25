@@ -196,9 +196,11 @@ function App() {
         const fullRoute = `${targetPath}${searchStr}`;
         console.log("[DeepLink] Routing to:", fullRoute);
 
-        if (!user) {
+        if (typeof window !== "undefined") {
           sessionStorage.setItem("smartattend_redirect_after_login", fullRoute);
-          navigate("/login", { replace: true });
+        }
+        if (user) {
+          navigate(fullRoute, { replace: true });
         } else {
           navigate(fullRoute, { replace: true });
         }
@@ -234,6 +236,18 @@ function App() {
       }
     };
   }, [user, navigate]);
+
+  // 1.5 Restore preserved attendance deep-link once user auth is resolved
+  useEffect(() => {
+    if (!loading && user && typeof window !== "undefined") {
+      const pendingRedirect = sessionStorage.getItem("smartattend_redirect_after_login");
+      if (pendingRedirect) {
+        sessionStorage.removeItem("smartattend_redirect_after_login");
+        console.log("[DeepLink] Restoring pending attendance route after login:", pendingRedirect);
+        navigate(pendingRedirect, { replace: true });
+      }
+    }
+  }, [loading, user, navigate]);
 
   // 2. Preserve unauthenticated incoming attendance URL in sessionStorage
   useEffect(() => {
@@ -354,7 +368,19 @@ function App() {
         <Routes>
           {/* Public / Common Routes */}
           <Route path="/student-form" element={<StudentForm />} />
-        <Route path="/login" element={<Navigate to={defaultDashboard} replace />} />
+          <Route
+            path="/login"
+            element={
+              (() => {
+                const pending = typeof window !== "undefined" ? sessionStorage.getItem("smartattend_redirect_after_login") : null;
+                if (pending) {
+                  sessionStorage.removeItem("smartattend_redirect_after_login");
+                  return <Navigate to={pending} replace />;
+                }
+                return <Navigate to={defaultDashboard} replace />;
+              })()
+            }
+          />
 
         {/* ==========================================
             1. ADMIN PORTAL (Strictly for Admin role)
