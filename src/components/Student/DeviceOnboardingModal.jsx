@@ -25,6 +25,7 @@ import { detectDeviceType, getClientIpAddress, getDeviceDisplayName } from '../.
 import { sendFacultyNotification, sendStudentNotification } from '../../services/notificationsService';
 import { registerUserDevice, registerStudentDevice } from '../../services/deviceRegistrationService';
 import { getApkDownloadUrl } from '../../utils/apkUrl';
+import { broadcastStudentUpdate } from '../../utils/studentDataHelper';
 import './DeviceOnboardingModal.css';
 
 const ANDROID_APK_URL = getApkDownloadUrl();
@@ -205,6 +206,18 @@ export function DeviceOnboardingModal({ isOpen, onClose }) {
                 platform: selectedDevice,
                 ip
             });
+
+            if (currentRole === 'student') {
+                broadcastStudentUpdate({
+                    rollNo: roll,
+                    uid: user?.uid,
+                    email: user?.email,
+                    deviceType: selectedDevice,
+                    deviceTypeLocked: true,
+                    isDeviceRegistered: true,
+                    deviceResetAt: null
+                });
+            }
 
             const userName = profile?.name || roll || user?.email || 'User';
             const deviceLabel = selectedDevice === 'android' ? 'Android APK' : 'iPhone (iOS Guided Access)';

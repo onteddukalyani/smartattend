@@ -22,7 +22,7 @@ import ViolationReviewModal from "../../Common/ViolationReviewModal";
 import MasterAttendanceMatrix from "../../Common/MasterAttendanceMatrix";
 import { useTableSort, SortIcon } from "../../Common/useTableSort";
 import "./AttendanceOverview.css";
-import { mergeAllStudentRecords, normalizeBranchName } from "../../../utils/studentDataHelper";
+import { mergeAllStudentRecords, normalizeBranchName, subscribeToStudentUpdates } from "../../../utils/studentDataHelper";
 
 const AttendanceOverview = () => {
   const navigate = useNavigate();
@@ -47,6 +47,29 @@ const AttendanceOverview = () => {
     averageAttendanceRate: 0,
     totalViolations: 0
   });
+
+  // Real-time synchronization: reflect student updates made anywhere across tabs/pages
+  useEffect(() => {
+    const unsub = subscribeToStudentUpdates((updated) => {
+      if (!updated) return;
+      const targetRoll = (updated.rollNo || updated.id || "").toUpperCase().trim();
+      if (!targetRoll) return;
+
+      setStudents((prev) => {
+        if (updated.isDeleted) {
+          return prev.filter((s) => (s.rollNo || s.id || "").toUpperCase() !== targetRoll);
+        }
+        return prev.map((s) => ((s.rollNo || s.id || "").toUpperCase() === targetRoll ? { ...s, ...updated } : s));
+      });
+      setSelectedStudent((prev) => {
+        if (!prev) return null;
+        const sRoll = (prev.rollNo || prev.id || "").toUpperCase().trim();
+        return sRoll === targetRoll ? (updated.isDeleted ? null : { ...prev, ...updated }) : prev;
+      });
+    });
+
+    return () => unsub();
+  }, []);
 
   const filteredViolationsByClassAndDate = useMemo(() => {
     return flaggedViolations.filter((v) => {
@@ -895,8 +918,15 @@ const AttendanceOverview = () => {
           student={selectedStudent}
           onClose={() => setSelectedStudent(null)}
           onUpdate={(updated) => {
-            if (!updated) return;
+            if (!updated) {
+              setSelectedStudent(null);
+              return;
+            }
             setSelectedStudent(updated);
+            const targetRoll = (updated.rollNo || updated.id || "").toUpperCase().trim();
+            setStudents((prev) =>
+              prev.map((s) => ((s.rollNo || s.id || "").toUpperCase() === targetRoll ? { ...s, ...updated } : s))
+            );
           }}
         />
       )}

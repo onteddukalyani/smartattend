@@ -6,7 +6,7 @@ import { useAuth } from "../../authcontext";
 import { downloadExcel } from "../../../DownloadExcel";
 import { useTableSort, SortIcon } from "../../Common/useTableSort";
 import { buildUserLookupMaps, normalizeSessions, doesSessionBelongToLecturer } from "../../Common/sessionMatcher";
-import { normalizeBranchName } from "../../../utils/studentDataHelper";
+import { normalizeBranchName, subscribeToStudentUpdates } from "../../../utils/studentDataHelper";
 import { excuseAndReinstateAttendance, dismissOrRemoveViolation } from "../../../services/sessionAuthService";
 import { FiSearch, FiPlusCircle, FiUsers, FiLayers, FiFilter, FiX } from "react-icons/fi";
 import { FaCheckCircle, FaQrcode, FaClock, FaTrashAlt, FaLayerGroup, FaTable, FaUserPlus, FaExclamationTriangle, FaShieldAlt, FaCheck, FaTimes, FaSpinner, FaChalkboardTeacher, FaBookOpen, FaGraduationCap } from "react-icons/fa";
@@ -744,6 +744,31 @@ export function SessionAttendanceData() {
         (userPrefix && (session?.ownerEmail?.toLowerCase().startsWith(userPrefix) || session?.lecturerEmail?.toLowerCase().startsWith(userPrefix))) ||
         (session?.lecturerName && userName && session.lecturerName.toLowerCase().trim() === userName)
     );
+
+    // Real-time synchronization: reflect student updates made anywhere across tabs/pages
+    useEffect(() => {
+        const unsub = subscribeToStudentUpdates((updated) => {
+            if (!updated) return;
+            const targetRoll = (updated.rollNo || updated.id || "").toUpperCase().trim();
+            if (!targetRoll) return;
+
+            setEnrolledStudents((prev) =>
+                prev.map((s) => ((s.rollNo || s.id || "").toUpperCase() === targetRoll ? { ...s, ...updated } : s))
+            );
+            setAllStudentsMap((prev) => {
+                const next = new Map(prev);
+                next.set(targetRoll, { ...(next.get(targetRoll) || {}), ...updated });
+                return next;
+            });
+            setSelectedStudentForModal((prev) => {
+                if (!prev) return null;
+                const sRoll = (prev.rollNo || prev.id || "").toUpperCase().trim();
+                return sRoll === targetRoll ? (updated.isDeleted ? null : { ...prev, ...updated }) : prev;
+            });
+        });
+
+        return () => unsub();
+    }, []);
 
     const removeRecord = async (recordOrMember) => {
         if (!isSessionOwner) {
@@ -1877,7 +1902,22 @@ export function SessionAttendanceData() {
                 <StudentDetailModal
                     student={selectedStudentForModal}
                     onClose={() => setSelectedStudentForModal(null)}
-                    onUpdate={() => { }}
+                    onUpdate={(updated) => {
+                        if (!updated) {
+                            setSelectedStudentForModal(null);
+                            return;
+                        }
+                        setSelectedStudentForModal(updated);
+                        const targetRoll = (updated.rollNo || updated.id || "").toUpperCase().trim();
+                        setEnrolledStudents((prev) =>
+                            prev.map((s) => ((s.rollNo || s.id || "").toUpperCase() === targetRoll ? { ...s, ...updated } : s))
+                        );
+                        setAllStudentsMap((prev) => {
+                            const next = new Map(prev);
+                            if (targetRoll) next.set(targetRoll, { ...(next.get(targetRoll) || {}), ...updated });
+                            return next;
+                        });
+                    }}
                 />
             )}
 

@@ -46,7 +46,7 @@ import FaceScanner, { releaseAllMediaTracks, loadFaceApiModels } from '../Lectur
 import { isIOSDevice, isGuidedAccessEnabled, addAppSwitchListener, addScreenCaptureListener } from '../../services/guidedAccessService';
 import { getApkDownloadUrl } from '../../utils/apkUrl';
 import GuidedAccessRequired, { GuidedAccessExitNotice } from '../GuidedAccessRequired';
-import { isGenericName } from '../../utils/studentDataHelper';
+import { isGenericName, subscribeToStudentUpdates, PROFILE_UPDATED_EVENT } from '../../utils/studentDataHelper';
 import { detectDeviceType, getClientIpAddress, getDeviceDisplayName, isDeviceMatching, isBrowserCameraAllowed, isStaffCameraUser } from '../../utils/deviceDetection';
 import { sendFacultyNotification, sendStudentNotification, reportUserVerificationComplaint } from '../../services/notificationsService';
 import { validateRotatingQrPayload } from '../../utils/qrCrypto';
@@ -648,16 +648,54 @@ function QrScannerApp() {
         const uid = user?.uid;
 
         const profileFaceRemoved = Boolean(
-            profile?.faceRemovedAt &&
-            (!profile?.faceEnrolledAt || profile.faceRemovedAt > profile.faceEnrolledAt)
+            profile?.faceRemovedAt ||
+            profile?.faceRegistered === false ||
+            profile?.biometricEnrolled === false ||
+            profile?.hasFaceRegistered === false
         );
         const dbFaceRemoved = Boolean(
-            dbStudent?.faceRemovedAt &&
-            (!dbStudent?.faceEnrolledAt || dbStudent.faceRemovedAt > dbStudent.faceEnrolledAt)
+            dbStudent?.faceRemovedAt ||
+            dbStudent?.faceRegistered === false ||
+            dbStudent?.biometricEnrolled === false ||
+            dbStudent?.hasFaceRegistered === false
         );
         const hasRemoval = profileFaceRemoved || dbFaceRemoved;
 
-        const localEnrolled = Boolean(
+        const isHwReset = Boolean(
+            profile?.deviceResetAt ||
+            dbStudent?.deviceResetAt ||
+            profile?.deviceFingerprintResetAt ||
+            dbStudent?.deviceFingerprintResetAt ||
+            profile?.deviceTypeLocked === false ||
+            dbStudent?.deviceTypeLocked === false ||
+            profile?.hardwareBiometricEnrolled === false ||
+            dbStudent?.hardwareBiometricEnrolled === false ||
+            profile?.isDeviceRegistered === false ||
+            dbStudent?.isDeviceRegistered === false
+        );
+
+        if (hasRemoval) {
+            try {
+                if (roll) localStorage.removeItem(`smartattend_face_enrolled_${roll}`);
+                if (emailRoll) localStorage.removeItem(`smartattend_face_enrolled_${emailRoll}`);
+                if (uid) localStorage.removeItem(`smartattend_face_enrolled_${uid}`);
+                localStorage.removeItem('smartattend_face_enrolled');
+                localStorage.removeItem('smartattend_student_face_enrolled');
+            } catch (_) { }
+        }
+
+        if (isHwReset) {
+            try {
+                if (roll) localStorage.removeItem(`smartattend_hw_enrolled_${roll}`);
+                if (emailRoll) localStorage.removeItem(`smartattend_hw_enrolled_${emailRoll}`);
+                if (uid) localStorage.removeItem(`smartattend_hw_enrolled_${uid}`);
+                localStorage.removeItem('smartattend_hw_enrolled');
+                localStorage.removeItem('smartattend_student_device_locked');
+                localStorage.removeItem('smartattend_device_locked');
+            } catch (_) { }
+        }
+
+        const localEnrolled = !hasRemoval && Boolean(
             (roll && localStorage.getItem(`smartattend_face_enrolled_${roll}`) === 'true') ||
             (emailRoll && localStorage.getItem(`smartattend_face_enrolled_${emailRoll}`) === 'true') ||
             (uid && localStorage.getItem(`smartattend_face_enrolled_${uid}`) === 'true') ||
@@ -674,13 +712,20 @@ function QrScannerApp() {
                 localEnrolled
             )
         );
-        const hasHw = Boolean(
-            profile?.hardwareBiometricEnrolled ||
-            dbStudent?.hardwareBiometricEnrolled ||
+
+        const localHwEnrolled = !isHwReset && Boolean(
             (roll && localStorage.getItem(`smartattend_hw_enrolled_${roll}`) === 'true') ||
             (emailRoll && localStorage.getItem(`smartattend_hw_enrolled_${emailRoll}`) === 'true') ||
             (uid && localStorage.getItem(`smartattend_hw_enrolled_${uid}`) === 'true') ||
             localStorage.getItem('smartattend_hw_enrolled') === 'true'
+        );
+
+        const hasHw = Boolean(
+            !isHwReset && (
+                profile?.hardwareBiometricEnrolled ||
+                dbStudent?.hardwareBiometricEnrolled ||
+                localHwEnrolled
+            )
         );
 
         if (hasFace) {
@@ -701,17 +746,16 @@ function QrScannerApp() {
             } catch (_) { }
         }
 
-        setStudentBioStatus((prev) => {
-            const resolvedFace = hasRemoval ? false : (hasFace || prev.hasFace);
-            const resolvedHw = hasHw || prev.hasHw;
-            return {
-                hasFace: resolvedFace,
-                hasHw: resolvedHw,
-                isComplete: resolvedFace && resolvedHw
-            };
+        const resolvedFace = hasRemoval ? false : Boolean(hasFace);
+        const resolvedHw = isHwReset ? false : Boolean(hasHw);
+
+        setStudentBioStatus({
+            hasFace: resolvedFace,
+            hasHw: resolvedHw,
+            isComplete: resolvedFace && resolvedHw
         });
 
-        if (hasFace) {
+        if (resolvedFace) {
             setVerifiedStudent((prev) => {
                 const nextRoll = roll || activeRollNo;
                 const nextName = dbStudent?.name || profile?.name || prev?.name || loggedInName || 'Student';
@@ -727,8 +771,64 @@ function QrScannerApp() {
                     photoURL: nextPhoto
                 };
             });
+        } else if (hasRemoval) {
+            setVerifiedStudent(null);
         }
     }, [profile, dbStudent, user, activeRollNo, loggedInRollNo, emailRoll, loggedInName]);
+
+    // Live global listener: reflect biometric or device reset changes across all pages instantly
+    useEffect(() => {
+        const handleUpdate = (updated) => {
+            if (!updated) return;
+            const myRoll = (activeRollNo || loggedInRollNo || profile?.rollNo || emailRoll || '').trim().toUpperCase();
+            const updatedRoll = String(updated.rollNo || updated.id || '').trim().toUpperCase();
+            const updatedEmail = String(updated.email || '').trim().toLowerCase();
+            const myEmail = (user?.email || '').trim().toLowerCase();
+            const updatedUid = String(updated.uid || updated.studentUid || '');
+
+            const isMatch = (
+                (myRoll && updatedRoll && myRoll === updatedRoll) ||
+                (myEmail && updatedEmail && myEmail === updatedEmail) ||
+                (user?.uid && updatedUid && user.uid === updatedUid)
+            );
+
+            if (isMatch) {
+                const isFaceReset = Boolean(
+                    updated.faceRemovedAt ||
+                    updated.faceRegistered === false ||
+                    updated.biometricEnrolled === false ||
+                    updated.hasFaceRegistered === false
+                );
+                const isHwReset = Boolean(
+                    updated.deviceResetAt ||
+                    updated.deviceFingerprintResetAt ||
+                    updated.deviceTypeLocked === false ||
+                    updated.hardwareBiometricEnrolled === false ||
+                    updated.isDeviceRegistered === false
+                );
+                setStudentBioStatus((prev) => ({
+                    hasFace: isFaceReset ? false : (updated.faceRegistered ?? prev.hasFace),
+                    hasHw: isHwReset ? false : (updated.hardwareBiometricEnrolled ?? prev.hasHw),
+                    isComplete: (!isFaceReset && (updated.faceRegistered ?? prev.hasFace)) &&
+                                (!isHwReset && (updated.hardwareBiometricEnrolled ?? prev.hasHw))
+                }));
+                if (isFaceReset) {
+                    setVerifiedStudent(null);
+                }
+            }
+        };
+
+        const unsub = subscribeToStudentUpdates(handleUpdate);
+        const handleProfileEvent = (e) => {
+            if (e && e.detail) handleUpdate(e.detail);
+        };
+        window.addEventListener(PROFILE_UPDATED_EVENT, handleProfileEvent);
+
+        return () => {
+            unsub();
+            window.removeEventListener(PROFILE_UPDATED_EVENT, handleProfileEvent);
+        };
+    }, [activeRollNo, loggedInRollNo, profile?.rollNo, emailRoll, user?.email, user?.uid]);
 
     // Lecturer Emergency PIN Release Modal State
     const [showPinModal, setShowPinModal] = useState(false);

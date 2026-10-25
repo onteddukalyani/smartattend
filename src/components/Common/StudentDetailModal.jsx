@@ -37,7 +37,7 @@ import FaceEnrollmentReviewPanel from "./FaceEnrollmentReviewPanel";
 import ProfilePhotoModal from "./ProfilePhotoModal";
 import { removeStudentFaceAndBiometrics, removeStudentPhotoOnly } from "../../utils/biometricManager";
 import { registerStudentFace } from "../../services/faceEnrollmentService";
-import { deleteStudentRecordCompletely, normalizeBranchName } from "../../utils/studentDataHelper";
+import { deleteStudentRecordCompletely, normalizeBranchName, broadcastStudentUpdate, resetStudentDeviceLockGlobally } from "../../utils/studentDataHelper";
 import { sendStudentNotification, sendFacultyNotification } from "../../services/notificationsService";
 import "./StudentDetailModal.css";
 
@@ -229,6 +229,7 @@ const StudentDetailModal = ({ student, onClose, onUpdate }) => {
 
       setCurrentStudent(updatedStudent);
       onUpdate?.(updatedStudent);
+      broadcastStudentUpdate(updatedStudent);
 
       // Immediately notify student
       const actorName = profile?.name || profile?.email || "Faculty/Admin";
@@ -287,6 +288,7 @@ const StudentDetailModal = ({ student, onClose, onUpdate }) => {
 
       setCurrentStudent(updatedStudent);
       onUpdate?.(updatedStudent);
+      broadcastStudentUpdate(updatedStudent);
 
       // Immediately notify student
       const cleanRoll = String(studentRoll).trim().toUpperCase();
@@ -340,6 +342,7 @@ const StudentDetailModal = ({ student, onClose, onUpdate }) => {
 
       setCurrentStudent(updatedStudent);
       onUpdate?.(updatedStudent);
+      broadcastStudentUpdate(updatedStudent);
 
       // Immediately notify student
       const actorName = profile?.name || profile?.email || "Faculty/Admin";
@@ -433,6 +436,7 @@ const StudentDetailModal = ({ student, onClose, onUpdate }) => {
 
       setCurrentStudent(updated);
       onUpdate?.(updated);
+      broadcastStudentUpdate(updated);
 
       // Notify student in real-time
       await sendStudentNotification(
@@ -478,87 +482,12 @@ const StudentDetailModal = ({ student, onClose, onUpdate }) => {
     try {
       setResettingDevice(true);
       const actorName = profile?.name || profile?.email || "Faculty/Admin";
-      const now = Date.now();
-      const resetPayload = {
-        deviceType: null,
-        deviceTypeLocked: false,
-        deviceResetAt: now,
-        deviceSelectedAt: null,
-        hardwareBiometricEnrolled: false,
-        hardwareBiometricPlatform: null,
-        hardwareBiometricEnrolledAt: null,
-        deviceFingerprint: null,
-        biometricKeyAlias: null,
-        isDeviceRegistered: false,
-        registeredDevice: null,
-        registeredPlatform: null,
-        registeredDeviceType: null,
-        deviceUUID: null,
-        deviceModel: null,
-        deviceIp: null,
-        registrationIp: null,
-        deviceResetBy: actorName
-      };
-
-      const studentUid = currentStudent.studentUid || currentStudent.uid || currentStudent.userDocId;
-      const cleanEmail = (currentStudent.email || "").toLowerCase().trim();
-      const emailPrefix = cleanEmail.split("@")[0].toLowerCase().trim();
-
-      const targets = [
-        doc(db, "students", cleanRoll),
-        doc(db, "users", cleanRoll),
-        doc(db, "authorizedUsers", cleanRoll),
-        doc(db, "students", cleanRoll.toLowerCase()),
-        doc(db, "users", cleanRoll.toLowerCase()),
-        doc(db, "authorizedUsers", cleanRoll.toLowerCase())
-      ];
-      if (studentUid) {
-        targets.push(doc(db, "users", studentUid));
-        targets.push(doc(db, "students", studentUid));
-        targets.push(doc(db, "biometric_reregistration_permissions", studentUid));
+      
+      const updated = await resetStudentDeviceLockGlobally(currentStudent, actorName);
+      if (updated) {
+        setCurrentStudent(updated);
+        onUpdate?.(updated);
       }
-      if (cleanEmail) {
-        targets.push(doc(db, "users", cleanEmail));
-        targets.push(doc(db, "authorizedUsers", cleanEmail));
-      }
-      if (emailPrefix && emailPrefix !== cleanRoll.toLowerCase()) {
-        targets.push(doc(db, "authorizedUsers", emailPrefix));
-      }
-
-      await Promise.allSettled(targets.map(ref => setDoc(ref, resetPayload, { merge: true })));
-
-      // Authorize student to immediately re-select and register new device & biometrics
-      const permPayload = {
-        rollNo: cleanRoll,
-        studentRollNo: cleanRoll,
-        registrationType: "both",
-        mode: "reset_by_staff",
-        status: "active",
-        remainingUses: 5,
-        grantedAt: now,
-        expiresAt: now + 30 * 24 * 60 * 60 * 1000,
-        reason: "Device lock reset by staff — re-registration authorized",
-        grantedBy: actorName
-      };
-      await setDoc(doc(db, "biometric_reregistration_permissions", cleanRoll), permPayload, { merge: true }).catch(() => {});
-      if (studentUid) {
-        await setDoc(doc(db, "biometric_reregistration_permissions", studentUid), permPayload, { merge: true }).catch(() => {});
-      }
-
-      const updated = {
-        ...currentStudent,
-        deviceType: null,
-        deviceTypeLocked: false,
-        hardwareBiometricEnrolled: false,
-        hardwareBiometricPlatform: null,
-        hardwareBiometricEnrolledAt: null,
-        deviceFingerprint: null,
-        biometricKeyAlias: null,
-        isDeviceRegistered: false,
-        deviceResetAt: Date.now()
-      };
-      setCurrentStudent(updated);
-      onUpdate?.(updated);
 
       // Notify student in real-time
       await sendStudentNotification(
@@ -605,6 +534,7 @@ const StudentDetailModal = ({ student, onClose, onUpdate }) => {
       const cleanRoll = String(currentStudent.rollNo || currentStudent.id || "").trim().toUpperCase();
 
       await deleteStudentRecordCompletely(currentStudent);
+      broadcastStudentUpdate({ ...currentStudent, isDeleted: true, status: "deleted" });
 
       alert(`✅ Student ${studentName} (${cleanRoll}) was successfully deleted.`);
       if (onUpdate) onUpdate(null);
@@ -934,7 +864,7 @@ const StudentDetailModal = ({ student, onClose, onUpdate }) => {
                       )}
                     </div>
 
-                    {isStaff && currentStudent.deviceType && (
+                    {isStaff && (currentStudent.deviceType || currentStudent.deviceTypeLocked || currentStudent.isDeviceRegistered || currentStudent.hardwareBiometricEnrolled || currentStudent.deviceFingerprint) && (
                       <button
                         type="button"
                         onClick={handleResetDeviceLock}

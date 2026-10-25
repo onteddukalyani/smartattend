@@ -40,7 +40,7 @@ import StudentDetailModal from "./StudentDetailModal";
 import { useTableSort, SortIcon } from "./useTableSort";
 import "./StudentsList.css";
 
-import { mergeAllStudentRecords, normalizeDescriptor, deleteStudentRecordCompletely } from "../../utils/studentDataHelper";
+import { mergeAllStudentRecords, normalizeDescriptor, deleteStudentRecordCompletely, broadcastStudentUpdate, subscribeToStudentUpdates, resetStudentDeviceLockGlobally } from "../../utils/studentDataHelper";
 
 function StudentsList() {
     const { user, profile } = useAuth();
@@ -108,6 +108,42 @@ function StudentsList() {
             unsubStudents();
             unsubUsers();
         };
+    }, []);
+
+    // Real-time synchronization: reflect student updates made anywhere across tabs/pages
+    useEffect(() => {
+        const unsub = subscribeToStudentUpdates((updated) => {
+            if (!updated) return;
+            const targetRoll = String(updated.rollNo || updated.id || "").trim().toUpperCase();
+            if (!targetRoll) return;
+
+            setStudents((prev) => {
+                if (updated.isDeleted) {
+                    return prev.filter((s) => (s.rollNo || s.id || "").toUpperCase() !== targetRoll);
+                }
+                let found = false;
+                const next = prev.map((s) => {
+                    const sRoll = (s.rollNo || s.id || "").toUpperCase();
+                    if (sRoll === targetRoll || (s.id && s.id === updated.id)) {
+                        found = true;
+                        return { ...s, ...updated };
+                    }
+                    return s;
+                });
+                return found ? next : prev;
+            });
+
+            setSelectedStudent((prev) => {
+                if (!prev) return null;
+                const sRoll = (prev.rollNo || prev.id || "").toUpperCase();
+                if (sRoll === targetRoll || prev.id === updated.id) {
+                    return updated.isDeleted ? null : { ...prev, ...updated };
+                }
+                return prev;
+            });
+        });
+
+        return () => unsub();
     }, []);
 
     // Face descriptors are server-only; use enrollment flags for the client-visible status.
@@ -236,80 +272,18 @@ function StudentsList() {
         try {
             setActionLoading(student.id || cleanRoll);
             const actorName = profile?.name || profile?.email || "Faculty/Admin";
-            const now = Date.now();
-            const resetPayload = {
-                deviceType: null,
-                deviceTypeLocked: false,
-                deviceResetAt: now,
-                deviceSelectedAt: null,
-                hardwareBiometricEnrolled: false,
-                hardwareBiometricPlatform: null,
-                hardwareBiometricEnrolledAt: null,
-                deviceFingerprint: null,
-                biometricKeyAlias: null,
-                isDeviceRegistered: false,
-                registeredDevice: null,
-                registeredPlatform: null,
-                registeredDeviceType: null,
-                deviceUUID: null,
-                deviceModel: null,
-                deviceIp: null,
-                registrationIp: null,
-                deviceResetBy: actorName
-            };
+            
+            const updated = await resetStudentDeviceLockGlobally(student, actorName);
 
-            const studentUid = student.studentUid || student.uid || student.userDocId;
-            const cleanEmail = (student.email || "").toLowerCase().trim();
-            const emailPrefix = cleanEmail.split("@")[0].toLowerCase().trim();
-
-            const targets = [
-                doc(db, "students", cleanRoll),
-                doc(db, "users", cleanRoll),
-                doc(db, "authorizedUsers", cleanRoll),
-                doc(db, "students", cleanRoll.toLowerCase()),
-                doc(db, "users", cleanRoll.toLowerCase()),
-                doc(db, "authorizedUsers", cleanRoll.toLowerCase())
-            ];
-            if (studentUid) {
-                targets.push(doc(db, "users", studentUid));
-                targets.push(doc(db, "students", studentUid));
-                targets.push(doc(db, "biometric_reregistration_permissions", studentUid));
+            if (updated) {
+                setStudents((prev) =>
+                    prev.map((s) =>
+                        s.id === student.id || (cleanRoll && s.rollNo === cleanRoll)
+                            ? { ...s, ...updated }
+                            : s
+                    )
+                );
             }
-            if (cleanEmail) {
-                targets.push(doc(db, "users", cleanEmail));
-                targets.push(doc(db, "authorizedUsers", cleanEmail));
-            }
-            if (emailPrefix && emailPrefix !== cleanRoll.toLowerCase()) {
-                targets.push(doc(db, "authorizedUsers", emailPrefix));
-            }
-
-            await Promise.allSettled(targets.map(ref => setDoc(ref, resetPayload, { merge: true })));
-
-            // Authorize student to immediately re-select and register new device & biometrics
-            const permPayload = {
-                rollNo: cleanRoll,
-                studentRollNo: cleanRoll,
-                registrationType: "both",
-                mode: "reset_by_staff",
-                status: "active",
-                remainingUses: 5,
-                grantedAt: now,
-                expiresAt: now + 30 * 24 * 60 * 60 * 1000,
-                reason: "Device lock reset by staff — re-registration authorized",
-                grantedBy: actorName
-            };
-            await setDoc(doc(db, "biometric_reregistration_permissions", cleanRoll), permPayload, { merge: true }).catch(() => {});
-            if (studentUid) {
-                await setDoc(doc(db, "biometric_reregistration_permissions", studentUid), permPayload, { merge: true }).catch(() => {});
-            }
-
-            setStudents((prev) =>
-                prev.map((s) =>
-                    s.id === student.id || (cleanRoll && s.rollNo === cleanRoll)
-                        ? { ...s, deviceType: null, deviceTypeLocked: false, hardwareBiometricEnrolled: false, deviceFingerprint: null }
-                        : s
-                )
-            );
 
             // Notify student & faculty stream in real-time
             await sendStudentNotification(
@@ -363,13 +337,22 @@ function StudentsList() {
             await setDoc(doc(db, "students", cleanRoll), hwPayload, { merge: true });
             await setDoc(doc(db, "users", cleanRoll), hwPayload, { merge: true }).catch(() => {});
 
+            const updatedStudent = {
+                ...student,
+                hardwareBiometricEnrolled: false,
+                deviceFingerprint: null,
+                isDeviceRegistered: false
+            };
+
             setStudents((prev) =>
                 prev.map((s) =>
                     s.id === student.id || (cleanRoll && s.rollNo === cleanRoll)
-                        ? { ...s, hardwareBiometricEnrolled: false, deviceFingerprint: null }
+                        ? { ...s, ...updatedStudent }
                         : s
                 )
             );
+
+            broadcastStudentUpdate(updatedStudent);
 
             // Notify student & faculty stream
             await sendStudentNotification(

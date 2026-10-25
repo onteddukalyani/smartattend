@@ -24,7 +24,7 @@ import {
   loginWithGoogle as firebaseLoginWithGoogle,
   logoutUser as firebaseLogoutUser
 } from "../firebase";
-import { isGenericName } from "../utils/studentDataHelper";
+import { isGenericName, subscribeToStudentUpdates, PROFILE_UPDATED_EVENT } from "../utils/studentDataHelper";
 import { reportUserVerificationComplaint } from "../services/notificationsService";
 import { registerUserDevice } from "../services/deviceRegistrationService";
 
@@ -543,19 +543,39 @@ export const AuthProvider = ({ children }) => {
     const rollNo = (profile?.rollNo || (role === "student" ? prefix.toUpperCase() : "")).trim().toUpperCase();
 
     const targets = [];
-    if (role === "student" && rollNo) {
-      targets.push({ coll: "students", id: rollNo });
+    if (role === "student") {
+      if (rollNo) {
+        targets.push({ coll: "students", id: rollNo });
+        targets.push({ coll: "students", id: rollNo.toLowerCase() });
+        targets.push({ coll: "users", id: rollNo });
+        targets.push({ coll: "users", id: rollNo.toLowerCase() });
+        targets.push({ coll: "authorizedUsers", id: rollNo });
+        targets.push({ coll: "authorizedUsers", id: rollNo.toLowerCase() });
+      }
+      if (cleanEmail) {
+        targets.push({ coll: "students", id: cleanEmail });
+        targets.push({ coll: "users", id: cleanEmail });
+        targets.push({ coll: "authorizedUsers", id: cleanEmail });
+      }
+      if (prefix && prefix !== rollNo.toLowerCase()) {
+        targets.push({ coll: "authorizedUsers", id: prefix });
+      }
+      if (user?.uid) {
+        targets.push({ coll: "students", id: user.uid });
+        targets.push({ coll: "users", id: user.uid });
+      }
+    } else {
+      if (role === "lecturer") {
+        targets.push({ coll: "lecturers", id: cleanEmail });
+        targets.push({ coll: "lecturers", id: prefix });
+      }
+      if (role === "admin") {
+        targets.push({ coll: "admins", id: cleanEmail });
+        targets.push({ coll: "admins", id: prefix });
+      }
+      targets.push({ coll: "users", id: cleanEmail });
+      if (user?.uid) targets.push({ coll: "users", id: user.uid });
     }
-    if (role === "lecturer") {
-      targets.push({ coll: "lecturers", id: cleanEmail });
-      targets.push({ coll: "lecturers", id: prefix });
-    }
-    if (role === "admin") {
-      targets.push({ coll: "admins", id: cleanEmail });
-      targets.push({ coll: "admins", id: prefix });
-    }
-    targets.push({ coll: "users", id: cleanEmail });
-    if (rollNo) targets.push({ coll: "users", id: rollNo });
 
     const unsubs = [];
     targets.forEach(({ coll, id }) => {
@@ -604,6 +624,9 @@ export const AuthProvider = ({ children }) => {
             try {
               localStorage.setItem(`smartattend-cached-profile-${user.uid}`, JSON.stringify(enriched));
             } catch (_) {}
+            if (typeof window !== "undefined") {
+              window.dispatchEvent(new CustomEvent(PROFILE_UPDATED_EVENT, { detail: enriched }));
+            }
             return enriched;
           });
         }, () => {});
@@ -617,6 +640,41 @@ export const AuthProvider = ({ children }) => {
       });
     };
   }, [user?.uid, user?.email, profile?.role, profile?.rollNo]);
+
+  // Real-time synchronization with global student updates dispatched from any tab or modal
+  useEffect(() => {
+    if (!user) return;
+    const unsub = subscribeToStudentUpdates((updatedStudent) => {
+      if (!updatedStudent) return;
+      const cleanRoll = (profile?.rollNo || "").toUpperCase().trim();
+      const updatedRoll = String(updatedStudent.rollNo || updatedStudent.id || "").toUpperCase().trim();
+      const updatedEmail = String(updatedStudent.email || "").toLowerCase().trim();
+      const userEmail = (user.email || "").toLowerCase().trim();
+      const updatedUid = String(updatedStudent.uid || updatedStudent.studentUid || "");
+
+      const isMatch = (
+        (cleanRoll && updatedRoll && cleanRoll === updatedRoll) ||
+        (userEmail && updatedEmail && userEmail === updatedEmail) ||
+        (user.uid && updatedUid && user.uid === updatedUid)
+      );
+
+      if (isMatch) {
+        setProfile((prev) => {
+          if (!prev) return prev;
+          const merged = { ...prev, ...updatedStudent };
+          const enriched = buildEnrichedProfile(merged, user);
+          try {
+            localStorage.setItem(`smartattend-cached-profile-${user.uid}`, JSON.stringify(enriched));
+          } catch (_) {}
+          if (typeof window !== "undefined") {
+            window.dispatchEvent(new CustomEvent(PROFILE_UPDATED_EVENT, { detail: enriched }));
+          }
+          return enriched;
+        });
+      }
+    });
+    return () => unsub();
+  }, [user?.uid, user?.email, profile?.rollNo]);
 
 
   // =========================================================

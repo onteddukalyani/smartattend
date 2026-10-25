@@ -33,6 +33,7 @@ import {
 } from "../../../services/biometricService";
 import { isBrowserCameraAllowed } from "../../../utils/deviceDetection";
 import { getApkDownloadUrl } from "../../../utils/apkUrl";
+import { broadcastStudentUpdate, subscribeToStudentUpdates, PROFILE_UPDATED_EVENT } from "../../../utils/studentDataHelper";
 import "./FaceEnrollPage.css";
 
 export default function FaceEnrollPage() {
@@ -231,6 +232,62 @@ export default function FaceEnrollPage() {
         return () => unsubPerm();
     }, [activeRollNo]);
 
+    // Live global listener: reflect biometric or device reset changes across all pages instantly
+    useEffect(() => {
+        const handleUpdate = (updated) => {
+            if (!updated) return;
+            const myRoll = (activeRollNo || profile?.rollNo || emailRoll || "").trim().toUpperCase();
+            const updatedRoll = String(updated.rollNo || updated.id || "").trim().toUpperCase();
+            const updatedEmail = String(updated.email || "").trim().toLowerCase();
+            const myEmail = (user?.email || "").trim().toLowerCase();
+            const updatedUid = String(updated.uid || updated.studentUid || "");
+
+            const isMatch = (
+                (myRoll && updatedRoll && myRoll === updatedRoll) ||
+                (myEmail && updatedEmail && myEmail === updatedEmail) ||
+                (user?.uid && updatedUid && user.uid === updatedUid)
+            );
+
+            if (isMatch) {
+                const isFaceReset = Boolean(
+                    updated.faceRemovedAt ||
+                    updated.faceRegistered === false ||
+                    updated.biometricEnrolled === false ||
+                    updated.hasFaceRegistered === false
+                );
+                if (isFaceReset) {
+                    setHasFaceRegistered(false);
+                } else if (updated.faceRegistered || updated.biometricEnrolled || updated.hasFaceRegistered) {
+                    setHasFaceRegistered(true);
+                }
+
+                const isHwReset = Boolean(
+                    updated.deviceResetAt ||
+                    updated.deviceFingerprintResetAt ||
+                    updated.deviceTypeLocked === false ||
+                    updated.hardwareBiometricEnrolled === false ||
+                    updated.isDeviceRegistered === false
+                );
+                if (isHwReset) {
+                    setHasHwRegistered(false);
+                } else if (updated.hardwareBiometricEnrolled) {
+                    setHasHwRegistered(true);
+                }
+            }
+        };
+
+        const unsub = subscribeToStudentUpdates(handleUpdate);
+        const handleProfileEvent = (e) => {
+            if (e && e.detail) handleUpdate(e.detail);
+        };
+        window.addEventListener(PROFILE_UPDATED_EVENT, handleProfileEvent);
+
+        return () => {
+            unsub();
+            window.removeEventListener(PROFILE_UPDATED_EVENT, handleProfileEvent);
+        };
+    }, [activeRollNo, profile?.rollNo, emailRoll, user?.email, user?.uid]);
+
     // Permission Authorization Logic
     const isPermActive = Boolean(
         reRegPermission &&
@@ -341,6 +398,15 @@ export default function FaceEnrollPage() {
             setHasFaceRegistered(true);
             setIsReEnrolling(false);
             setShowFaceTest(false);
+            broadcastStudentUpdate({
+                rollNo: activeRollNo,
+                uid: user?.uid,
+                email: cleanEmail,
+                faceRegistered: true,
+                biometricEnrolled: true,
+                hasFaceRegistered: true,
+                faceRemovedAt: null
+            });
             setFaceSuccessMsg("✅ Face biometrics registered & saved! Next: Register your Device Fingerprint below.");
             setTimeout(() => {
                 setFaceSuccessMsg("");
@@ -389,6 +455,16 @@ export default function FaceEnrollPage() {
 
                 setHasHwRegistered(true);
                 setKeyExistsOnDevice(true);
+                broadcastStudentUpdate({
+                    rollNo: activeRollNo,
+                    uid: user?.uid,
+                    email: cleanEmail,
+                    hardwareBiometricEnrolled: true,
+                    isDeviceRegistered: true,
+                    deviceTypeLocked: true,
+                    deviceType: regPlatform,
+                    deviceResetAt: null
+                });
                 setHwEnrollMsg("✅ Fingerprint & Device Biometrics Enrolled In-App Successfully!");
                 setTimeout(() => setHwEnrollMsg(""), 4500);
                 refreshHwStatus();

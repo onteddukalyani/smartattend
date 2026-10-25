@@ -45,7 +45,7 @@ import ProfilePhotoModal from "../../Common/ProfilePhotoModal";
 import { removeStudentPhotoOnly } from "../../../utils/biometricManager";
 import { registerStudentFace } from "../../../services/faceEnrollmentService";
 import { getCandidateRolls, computeStudentMetrics, parseTimestampMillis } from "../studentAttendanceHelper";
-import { isGenericName, normalizeBranchName } from "../../../utils/studentDataHelper";
+import { isGenericName, normalizeBranchName, subscribeToStudentUpdates, PROFILE_UPDATED_EVENT } from "../../../utils/studentDataHelper";
 import DeviceOnboardingModal from "../DeviceOnboardingModal";
 import StudentReadinessModal from "../StudentReadinessModal";
 import { requestAppNotificationPermissions } from "../../../services/nativeNotificationService";
@@ -274,16 +274,17 @@ export default function StudentDashboard() {
                         : (prev?.semester || "1");
 
                     const docFaceRemoved = Boolean(
-                        d.faceRemovedAt &&
-                        (!d.faceEnrolledAt || d.faceRemovedAt > d.faceEnrolledAt)
+                        (d.faceRemovedAt && (!d.faceEnrolledAt || d.faceRemovedAt > d.faceEnrolledAt)) ||
+                        d.faceRegistered === false ||
+                        d.biometricEnrolled === false ||
+                        d.hasFaceRegistered === false
                     );
 
                     const hasFace = Boolean(
                         !docFaceRemoved &&
                         (d.faceRegistered === true || d.biometricEnrolled === true || d.hasFaceRegistered === true ||
                             (Array.isArray(d.faceDescriptor) && d.faceDescriptor.length === 128) ||
-                            (Array.isArray(d.descriptor) && d.descriptor.length === 128) ||
-                            (prev && (prev.faceRegistered || prev.biometricEnrolled || prev.hasFaceRegistered)))
+                            (Array.isArray(d.descriptor) && d.descriptor.length === 128))
                     );
 
                     if (hasFace) {
@@ -292,9 +293,38 @@ export default function StudentDashboard() {
                             if (user?.uid) localStorage.setItem(`smartattend_face_enrolled_${user.uid}`, "true");
                             localStorage.setItem("smartattend_face_enrolled", "true");
                         } catch (_) {}
+                    } else if (docFaceRemoved) {
+                        try {
+                            if (activeRollNo) localStorage.removeItem(`smartattend_face_enrolled_${activeRollNo}`);
+                            if (user?.uid) localStorage.removeItem(`smartattend_face_enrolled_${user.uid}`);
+                            localStorage.removeItem("smartattend_face_enrolled");
+                            localStorage.removeItem("smartattend_student_face_enrolled");
+                        } catch (_) {}
                     }
 
-                    const hasHw = Boolean(d.hardwareBiometricEnrolled || prev?.hardwareBiometricEnrolled);
+                    const isDocHwReset = Boolean(
+                        d.deviceResetAt ||
+                        d.deviceFingerprintResetAt ||
+                        d.deviceTypeLocked === false ||
+                        d.hardwareBiometricEnrolled === false ||
+                        d.isDeviceRegistered === false
+                    );
+
+                    if (isDocHwReset) {
+                        try {
+                            if (activeRollNo) localStorage.removeItem(`smartattend_hw_enrolled_${activeRollNo}`);
+                            if (user?.uid) localStorage.removeItem(`smartattend_hw_enrolled_${user.uid}`);
+                            localStorage.removeItem("smartattend_hw_enrolled");
+                            localStorage.removeItem("smartattend_student_device_locked");
+                            localStorage.removeItem("smartattend_device_locked");
+                            localStorage.removeItem("smartattend_student_device_type");
+                            localStorage.removeItem("smartattend_device_type");
+                            localStorage.removeItem("smartattend_device_registered");
+                        } catch (_) {}
+                        setCurrentDeviceType("");
+                    }
+
+                    const hasHw = !isDocHwReset && Boolean(d.hardwareBiometricEnrolled);
                     if (hasHw) {
                         try {
                             if (activeRollNo) localStorage.setItem(`smartattend_hw_enrolled_${activeRollNo}`, "true");
@@ -310,11 +340,14 @@ export default function StudentDashboard() {
                         fullName: resolvedName,
                         branch: branch,
                         semester: semester,
-                        photoURL: d.photoURL || prev?.photoURL || "",
+                        photoURL: docFaceRemoved ? "" : (d.photoURL || prev?.photoURL || ""),
                         faceRegistered: hasFace,
                         biometricEnrolled: hasFace,
                         hasFaceRegistered: hasFace,
-                        faceRemovedAt: docFaceRemoved ? d.faceRemovedAt : null,
+                        hardwareBiometricEnrolled: hasHw,
+                        deviceTypeLocked: isDocHwReset ? false : (d.deviceTypeLocked ?? prev?.deviceTypeLocked ?? false),
+                        deviceType: isDocHwReset ? null : (d.deviceType ?? prev?.deviceType ?? null),
+                        faceRemovedAt: docFaceRemoved ? (d.faceRemovedAt || Date.now()) : null,
                         faceDescriptor: null,
                         descriptor: null
                     };
@@ -340,6 +373,45 @@ export default function StudentDashboard() {
             unsubs.forEach((u) => u && u());
         };
     }, [activeRollNo, user?.email, user?.uid]);
+
+    // Live global listener: reflect biometric or device reset changes across all pages instantly
+    useEffect(() => {
+        const handleUpdate = (updated) => {
+            if (!updated) return;
+            const myRoll = (activeRollNo || profile?.rollNo || emailRoll || "").trim().toUpperCase();
+            const updatedRoll = String(updated.rollNo || updated.id || "").trim().toUpperCase();
+            const updatedEmail = String(updated.email || "").trim().toLowerCase();
+            const myEmail = (user?.email || "").trim().toLowerCase();
+            const updatedUid = String(updated.uid || updated.studentUid || "");
+
+            const isMatch = (
+                (myRoll && updatedRoll && myRoll === updatedRoll) ||
+                (myEmail && updatedEmail && myEmail === updatedEmail) ||
+                (user?.uid && updatedUid && user.uid === updatedUid)
+            );
+
+            if (isMatch) {
+                setFetchedStudentData((prev) => ({
+                    ...(prev || {}),
+                    ...updated
+                }));
+                if (updated.deviceTypeLocked === false || updated.deviceResetAt) {
+                    setCurrentDeviceType("");
+                }
+            }
+        };
+
+        const unsub = subscribeToStudentUpdates(handleUpdate);
+        const handleProfileEvent = (e) => {
+            if (e && e.detail) handleUpdate(e.detail);
+        };
+        window.addEventListener(PROFILE_UPDATED_EVENT, handleProfileEvent);
+
+        return () => {
+            unsub();
+            window.removeEventListener(PROFILE_UPDATED_EVENT, handleProfileEvent);
+        };
+    }, [activeRollNo, profile?.rollNo, emailRoll, user?.email, user?.uid]);
 
     const studentName = fetchedStudentData?.name || profile?.name || activeRollNo || "Student";
     const rawBranch = fetchedStudentData?.branch || profile?.branch || fetchedStudentData?.department || profile?.department;

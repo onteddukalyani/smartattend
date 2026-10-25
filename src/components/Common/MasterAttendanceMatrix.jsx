@@ -9,7 +9,7 @@ import {
 import { db } from "../../firebase";
 import { useAuth } from "../authcontext";
 import { exportMasterAttendanceMatrix } from "../../DownloadExcel";
-import { mergeAllStudentRecords } from "../../utils/studentDataHelper";
+import { mergeAllStudentRecords, subscribeToStudentUpdates } from "../../utils/studentDataHelper";
 import StudentDetailModal from "./StudentDetailModal";
 import ExcuseStudentModal from "./ExcuseStudentModal";
 import {
@@ -90,6 +90,26 @@ export default function MasterAttendanceMatrix({
   const [searchQuery, setSearchQuery] = useState("");
   const [eligibilityFilter, setEligibilityFilter] = useState("ALL"); // "ALL", "ELIGIBLE", "SHORTAGE", "CRITICAL"
   const [selectedStudentForModal, setSelectedStudentForModal] = useState(null);
+
+  // Real-time synchronization: reflect student updates made anywhere across tabs/pages
+  useEffect(() => {
+    const unsub = subscribeToStudentUpdates((updated) => {
+      if (!updated) return;
+      const targetRoll = (updated.rollNo || updated.id || "").toUpperCase().trim();
+      if (!targetRoll) return;
+
+      setAllStudents((prev) =>
+        prev.map((s) => ((s.rollNo || s.id || "").toUpperCase() === targetRoll ? { ...s, ...updated } : s))
+      );
+      setSelectedStudentForModal((prev) => {
+        if (!prev) return null;
+        const sRoll = (prev.rollNo || prev.id || "").toUpperCase().trim();
+        return sRoll === targetRoll ? (updated.isDeleted ? null : { ...prev, ...updated }) : prev;
+      });
+    });
+
+    return () => unsub();
+  }, []);
 
   // Excuse Student Modal State
   const [excuseModalState, setExcuseModalState] = useState({
@@ -1058,7 +1078,17 @@ export default function MasterAttendanceMatrix({
         <StudentDetailModal
           student={selectedStudentForModal}
           onClose={() => setSelectedStudentForModal(null)}
-          onUpdate={() => {}}
+          onUpdate={(updated) => {
+            if (!updated) {
+              setSelectedStudentForModal(null);
+              return;
+            }
+            setSelectedStudentForModal(updated);
+            const targetRoll = (updated.rollNo || updated.id || "").toUpperCase().trim();
+            setAllStudents((prev) =>
+              prev.map((s) => ((s.rollNo || s.id || "").toUpperCase() === targetRoll ? { ...s, ...updated } : s))
+            );
+          }}
         />
       )}
 

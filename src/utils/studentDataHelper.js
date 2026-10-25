@@ -504,3 +504,233 @@ export async function purgeOrphanedStudentDocuments() {
         return { purgedCount: 0, error: err.message };
     }
 }
+
+/**
+ * =========================================================
+ * REAL-TIME GLOBAL CROSS-PAGE & CROSS-TAB STATE SYNCHRONIZATION
+ * =========================================================
+ */
+export const STUDENT_UPDATED_EVENT = "smartattend_student_updated";
+export const PROFILE_UPDATED_EVENT = "smartattend_profile_updated";
+export const STUDENT_STORAGE_KEY = "smartattend_last_student_update";
+
+/**
+ * Dispatches student updates across current window and all other browser tabs in real time.
+ * Synchronizes local storage flags so Scanner, Dashboard, and Admin/Lecturer tables reflect changes immediately.
+ */
+export function broadcastStudentUpdate(updatedStudent) {
+    if (!updatedStudent) return;
+    try {
+        const roll = String(updatedStudent.rollNo || updatedStudent.id || "").trim().toUpperCase();
+        const uid = String(updatedStudent.uid || updatedStudent.studentUid || "").trim();
+        const email = String(updatedStudent.email || "").trim().toLowerCase();
+        const emailRoll = email ? email.split("@")[0].trim().toUpperCase() : "";
+
+        // Synchronize browser localStorage state to prevent stale cached locks
+        if (typeof window !== "undefined") {
+            const isHwReset = Boolean(
+                updatedStudent.deviceResetAt ||
+                updatedStudent.deviceFingerprintResetAt ||
+                updatedStudent.deviceTypeLocked === false ||
+                updatedStudent.hardwareBiometricEnrolled === false ||
+                updatedStudent.isDeviceRegistered === false
+            );
+
+            if (isHwReset) {
+                try {
+                    localStorage.removeItem("smartattend_student_device_locked");
+                    localStorage.removeItem("smartattend_device_locked");
+                    localStorage.removeItem("smartattend_student_device_type");
+                    localStorage.removeItem("smartattend_device_type");
+                    localStorage.removeItem("smartattend_device_registered");
+                    localStorage.removeItem("smartattend_hw_enrolled");
+                    localStorage.removeItem("smartattend_fingerprint_enrolled");
+                    if (roll) localStorage.removeItem(`smartattend_hw_enrolled_${roll}`);
+                    if (emailRoll) localStorage.removeItem(`smartattend_hw_enrolled_${emailRoll}`);
+                    if (uid) localStorage.removeItem(`smartattend_hw_enrolled_${uid}`);
+                } catch (_) {}
+            } else if (updatedStudent.hardwareBiometricEnrolled) {
+                try {
+                    if (roll) localStorage.setItem(`smartattend_hw_enrolled_${roll}`, "true");
+                    if (emailRoll) localStorage.setItem(`smartattend_hw_enrolled_${emailRoll}`, "true");
+                    if (uid) localStorage.setItem(`smartattend_hw_enrolled_${uid}`, "true");
+                    localStorage.setItem("smartattend_hw_enrolled", "true");
+                    if (updatedStudent.deviceType) {
+                        localStorage.setItem("smartattend_student_device_type", updatedStudent.deviceType);
+                    }
+                    localStorage.setItem("smartattend_student_device_locked", "true");
+                    localStorage.setItem("smartattend_device_registered", "true");
+                } catch (_) {}
+            }
+
+            const isFaceReset = Boolean(
+                updatedStudent.faceRemovedAt ||
+                updatedStudent.faceRegistered === false ||
+                updatedStudent.biometricEnrolled === false ||
+                updatedStudent.hasFaceRegistered === false
+            );
+
+            if (isFaceReset) {
+                try {
+                    localStorage.removeItem("smartattend_face_enrolled");
+                    localStorage.removeItem("smartattend_student_face_enrolled");
+                    if (roll) localStorage.removeItem(`smartattend_face_enrolled_${roll}`);
+                    if (emailRoll) localStorage.removeItem(`smartattend_face_enrolled_${emailRoll}`);
+                    if (uid) localStorage.removeItem(`smartattend_face_enrolled_${uid}`);
+                } catch (_) {}
+            } else if (updatedStudent.faceRegistered || updatedStudent.biometricEnrolled || updatedStudent.hasFaceRegistered) {
+                try {
+                    if (roll) localStorage.setItem(`smartattend_face_enrolled_${roll}`, "true");
+                    if (emailRoll) localStorage.setItem(`smartattend_face_enrolled_${emailRoll}`, "true");
+                    if (uid) localStorage.setItem(`smartattend_face_enrolled_${uid}`, "true");
+                    localStorage.setItem("smartattend_face_enrolled", "true");
+                    localStorage.setItem("smartattend_student_face_enrolled", "true");
+                } catch (_) {}
+            }
+
+            // 1. Dispatch custom event in current window
+            window.dispatchEvent(new CustomEvent(STUDENT_UPDATED_EVENT, { detail: updatedStudent }));
+
+            // 2. Broadcast across tabs via storage event
+            try {
+                localStorage.setItem(STUDENT_STORAGE_KEY, JSON.stringify({
+                    student: updatedStudent,
+                    timestamp: Date.now()
+                }));
+            } catch (_) {}
+        }
+    } catch (err) {
+        console.warn("Failed to broadcast student update:", err);
+    }
+}
+
+/**
+ * Subscribes to student updates across the current window and all browser tabs.
+ * Returns an unsubscribe cleanup callback.
+ */
+export function subscribeToStudentUpdates(callback) {
+    if (typeof window === "undefined" || typeof callback !== "function") {
+        return () => {};
+    }
+
+    const handleCustomEvent = (event) => {
+        if (event && event.detail) {
+            callback(event.detail);
+        }
+    };
+
+    const handleStorageEvent = (event) => {
+        if (event.key === STUDENT_STORAGE_KEY && event.newValue) {
+            try {
+                const data = JSON.parse(event.newValue);
+                if (data && data.student) {
+                    callback(data.student);
+                }
+            } catch (_) {}
+        }
+    };
+
+    window.addEventListener(STUDENT_UPDATED_EVENT, handleCustomEvent);
+    window.addEventListener("storage", handleStorageEvent);
+
+    return () => {
+        window.removeEventListener(STUDENT_UPDATED_EVENT, handleCustomEvent);
+        window.removeEventListener("storage", handleStorageEvent);
+    };
+}
+
+/**
+ * Resets student device locks, device types, and hardware fingerprint bindings globally
+ * across all Firestore collections and informs every open page/tab in real time.
+ */
+export async function resetStudentDeviceLockGlobally(student, actorName = "Faculty/Admin") {
+    if (!student) return null;
+    const cleanRoll = String(student.rollNo || student.id || "").trim().toUpperCase();
+    const studentUid = String(student.studentUid || student.uid || student.userDocId || "").trim();
+    const cleanEmail = (student.email || "").toLowerCase().trim();
+    const emailPrefix = cleanEmail ? cleanEmail.split("@")[0].toLowerCase().trim() : "";
+    const now = Date.now();
+
+    const resetPayload = {
+        deviceType: null,
+        deviceTypeLocked: false,
+        deviceResetAt: now,
+        deviceSelectedAt: null,
+        hardwareBiometricEnrolled: false,
+        hardwareBiometricPlatform: null,
+        hardwareBiometricEnrolledAt: null,
+        deviceFingerprint: null,
+        biometricKeyAlias: null,
+        isDeviceRegistered: false,
+        registeredDevice: null,
+        registeredPlatform: null,
+        registeredDeviceType: null,
+        deviceUUID: null,
+        deviceModel: null,
+        deviceIp: null,
+        registrationIp: null,
+        deviceResetBy: actorName
+    };
+
+    const targetRefs = [];
+    if (cleanRoll) {
+        targetRefs.push(doc(db, "students", cleanRoll));
+        targetRefs.push(doc(db, "users", cleanRoll));
+        targetRefs.push(doc(db, "authorizedUsers", cleanRoll));
+        targetRefs.push(doc(db, "students", cleanRoll.toLowerCase()));
+        targetRefs.push(doc(db, "users", cleanRoll.toLowerCase()));
+        targetRefs.push(doc(db, "authorizedUsers", cleanRoll.toLowerCase()));
+    }
+    if (studentUid) {
+        targetRefs.push(doc(db, "users", studentUid));
+        targetRefs.push(doc(db, "students", studentUid));
+    }
+    if (cleanEmail) {
+        targetRefs.push(doc(db, "users", cleanEmail));
+        targetRefs.push(doc(db, "authorizedUsers", cleanEmail));
+    }
+    if (emailPrefix && emailPrefix !== cleanRoll.toLowerCase()) {
+        targetRefs.push(doc(db, "authorizedUsers", emailPrefix));
+    }
+
+    await Promise.allSettled(targetRefs.map((ref) => setDoc(ref, resetPayload, { merge: true })));
+
+    // Authorize student to immediately re-select and register new device & biometrics
+    const permPayload = {
+        rollNo: cleanRoll,
+        studentRollNo: cleanRoll,
+        registrationType: "both",
+        mode: "reset_by_staff",
+        status: "active",
+        remainingUses: 5,
+        grantedAt: now,
+        expiresAt: now + 30 * 24 * 60 * 60 * 1000,
+        reason: "Device lock reset by staff — re-registration authorized",
+        grantedBy: actorName
+    };
+
+    if (cleanRoll) {
+        await setDoc(doc(db, "biometric_reregistration_permissions", cleanRoll), permPayload, { merge: true }).catch(() => {});
+    }
+    if (studentUid) {
+        await setDoc(doc(db, "biometric_reregistration_permissions", studentUid), permPayload, { merge: true }).catch(() => {});
+    }
+
+    const updated = {
+        ...student,
+        deviceType: null,
+        deviceTypeLocked: false,
+        hardwareBiometricEnrolled: false,
+        hardwareBiometricPlatform: null,
+        hardwareBiometricEnrolledAt: null,
+        deviceFingerprint: null,
+        biometricKeyAlias: null,
+        isDeviceRegistered: false,
+        deviceResetAt: now,
+        deviceResetBy: actorName
+    };
+
+    broadcastStudentUpdate(updated);
+    return updated;
+}
+
