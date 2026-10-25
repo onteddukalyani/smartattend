@@ -205,6 +205,8 @@ function QrScannerApp() {
     const [elapsedSeconds, setElapsedSeconds] = useState(0);
     const [sessionRemaining, setSessionRemaining] = useState(30);
     const [errorMessage, setErrorMessage] = useState('');
+    const lastVerifiedFaceRef = useRef(null);
+    const [faceSubmissionFailed, setFaceSubmissionFailed] = useState(false);
     const [nowTick, setNowTick] = useState(Date.now());
     const geofenceRetriesRef = useRef(0);
     const geofenceAttemptsRef = useRef(0);
@@ -1299,6 +1301,20 @@ function QrScannerApp() {
         }
 
         const handleViolationTrigger = (source) => {
+            // iOS Guided Access Protection:
+            // When Guided Access is active on iOS, physical hardware buttons and app switching are locked by iOS.
+            // Transient resign-active or focus events triggered by camera/WebAuthn dialogs must not penalize the student.
+            if (isIOSDevice()) {
+                try {
+                    const isGAActive = sessionStorage.getItem('guided_access_active') === 'true' ||
+                        localStorage.getItem('guided_access_active') === 'true';
+                    if (isGAActive) {
+                        console.log(`[Kiosk Guardian] iOS Guided Access active — app switching is physically restricted. Transient lifecycle event (${source}) ignored.`);
+                        return;
+                    }
+                } catch (_) { }
+            }
+
             const sessionKey = activeSessionId || "active-session";
             if (lifecycleViolationSessionRef.current === sessionKey) return;
             lifecycleViolationSessionRef.current = sessionKey;
@@ -1311,18 +1327,19 @@ function QrScannerApp() {
             setViolationCount(nextCount);
             setSupervisionViolation(true);
 
-            // Android Policy: 1 warning chance allowed. Disqualify only on strike 2.
-            // Non-Android Policy: Zero tolerance — disqualify on strike 1.
-            if (isAndroidNative && nextCount === 1) {
-                console.warn(`[Kiosk Guardian] Security warning triggered on Android via ${source} (Strike 1/2). Warning chance granted.`);
-                setErrorMessage('⚠️ Warning (Strike 1/2): App switching detected! This is your 1 warning chance. If you leave or switch apps again (Strike 2), attendance will be permanently disqualified.');
-                // Re-engage Kiosk Lock
-                Kiosk?.startKioskMode?.().catch(() => { });
+            // Universal Policy (All Platforms): 1 warning chance allowed. Disqualify only on strike 2.
+            if (nextCount === 1) {
+                console.warn(`[Kiosk Guardian] Security warning triggered via ${source} (Strike 1/2). Warning chance granted.`);
+                setErrorMessage('⚠️ Warning (Strike 1/2): App switching or tab minimizing detected! This is your 1 warning chance. If you leave or switch apps again (Strike 2), attendance will be permanently forfeited.');
+                // Re-engage Kiosk Lock on Android
+                if (isAndroidNative) {
+                    Kiosk?.startKioskMode?.().catch(() => { });
+                }
                 if (activeSessionId) {
                     reportAttendanceLifecycleEvent(activeSessionId, {
                         eventType: 'KIOSK_ESCAPE_WARNING',
                         source,
-                        platform: 'android',
+                        platform: isAndroidNative ? 'android' : (isIOSDevice() ? (isNativeApp ? 'ios' : 'web_ios') : 'web'),
                         count: 1,
                         warningOnly: true
                     }).catch(() => { });
@@ -1330,13 +1347,11 @@ function QrScannerApp() {
                 return;
             }
 
-            // Immediate Disqualification: Strike 2 on Android, or Strike 1 on Non-Android
+            // Immediate Disqualification on Strike 2 (2/2)
             console.error(`[Kiosk Guardian] Security violation threshold reached via ${source} (Strike ${nextCount}). Disqualifying attendance session.`);
             try { localStorage.removeItem(`smartattend_qr1_auth_${activeSessionId}`); } catch (_) { }
             try { sessionStorage.removeItem(`smartattend_qr1_auth_${activeSessionId}`); } catch (_) { }
-            setErrorMessage(isAndroidNative
-                ? '❌ Attendance Rejected: 2/2 security violations detected (application switch / minimizing). Attendance forfeited.'
-                : '❌ Attendance Disqualified: Security violation detected (application switch / minimizing / tab change). Attendance forfeited.');
+            setErrorMessage('❌ Attendance Disqualified: 2/2 security violations detected (application switch / minimizing). Attendance forfeited.');
             setScanState('DISQUALIFIED');
 
             window.setTimeout(() => {
@@ -1419,7 +1434,10 @@ function QrScannerApp() {
         };
 
         const handleBlur = () => {
-            handleViolationTrigger('WINDOW_BLUR');
+            // Note: Window blur on iOS Safari and mobile browsers fires on system dialogs,
+            // camera/location permission alerts, WebAuthn prompts, Guided Access triple clicks, and virtual keyboard.
+            // True tab switching or app exit is captured strictly by document.visibilitychange (hidden).
+            console.log('[Kiosk Guardian] Transient window blur ignored (non-disqualifying focus shift).');
         };
 
         const handleFocus = () => {
@@ -1427,7 +1445,6 @@ function QrScannerApp() {
         };
 
         document.addEventListener('visibilitychange', handleVisibilityChange);
-        window.addEventListener('blur', handleBlur);
         window.addEventListener('focus', handleFocus);
 
         // ── Anti-Proxy Web Guardian Hardening ────────────────────────────────
@@ -2564,6 +2581,9 @@ function QrScannerApp() {
     // 3. Handle Live Face Biometric Verification change & submit attendance
     const handleFaceVerificationChange = useCallback(async (res) => {
         if (res && res.verified) {
+            lastVerifiedFaceRef.current = res;
+            setFaceSubmissionFailed(false);
+
             // Auto-submit verified attendance
             if (!submittingAttendance) {
                 setSubmittingAttendance(true);
@@ -2600,12 +2620,14 @@ function QrScannerApp() {
                         setGpsTelemetry(geoCheck);
                         if (geoCheck.status === "MOCK_DETECTED") {
                             setSubmittingAttendance(false);
+                            setFaceSubmissionFailed(true);
                             setErrorMessage("🚨 Mock / Fake GPS detected. Attendance submission blocked.");
                             setScanState("DISQUALIFIED");
                             return;
                         }
                         if (geoCheck.status === "REJECT") {
                             setSubmittingAttendance(false);
+                            setFaceSubmissionFailed(true);
                             setErrorMessage(`❌ Attendance Submission Blocked: Your device is outside the classroom boundary. Attendance can only be submitted within the classroom.`);
                             return;
                         }
@@ -2649,12 +2671,15 @@ function QrScannerApp() {
                     });
 
                     // Keep device in Lock Task Mode
+                    setFaceSubmissionFailed(false);
                     setScanState('ATTENDANCE_SUCCESS');
                 } catch (subErr) {
                     console.error('Attendance submission error:', subErr);
+                    setFaceSubmissionFailed(true);
                     const msg = subErr.message || '';
                     if (msg.includes('already recorded') || msg.includes('already-exists') || msg.includes('already been recorded') || msg.includes('already submitted')) {
                         setErrorMessage('');
+                        setFaceSubmissionFailed(false);
                         setScanState('ATTENDANCE_SUCCESS');
                         return;
                     }
@@ -2673,6 +2698,15 @@ function QrScannerApp() {
             }
         }
     }, [activeSessionId, activeQr2Token, activeQr2Payload, submittingAttendance, loggedInRollNo, loggedInName, sessionData, hardwareProof]);
+
+    // One-tap attendance retry using cached verified face descriptor
+    const handleRetryAttendanceSubmit = useCallback(() => {
+        if (lastVerifiedFaceRef.current) {
+            setErrorMessage('');
+            setFaceSubmissionFailed(false);
+            handleFaceVerificationChange(lastVerifiedFaceRef.current);
+        }
+    }, [handleFaceVerificationChange]);
 
     const formatMmSs = (sec) => {
         const m = Math.floor(sec / 60);
@@ -4326,6 +4360,47 @@ function QrScannerApp() {
                     }}>
                         <FaSpinner className="fa-spin" />
                         <span>Biometrics Verified! Submitting attendance record...</span>
+                    </div>
+                )}
+
+                {faceSubmissionFailed && !submittingAttendance && (
+                    <div style={{
+                        marginTop: '16px',
+                        padding: '16px 20px',
+                        borderRadius: '16px',
+                        background: '#fef2f2',
+                        border: '1.5px solid #ef4444',
+                        textAlign: 'center'
+                    }}>
+                        <div style={{ color: '#dc2626', fontWeight: 800, fontSize: '0.96rem', marginBottom: '8px' }}>
+                            {errorMessage || "⚠️ Face verified, but attendance could not be saved to server."}
+                        </div>
+                        <p style={{ color: '#7f1d1d', fontSize: '0.85rem', margin: '0 0 14px 0', lineHeight: 1.4 }}>
+                            Your live facial biometrics have passed! Tap below to submit your attendance record immediately.
+                        </p>
+                        <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', flexWrap: 'wrap' }}>
+                            <button
+                                type="button"
+                                onClick={handleRetryAttendanceSubmit}
+                                style={{
+                                    padding: '12px 24px',
+                                    borderRadius: '12px',
+                                    background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                                    color: '#ffffff',
+                                    border: 'none',
+                                    fontWeight: 800,
+                                    fontSize: '0.94rem',
+                                    cursor: 'pointer',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '8px',
+                                    boxShadow: '0 4px 14px rgba(16, 185, 129, 0.35)'
+                                }}
+                            >
+                                <FaCheckCircle />
+                                <span>Submit Attendance Now</span>
+                            </button>
+                        </div>
                     </div>
                 )}
             </div>

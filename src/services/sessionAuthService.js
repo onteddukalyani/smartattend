@@ -662,7 +662,11 @@ export async function submitVerifiedAttendance(sessionId, qr2Token, biometricDat
 
   try {
     const fn = httpsCallable(functions, "submitAttendance");
-    const result = await fn(payload);
+    const cloudCall = fn(payload);
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error("Cloud function submitAttendance timed out after 7000ms")), 7000)
+    );
+    const result = await Promise.race([cloudCall, timeoutPromise]);
 
     if (result && result.data && result.data.success) {
       const cleanRoll = result.data.rollNo;

@@ -637,29 +637,102 @@ export default function StudentDashboard() {
         return () => unsubscribeRecords();
     }, [user?.uid, candidateRolls]);
 
-    // Manual Refresh Handler
-    const handleManualRefresh = async () => {
+    // Native-feel pull-to-refresh touch listener for Android & mobile WebView
+    const touchStartRef = useRef(0);
+    const [pullDistance, setPullDistance] = useState(0);
+
+    const handleTouchStart = (e) => {
+        if (typeof window !== "undefined" && (window.scrollY === 0 || document.documentElement.scrollTop === 0)) {
+            touchStartRef.current = e.touches[0].clientY;
+        } else {
+            touchStartRef.current = 0;
+        }
+    };
+
+    const handleTouchMove = (e) => {
+        if (touchStartRef.current > 0 && (window.scrollY === 0 || document.documentElement.scrollTop === 0)) {
+            const currentY = e.touches[0].clientY;
+            const diff = currentY - touchStartRef.current;
+            if (diff > 0 && diff < 120) {
+                setPullDistance(diff);
+            }
+        }
+    };
+
+    const handleTouchEnd = () => {
+        if (pullDistance > 60 && !refreshing) {
+            handleManualRefresh();
+        }
+        touchStartRef.current = 0;
+        setPullDistance(0);
+    };
+
+    // Manual Refresh Handler: Re-syncs courses, active attendance sessions, and student records
+    const handleManualRefresh = useCallback(async () => {
         setRefreshing(true);
         try {
-            const [coursesSnap, sessionsSnap, recordsSnap] = await Promise.all([
+            const [coursesSnap, sessionsSnap, uidRecordsSnap, rollRecordsSnap] = await Promise.all([
                 getDocs(collection(db, "courses")).catch(() => ({ docs: [] })),
                 getDocs(collection(db, "attendance_sessions")).catch(() => ({ docs: [] })),
                 user?.uid
                     ? getDocs(query(collection(db, "attendance_records"), where("studentUid", "==", user.uid))).catch(() => ({ docs: [] }))
-                    : (candidateRolls.length > 0
-                        ? getDocs(query(collection(db, "attendance_records"), where("rollNo", "in", candidateRolls))).catch(() => ({ docs: [] }))
-                        : { docs: [] })
+                    : Promise.resolve({ docs: [] }),
+                (candidateRolls && candidateRolls.length > 0)
+                    ? getDocs(query(collection(db, "attendance_records"), where("rollNo", "in", candidateRolls.slice(0, 10)))).catch(() => ({ docs: [] }))
+                    : Promise.resolve({ docs: [] })
             ]);
 
             setCourses(coursesSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
             setSessions(sessionsSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
-            setRecords(recordsSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
+
+            // Merge and deduplicate records by ID
+            const recMap = new Map();
+            [...uidRecordsSnap.docs, ...rollRecordsSnap.docs].forEach((d) => {
+                recMap.set(d.id, { id: d.id, ...d.data() });
+            });
+            setRecords(Array.from(recMap.values()));
         } catch (err) {
             console.error("Manual refresh error:", err);
         } finally {
             setRefreshing(false);
         }
-    };
+    }, [user?.uid, candidateRolls]);
+
+    // Auto-refresh when student returns to app on Android native or refocused in browser
+    useEffect(() => {
+        let appStateHandle = null;
+        if (typeof window !== "undefined" && window.Capacitor?.isNativePlatform?.()) {
+            import("@capacitor/app").then(({ App: CapApp }) => {
+                CapApp.addListener("appStateChange", ({ isActive }) => {
+                    if (isActive) {
+                        console.log("[Dashboard] Foreground resume detected on Android — auto-syncing sessions & attendance...");
+                        handleManualRefresh();
+                    }
+                }).then((handle) => {
+                    appStateHandle = handle;
+                });
+            }).catch(() => { });
+        }
+
+        const handleVisibilityChange = () => {
+            if (!document.hidden && document.visibilityState === "visible") {
+                handleManualRefresh();
+            }
+        };
+
+        const handleWindowFocus = () => {
+            handleManualRefresh();
+        };
+
+        document.addEventListener("visibilitychange", handleVisibilityChange);
+        window.addEventListener("focus", handleWindowFocus);
+
+        return () => {
+            if (appStateHandle?.remove) appStateHandle.remove();
+            document.removeEventListener("visibilitychange", handleVisibilityChange);
+            window.removeEventListener("focus", handleWindowFocus);
+        };
+    }, [handleManualRefresh]);
 
     // Unified metrics computation
     const metrics = useMemo(() => {
@@ -826,7 +899,34 @@ export default function StudentDashboard() {
     };
 
     return (
-        <div className="student-dashboard">
+        <div
+            className="student-dashboard"
+            onTouchStart={handleTouchStart}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleTouchEnd}
+        >
+            {/* Mobile Pull-to-Refresh Indicator */}
+            {(pullDistance > 0 || refreshing) && (
+                <div style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: "8px",
+                    padding: "10px 16px",
+                    background: "rgba(99, 102, 241, 0.08)",
+                    color: "#4f46e5",
+                    fontWeight: 700,
+                    fontSize: "0.85rem",
+                    borderRadius: "12px",
+                    marginBottom: "14px",
+                    transition: "all 0.2s ease",
+                    border: "1px solid rgba(99, 102, 241, 0.2)"
+                }}>
+                    <FaSyncAlt className={refreshing ? "fa-spin" : ""} style={{ transform: refreshing ? "none" : `rotate(${pullDistance * 3}deg)` }} />
+                    <span>{refreshing ? "Refreshing sessions & records..." : (pullDistance > 60 ? "Release to refresh..." : "Pull down to refresh")}</span>
+                </div>
+            )}
+
             {/* 0. Student App Update Reminder Banner */}
             {updateInfo && updateInfo.hasUpdate && (!updateDismissed || updateInfo.isMandatory) && (
                 <div
@@ -1130,7 +1230,32 @@ export default function StudentDashboard() {
                     </div>
                 </div>
 
-                <div className="student-hero-action">
+                <div className="student-hero-action" style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
+                    <button
+                        type="button"
+                        onClick={handleManualRefresh}
+                        disabled={refreshing}
+                        className="student-hero-refresh-btn"
+                        style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: "8px",
+                            padding: "10px 16px",
+                            borderRadius: "14px",
+                            background: "var(--surface, #ffffff)",
+                            border: "1.5px solid var(--border, #cbd5e1)",
+                            color: "var(--text, #1e293b)",
+                            fontWeight: 700,
+                            fontSize: "0.88rem",
+                            cursor: refreshing ? "wait" : "pointer",
+                            boxShadow: "0 2px 6px rgba(0,0,0,0.06)",
+                            transition: "all 0.2s ease"
+                        }}
+                        title="Sync latest classes & attendance records"
+                    >
+                        <FaSyncAlt className={refreshing ? "fa-spin" : ""} style={{ color: "#6366f1" }} />
+                        <span>{refreshing ? "Refreshing..." : "Refresh"}</span>
+                    </button>
                     <Link to="/student/mark-attendance" className="scan-qr-cta">
                         <MdQrCodeScanner size={20} />
                         <span>Scan Class QR Code</span>

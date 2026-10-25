@@ -1317,20 +1317,32 @@ function GenerateQR() {
             const email = (st.studentEmail || st.email || "").toLowerCase().trim();
             const flagEntry = flaggedMap.get(roll) || flaggedMap.get(uid) || (email && flaggedMap.get(email));
 
-            const isAttended = st.isAttended === true || attendeesSet.has(roll) || attendeesSet.has(uid) || (email && attendeesSet.has(email)) || st.status === "ATTENDED" || st.status === "APPROVED" || st.attended === true || st.excused === true;
-            const isExcused = st.excused === true || (isAttended && (flagEntry || st.flagged || st.hasViolation || st.disqualified));
+            // Lecturer explicit excuse state only
+            const isExcused = Boolean(st.excused === true || (flagEntry && flagEntry.excused === true));
 
-            const isDisqualified = !isExcused && !isAttended && (
+            // Disqualification determination: an excused student is never disqualified; otherwise check all disqualification signals
+            const isDisqualified = !isExcused && (
                 st.disqualified === true ||
                 checkIsDisqualified(st) ||
                 (flagEntry && flagEntry.isDisqualified) ||
                 (sessionData?.flaggedViolations || []).some(f =>
+                    !f.excused &&
                     (f.disqualified === true || f.status === "FLAGGED_DISQUALIFIED" || Number(f.count || f.violationCount || 0) >= 1) &&
                     ((f.rollNo && f.rollNo.toUpperCase().trim() === roll) || (f.studentUid && f.studentUid.toUpperCase().trim() === uid))
                 )
             );
 
-            const hasViolation = isDisqualified || (!isExcused && !isAttended && (
+            // A disqualified student is NEVER attended
+            const isAttended = !isDisqualified && (
+                st.isAttended === true ||
+                isExcused ||
+                st.status === "ATTENDED" ||
+                st.status === "APPROVED" ||
+                st.attended === true ||
+                (attendeesSet.has(roll) && (st.status === "PRESENT" || st.status === "ATTENDED" || st.status === "APPROVED" || st.faceVerified || st.qr2Verified))
+            );
+
+            const hasViolation = isDisqualified || (!isExcused && (
                 Boolean(flagEntry) ||
                 checkHasViolation(st) ||
                 st.status === "FLAGGED_WARNING" ||

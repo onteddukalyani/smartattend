@@ -1251,8 +1251,8 @@ export function SessionAttendanceData() {
             const sMeta = allStudentsMap.get(roll);
             const existing = map.get(roll);
 
-            const isExcused = rec.excused === true;
-            const isDisq = !isExcused && (rec.disqualified === true || rec.status === "FLAGGED_DISQUALIFIED");
+            const isExcused = rec.excused === true || existing?.excused === true;
+            const isDisq = !isExcused && (rec.disqualified === true || rec.status === "FLAGGED_DISQUALIFIED" || existing?.status === "DISQUALIFIED" || existing?.disqualified === true);
 
             let status = "PRESENT";
             let statusLabel = "Reached QR 2 (Present)";

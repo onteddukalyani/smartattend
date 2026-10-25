@@ -690,14 +690,22 @@ service cloud.firestore {
     }
 
     match /attendance_records/{recordId} {
-      allow read: if isStaff() || (isSignedIn() && (resource.data.studentUid == request.auth.uid || resource.data.studentEmail == request.auth.token.email));
-      allow create: if isStaff() || (
-        isSignedIn() &&
-        (request.resource.data.studentUid == request.auth.uid || (request.auth.token.email != null && request.resource.data.studentEmail == request.auth.token.email))
+      allow read: if isStaff() || (isSignedIn() && (
+        resource.data.studentUid == request.auth.uid ||
+        (request.auth.token.email != null && resource.data.studentEmail != null && resource.data.studentEmail.lower() == request.auth.token.email.lower())
+      ));
+      allow create, update: if isStaff() || (
+        isSignedIn() && (
+          request.resource.data.studentUid == request.auth.uid ||
+          (request.auth.token.email != null && request.resource.data.studentEmail != null && request.resource.data.studentEmail.lower() == request.auth.token.email.lower())
+        )
       );
-      allow update, delete: if isStaff();
+      allow delete: if isStaff();
       match /{document=**} {
-        allow read: if isStaff() || (isSignedIn() && (resource.data.studentUid == request.auth.uid || resource.data.studentEmail == request.auth.token.email));
+        allow read: if isStaff() || (isSignedIn() && (
+          resource.data.studentUid == request.auth.uid ||
+          (request.auth.token.email != null && resource.data.studentEmail != null && resource.data.studentEmail.lower() == request.auth.token.email.lower())
+        ));
         allow write: if isStaff();
       }
     }
