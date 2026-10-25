@@ -4278,7 +4278,7 @@ function QrScannerApp() {
                 {/* Supervised Bar with Dynamic Session Timer */}
                 <div className="st-supervised-bar">
                     <div className="st-supervised-bar-left">
-                        <FaLock /> Lock Mode Active ({loggedInRollNo})
+                        <FaLock /> Entered Kiosk Mode ({loggedInRollNo})
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         {kioskEndsAt && kioskEndsAt > nowTick && (
@@ -4314,7 +4314,7 @@ function QrScannerApp() {
                             </div>
                             <div className="st-phase1-success-badge" style={{ margin: 0, padding: '4px 12px', fontSize: '0.76rem' }}>
                                 <FaCheckCircle className="st-success-check-icon" style={{ fontSize: '0.82rem' }} />
-                                <span>Phase 1 Verified</span>
+                                <span>Entered Kiosk Mode · Phase 1 Done</span>
                             </div>
                         </div>
 

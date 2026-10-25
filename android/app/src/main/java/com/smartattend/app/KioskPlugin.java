@@ -616,14 +616,6 @@ public class KioskPlugin extends Plugin {
                         } catch (Exception e) {
                             Log.w(TAG, "Device Owner configuration notice: " + e.getMessage());
                         }
-                    } else {
-                        // Standard Android Screen Pinning for personal BYOD devices
-                        try {
-                            activity.startLockTask();
-                            Log.i(TAG, "Initiated Android Screen Pinning for personal device kiosk.");
-                        } catch (Exception e) {
-                            Log.w(TAG, "Screen pinning notice: " + e.getMessage());
-                        }
                     }
 
                     // 3. Apply immersive sticky fullscreen
@@ -670,7 +662,7 @@ public class KioskPlugin extends Plugin {
                     ret.put("flagSecure", true);
                     ret.put("message", isOwner 
                         ? "True Device Owner Lock Task Mode activated successfully." 
-                        : "Supervised Kiosk Guard activated with Screen Pinning and High-Priority Watchdog.");
+                        : "Entered Kiosk Mode. Attendance session is supervised until completion.");
                     call.resolve(ret);
                 } catch (Exception e) {
                     Log.e(TAG, "Exception starting Kiosk: " + e.getMessage(), e);
@@ -807,9 +799,11 @@ public class KioskPlugin extends Plugin {
 
                     applyImmersiveMode(activity);
 
-                    ActivityManager am = (ActivityManager) activity.getSystemService(Context.ACTIVITY_SERVICE);
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && am != null) {
-                        if (am.getLockTaskModeState() == ActivityManager.LOCK_TASK_MODE_NONE) {
+                    DevicePolicyManager dpm = (DevicePolicyManager) activity.getSystemService(Context.DEVICE_POLICY_SERVICE);
+                    boolean isOwner = (dpm != null && dpm.isDeviceOwnerApp(activity.getPackageName()));
+                    if (isOwner && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                        ActivityManager am = (ActivityManager) activity.getSystemService(Context.ACTIVITY_SERVICE);
+                        if (am != null && am.getLockTaskModeState() == ActivityManager.LOCK_TASK_MODE_NONE) {
                             try {
                                 activity.startLockTask();
                             } catch (Exception ignored) {}
