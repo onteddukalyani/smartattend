@@ -556,6 +556,21 @@ export async function approveDeviceResetAction(studentRollNo, approvedByName = "
 
     await setDoc(studentDocRef, resetFields, { merge: true });
     await setDoc(userDocRef, resetFields, { merge: true }).catch(() => {});
+    await setDoc(doc(db, "authorizedUsers", cleanRoll), resetFields, { merge: true }).catch(() => {});
+
+    // Authorize student to immediately re-select and register new device & biometrics
+    await setDoc(doc(db, "biometric_reregistration_permissions", cleanRoll), {
+      rollNo: cleanRoll,
+      studentRollNo: cleanRoll,
+      registrationType: "both",
+      mode: "reset_by_staff",
+      status: "active",
+      remainingUses: 5,
+      grantedAt: Date.now(),
+      expiresAt: Date.now() + 30 * 24 * 60 * 60 * 1000,
+      reason: "Device reset approved by staff — re-registration authorized",
+      grantedBy: approvedByName
+    }, { merge: true }).catch(() => {});
 
     // Notify Student
     await sendStudentNotification(

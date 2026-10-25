@@ -354,7 +354,15 @@ export default function StudentDashboard() {
         fetchedStudentData?.faceRemovedAt &&
         (!fetchedStudentData?.faceEnrolledAt || fetchedStudentData.faceRemovedAt > fetchedStudentData.faceEnrolledAt)
     );
-    const hasRemoval = profileFaceRemoved || fetchedFaceRemoved;
+    const hasRemoval = profileFaceRemoved || fetchedFaceRemoved || fetchedStudentData?.faceRegistered === false || profile?.faceRegistered === false;
+
+    if (hasRemoval && typeof window !== "undefined") {
+        try {
+            localStorage.removeItem("smartattend_face_enrolled");
+            if (activeRollNo) localStorage.removeItem(`smartattend_face_enrolled_${activeRollNo}`);
+            if (user?.uid) localStorage.removeItem(`smartattend_face_enrolled_${user.uid}`);
+        } catch (_) {}
+    }
 
     const hasFaceRegistered = Boolean(
         !hasRemoval && (
@@ -367,7 +375,31 @@ export default function StudentDashboard() {
         )
     );
 
-    const hasHwRegistered = Boolean(
+    const isDeviceReset = Boolean(
+        fetchedStudentData?.deviceResetAt ||
+        profile?.deviceResetAt ||
+        fetchedStudentData?.deviceFingerprintResetAt ||
+        profile?.deviceFingerprintResetAt ||
+        fetchedStudentData?.deviceTypeLocked === false ||
+        profile?.deviceTypeLocked === false ||
+        fetchedStudentData?.hardwareBiometricEnrolled === false
+    );
+
+    if (isDeviceReset && typeof window !== "undefined") {
+        try {
+            localStorage.removeItem("smartattend_student_device_locked");
+            localStorage.removeItem("smartattend_device_locked");
+            localStorage.removeItem("smartattend_student_device_type");
+            localStorage.removeItem("smartattend_device_type");
+            localStorage.removeItem("smartattend_device_registered");
+            localStorage.removeItem("smartattend_hw_enrolled");
+            if (activeRollNo) localStorage.removeItem(`smartattend_hw_enrolled_${activeRollNo}`);
+            if (user?.uid) localStorage.removeItem(`smartattend_hw_enrolled_${user.uid}`);
+            localStorage.removeItem("smartattend_fingerprint_enrolled");
+        } catch (_) {}
+    }
+
+    const hasHwRegistered = !isDeviceReset && Boolean(
         fetchedStudentData?.hardwareBiometricEnrolled ||
         profile?.hardwareBiometricEnrolled ||
         (activeRollNo && localStorage.getItem(`smartattend_hw_enrolled_${activeRollNo}`) === "true") ||
@@ -441,6 +473,18 @@ export default function StudentDashboard() {
             return;
         }
 
+        if (isDeviceReset) {
+            try {
+                localStorage.removeItem('smartattend_student_device_locked');
+                localStorage.removeItem('smartattend_device_locked');
+                localStorage.removeItem('smartattend_student_device_type');
+                localStorage.removeItem('smartattend_device_type');
+                localStorage.removeItem('smartattend_device_registered');
+            } catch (_) { }
+            setCurrentDeviceType(null);
+            return;
+        }
+
         const regType = fetchedStudentData?.deviceType || profile?.deviceType || fetchedStudentData?.registeredDeviceType;
         if (regType) {
             try {
@@ -452,7 +496,7 @@ export default function StudentDashboard() {
                 setShowDeviceModal(false);
             } catch (_) { }
         }
-    }, [activeRollNo, user, profile, clientIpAddress, fetchedStudentData?.deviceType, profile?.deviceType, fetchedStudentData?.registeredDeviceType]);
+    }, [activeRollNo, user, profile, clientIpAddress, fetchedStudentData?.deviceType, profile?.deviceType, fetchedStudentData?.registeredDeviceType, isDeviceReset]);
 
     // Proactively alert Faculty & Student if device mismatch is detected
     useEffect(() => {

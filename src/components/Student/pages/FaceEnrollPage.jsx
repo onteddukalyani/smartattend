@@ -138,8 +138,10 @@ export default function FaceEnrollPage() {
         const handleDocUpdate = (data) => {
             if (!data) return;
             const hasFaceRemoval = Boolean(
-                data.faceRemovedAt &&
-                (!data.faceEnrolledAt || data.faceRemovedAt > data.faceEnrolledAt)
+                (data.faceRemovedAt && (!data.faceEnrolledAt || data.faceRemovedAt > data.faceEnrolledAt)) ||
+                data.faceRegistered === false ||
+                data.biometricEnrolled === false ||
+                (!data.faceDescriptor && !data.descriptor && data.faceRemovedAt)
             );
             const faceEnrolled = Boolean(
                 !hasFaceRemoval &&
@@ -154,7 +156,7 @@ export default function FaceEnrollPage() {
                     if (user?.uid) localStorage.setItem(`smartattend_face_enrolled_${user.uid}`, "true");
                     localStorage.setItem("smartattend_face_enrolled", "true");
                 } catch (_) {}
-            } else if (hasFaceRemoval) {
+            } else {
                 setHasFaceRegistered(false);
                 try {
                     localStorage.removeItem(`smartattend_face_enrolled_${activeRollNo}`);
@@ -163,8 +165,20 @@ export default function FaceEnrollPage() {
                 } catch (_) {}
             }
 
-            const hwEnrolled = Boolean(data.hardwareBiometricEnrolled) || localHwStatus;
-            if (hwEnrolled) {
+            const isHwReset = Boolean(
+                data.hardwareBiometricEnrolled === false ||
+                data.deviceResetAt ||
+                data.deviceFingerprintResetAt ||
+                data.deviceTypeLocked === false
+            );
+            if (isHwReset) {
+                setHasHwRegistered(false);
+                try {
+                    localStorage.removeItem(`smartattend_hw_enrolled_${activeRollNo}`);
+                    if (user?.uid) localStorage.removeItem(`smartattend_hw_enrolled_${user.uid}`);
+                    localStorage.removeItem("smartattend_hw_enrolled");
+                } catch (_) {}
+            } else if (Boolean(data.hardwareBiometricEnrolled)) {
                 setHasHwRegistered(true);
                 try {
                     localStorage.setItem(`smartattend_hw_enrolled_${activeRollNo}`, "true");
@@ -225,11 +239,11 @@ export default function FaceEnrollPage() {
         (!reRegPermission.expiresAt || reRegPermission.expiresAt > Date.now())
     );
 
-    const canReEnrollFace = isStaff || !hasFaceRegistered || (
+    const canReEnrollFace = isStaff || !hasFaceRegistered || Boolean(profile?.faceRemovedAt) || (
         isPermActive && (reRegPermission.registrationType === "face" || reRegPermission.registrationType === "both")
     );
 
-    const canReEnrollHw = isStaff || !hasHwRegistered || (
+    const canReEnrollHw = isStaff || !hasHwRegistered || Boolean(profile?.deviceResetAt || profile?.deviceFingerprintResetAt) || (
         isPermActive && (reRegPermission.registrationType === "biometric" || reRegPermission.registrationType === "both")
     );
 

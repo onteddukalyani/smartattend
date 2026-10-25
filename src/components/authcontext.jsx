@@ -337,10 +337,12 @@ export const AuthProvider = ({ children }) => {
       ? ""
       : (dbPhoto || currentUser.photoURL || currentUser.providerData?.[0]?.photoURL || "");
 
-    // Strict biometrics check: Only mark false if explicitly removed by admin
+    // Strict biometrics check: Only mark false if explicitly removed by admin or reset
     const hasFaceRemoval = Boolean(
-      registeredUser.faceRemovedAt &&
-      (!registeredUser.faceEnrolledAt || registeredUser.faceRemovedAt > registeredUser.faceEnrolledAt)
+      (registeredUser.faceRemovedAt &&
+        (!registeredUser.faceEnrolledAt || registeredUser.faceRemovedAt > registeredUser.faceEnrolledAt)) ||
+      registeredUser.faceRegistered === false ||
+      registeredUser.biometricEnrolled === false
     );
 
     const hasValidFace = Boolean(
@@ -350,6 +352,41 @@ export const AuthProvider = ({ children }) => {
         registeredUser.hasFaceRegistered === true ||
         (Array.isArray(registeredUser.faceDescriptor) && registeredUser.faceDescriptor.length === 128))
     );
+
+    if (!hasValidFace && typeof window !== "undefined") {
+      try {
+        localStorage.removeItem("smartattend_face_enrolled");
+        if (cleanRollNo) localStorage.removeItem(`smartattend_face_enrolled_${cleanRollNo}`);
+        if (currentUser?.uid) localStorage.removeItem(`smartattend_face_enrolled_${currentUser.uid}`);
+      } catch (_) {}
+    }
+
+    // Check device reset state
+    const hasDeviceReset = Boolean(
+      registeredUser.deviceResetAt ||
+      registeredUser.deviceTypeLocked === false ||
+      registeredUser.isDeviceRegistered === false ||
+      !registeredUser.deviceType
+    );
+
+    if (hasDeviceReset && typeof window !== "undefined") {
+      try {
+        localStorage.removeItem("smartattend_student_device_locked");
+        localStorage.removeItem("smartattend_device_locked");
+        localStorage.removeItem("smartattend_student_device_type");
+        localStorage.removeItem("smartattend_device_type");
+        localStorage.removeItem("smartattend_device_registered");
+        localStorage.removeItem("smartattend_hw_enrolled");
+        if (cleanRollNo) localStorage.removeItem(`smartattend_hw_enrolled_${cleanRollNo}`);
+        if (currentUser?.uid) localStorage.removeItem(`smartattend_hw_enrolled_${currentUser.uid}`);
+        localStorage.removeItem("smartattend_fingerprint_enrolled");
+      } catch (_) {}
+    }
+
+    const resolvedDeviceType = hasDeviceReset ? null : (registeredUser.deviceType || registeredUser.registeredPlatform || null);
+    const resolvedDeviceLocked = hasDeviceReset ? false : Boolean(registeredUser.deviceTypeLocked);
+    const resolvedIsDeviceRegistered = hasDeviceReset ? false : Boolean(registeredUser.isDeviceRegistered);
+    const resolvedHwEnrolled = hasDeviceReset ? false : Boolean(registeredUser.hardwareBiometricEnrolled);
 
     return {
       id: registeredUser.id || cleanRollNo || cleanEmail,
@@ -372,9 +409,11 @@ export const AuthProvider = ({ children }) => {
       faceRemovedAt: registeredUser.faceRemovedAt || (hasFaceRemoval ? Date.now() : null),
       approved: registeredUser.approved !== false,
       status: registeredUser.status || "active",
-      deviceType: registeredUser.deviceType || registeredUser.registeredPlatform || (typeof window !== "undefined" ? (localStorage.getItem(`smartattend_${databaseRole}_device_type`) || localStorage.getItem("smartattend_student_device_type") || localStorage.getItem("smartattend_device_type")) : null) || null,
-      registeredPlatform: registeredUser.registeredPlatform || registeredUser.deviceType || null,
-      isDeviceRegistered: Boolean(registeredUser.isDeviceRegistered || registeredUser.deviceType || (typeof window !== "undefined" && (localStorage.getItem("smartattend_device_registered") === "true" || localStorage.getItem(`smartattend_${databaseRole}_device_type`))))
+      deviceType: resolvedDeviceType,
+      deviceTypeLocked: resolvedDeviceLocked,
+      isDeviceRegistered: resolvedIsDeviceRegistered,
+      hardwareBiometricEnrolled: resolvedHwEnrolled,
+      registeredPlatform: resolvedDeviceType
     };
   };
 
@@ -527,7 +566,40 @@ export const AuthProvider = ({ children }) => {
           const freshData = snap.data();
           setProfile((prev) => {
             if (!prev) return prev;
+            const isFaceReset = Boolean(
+              freshData.faceRemovedAt ||
+              freshData.faceRegistered === false ||
+              freshData.biometricEnrolled === false ||
+              (!freshData.faceDescriptor && !freshData.descriptor && (freshData.faceRemovedAt || freshData.faceRegistered === false))
+            );
+            const isDeviceReset = Boolean(
+              freshData.deviceResetAt ||
+              freshData.deviceTypeLocked === false ||
+              freshData.isDeviceRegistered === false ||
+              freshData.hardwareBiometricEnrolled === false ||
+              (!freshData.deviceType && (freshData.deviceResetAt || freshData.deviceTypeLocked === false))
+            );
+
             const merged = { ...prev, ...freshData };
+            if (isFaceReset) {
+              merged.faceRegistered = false;
+              merged.biometricEnrolled = false;
+              merged.hasFaceRegistered = false;
+              merged.faceDescriptor = null;
+              merged.descriptor = null;
+              merged.photoURL = "";
+              merged.photo = "";
+              merged.image = "";
+            }
+            if (isDeviceReset) {
+              merged.deviceType = null;
+              merged.deviceTypeLocked = false;
+              merged.isDeviceRegistered = false;
+              merged.hardwareBiometricEnrolled = false;
+              merged.registeredDevice = null;
+              merged.registeredPlatform = null;
+              merged.deviceFingerprint = null;
+            }
             const enriched = buildEnrichedProfile(merged, user);
             try {
               localStorage.setItem(`smartattend-cached-profile-${user.uid}`, JSON.stringify(enriched));

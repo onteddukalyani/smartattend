@@ -103,7 +103,21 @@ export function DeviceOnboardingModal({ isOpen, onClose }) {
     if (!isOpen || isNativeApp) return null;
 
     const hasDeviceMismatch = Boolean(detectedDevice && selectedDevice && detectedDevice !== selectedDevice);
-    const isLocked = Boolean(
+    const isReset = Boolean(
+        profile?.deviceResetAt ||
+        profile?.deviceTypeLocked === false ||
+        profile?.isDeviceRegistered === false ||
+        !profile?.deviceType
+    );
+
+    if (isReset && typeof window !== 'undefined') {
+        try {
+            localStorage.removeItem('smartattend_student_device_locked');
+            localStorage.removeItem('smartattend_device_locked');
+        } catch (_) {}
+    }
+
+    const isLocked = !isReset && Boolean(
         profile?.role === 'student' &&
         (localStorage.getItem('smartattend_student_device_type') || profile?.deviceType) &&
         (profile?.deviceTypeLocked === true || localStorage.getItem('smartattend_student_device_locked') === 'true')

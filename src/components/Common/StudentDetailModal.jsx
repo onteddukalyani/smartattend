@@ -271,7 +271,8 @@ const StudentDetailModal = ({ student, onClose, onUpdate }) => {
 
     try {
       setRemovingFace(true);
-      await removeStudentFaceAndBiometrics(currentStudent);
+      const actorName = profile?.name || profile?.email || "Faculty/Admin";
+      await removeStudentFaceAndBiometrics(currentStudent, actorName);
 
       const updatedStudent = {
         ...currentStudent,
@@ -288,7 +289,6 @@ const StudentDetailModal = ({ student, onClose, onUpdate }) => {
       onUpdate?.(updatedStudent);
 
       // Immediately notify student
-      const actorName = profile?.name || profile?.email || "Faculty/Admin";
       const cleanRoll = String(studentRoll).trim().toUpperCase();
       if (cleanRoll) {
         await sendStudentNotification(
@@ -401,6 +401,21 @@ const StudentDetailModal = ({ student, onClose, onUpdate }) => {
 
       await setDoc(doc(db, "students", cleanRoll), hwResetPayload, { merge: true });
       await setDoc(doc(db, "users", cleanRoll), hwResetPayload, { merge: true }).catch(() => {});
+      await setDoc(doc(db, "authorizedUsers", cleanRoll), hwResetPayload, { merge: true }).catch(() => {});
+
+      // Authorize student to immediately re-register platform/fingerprint biometrics
+      await setDoc(doc(db, "biometric_reregistration_permissions", cleanRoll), {
+        rollNo: cleanRoll,
+        studentRollNo: cleanRoll,
+        registrationType: "both",
+        mode: "reset_by_staff",
+        status: "active",
+        remainingUses: 5,
+        grantedAt: Date.now(),
+        expiresAt: Date.now() + 30 * 24 * 60 * 60 * 1000,
+        reason: "Device fingerprint reset by staff — re-registration authorized",
+        grantedBy: actorName
+      }, { merge: true }).catch(() => {});
 
       const updated = {
         ...currentStudent,
@@ -484,6 +499,21 @@ const StudentDetailModal = ({ student, onClose, onUpdate }) => {
 
       await setDoc(doc(db, "students", cleanRoll), resetPayload, { merge: true });
       await setDoc(doc(db, "users", cleanRoll), resetPayload, { merge: true }).catch(() => {});
+      await setDoc(doc(db, "authorizedUsers", cleanRoll), resetPayload, { merge: true }).catch(() => {});
+
+      // Authorize student to immediately re-select and register new device & biometrics
+      await setDoc(doc(db, "biometric_reregistration_permissions", cleanRoll), {
+        rollNo: cleanRoll,
+        studentRollNo: cleanRoll,
+        registrationType: "both",
+        mode: "reset_by_staff",
+        status: "active",
+        remainingUses: 5,
+        grantedAt: Date.now(),
+        expiresAt: Date.now() + 30 * 24 * 60 * 60 * 1000,
+        reason: "Device lock reset by staff — re-registration authorized",
+        grantedBy: actorName
+      }, { merge: true }).catch(() => {});
 
       const updated = {
         ...currentStudent,

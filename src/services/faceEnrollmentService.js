@@ -95,33 +95,64 @@ export async function matchStudentFace(faceDescriptor, rollNo = "") {
   return callFaceApi("/api/face/match", { faceDescriptor, rollNo });
 }
 
-export async function removeStudentFaceEnrollment(rollNo) {
+export async function removeStudentFaceEnrollment(rollNo, actorName = "Faculty/Admin") {
+  const cleanRoll = String(rollNo || "").trim().toUpperCase();
+  if (!cleanRoll) throw new Error("A valid roll number is required to remove face enrollment.");
+
   try {
-    const response = await removeFaceCallable({ rollNo });
+    const response = await removeFaceCallable({ rollNo: cleanRoll });
     if (response?.data?.success) {
-      return response.data;
+      // cloud function succeeded
     }
   } catch (cloudErr) {
     console.warn("removeStudentFaceEnrollment cloud function notice (falling back to direct Firestore removal):", cloudErr.message);
   }
 
-  const cleanRoll = String(rollNo || "").trim().toUpperCase();
-  if (!cleanRoll) throw new Error("A valid roll number is required to remove face enrollment.");
-
+  const now = Date.now();
   const resetPayload = {
     faceRegistered: false,
     biometricEnrolled: false,
     hasFaceRegistered: false,
     faceDescriptor: deleteField(),
-    faceRemovedAt: Date.now(),
+    descriptor: deleteField(),
+    faceRemovedAt: now,
     photoURL: deleteField(),
     image: deleteField(),
     photo: deleteField(),
-    updatedAt: Date.now()
+    avatar: deleteField(),
+    profilePic: deleteField(),
+    faceImage: deleteField(),
+    facePhoto: deleteField(),
+    updatedAt: now
   };
 
   await setDoc(doc(db, "students", cleanRoll), resetPayload, { merge: true });
   await setDoc(doc(db, "users", cleanRoll), resetPayload, { merge: true }).catch(() => {});
+  await setDoc(doc(db, "authorizedUsers", cleanRoll), resetPayload, { merge: true }).catch(() => {});
+
+  // Automatically grant active re-registration permission so the student can immediately re-enroll
+  const permPayload = {
+    rollNo: cleanRoll,
+    studentRollNo: cleanRoll,
+    registrationType: "both",
+    mode: "reset_by_staff",
+    status: "active",
+    remainingUses: 5,
+    grantedAt: now,
+    expiresAt: now + 30 * 24 * 60 * 60 * 1000, // 30 days window
+    reason: "Biometrics reset by staff — re-enrollment authorized",
+    grantedBy: actorName
+  };
+  await setDoc(doc(db, "biometric_reregistration_permissions", cleanRoll), permPayload, { merge: true }).catch(() => {});
+
+  // Clean local client storage if accessible
+  if (typeof window !== "undefined") {
+    try {
+      localStorage.removeItem("smartattend_face_enrolled");
+      localStorage.removeItem(`smartattend_face_enrolled_${cleanRoll}`);
+    } catch (_) {}
+  }
+
   return { success: true };
 }
 

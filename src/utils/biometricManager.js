@@ -18,7 +18,7 @@ import { removeStudentFaceEnrollment } from "../services/faceEnrollmentService";
  * @param {Object|string} studentOrRoll - Student object or roll number string
  * @returns {Promise<{ success: boolean, updatedCount: number }>}
  */
-export async function removeStudentFaceAndBiometrics(studentOrRoll) {
+export async function removeStudentFaceAndBiometrics(studentOrRoll, actorName = "Faculty/Admin") {
   try {
     const student = typeof studentOrRoll === "object" ? (studentOrRoll || {}) : { rollNo: studentOrRoll };
     const rawRoll = student.rollNo || student.id || "";
@@ -26,7 +26,7 @@ export async function removeStudentFaceAndBiometrics(studentOrRoll) {
     if (!cleanRoll) {
       throw new Error("A valid student roll number is required to remove face enrollment.");
     }
-    await removeStudentFaceEnrollment(cleanRoll);
+    await removeStudentFaceEnrollment(cleanRoll, actorName);
     return { success: true, updatedCount: 1 };
   } catch (err) {
     console.error("Error in removeStudentFaceAndBiometrics:", err);

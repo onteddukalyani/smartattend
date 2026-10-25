@@ -1303,7 +1303,7 @@ export function SessionAttendanceData() {
         let abs = 0;
 
         allMembersList.forEach((m) => {
-            if (m.status === "PRESENT") pres++;
+            if (m.status === "PRESENT" || m.status === "EXCUSED" || m.excused) pres++;
             else if (m.status === "PENDING_QR2") pend++;
             else if (m.status === "DISQUALIFIED" || m.status === "FLAGGED") disq++;
             else if (m.status === "ABSENT") abs++;
@@ -1709,10 +1709,10 @@ export function SessionAttendanceData() {
                                         <td><strong>{member.rollNo}</strong></td>
                                         <td>{member.name}</td>
                                         <td>
-                                            {member.status === "PRESENT" ? (
+                                            {(member.status === "PRESENT" || member.status === "EXCUSED" || member.excused) ? (
                                                 <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-                                                    {member.excused ? (
-                                                        <span style={{ color: "#10b981", fontWeight: 750, fontSize: "0.82rem" }}>
+                                                    {(member.excused || member.status === "EXCUSED") ? (
+                                                        <span style={{ color: "#d97706", fontWeight: 750, fontSize: "0.82rem" }}>
                                                             ✅ Excused (Present)
                                                         </span>
                                                     ) : member.faceVerified ? (
@@ -1824,7 +1824,7 @@ export function SessionAttendanceData() {
                                         </td>
                                         <td onClick={(e) => e.stopPropagation()}>
                                             {isSessionOwner ? (
-                                                member.status === "PRESENT" ? (
+                                                (member.status === "PRESENT" || member.status === "EXCUSED" || member.excused) ? (
                                                     <button
                                                         type="button"
                                                         className="remove-session-btn"

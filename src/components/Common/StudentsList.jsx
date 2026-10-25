@@ -194,10 +194,10 @@ function StudentsList() {
 
         try {
             setActionLoading(student.id || student.rollNo);
-            await removeStudentFaceAndBiometrics(student);
+            const actorName = profile?.name || profile?.email || "Faculty/Admin";
+            await removeStudentFaceAndBiometrics(student, actorName);
 
             // Notify student & faculty stream in real-time
-            const actorName = profile?.name || profile?.email || "Faculty/Admin";
             await sendStudentNotification(
                 cleanRoll,
                 "Face Photo Reset ⚠️",
@@ -257,6 +257,21 @@ function StudentsList() {
 
             await setDoc(doc(db, "students", cleanRoll), resetPayload, { merge: true });
             await setDoc(doc(db, "users", cleanRoll), resetPayload, { merge: true }).catch(() => {});
+            await setDoc(doc(db, "authorizedUsers", cleanRoll), resetPayload, { merge: true }).catch(() => {});
+
+            // Authorize student to immediately re-select and register new device & biometrics
+            await setDoc(doc(db, "biometric_reregistration_permissions", cleanRoll), {
+                rollNo: cleanRoll,
+                studentRollNo: cleanRoll,
+                registrationType: "both",
+                mode: "reset_by_staff",
+                status: "active",
+                remainingUses: 5,
+                grantedAt: Date.now(),
+                expiresAt: Date.now() + 30 * 24 * 60 * 60 * 1000,
+                reason: "Device lock reset by staff — re-registration authorized",
+                grantedBy: actorName
+            }, { merge: true }).catch(() => {});
 
             setStudents((prev) =>
                 prev.map((s) =>

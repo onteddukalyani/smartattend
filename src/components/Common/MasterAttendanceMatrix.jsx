@@ -11,6 +11,7 @@ import { useAuth } from "../authcontext";
 import { exportMasterAttendanceMatrix } from "../../DownloadExcel";
 import { mergeAllStudentRecords } from "../../utils/studentDataHelper";
 import StudentDetailModal from "./StudentDetailModal";
+import ExcuseStudentModal from "./ExcuseStudentModal";
 import {
   FaSearch,
   FaFileExcel,
@@ -31,7 +32,8 @@ import {
   FaUsers,
   FaRedo,
   FaCheck,
-  FaTimes
+  FaTimes,
+  FaUserCheck
 } from "react-icons/fa";
 import "./MasterAttendanceMatrix.css";
 
@@ -88,6 +90,14 @@ export default function MasterAttendanceMatrix({
   const [searchQuery, setSearchQuery] = useState("");
   const [eligibilityFilter, setEligibilityFilter] = useState("ALL"); // "ALL", "ELIGIBLE", "SHORTAGE", "CRITICAL"
   const [selectedStudentForModal, setSelectedStudentForModal] = useState(null);
+
+  // Excuse Student Modal State
+  const [excuseModalState, setExcuseModalState] = useState({
+    isOpen: false,
+    defaultCourse: "",
+    prefilledStudent: null,
+    prefilledSessionId: null
+  });
 
   // Sorting State
   // 1. Session columns sort mode: "most_attended" | "least_attended" | "newest" | "oldest"
@@ -209,8 +219,8 @@ export default function MasterAttendanceMatrix({
       if (roll && sessId) {
         const key1 = `${roll}_${sessId}`;
         if (!map.has(key1)) {
-          map.set(key1, true);
-          map.set(`${roll.toLowerCase()}_${sessId}`, true);
+          map.set(key1, rec);
+          map.set(`${roll.toLowerCase()}_${sessId}`, rec);
           counts.set(sessId, (counts.get(sessId) || 0) + 1);
         }
       }
@@ -224,8 +234,8 @@ export default function MasterAttendanceMatrix({
           if (roll) {
             const key1 = `${roll}_${sess.id}`;
             if (!map.has(key1)) {
-              map.set(key1, true);
-              map.set(`${roll.toLowerCase()}_${sess.id}`, true);
+              map.set(key1, att);
+              map.set(`${roll.toLowerCase()}_${sess.id}`, att);
               counts.set(sess.id, (counts.get(sess.id) || 0) + 1);
             }
           }
@@ -517,6 +527,23 @@ export default function MasterAttendanceMatrix({
         </div>
 
         <div className="matrix-actions-group">
+          <button
+            type="button"
+            className="matrix-btn-excuse"
+            onClick={() => {
+              setExcuseModalState({
+                isOpen: true,
+                defaultCourse: selectedCourse !== "ALL" ? selectedCourse : (allCourses[0]?.code || allCourses[0]?.courseCode || allCourses[0]?.id || ""),
+                prefilledStudent: null,
+                prefilledSessionId: null
+              });
+            }}
+            title="Grant excused attendance for a student on a specific course and date"
+          >
+            <FaUserCheck />
+            <span>Excuse Student</span>
+          </button>
+
           <button
             type="button"
             className="matrix-btn-export"
@@ -964,14 +991,35 @@ export default function MasterAttendanceMatrix({
 
                     {/* Class Session Attendance Marks */}
                     {filteredSessions.map((sess) => {
-                      const isPresent = Boolean(
+                      const mark =
                         matrixMap.get(`${stud.rollNo}_${sess.id}`) ||
-                        matrixMap.get(`${stud.rollNo.toLowerCase()}_${sess.id}`)
+                        matrixMap.get(`${stud.rollNo.toLowerCase()}_${sess.id}`);
+                      const isPresent = Boolean(mark);
+                      const isExcused = Boolean(
+                        mark?.isExcused ||
+                        mark?.excused ||
+                        mark?.status === "EXCUSED" ||
+                        mark?.attendanceStatus === "EXCUSED"
                       );
 
                       return (
                         <td key={sess.id} className="matrix-cell-session">
-                          {isPresent ? (
+                          {isExcused ? (
+                            <span
+                              className="matrix-mark-excused"
+                              title={`Excused: ${mark.excuseReason || "Authorized Leave"}\nBy: ${mark.excusedBy || "Faculty"}\nDate: ${new Date(sess.createdAt).toLocaleDateString()}\n👉 Click to view or edit excuse`}
+                              onClick={() => {
+                                setExcuseModalState({
+                                  isOpen: true,
+                                  defaultCourse: sess.courseCode || selectedCourse,
+                                  prefilledStudent: stud,
+                                  prefilledSessionId: sess.id
+                                });
+                              }}
+                            >
+                              EX
+                            </span>
+                          ) : isPresent ? (
                             <span
                               className="matrix-mark-present"
                               title={`Present in ${sess.classCode} (${new Date(sess.createdAt).toLocaleDateString()})`}
@@ -980,8 +1028,16 @@ export default function MasterAttendanceMatrix({
                             </span>
                           ) : (
                             <span
-                              className="matrix-mark-absent"
-                              title={`Absent in ${sess.classCode} (${new Date(sess.createdAt).toLocaleDateString()})`}
+                              className="matrix-mark-absent matrix-clickable-cell"
+                              title={`Absent in ${sess.classCode} (${new Date(sess.createdAt).toLocaleDateString()})\n👉 Click to excuse this student`}
+                              onClick={() => {
+                                setExcuseModalState({
+                                  isOpen: true,
+                                  defaultCourse: sess.courseCode || selectedCourse,
+                                  prefilledStudent: stud,
+                                  prefilledSessionId: sess.id
+                                });
+                              }}
                             >
                               0
                             </span>
@@ -1005,6 +1061,21 @@ export default function MasterAttendanceMatrix({
           onUpdate={() => {}}
         />
       )}
+
+      {/* Excuse Student Modal */}
+      <ExcuseStudentModal
+        isOpen={excuseModalState.isOpen}
+        onClose={() => setExcuseModalState((prev) => ({ ...prev, isOpen: false }))}
+        allCourses={allCourses}
+        allStudents={allStudents}
+        allSessions={allSessions}
+        matrixMap={matrixMap}
+        defaultCourse={excuseModalState.defaultCourse}
+        prefilledStudent={excuseModalState.prefilledStudent}
+        prefilledSessionId={excuseModalState.prefilledSessionId}
+        profile={profile}
+        user={user}
+      />
     </div>
   );
 }

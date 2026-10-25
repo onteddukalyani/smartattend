@@ -187,17 +187,18 @@ export function exportMasterAttendanceMatrix({
 
             sessions.forEach((sess) => {
                 const sessId = sess.id;
-                const isPresent = Boolean(
+                const mark =
                     matrixMap.get(`${cleanRoll}_${sessId}`) ||
-                    matrixMap.get(`${cleanRoll.toLowerCase()}_${sessId}`)
-                );
+                    matrixMap.get(`${cleanRoll.toLowerCase()}_${sessId}`);
+                const isPresent = Boolean(mark);
+                const isExcused = Boolean(mark?.isExcused || mark?.excused || mark?.status === "EXCUSED" || mark?.attendanceStatus === "EXCUSED");
 
                 const duration = Number(sess.durationHours) || Number(sess.hours) || 1.5;
 
                 if (isPresent) {
                     attendedCount += 1;
                     attendedHours += duration;
-                    sessionValues.push(1);
+                    sessionValues.push(isExcused ? "EX" : 1);
                 } else {
                     sessionValues.push(0);
                 }
