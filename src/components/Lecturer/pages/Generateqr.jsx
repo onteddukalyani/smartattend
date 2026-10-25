@@ -13,6 +13,7 @@ import {
     updateSessionGeofenceRadius,
     updateSessionRotationInterval,
     releaseIndividualStudentDevice,
+    releaseAllStudentsFromSession,
     excuseAndReinstateAttendance
 } from "../../../services/sessionAuthService";
 import { sendFacultyNotification, sendBroadcastNotification, sendStudentNotification } from "../../../services/notificationsService";
@@ -825,6 +826,29 @@ function GenerateQR() {
         }
     };
 
+    const [releasingAllStudents, setReleasingAllStudents] = useState(false);
+
+    // Release all student devices from Kiosk Mode across the classroom
+    const handleReleaseAllStudentsFromKiosk = async () => {
+        if (!sessionId) return;
+        if (!window.confirm("Release ALL student devices from Kiosk mode immediately? Devices will unlock while session data is preserved.")) {
+            return;
+        }
+        setReleasingAllStudents(true);
+        try {
+            await releaseAllStudentsFromSession(sessionId);
+            setAuthorizedStudents((prev) =>
+                (prev || []).map((s) => ({ ...s, released: true, releaseStatus: "RELEASED", status: "RELEASED" }))
+            );
+            alert("✅ All student devices have been signaled to unlock from Kiosk mode!");
+        } catch (err) {
+            console.error("Error releasing all students:", err);
+            alert("❌ Failed to release all devices: " + (err.message || err));
+        } finally {
+            setReleasingAllStudents(false);
+        }
+    };
+
     // Helper: End session immediately, release all student kiosks, and jump clock to end
     const handleEndSessionAndReleaseAll = async () => {
         if (!window.confirm("End attendance session immediately and release all student devices from Kiosk mode?")) {
@@ -1124,6 +1148,13 @@ function GenerateQR() {
             const hasV = isDisq || checkHasViolation(st);
             const vCount = Math.max(Number(st.violationCount || st.confirmedKioskViolations || 0), isDisq ? 2 : hasV ? 1 : 0);
 
+            const isQr2Scanned = Boolean(
+                st.qr2Scanned === true ||
+                st.status === "QR2_SCANNED" ||
+                st.verificationStage === "BIOMETRIC_VERIFYING" ||
+                st.verificationStage === "BIOMETRICS_IN_PROGRESS"
+            );
+
             if (!map.has(dedupeKey)) {
                 map.set(dedupeKey, {
                     ...st,
@@ -1134,7 +1165,9 @@ function GenerateQR() {
                     disqualified: isDisq,
                     hasViolation: hasV,
                     violationCount: vCount,
-                    violations: Array.isArray(st.violations) ? st.violations : []
+                    violations: Array.isArray(st.violations) ? st.violations : [],
+                    qr2Scanned: isQr2Scanned,
+                    status: isDisq ? "DISQUALIFIED" : (isQr2Scanned ? "QR2_SCANNED" : (st.status || "QR1_VERIFIED"))
                 });
             } else {
                 const existing = map.get(dedupeKey);
@@ -1145,6 +1178,17 @@ function GenerateQR() {
                     ...(Array.isArray(existing.violations) ? existing.violations : []),
                     ...(Array.isArray(st.violations) ? st.violations : [])
                 ];
+                const mergedQr2Scanned = Boolean(
+                    existing.qr2Scanned === true ||
+                    isQr2Scanned ||
+                    st.status === "QR2_SCANNED" ||
+                    existing.status === "QR2_SCANNED"
+                );
+                const mergedStatus = mergedDisq
+                    ? "DISQUALIFIED"
+                    : (existing.status === "PRESENT" || st.status === "PRESENT"
+                        ? "PRESENT"
+                        : (mergedQr2Scanned ? "QR2_SCANNED" : (st.status || existing.status || "QR1_VERIFIED")));
 
                 map.set(dedupeKey, {
                     ...existing,
@@ -1154,7 +1198,8 @@ function GenerateQR() {
                     studentEmail: canonicalEmail || existing.studentEmail,
                     studentUid: canonicalUid || existing.studentUid,
                     released: st.released === true || existing.released === true,
-                    status: (st.status === "FLAGGED_DISQUALIFIED" || st.status === "DISQUALIFIED") ? st.status : (existing.status || st.status),
+                    status: mergedStatus,
+                    qr2Scanned: mergedQr2Scanned,
                     flagged: st.flagged === true || existing.flagged === true,
                     disqualified: mergedDisq,
                     hasViolation: mergedHasV,
@@ -3036,14 +3081,26 @@ function GenerateQR() {
                     </button>
 
                     {phase !== "CLOSED" && (
-                        <button
-                            type="button"
-                            onClick={handleEndSessionAndReleaseAll}
-                            className="qr-top-end-btn"
-                            title="End session immediately and unlock all student kiosks"
-                        >
-                            🛑 End Session
-                        </button>
+                        <>
+                            <button
+                                type="button"
+                                onClick={handleReleaseAllStudentsFromKiosk}
+                                disabled={releasingAllStudents}
+                                className="qr-top-btn"
+                                style={{ background: 'rgba(99, 102, 241, 0.15)', borderColor: '#6366f1', color: '#4f46e5', fontWeight: 800 }}
+                                title="Release all student devices from Kiosk mode immediately"
+                            >
+                                <FaUnlock /> <span>{releasingAllStudents ? "Releasing..." : "Release All Devices"}</span>
+                            </button>
+                            <button
+                                type="button"
+                                onClick={handleEndSessionAndReleaseAll}
+                                className="qr-top-end-btn"
+                                title="End session immediately and unlock all student kiosks"
+                            >
+                                🛑 End Session
+                            </button>
+                        </>
                     )}
                 </div>
             </div>

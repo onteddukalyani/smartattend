@@ -869,16 +869,19 @@ function QrScannerApp() {
                 localStorage.getItem('smartattend_face_enrolled') === 'true')
         );
         if (cachedFaceRegistered) {
+            const cachedDescriptor = (Array.isArray(dbStudent?.faceDescriptor) && dbStudent.faceDescriptor.length === 128)
+                ? dbStudent.faceDescriptor
+                : ((Array.isArray(profile?.faceDescriptor) && profile.faceDescriptor.length === 128) ? profile.faceDescriptor : null);
             const cachedData = {
                 rollNo: targetRoll,
                 name: loggedInName || dbStudent?.name || profile?.name || 'Student',
-                faceDescriptor: null,
+                faceDescriptor: cachedDescriptor,
                 faceRegistered: true,
                 photoURL: dbStudent?.photoURL || profile?.photoURL || null
             };
             lookupCacheRef.current[targetRoll] = cachedData;
             setVerifiedStudent((prev) => {
-                if (prev && prev.rollNo === targetRoll && prev.faceRegistered === true) return prev;
+                if (prev && prev.rollNo === targetRoll && prev.faceRegistered === true && prev.faceDescriptor) return prev;
                 return cachedData;
             });
             return;
@@ -896,17 +899,18 @@ function QrScannerApp() {
                     sData.faceRemovedAt &&
                     (!sData.faceEnrolledAt || sData.faceRemovedAt > sData.faceEnrolledAt)
                 );
+                const directDescriptor = (Array.isArray(sData.faceDescriptor) && sData.faceDescriptor.length === 128)
+                    ? sData.faceDescriptor
+                    : ((Array.isArray(sData.descriptor) && sData.descriptor.length === 128) ? sData.descriptor : null);
                 const faceRegistered = Boolean(
                     !sDocRemoved &&
-                    (sData.faceRegistered || sData.biometricEnrolled || sData.hasFaceRegistered ||
-                        (Array.isArray(sData.faceDescriptor) && sData.faceDescriptor.length === 128) ||
-                        (Array.isArray(sData.descriptor) && sData.descriptor.length === 128))
+                    (sData.faceRegistered || sData.biometricEnrolled || sData.hasFaceRegistered || Boolean(directDescriptor))
                 );
                 if (faceRegistered) {
                     const directResult = {
                         rollNo: targetRoll,
                         name: sData.name || loggedInName || 'Student',
-                        faceDescriptor: null,
+                        faceDescriptor: directDescriptor,
                         faceRegistered: true,
                         photoURL: sData.photoURL || null
                     };
@@ -962,9 +966,13 @@ function QrScannerApp() {
                 if (docFaceRemoved) {
                     faceRemoved = true;
                 }
-                if (docData.faceRegistered || docData.biometricEnrolled || docData.hasFaceRegistered ||
-                    (Array.isArray(docData.faceDescriptor) && docData.faceDescriptor.length === 128) ||
-                    (Array.isArray(docData.descriptor) && docData.descriptor.length === 128)) {
+                const foundDesc = (Array.isArray(docData.faceDescriptor) && docData.faceDescriptor.length === 128)
+                    ? docData.faceDescriptor
+                    : ((Array.isArray(docData.descriptor) && docData.descriptor.length === 128) ? docData.descriptor : null);
+                if (foundDesc) {
+                    merged.faceDescriptor = foundDesc;
+                }
+                if (docData.faceRegistered || docData.biometricEnrolled || docData.hasFaceRegistered || Boolean(foundDesc)) {
                     merged.faceRegistered = true;
                 }
                 if (docData.photoURL) merged.photoURL = docData.photoURL;
@@ -1556,7 +1564,7 @@ function QrScannerApp() {
             const studentUid = user?.uid;
             if (
                 data.status === 'CLOSED' || data.phase === 'CLOSED' || data.isClosed === true ||
-                data.released === true ||
+                data.released === true || data.allReleased === true || data.releaseAllKiosks === true ||
                 (cleanRoll && data.releasedStudents?.[cleanRoll] === true) ||
                 (studentUid && data.releasedStudents?.[studentUid] === true)
             ) {
@@ -2053,15 +2061,22 @@ function QrScannerApp() {
             // Live status sync to Lecturer: QR 2 Scanned (Pending Face Verification)
             try {
                 const targetRoll = (result?.rollNo || loggedInRollNo || '').trim().toUpperCase();
-                if (targetSession && targetRoll) {
-                    const authDocRef = doc(db, 'attendance_sessions', targetSession, 'authorizations', targetRoll);
-                    setDoc(authDocRef, {
+                const studentUid = user?.uid;
+                if (targetSession) {
+                    const qr2UpdatePayload = {
+                        qr1Verified: true,
                         qr2Scanned: true,
                         qr2ScannedAt: Date.now(),
                         status: 'QR2_SCANNED',
                         verificationStage: 'BIOMETRIC_VERIFYING',
                         lastActiveAt: Date.now()
-                    }, { merge: true }).catch(() => {});
+                    };
+                    if (targetRoll) {
+                        setDoc(doc(db, 'attendance_sessions', targetSession, 'authorizations', targetRoll), qr2UpdatePayload, { merge: true }).catch(() => {});
+                    }
+                    if (studentUid && studentUid !== targetRoll) {
+                        setDoc(doc(db, 'attendance_sessions', targetSession, 'authorizations', studentUid), qr2UpdatePayload, { merge: true }).catch(() => {});
+                    }
                 }
             } catch (_) {}
         } catch (err) {
@@ -2619,14 +2634,19 @@ function QrScannerApp() {
                     setScanState('ATTENDANCE_SUCCESS');
                 } catch (subErr) {
                     console.error('Attendance submission error:', subErr);
-                    if (subErr.message?.includes('already recorded') || subErr.message?.includes('already-exists') || subErr.message?.includes('already been recorded') || subErr.message?.includes('already submitted')) {
+                    const msg = subErr.message || '';
+                    if (msg.includes('already recorded') || msg.includes('already-exists') || msg.includes('already been recorded') || msg.includes('already submitted')) {
                         setErrorMessage('');
                         setScanState('ATTENDANCE_SUCCESS');
                         return;
                     }
-                    alert('❌ Attendance submission notice: ' + (subErr.message || 'Error recording attendance'));
-                    if (subErr.message?.includes('QR 1') || subErr.message?.includes('Access Denied') || subErr.message?.includes('Missing Phase 1')) {
-                        setErrorMessage(subErr.message);
+                    if (msg.includes('violation') || msg.includes('disqualified')) {
+                        setErrorMessage('❌ Attendance Disqualified: Security violation detected on your session.');
+                        setScanState('DISQUALIFIED');
+                        return;
+                    }
+                    setErrorMessage('⚠️ Submission notice: ' + (msg || 'Error recording attendance.'));
+                    if (msg.includes('QR 1') || msg.includes('Access Denied') || msg.includes('Missing Phase 1')) {
                         setScanState('IDLE');
                     }
                 } finally {

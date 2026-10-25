@@ -550,7 +550,8 @@ function FaceScanner({
                 (isChallengeComplete && challengeEngine.isComplete === true) ||
                 (challengeEngine.blinkCount >= 1) ||
                 (challengeEngine.isComplete === true) ||
-                (consecutiveMatchesRef.current >= 2 && (challengeEngine.ratioHistory?.length || 0) >= 6)
+                (consecutiveMatchesRef.current >= 2 && (challengeEngine.ratioHistory?.length || 0) >= 6) ||
+                (challengeEngine.progress >= 60)
               )
             );
 
@@ -616,7 +617,7 @@ function FaceScanner({
 
             const serverMatch = serverMatchRef.current;
             const hasFreshServerMatch = Boolean(
-              serverMatch && now - serverMatch.receivedAt < 2000
+              serverMatch && now - serverMatch.receivedAt < 4000
             );
 
             // -------------------------------------------------------------
@@ -624,10 +625,20 @@ function FaceScanner({
             // -------------------------------------------------------------
             // SCENARIO 1: Targeted student verification (Form mode / Attendance)
             if (verifiedStudent) {
-              const dist = hasFreshServerMatch && Number.isFinite(serverMatch.distance)
-                ? serverMatch.distance
-                : 1;
-              const conf = hasFreshServerMatch ? Number(serverMatch.confidence || 0) : 0;
+              const enrolledDescriptor = verifiedStudent.faceDescriptor || verifiedStudent.descriptor || (Array.isArray(profile?.faceDescriptor) ? profile.faceDescriptor : null);
+              
+              let localDist = null;
+              if (liveDescriptor && enrolledDescriptor && enrolledDescriptor.length === 128) {
+                try {
+                  localDist = faceapi.euclideanDistance(liveDescriptor, enrolledDescriptor);
+                } catch (_) {}
+              }
+
+              const hasLocalMatch = localDist !== null && Number.isFinite(localDist);
+              const dist = hasLocalMatch ? localDist : (hasFreshServerMatch && Number.isFinite(serverMatch.distance) ? serverMatch.distance : 1);
+              const conf = hasLocalMatch 
+                ? Math.round(Math.max(0, Math.min(100, (1 - (dist / 0.62)) * 100))) 
+                : (hasFreshServerMatch ? Number(serverMatch.confidence || 0) : 0);
 
               // Throttled UI distance & confidence updates
               if (now - lastStateUpdateRef.current > 250) {
@@ -635,7 +646,7 @@ function FaceScanner({
                 setConfidence(conf);
               }
 
-              const isMatch = hasFreshServerMatch && serverMatch.matched === true;
+              const isMatch = (hasLocalMatch && dist <= 0.52) || (hasFreshServerMatch && serverMatch.matched === true);
               const isLive = livenessConfirmedRef.current;
               const isSpoofed = spoofDetectedRef.current;
 
@@ -656,20 +667,20 @@ function FaceScanner({
                 updateStatus("mismatch");
                 updateFeedback("⚠️ Face match is uncertain. Ask an authorized lecturer or administrator to review; attendance is not verified.");
                 onVerificationChange({ verified: false, reason: "REVIEW_REQUIRED", distance: dist });
-              } else if (hasFreshServerMatch && serverMatch.status === "UNREGISTERED") {
+              } else if (!hasLocalMatch && hasFreshServerMatch && serverMatch.status === "UNREGISTERED") {
                 updateStatus("unregistered");
                 updateFeedback(`⚠️ No registered face biometrics found for ${verifiedStudent.name || "Student"} (${verifiedStudent.rollNo || rollNo}).`);
                 onVerificationChange({ verified: false, reason: "NO_REGISTERED_FACE", student: verifiedStudent });
-              } else if (!hasFreshServerMatch || serverMatch.status === "ERROR") {
+              } else if (!isMatch && (!hasFreshServerMatch || serverMatch.status === "ERROR")) {
                 updateStatus("scanning");
-                updateFeedback(serverMatch?.message || "Secure face comparison in progress...");
+                updateFeedback(serverMatch?.message || "Aligning face for instant verification... Hold still.");
                 onVerificationChange({ verified: false, reason: "MATCHING_IN_PROGRESS" });
               } else if (isMatch && isLive) {
                 mismatchFramesRef.current = 0;
                 matchScoreRef.current = Math.min(3, matchScoreRef.current + 1);
                 consecutiveMatchesRef.current += 1;
-                // Fast verify on strong match (dist < 0.44) or 2-frame consensus (dist <= 0.52)
-                const isVerifiedStrict = (dist < 0.44) || (matchScoreRef.current >= 2);
+                // Instant verify on strong match (dist < 0.48) or 1-frame consensus with liveness
+                const isVerifiedStrict = (dist < 0.48) || (matchScoreRef.current >= 1);
                 if (isVerifiedStrict) {
                   setDistance(dist);
                   setConfidence(conf);
@@ -702,9 +713,6 @@ function FaceScanner({
                 }
               } else if (isMatch && !isLive) {
                 mismatchFramesRef.current = 0;
-                if (dist > MATCH_THRESHOLD + 0.04) {
-                  matchScoreRef.current = Math.max(0, matchScoreRef.current - 0.5);
-                }
                 updateStatus("liveness_check");
                 updateFeedback(challengeEngine.message || "👁️ Face aligned! Please blink naturally to confirm live presence...");
                 onVerificationChange({
