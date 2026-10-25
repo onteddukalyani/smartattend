@@ -84,9 +84,28 @@ export function DeviceOnboardingModal({ isOpen, onClose }) {
         return () => { isMounted = false; };
     }, []);
 
-    // Auto-register and close immediately on native platform (Android APK is already native)
+    const hasDeviceMismatch = Boolean(detectedDevice && selectedDevice && detectedDevice !== selectedDevice);
+    const isReset = Boolean(
+        profile?.deviceResetAt ||
+        profile?.deviceFingerprintResetAt ||
+        profile?.deviceTypeLocked === false ||
+        profile?.isDeviceRegistered === false ||
+        !profile?.deviceType
+    );
+
+    if (isReset && typeof window !== 'undefined') {
+        try {
+            localStorage.removeItem('smartattend_student_device_locked');
+            localStorage.removeItem('smartattend_device_locked');
+            localStorage.removeItem('smartattend_student_device_type');
+            localStorage.removeItem('smartattend_device_type');
+            localStorage.removeItem('smartattend_device_registered');
+        } catch (_) {}
+    }
+
+    // Auto-register and close immediately on native platform (Android APK is already native) ONLY when not reset
     useEffect(() => {
-        if (isNativeApp) {
+        if (isNativeApp && !isReset) {
             registerUserDevice({
                 role: currentRole,
                 id: profile?.id || user?.uid || roll,
@@ -98,30 +117,17 @@ export function DeviceOnboardingModal({ isOpen, onClose }) {
             }).catch((err) => console.warn('Native device registration notice:', err));
             if (onClose) onClose();
         }
-    }, [isNativeApp, currentRole, roll, user, profile, currentIp, onClose]);
-
-    const hasDeviceMismatch = Boolean(detectedDevice && selectedDevice && detectedDevice !== selectedDevice);
-    const isReset = Boolean(
-        profile?.deviceResetAt ||
-        profile?.deviceTypeLocked === false ||
-        profile?.isDeviceRegistered === false ||
-        !profile?.deviceType
-    );
-
-    if (isReset && typeof window !== 'undefined') {
-        try {
-            localStorage.removeItem('smartattend_student_device_locked');
-            localStorage.removeItem('smartattend_device_locked');
-        } catch (_) {}
-    }
+    }, [isNativeApp, isReset, currentRole, roll, user, profile, currentIp, onClose]);
 
     const isLocked = !isReset && Boolean(
         profile?.role === 'student' &&
         (
             profile?.deviceTypeLocked === true ||
-            localStorage.getItem('smartattend_student_device_locked') === 'true' ||
-            localStorage.getItem('smartattend_device_locked') === 'true' ||
-            (profile?.deviceType && (profile?.isDeviceRegistered !== false || localStorage.getItem('smartattend_student_device_type')))
+            (!isReset && (
+                localStorage.getItem('smartattend_student_device_locked') === 'true' ||
+                localStorage.getItem('smartattend_device_locked') === 'true' ||
+                (profile?.deviceType && (profile?.isDeviceRegistered !== false || localStorage.getItem('smartattend_student_device_type')))
+            ))
         )
     );
 

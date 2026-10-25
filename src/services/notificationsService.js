@@ -3,6 +3,8 @@ import {
   collection,
   doc,
   addDoc,
+  setDoc,
+  getDoc,
   updateDoc,
   deleteDoc,
   onSnapshot,
@@ -535,7 +537,7 @@ export async function approveDeviceResetAction(studentRollNo, approvedByName = "
 
   try {
     const studentDocRef = doc(db, "students", cleanRoll);
-    const userDocRef = doc(db, "users", cleanRoll);
+    const now = Date.now();
     const resetFields = {
       isDeviceRegistered: false,
       deviceTypeLocked: false,
@@ -547,30 +549,68 @@ export async function approveDeviceResetAction(studentRollNo, approvedByName = "
       biometricKeyAlias: null,
       registeredPlatform: null,
       registeredDevice: null,
+      registeredDeviceType: null,
       deviceModel: null,
       deviceUUID: null,
-      deviceResetAt: Date.now(),
+      deviceResetAt: now,
+      deviceSelectedAt: null,
       lastDeviceResetAt: serverTimestamp(),
       lastDeviceResetBy: approvedByName
     };
 
-    await setDoc(studentDocRef, resetFields, { merge: true });
-    await setDoc(userDocRef, resetFields, { merge: true }).catch(() => {});
-    await setDoc(doc(db, "authorizedUsers", cleanRoll), resetFields, { merge: true }).catch(() => {});
+    let studentUid = null;
+    let studentEmail = null;
+    try {
+      const sSnap = await getDoc(studentDocRef).catch(() => null);
+      if (sSnap && sSnap.exists()) {
+        const sData = sSnap.data();
+        studentUid = sData.studentUid || sData.uid;
+        studentEmail = (sData.email || "").toLowerCase().trim();
+      }
+    } catch (_) {}
+
+    const emailPrefix = studentEmail ? studentEmail.split("@")[0].toLowerCase().trim() : null;
+
+    const targets = [
+      studentDocRef,
+      doc(db, "users", cleanRoll),
+      doc(db, "authorizedUsers", cleanRoll),
+      doc(db, "students", cleanRoll.toLowerCase()),
+      doc(db, "users", cleanRoll.toLowerCase()),
+      doc(db, "authorizedUsers", cleanRoll.toLowerCase())
+    ];
+    if (studentUid) {
+      targets.push(doc(db, "users", studentUid));
+      targets.push(doc(db, "students", studentUid));
+      targets.push(doc(db, "biometric_reregistration_permissions", studentUid));
+    }
+    if (studentEmail) {
+      targets.push(doc(db, "users", studentEmail));
+      targets.push(doc(db, "authorizedUsers", studentEmail));
+    }
+    if (emailPrefix && emailPrefix !== cleanRoll.toLowerCase()) {
+      targets.push(doc(db, "authorizedUsers", emailPrefix));
+    }
+
+    await Promise.allSettled(targets.map(ref => setDoc(ref, resetFields, { merge: true })));
 
     // Authorize student to immediately re-select and register new device & biometrics
-    await setDoc(doc(db, "biometric_reregistration_permissions", cleanRoll), {
+    const permPayload = {
       rollNo: cleanRoll,
       studentRollNo: cleanRoll,
       registrationType: "both",
       mode: "reset_by_staff",
       status: "active",
       remainingUses: 5,
-      grantedAt: Date.now(),
-      expiresAt: Date.now() + 30 * 24 * 60 * 60 * 1000,
+      grantedAt: now,
+      expiresAt: now + 30 * 24 * 60 * 60 * 1000,
       reason: "Device reset approved by staff — re-registration authorized",
       grantedBy: approvedByName
-    }, { merge: true }).catch(() => {});
+    };
+    await setDoc(doc(db, "biometric_reregistration_permissions", cleanRoll), permPayload, { merge: true }).catch(() => {});
+    if (studentUid) {
+      await setDoc(doc(db, "biometric_reregistration_permissions", studentUid), permPayload, { merge: true }).catch(() => {});
+    }
 
     // Notify Student
     await sendStudentNotification(

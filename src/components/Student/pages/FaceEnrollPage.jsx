@@ -178,7 +178,7 @@ export default function FaceEnrollPage() {
                     if (user?.uid) localStorage.removeItem(`smartattend_hw_enrolled_${user.uid}`);
                     localStorage.removeItem("smartattend_hw_enrolled");
                 } catch (_) {}
-            } else if (Boolean(data.hardwareBiometricEnrolled)) {
+            } else if (data.hardwareBiometricEnrolled) {
                 setHasHwRegistered(true);
                 try {
                     localStorage.setItem(`smartattend_hw_enrolled_${activeRollNo}`, "true");

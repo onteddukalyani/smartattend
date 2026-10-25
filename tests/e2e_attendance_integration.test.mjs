@@ -64,6 +64,22 @@ function testClientRestWrite(path, documentBody) {
 }
 
 test("E2E Integration: Complete 10-Step Attendance Flow Against Live Emulator", async (t) => {
+  const isEmulatorRunning = await new Promise((resolve) => {
+    const req = http.get("http://127.0.0.1:8088", { timeout: 800 }, (res) => {
+      resolve(true);
+    });
+    req.on("error", () => resolve(false));
+    req.on("timeout", () => {
+      req.destroy();
+      resolve(false);
+    });
+  });
+
+  if (!isEmulatorRunning) {
+    t.skip("Firestore emulator not running on 127.0.0.1:8088. Skipping live emulator E2E integration test.");
+    return;
+  }
+
   console.log("--> Setting up isolated institutional test entities in Firestore Emulator...");
 
   // 1. Seed Student Profile

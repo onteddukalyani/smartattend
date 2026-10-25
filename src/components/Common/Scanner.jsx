@@ -169,7 +169,13 @@ function QrScannerApp() {
                 localStorage.getItem('smartattend_student_face_enrolled') === 'true'
             )
         );
-        const hasHw = Boolean(
+        const isHwReset = Boolean(
+            profile?.deviceResetAt ||
+            profile?.deviceFingerprintResetAt ||
+            profile?.deviceTypeLocked === false ||
+            profile?.hardwareBiometricEnrolled === false
+        );
+        const hasHw = !isHwReset && Boolean(
             profile?.hardwareBiometricEnrolled ||
             (roll && localStorage.getItem(`smartattend_hw_enrolled_${roll}`) === 'true') ||
             (emailRoll && localStorage.getItem(`smartattend_hw_enrolled_${emailRoll}`) === 'true') ||
@@ -516,7 +522,7 @@ function QrScannerApp() {
 
     const emailRoll = (user?.email || '').split('@')[0].trim().toUpperCase();
     const cleanEmail = (user?.email || '').toLowerCase().trim();
-    const cleanProfileRoll = (!String(profile?.rollNo || '').includes('@') && !isGenericName(profile?.rollNo) ? profile?.rollNo : '').trim().toUpperCase();
+    const cleanProfileRoll = (!String(profile?.rollNo || '').includes('@') && !isGenericName(profile?.rollNo) ? (profile?.rollNo || '') : '').trim().toUpperCase();
     const activeRollNo = (cleanProfileRoll || dbStudent?.rollNo || emailRoll || '').trim().toUpperCase();
     const loggedInRollNo = activeRollNo;
     const rawProfileName = dbStudent?.name || dbStudent?.fullName || (!isGenericName(profile?.name, loggedInRollNo, user?.email) ? profile?.name : (profile?.fullName || ''));
@@ -541,7 +547,13 @@ function QrScannerApp() {
                         (Array.isArray(data.faceDescriptor) && data.faceDescriptor.length === 128) ||
                         (Array.isArray(data.descriptor) && data.descriptor.length === 128))
                 );
-                const hasHw = Boolean(data.hardwareBiometricEnrolled);
+                const isHwReset = Boolean(
+                    data.deviceResetAt ||
+                    data.deviceFingerprintResetAt ||
+                    data.deviceTypeLocked === false ||
+                    data.hardwareBiometricEnrolled === false
+                );
+                const hasHw = !isHwReset && Boolean(data.hardwareBiometricEnrolled);
 
                 if (hasFace) {
                     try {
@@ -559,6 +571,7 @@ function QrScannerApp() {
                         localStorage.removeItem("smartattend_face_enrolled");
                     } catch (_) { }
                 }
+
                 if (hasHw) {
                     try {
                         if (activeRollNo) localStorage.setItem(`smartattend_hw_enrolled_${activeRollNo}`, "true");
@@ -566,11 +579,20 @@ function QrScannerApp() {
                         if (user?.uid) localStorage.setItem(`smartattend_hw_enrolled_${user.uid}`, "true");
                         localStorage.setItem("smartattend_hw_enrolled", "true");
                     } catch (_) { }
+                } else if (isHwReset) {
+                    try {
+                        if (activeRollNo) localStorage.removeItem(`smartattend_hw_enrolled_${activeRollNo}`);
+                        if (emailRoll) localStorage.removeItem(`smartattend_hw_enrolled_${emailRoll}`);
+                        if (user?.uid) localStorage.removeItem(`smartattend_hw_enrolled_${user.uid}`);
+                        localStorage.removeItem("smartattend_hw_enrolled");
+                        localStorage.removeItem("smartattend_student_device_locked");
+                        localStorage.removeItem("smartattend_device_locked");
+                    } catch (_) { }
                 }
 
                 setStudentBioStatus((prev) => {
                     const nextFace = hasRemoval ? false : (hasFace || prev.hasFace);
-                    const nextHw = hasHw || prev.hasHw;
+                    const nextHw = isHwReset ? false : (hasHw || prev.hasHw);
                     return {
                         hasFace: nextFace,
                         hasHw: nextHw,
@@ -3382,10 +3404,10 @@ function QrScannerApp() {
                     </div>
                     <div>
                         <div style={{ fontSize: '0.86rem', fontWeight: 800, color: '#312e81' }}>
-                            SmartAttend Android App Recommended
+                            SmartAttend Android App Required
                         </div>
                         <div style={{ fontSize: '0.78rem', color: '#4338ca', lineHeight: 1.3 }}>
-                            For automatic hardware kiosk lock, use the Android app. You can also scan directly below.
+                            For attendance security and anti-proxy verification, Android students must scan inside the official SmartAttend Android App (.apk).
                         </div>
                     </div>
                 </div>
@@ -3406,6 +3428,24 @@ function QrScannerApp() {
                     >
                         Open App
                     </button>
+                    <a
+                        href={getApkDownloadUrl()}
+                        target="_blank"
+                        rel="noreferrer"
+                        style={{
+                            padding: '7px 12px',
+                            borderRadius: '8px',
+                            background: '#e0e7ff',
+                            color: '#4338ca',
+                            border: '1px solid #c7d2fe',
+                            fontWeight: 800,
+                            fontSize: '0.78rem',
+                            textDecoration: 'none',
+                            cursor: 'pointer'
+                        }}
+                    >
+                        Get APK
+                    </a>
                     <button
                         type="button"
                         onClick={() => setDismissedAppBanner(true)}
@@ -4758,21 +4798,116 @@ function QrScannerApp() {
 
             {renderAndroidWebBanner()}
 
+            {!isNativeApp && isIOSDevice() && (
+                <div style={{
+                    maxWidth: '640px',
+                    margin: '0 auto 16px',
+                    padding: '10px 16px',
+                    background: 'rgba(16, 185, 129, 0.08)',
+                    border: '1px solid #a7f3d0',
+                    borderRadius: '12px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '10px',
+                    fontSize: '0.82rem',
+                    color: '#065f46',
+                    fontWeight: 700,
+                    textAlign: 'left'
+                }}>
+                    <FaCheckCircle style={{ color: '#10b981', flexShrink: 0, fontSize: '1rem' }} />
+                    <span>
+                        iPhone Safari Scanning Active. Ensure camera permissions are allowed in Safari. If prompted during the session, please activate Guided Access (triple-click Side Button).
+                    </span>
+                </div>
+            )}
+
             {/* Camera Viewport (Spacious, rounded card) */}
             <div className="st-camera-viewport-card">
-                {scannerActive ? (
-                    <NativeQrScanner
-                        key={`${retryKey}-${effectiveFacingMode}`}
-                        onScan={handleCameraScan}
-                        onError={handleCameraError}
-                        facingMode={effectiveFacingMode}
-                        onToggleFacingMode={handleToggleFacingMode}
-                        active={scannerActive}
-                    />
+                {isCameraAllowed ? (
+                    scannerActive ? (
+                        <NativeQrScanner
+                            key={`${retryKey}-${effectiveFacingMode}`}
+                            onScan={handleCameraScan}
+                            onError={handleCameraError}
+                            facingMode={effectiveFacingMode}
+                            onToggleFacingMode={handleToggleFacingMode}
+                            active={scannerActive}
+                        />
+                    ) : (
+                        <div style={{ padding: '36px 20px', textAlign: 'center', color: '#64748b' }}>
+                            <FaSpinner className="fa-spin" style={{ fontSize: '2rem', color: '#6366f1', marginBottom: '12px' }} />
+                            <p style={{ margin: 0, fontWeight: 700 }}>Starting attendance camera...</p>
+                        </div>
+                    )
                 ) : (
-                    <div style={{ padding: '36px 20px', textAlign: 'center', color: '#64748b' }}>
-                        <FaSpinner className="fa-spin" style={{ fontSize: '2rem', color: '#6366f1', marginBottom: '12px' }} />
-                        <p style={{ margin: 0, fontWeight: 700 }}>Starting attendance camera...</p>
+                    <div className="st-browser-camera-blocked-card" style={{ padding: '32px 20px', textAlign: 'center', background: '#ffffff', borderRadius: '16px', border: '1.5px solid #fca5a5' }}>
+                        <div style={{ width: '56px', height: '56px', borderRadius: '50%', background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px', fontSize: '1.75rem' }}>
+                            <FaLock />
+                        </div>
+                        <h3 style={{ color: '#991b1b', margin: '0 0 10px', fontSize: '1.2rem', fontWeight: 800 }}>
+                            Camera Scanning Blocked in Mobile Browser
+                        </h3>
+                        <p style={{ fontSize: '0.92rem', color: '#475569', lineHeight: 1.5, maxWidth: '440px', margin: '0 auto 20px' }}>
+                            To enforce proxy prevention and Kiosk lockdown, <strong>Android students must use the official SmartAttend Android App (.apk)</strong>. Online camera scanning is not supported on Android browsers.
+                        </p>
+                        <div style={{ display: 'flex', gap: '12px', justifyContent: 'center', flexWrap: 'wrap' }}>
+                            <button
+                                type="button"
+                                onClick={handleOpenInSmartAttendApp}
+                                style={{
+                                    padding: '10px 20px',
+                                    borderRadius: '10px',
+                                    background: '#6366f1',
+                                    color: '#ffffff',
+                                    border: 'none',
+                                    fontWeight: 800,
+                                    fontSize: '0.9rem',
+                                    cursor: 'pointer',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '8px',
+                                    boxShadow: '0 4px 12px rgba(99, 102, 241, 0.25)'
+                                }}
+                            >
+                                <FaMobileAlt /> Open in SmartAttend App
+                            </button>
+                            <a
+                                href={getApkDownloadUrl()}
+                                target="_blank"
+                                rel="noreferrer"
+                                style={{
+                                    padding: '10px 20px',
+                                    borderRadius: '10px',
+                                    background: '#f1f5f9',
+                                    color: '#1e293b',
+                                    border: '1px solid #cbd5e1',
+                                    fontWeight: 700,
+                                    fontSize: '0.9rem',
+                                    textDecoration: 'none',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '8px'
+                                }}
+                            >
+                                <FaDownload /> Download APK
+                            </a>
+                            <button
+                                type="button"
+                                onClick={() => navigate('/student')}
+                                style={{
+                                    padding: '10px 18px',
+                                    borderRadius: '10px',
+                                    background: 'transparent',
+                                    color: '#64748b',
+                                    border: 'none',
+                                    fontWeight: 600,
+                                    fontSize: '0.88rem',
+                                    cursor: 'pointer'
+                                }}
+                            >
+                                Return to Dashboard
+                            </button>
+                        </div>
                     </div>
                 )}
             </div>

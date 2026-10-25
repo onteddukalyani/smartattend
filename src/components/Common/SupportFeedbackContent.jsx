@@ -24,7 +24,8 @@ import {
   FaReply,
   FaMobileAlt,
   FaShieldAlt,
-  FaSync
+  FaSync,
+  FaInfoCircle
 } from "react-icons/fa";
 import { useAuth } from "../authcontext";
 import {
@@ -124,6 +125,8 @@ function SupportFeedbackMain({ defaultTab = "feedback", isModal = false, onClose
   const { user, profile } = useAuth();
   const rawRole = (profile?.role || "student").toLowerCase();
   const isAdmin = rawRole === "admin" || rawRole === "administrator" || rawRole === "superadmin";
+  const isLecturer = ["lecturer", "faculty", "professor", "teacher", "instructor", "staff"].includes(rawRole) || profile?.isLecturer === true || user?.isLecturer === true;
+  const isStaffDesk = isAdmin || isLecturer || profile?.isAdmin === true || user?.isAdmin === true;
 
   const [activeTab, setActiveTab] = useState(defaultTab);
   const [copiedId, setCopiedId] = useState("");
@@ -207,7 +210,7 @@ function SupportFeedbackMain({ defaultTab = "feedback", isModal = false, onClose
     });
 
     let unsubAll = () => { };
-    if (isAdmin) {
+    if (isStaffDesk) {
       unsubAll = subscribeToAllTickets((tickets) => {
         setAllTickets(Array.isArray(tickets) ? tickets : []);
       });
@@ -217,7 +220,7 @@ function SupportFeedbackMain({ defaultTab = "feedback", isModal = false, onClose
       if (typeof unsubMy === "function") unsubMy();
       if (typeof unsubAll === "function") unsubAll();
     };
-  }, [user, studentRoll, isAdmin]);
+  }, [user, studentRoll, isStaffDesk]);
 
   // Copy Ticket ID helper
   const handleCopy = (text, key) => {
@@ -388,7 +391,7 @@ function SupportFeedbackMain({ defaultTab = "feedback", isModal = false, onClose
       await updateTicketStatus(replyTicket.id, {
         status: replyStatus,
         adminResponse: replyText,
-        resolvedBy: profile?.name || user?.displayName || "Administrator"
+        resolvedBy: profile?.name || user?.displayName || (isAdmin ? "Administrator" : "Faculty Review Desk")
       });
       setReplyTicket(null);
       setReplyText("");
@@ -401,7 +404,7 @@ function SupportFeedbackMain({ defaultTab = "feedback", isModal = false, onClose
   const handleQuickStatusChange = async (ticketId, newStatus) => {
     await updateTicketStatus(ticketId, {
       status: newStatus,
-      resolvedBy: profile?.name || "Administrator"
+      resolvedBy: profile?.name || (isAdmin ? "Administrator" : "Faculty Review Desk")
     });
   };
 
@@ -412,13 +415,13 @@ function SupportFeedbackMain({ defaultTab = "feedback", isModal = false, onClose
   };
 
   // Safe phone/contact fallbacks
-  const safeHelpline = SUPPORT_CONTACTS.helpline || "+91 98765 43210";
-  const safeUrgentHelpline = SUPPORT_CONTACTS.urgentHelpline || "+91 98765 43211";
-  const safeEmail = SUPPORT_CONTACTS.email || "support@smartattend.campus.edu";
-  const safeOffice = SUPPORT_CONTACTS.officeLocation || "CS & IT Block, Room 204";
+  const safeHelpline = SUPPORT_CONTACTS.helpline || "+91 XXXXX XXXXX";
+  const safeUrgentHelpline = SUPPORT_CONTACTS.urgentHelpline || "+91 XXXXX XXXXX";
+  const safeEmail = SUPPORT_CONTACTS.email || "25bcs108@iiitdwd.ac.in";
+  const safeOffice = SUPPORT_CONTACTS.officeLocation || "Academic Block";
 
-  // Filtered lists for My Tickets and Admin Desk
-  const targetList = isAdmin && activeTab === "adminDesk" ? allTickets : myTickets;
+  // Filtered lists for My Tickets and Staff/Admin Desk
+  const targetList = isStaffDesk && activeTab === "adminDesk" ? allTickets : myTickets;
   const filteredTickets = (targetList || []).filter((t) => {
     if (!t) return false;
     const matchSearch =
@@ -518,14 +521,14 @@ function SupportFeedbackMain({ defaultTab = "feedback", isModal = false, onClose
           {myTickets.length > 0 && <span className="sf-tab-badge">{myTickets.length}</span>}
         </button>
 
-        {isAdmin && (
+        {isStaffDesk && (
           <button
             type="button"
             className={`sf-tab-btn ${activeTab === "adminDesk" ? "active" : ""}`}
             onClick={() => setActiveTab("adminDesk")}
             style={{ marginLeft: "auto", background: activeTab === "adminDesk" ? undefined : "rgba(99, 102, 241, 0.08)" }}
           >
-            <FaShieldAlt /> <span>Admin Ticket Desk</span>
+            <FaShieldAlt /> <span>{isAdmin ? "Admin Ticket Desk" : "Faculty Review Desk"}</span>
             {openTicketsCount > 0 && (
               <span className="sf-tab-badge" style={{ background: "#ef4444", color: "#fff" }}>
                 {openTicketsCount} Open
@@ -586,6 +589,25 @@ function SupportFeedbackMain({ defaultTab = "feedback", isModal = false, onClose
                 <p className="sf-section-desc">
                   Rate your satisfaction with SmartAttend and let us know what you love or what we can enhance.
                 </p>
+              </div>
+
+              {/* Review Reassurance Box */}
+              <div style={{
+                margin: "0 0 18px",
+                padding: "12px 16px",
+                borderRadius: "12px",
+                background: "rgba(99, 102, 241, 0.06)",
+                border: "1px solid rgba(99, 102, 241, 0.2)",
+                display: "flex",
+                alignItems: "center",
+                gap: "10px",
+                fontSize: "0.85rem",
+                color: "#3730a3"
+              }}>
+                <FaInfoCircle style={{ color: "#6366f1", fontSize: "1.1rem", flexShrink: 0 }} />
+                <span>
+                  <strong>We review all submissions:</strong> Your feedback is directly reviewed by faculty and system administrators. You can track status updates and staff replies under <strong>My Submissions</strong>.
+                </span>
               </div>
 
               {/* Star Rating */}
@@ -745,6 +767,36 @@ function SupportFeedbackMain({ defaultTab = "feedback", isModal = false, onClose
                 <p className="sf-section-desc">
                   Encountered an issue with scanning, facial verification, geofencing, or device locking? Submit a ticket for rapid resolution by administrators.
                 </p>
+              </div>
+
+              {/* Comprehensive Student Help Instructions Card */}
+              <div style={{
+                margin: "0 0 20px",
+                padding: "16px 18px",
+                borderRadius: "14px",
+                background: "#f8fafc",
+                border: "1.5px solid #cbd5e1",
+                display: "flex",
+                flexDirection: "column",
+                gap: "10px"
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "8px", fontWeight: 800, color: "#1e293b", fontSize: "0.88rem" }}>
+                  <FaInfoCircle style={{ color: "#6366f1" }} /> Essential Instructions for Quick Attendance Assistance:
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "10px", fontSize: "0.8rem", color: "#475569" }}>
+                  <div style={{ padding: "8px 12px", background: "#ffffff", borderRadius: "8px", border: "1px solid #e2e8f0" }}>
+                    <strong style={{ color: "#0f172a" }}>🤖 Android Scanning:</strong> Mobile web camera is disabled by security policy. You must open or install the official <strong>SmartAttend Android App (.apk)</strong>.
+                  </div>
+                  <div style={{ padding: "8px 12px", background: "#ffffff", borderRadius: "8px", border: "1px solid #e2e8f0" }}>
+                    <strong style={{ color: "#0f172a" }}>🍎 iPhone Scanning:</strong> Allowed in Safari. Allow camera permissions and enable Guided Access (triple-click side button) if prompted.
+                  </div>
+                  <div style={{ padding: "8px 12px", background: "#ffffff", borderRadius: "8px", border: "1px solid #e2e8f0" }}>
+                    <strong style={{ color: "#0f172a" }}>🔒 Device Locked?</strong> Changed phones? You can ask your course lecturer in class for an instant device lock reset on the spot.
+                  </div>
+                  <div style={{ padding: "8px 12px", background: "#ffffff", borderRadius: "8px", border: "1px solid #e2e8f0" }}>
+                    <strong style={{ color: "#0f172a" }}>📝 Ticket Details:</strong> Please include your <strong>Course code</strong>, lecturer name, and attach a screenshot of the error below.
+                  </div>
+                </div>
               </div>
 
               {/* Issue Category */}
@@ -1084,16 +1136,13 @@ function SupportFeedbackMain({ defaultTab = "feedback", isModal = false, onClose
         </div>
       )}
 
-      {/* ========================================================================= */}
-      {/* TAB 4: MY TICKETS & SUBMISSIONS (AND ADMIN DESK) */}
-      {/* ========================================================================= */}
-      {(activeTab === "tickets" || (isAdmin && activeTab === "adminDesk")) && (
+      {(activeTab === "tickets" || (isStaffDesk && activeTab === "adminDesk")) && (
         <div className="sf-card">
           <div className="sf-section-header">
             <h2 className="sf-section-title">
-              {isAdmin && activeTab === "adminDesk" ? (
+              {isStaffDesk && activeTab === "adminDesk" ? (
                 <>
-                  <FaShieldAlt style={{ color: "#6366f1" }} /> Administrator Support &amp; Ticket Desk
+                  <FaShieldAlt style={{ color: "#6366f1" }} /> {isAdmin ? "Administrator Support & Ticket Desk" : "Faculty Review Desk"}
                 </>
               ) : (
                 <>
@@ -1274,11 +1323,11 @@ function SupportFeedbackMain({ defaultTab = "feedback", isModal = false, onClose
                       </button>
                     </div>
 
-                    {/* Admin Specific Action Controls */}
-                    {isAdmin && (
+                    {/* Admin / Staff Specific Action Controls */}
+                    {isStaffDesk && (
                       <div className="sf-admin-controls">
                         <span style={{ fontSize: "0.8rem", fontWeight: 700, color: "var(--text-main, #334155)" }}>
-                          Admin Actions:
+                          {isAdmin ? "Admin Actions:" : "Faculty Actions:"}
                         </span>
 
                         <select
@@ -1304,14 +1353,16 @@ function SupportFeedbackMain({ defaultTab = "feedback", isModal = false, onClose
                           <FaReply /> {ticket.adminResponse ? "Edit Reply" : "Write Reply"}
                         </button>
 
-                        <button
-                          type="button"
-                          className="sf-admin-del-btn"
-                          onClick={() => handleDeleteTicket(ticket.id)}
-                          title="Delete Ticket"
-                        >
-                          <FaTrashAlt />
-                        </button>
+                        {isAdmin && (
+                          <button
+                            type="button"
+                            className="sf-admin-del-btn"
+                            onClick={() => handleDeleteTicket(ticket.id)}
+                            title="Delete Ticket"
+                          >
+                            <FaTrashAlt />
+                          </button>
+                        )}
                       </div>
                     )}
                   </div>

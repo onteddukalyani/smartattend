@@ -232,7 +232,7 @@ export function mergeAllStudentRecords(authDocs = [], studentsDocs = [], usersDo
     allRawDocs.forEach(({ data, id }) => {
         const email = String(data.email || (id.includes("@") ? id : "")).trim().toLowerCase();
 
-        let canonicalRoll = "";
+        let canonicalRoll;
         if (email && emailToRollMap.has(email)) {
             canonicalRoll = emailToRollMap.get(email);
         } else if (docIdToRollMap.has(id.toUpperCase())) {
@@ -298,10 +298,33 @@ export function mergeAllStudentRecords(authDocs = [], studentsDocs = [], usersDo
         const gender = data.gender || existing.gender || "";
         const semester = (data.semester && String(data.semester).trim() && String(data.semester).trim() !== "1") ? String(data.semester).trim() : (existing.semester || data.semester || "1");
         const status = (data.status === "inactive" || existing.status === "inactive") ? "inactive" : (data.status || existing.status || "active");
-        const deviceType = data.deviceType || existing.deviceType || null;
-        const deviceTypeLocked = Boolean(data.deviceTypeLocked ?? existing.deviceTypeLocked ?? false);
-        const deviceSelectedAt = data.deviceSelectedAt || existing.deviceSelectedAt || null;
-        const deviceResetAt = data.deviceResetAt || existing.deviceResetAt || null;
+        const latestResetAt = Math.max(
+            Number(data.deviceResetAt || 0),
+            Number(existing.deviceResetAt || 0),
+            Number(data.deviceFingerprintResetAt || 0),
+            Number(existing.deviceFingerprintResetAt || 0)
+        );
+        const latestSelectedAt = Math.max(
+            Number(data.deviceSelectedAt || data.platformBoundAt || 0),
+            Number(existing.deviceSelectedAt || existing.platformBoundAt || 0)
+        );
+
+        const isResetExplicit = Boolean(
+            data.deviceTypeLocked === false ||
+            existing.deviceTypeLocked === false ||
+            data.isDeviceRegistered === false ||
+            existing.isDeviceRegistered === false ||
+            (latestResetAt > 0 && latestResetAt >= latestSelectedAt)
+        );
+
+        const deviceType = isResetExplicit ? null : (data.deviceType || existing.deviceType || null);
+        const deviceTypeLocked = isResetExplicit ? false : Boolean(data.deviceTypeLocked ?? existing.deviceTypeLocked ?? false);
+        const deviceSelectedAt = isResetExplicit ? null : (data.deviceSelectedAt || existing.deviceSelectedAt || null);
+        const deviceResetAt = latestResetAt > 0 ? latestResetAt : null;
+        const hwBioEnrolled = isResetExplicit ? false : Boolean(
+            data.hardwareBiometricEnrolled !== false && existing.hardwareBiometricEnrolled !== false &&
+            (data.hardwareBiometricEnrolled || existing.hardwareBiometricEnrolled)
+        );
 
         studentsMap.set(canonicalRoll, {
             ...existing,
@@ -321,6 +344,8 @@ export function mergeAllStudentRecords(authDocs = [], studentsDocs = [], usersDo
             deviceTypeLocked: deviceTypeLocked,
             deviceSelectedAt: deviceSelectedAt,
             deviceResetAt: deviceResetAt,
+            hardwareBiometricEnrolled: hwBioEnrolled,
+            isDeviceRegistered: isResetExplicit ? false : Boolean(data.isDeviceRegistered ?? existing.isDeviceRegistered ?? (deviceType ? true : false)),
             faceRegistered: faceRegistered,
             biometricEnrolled: biometricEnrolled,
             hasFaceRegistered: hasFaceRegistered,

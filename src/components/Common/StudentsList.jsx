@@ -236,42 +236,72 @@ function StudentsList() {
         try {
             setActionLoading(student.id || cleanRoll);
             const actorName = profile?.name || profile?.email || "Faculty/Admin";
+            const now = Date.now();
             const resetPayload = {
-                deviceType: deleteField(),
+                deviceType: null,
                 deviceTypeLocked: false,
-                deviceResetAt: Date.now(),
+                deviceResetAt: now,
+                deviceSelectedAt: null,
                 hardwareBiometricEnrolled: false,
-                hardwareBiometricPlatform: deleteField(),
-                hardwareBiometricEnrolledAt: deleteField(),
-                deviceFingerprint: deleteField(),
-                biometricKeyAlias: deleteField(),
+                hardwareBiometricPlatform: null,
+                hardwareBiometricEnrolledAt: null,
+                deviceFingerprint: null,
+                biometricKeyAlias: null,
                 isDeviceRegistered: false,
-                registeredDevice: deleteField(),
-                registeredPlatform: deleteField(),
-                deviceUUID: deleteField(),
-                deviceModel: deleteField(),
-                deviceIp: deleteField(),
-                registrationIp: deleteField(),
+                registeredDevice: null,
+                registeredPlatform: null,
+                registeredDeviceType: null,
+                deviceUUID: null,
+                deviceModel: null,
+                deviceIp: null,
+                registrationIp: null,
                 deviceResetBy: actorName
             };
 
-            await setDoc(doc(db, "students", cleanRoll), resetPayload, { merge: true });
-            await setDoc(doc(db, "users", cleanRoll), resetPayload, { merge: true }).catch(() => {});
-            await setDoc(doc(db, "authorizedUsers", cleanRoll), resetPayload, { merge: true }).catch(() => {});
+            const studentUid = student.studentUid || student.uid || student.userDocId;
+            const cleanEmail = (student.email || "").toLowerCase().trim();
+            const emailPrefix = cleanEmail.split("@")[0].toLowerCase().trim();
+
+            const targets = [
+                doc(db, "students", cleanRoll),
+                doc(db, "users", cleanRoll),
+                doc(db, "authorizedUsers", cleanRoll),
+                doc(db, "students", cleanRoll.toLowerCase()),
+                doc(db, "users", cleanRoll.toLowerCase()),
+                doc(db, "authorizedUsers", cleanRoll.toLowerCase())
+            ];
+            if (studentUid) {
+                targets.push(doc(db, "users", studentUid));
+                targets.push(doc(db, "students", studentUid));
+                targets.push(doc(db, "biometric_reregistration_permissions", studentUid));
+            }
+            if (cleanEmail) {
+                targets.push(doc(db, "users", cleanEmail));
+                targets.push(doc(db, "authorizedUsers", cleanEmail));
+            }
+            if (emailPrefix && emailPrefix !== cleanRoll.toLowerCase()) {
+                targets.push(doc(db, "authorizedUsers", emailPrefix));
+            }
+
+            await Promise.allSettled(targets.map(ref => setDoc(ref, resetPayload, { merge: true })));
 
             // Authorize student to immediately re-select and register new device & biometrics
-            await setDoc(doc(db, "biometric_reregistration_permissions", cleanRoll), {
+            const permPayload = {
                 rollNo: cleanRoll,
                 studentRollNo: cleanRoll,
                 registrationType: "both",
                 mode: "reset_by_staff",
                 status: "active",
                 remainingUses: 5,
-                grantedAt: Date.now(),
-                expiresAt: Date.now() + 30 * 24 * 60 * 60 * 1000,
+                grantedAt: now,
+                expiresAt: now + 30 * 24 * 60 * 60 * 1000,
                 reason: "Device lock reset by staff — re-registration authorized",
                 grantedBy: actorName
-            }, { merge: true }).catch(() => {});
+            };
+            await setDoc(doc(db, "biometric_reregistration_permissions", cleanRoll), permPayload, { merge: true }).catch(() => {});
+            if (studentUid) {
+                await setDoc(doc(db, "biometric_reregistration_permissions", studentUid), permPayload, { merge: true }).catch(() => {});
+            }
 
             setStudents((prev) =>
                 prev.map((s) =>

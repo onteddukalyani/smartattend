@@ -53,13 +53,13 @@ export function generateTicketId(prefix = "TKT") {
  * Pre-defined Institutional Helpdesk Contacts with safe fallbacks
  */
 export const SUPPORT_CONTACTS = {
-  institutionName: "SmartAttend Campus Tech Support",
-  officeLocation: "CS & IT Block, Tech Support Desk (Room 204)",
-  email: "support@smartattend.campus.edu",
-  adminEmail: "admin@smartattend.campus.edu",
+  institutionName: "IIIT Dharwad Campus ",
+  officeLocation: "Academic Block",
+  email: "25bcs108@iiitdwd.ac.in",
+  adminEmail: "onteddukalyani@gmial.com",
   hours: "Monday – Saturday, 8:30 AM – 6:00 PM IST",
-  helpline: "+91 98765 43210",
-  urgentHelpline: "+91 98765 43211 (Active Class Grievance Desk)"
+  helpline: "+91 XXXXX XXXXX",
+  urgentHelpline: "+91 XXXXX XXXXX (Active Attendance Helpdesk)"
 };
 
 /**
@@ -69,14 +69,20 @@ export const FREQUENT_QUESTIONS = [
   {
     id: "faq-qr",
     category: "QR & Scanning",
-    question: "Why does my camera show a black screen or fail to scan the QR code?",
-    answer: "Ensure camera permissions are enabled in your browser/device settings. Make sure you are within the session radius and your device is properly focused on the screen. If issues persist, try reloading or switching to the Native Android APK."
+    question: "Why does my camera show a black screen, blocked message, or fail to scan?",
+    answer: "On Android devices, camera scanning in a web browser is disabled for attendance security — you must open the official SmartAttend Android App (.apk) with Kiosk mode. On iPhone, ensure camera permission is granted in Safari Settings. If issues persist, verify that you are within the classroom geofence range."
+  },
+  {
+    id: "faq-camera-policy",
+    category: "Platform & Security",
+    question: "Can I mark attendance online in browser, or must I use the mobile app?",
+    answer: "iPhone users can mark attendance directly in Safari web (with Guided Access). Android users MUST use the official SmartAttend Android App (.apk) because Android web browsers cannot enforce hardware kiosk locks against background apps or screen-sharing proxies."
   },
   {
     id: "faq-device-lock",
     category: "Device Security",
-    question: "I see 'Device Mismatch' or 'Guided Access Required' error. What should I do?",
-    answer: "SmartAttend locks your account to your registered device for proxy-free attendance. If you switched phones or reset your browser, go to Settings > Device Security & Setup or submit an issue ticket to request an admin device unlock."
+    question: "I see 'Device Mismatch', 'Guided Access Required', or Device Locked error. What should I do?",
+    answer: "SmartAttend locks your account to your registered phone to prevent proxy attendance. On iPhone, triple-click the Side Button to start Guided Access. On Android, run the attendance session in the SmartAttend app. If you recently changed or reset your phone, ask your course lecturer or admin for an instant device lock reset."
   },
   {
     id: "faq-face",
@@ -114,7 +120,7 @@ export async function submitSupportTicket(ticketPayload) {
   const ticketId = ticketPayload.id || generateTicketId(defaultPrefix);
 
   // Gather device fingerprint automatically
-  let deviceSpecs = {};
+  let deviceSpecs;
   try {
     deviceSpecs = await getDeviceFingerprint();
   } catch (_) {

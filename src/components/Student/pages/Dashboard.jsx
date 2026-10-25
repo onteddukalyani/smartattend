@@ -437,9 +437,9 @@ export default function StudentDashboard() {
     );
 
     // Device Resolution & Mismatch Guard
-    const registeredDevice = fetchedStudentData?.deviceType || fetchedStudentData?.registeredDeviceType || profile?.deviceType || profile?.registeredDeviceType || currentDeviceType;
+    const registeredDevice = isDeviceReset ? null : (fetchedStudentData?.deviceType || fetchedStudentData?.registeredDeviceType || profile?.deviceType || profile?.registeredDeviceType || currentDeviceType);
     const detectedPlatform = detectDeviceType();
-    const isDeviceMismatch = Boolean(registeredDevice && !isDeviceMatching(registeredDevice, detectedPlatform));
+    const isDeviceMismatch = Boolean(!isDeviceReset && registeredDevice && !isDeviceMatching(registeredDevice, detectedPlatform));
 
     // Fetch Client IP on Mount
     useEffect(() => {
@@ -450,6 +450,22 @@ export default function StudentDashboard() {
 
     // Auto-detect native Android & sync Firestore device preference
     useEffect(() => {
+        if (isDeviceReset) {
+            try {
+                localStorage.removeItem('smartattend_student_device_locked');
+                localStorage.removeItem('smartattend_device_locked');
+                localStorage.removeItem('smartattend_student_device_type');
+                localStorage.removeItem('smartattend_device_type');
+                localStorage.removeItem('smartattend_device_registered');
+                localStorage.removeItem('smartattend_hw_enrolled');
+                if (activeRollNo) localStorage.removeItem(`smartattend_hw_enrolled_${activeRollNo}`);
+                if (user?.uid) localStorage.removeItem(`smartattend_hw_enrolled_${user.uid}`);
+                localStorage.removeItem('smartattend_fingerprint_enrolled');
+            } catch (_) { }
+            setCurrentDeviceType(null);
+            return;
+        }
+
         if (Capacitor.isNativePlatform()) {
             try {
                 localStorage.setItem('smartattend_student_device_type', 'android');
@@ -472,18 +488,6 @@ export default function StudentDashboard() {
             KioskPlugin.canDrawOverlays().then((res) => {
                 setOverlayStatus({ checked: true, granted: res?.canDrawOverlays === true });
             }).catch(() => { });
-            return;
-        }
-
-        if (isDeviceReset) {
-            try {
-                localStorage.removeItem('smartattend_student_device_locked');
-                localStorage.removeItem('smartattend_device_locked');
-                localStorage.removeItem('smartattend_student_device_type');
-                localStorage.removeItem('smartattend_device_type');
-                localStorage.removeItem('smartattend_device_registered');
-            } catch (_) { }
-            setCurrentDeviceType(null);
             return;
         }
 
