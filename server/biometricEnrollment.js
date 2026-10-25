@@ -4,11 +4,18 @@ import { EnrollmentError } from "./faceEnrollment.js";
 /**
  * Validates Base64 DER public key and ensures it represents a valid cryptographic key.
  */
-function validateDerPublicKey(publicKeyDerBase64) {
+function validateDerPublicKey(publicKeyDerBase64, platform = "android") {
   if (!publicKeyDerBase64 || typeof publicKeyDerBase64 !== "string") {
     throw new EnrollmentError(400, "invalid-argument", "Public key (Base64 DER) is required.");
   }
   const cleanBase64 = publicKeyDerBase64.trim();
+  const cleanPlatform = String(platform || "").toLowerCase();
+  if (cleanPlatform === "webauthn" || cleanPlatform === "web") {
+    if (cleanBase64.length < 8 || cleanBase64.length > 2048) {
+      throw new EnrollmentError(400, "invalid-argument", "Invalid WebAuthn credential format.");
+    }
+    return cleanBase64;
+  }
   const derBuffer = Buffer.from(cleanBase64, "base64");
   if (derBuffer.length !== 91 && derBuffer.length !== 88 && derBuffer.length !== 90) {
     // Standard X.509 SPKI DER for P-256 EC is usually 91 bytes, but accept 88-91 byte bounds
@@ -28,8 +35,8 @@ export async function registerBiometricCredential(db, admin, caller, input = {})
   }
 
   const { publicKeyDerBase64, platform, keyAlias } = input;
-  const cleanKey = validateDerPublicKey(publicKeyDerBase64);
   const cleanPlatform = String(platform || "android").trim().toLowerCase();
+  const cleanKey = validateDerPublicKey(publicKeyDerBase64, cleanPlatform);
 
   // Resolve target student identity
   let targetRollNo = String(input.rollNo || "").trim().toUpperCase();

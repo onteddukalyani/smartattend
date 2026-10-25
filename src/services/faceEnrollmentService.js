@@ -1,9 +1,18 @@
 import { auth, db, functions } from "../firebase";
 import { httpsCallable } from "firebase/functions";
 import { doc, setDoc, deleteField } from "firebase/firestore";
+import { Capacitor } from "@capacitor/core";
 
 const configuredApiBaseUrl = String(import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
-const apiBaseUrl = configuredApiBaseUrl || "https://smartattend-ochre.vercel.app";
+
+function getApiBaseUrl() {
+  if (configuredApiBaseUrl) return configuredApiBaseUrl;
+  if (typeof window !== "undefined" && window.location?.origin && !Capacitor.isNativePlatform()) {
+    return ""; // Same-origin relative path in web browser
+  }
+  return "https://smartattend-ochre.vercel.app";
+}
+
 const identifyStudentCallable = httpsCallable(functions, "identifyStudentByFace");
 const removeFaceCallable = httpsCallable(functions, "removeStudentFaceEnrollment");
 const grantReRegCallable = httpsCallable(functions, "grantBiometricReRegistration");
@@ -21,7 +30,12 @@ export async function registerStudentFace(rollNo, faceDescriptor) {
       return result;
     }
   } catch (apiErr) {
-    if (apiErr.message && (apiErr.message.includes("review") || apiErr.message.includes("Duplicate") || apiErr.message.includes("already-exists"))) {
+    if (apiErr.message && (
+      apiErr.message.includes("review") ||
+      apiErr.message.includes("Duplicate") ||
+      apiErr.message.includes("already-exists") ||
+      apiErr.message.includes("already enrolled under another")
+    )) {
       throw apiErr;
     }
     console.warn("registerStudentFace API notice (falling back to direct Firestore enrollment):", apiErr.message);
@@ -45,6 +59,9 @@ export async function registerStudentFace(rollNo, faceDescriptor) {
 
   await setDoc(doc(db, "students", cleanRoll), enrollPayload, { merge: true });
   await setDoc(doc(db, "users", cleanRoll), enrollPayload, { merge: true }).catch(() => {});
+  if (auth.currentUser?.uid && auth.currentUser.uid !== cleanRoll) {
+    await setDoc(doc(db, "users", auth.currentUser.uid), enrollPayload, { merge: true }).catch(() => {});
+  }
   return { success: true };
 }
 
@@ -54,9 +71,10 @@ async function callFaceApi(path, payload) {
     throw new Error("Sign in again before using face biometrics.");
   }
   const token = await currentUser.getIdToken();
+  const baseUrl = getApiBaseUrl();
   let response;
   try {
-    response = await fetch(`${apiBaseUrl}${path}`, {
+    response = await fetch(`${baseUrl}${path}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

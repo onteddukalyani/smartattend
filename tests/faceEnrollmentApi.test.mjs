@@ -64,10 +64,13 @@ test("face enrollment API rejects unapproved origins", async () => {
   assert.equal(response.body.error.code, "origin-not-allowed");
 });
 
-test("face API CORS allows Firebase Hosting, local Vite, and Capacitor origins", () => {
+test("face API CORS allows Firebase Hosting, local Vite, Capacitor, and Vercel origins", () => {
   for (const origin of [
     "https://smart-attendance-ok.web.app",
     "https://smart-attendance-ok.firebaseapp.com",
+    "https://smartattend-ochre.vercel.app",
+    "https://smartattend.vercel.app",
+    "https://smartattend-git-preview-branch.vercel.app",
     "http://localhost:5173",
     "https://localhost",
     "capacitor://localhost"

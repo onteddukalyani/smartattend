@@ -8,7 +8,12 @@ export function applyCors(req, res) {
   const allowedOrigins = new Set([
     "https://smart-attendance-ok.web.app",
     "https://smart-attendance-ok.firebaseapp.com",
+    "https://smartattend-ochre.vercel.app",
+    "https://smartattend.vercel.app",
+    "https://smartattend-app.vercel.app",
     "http://localhost:5173",
+    "http://localhost:3000",
+    "http://localhost:4173",
     "https://localhost",
     "capacitor://localhost",
     ...(process.env.APP_ALLOWED_ORIGINS || "")
@@ -20,7 +25,9 @@ export function applyCors(req, res) {
     allowedOrigins.add(`https://${process.env.VERCEL_URL}`);
   }
 
-  if (!allowedOrigins.has(origin)) return false;
+  const isVercelOrigin = /^https:\/\/[a-zA-Z0-9_-]+\.vercel\.app$/i.test(origin);
+
+  if (!allowedOrigins.has(origin) && !isVercelOrigin) return false;
   res.setHeader("Access-Control-Allow-Origin", origin);
   res.setHeader("Vary", "Origin");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");

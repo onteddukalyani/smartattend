@@ -78,6 +78,49 @@ service cloud.firestore {
       ]);
     }
 
+    function isInitialFaceEnrollment() {
+      return (
+        (!('faceRegistered' in resource.data) || resource.data.faceRegistered != true) &&
+        (!('hasFaceRegistered' in resource.data) || resource.data.hasFaceRegistered != true) &&
+        request.resource.data.faceRegistered == true &&
+        request.resource.data.hasFaceRegistered == true &&
+        request.resource.data.faceDescriptor is list &&
+        request.resource.data.faceDescriptor.size() == 128
+      );
+    }
+
+    function isAuthorizedFaceReRegistration() {
+      return (
+        resource.data.faceRemovedAt != null &&
+        resource.data.faceRegistered != true &&
+        request.resource.data.faceRegistered == true &&
+        request.resource.data.faceDescriptor is list &&
+        request.resource.data.faceDescriptor.size() == 128
+      );
+    }
+
+    function isInitialDeviceBinding() {
+      return (
+        (!('deviceTypeLocked' in resource.data) || resource.data.deviceTypeLocked != true) &&
+        request.resource.data.deviceTypeLocked == true
+      );
+    }
+
+    function isInitialHardwareBiometricEnrollment() {
+      return (
+        (!('hardwareBiometricEnrolled' in resource.data) || resource.data.hardwareBiometricEnrolled != true) &&
+        request.resource.data.hardwareBiometricEnrolled == true
+      );
+    }
+
+    function canEnrollOrModifyBiometrics() {
+      return hasNoClientFaceEnrollmentMutation() ||
+        isInitialFaceEnrollment() ||
+        isAuthorizedFaceReRegistration() ||
+        isInitialDeviceBinding() ||
+        isInitialHardwareBiometricEnrollment();
+    }
+
     function isOwnStudentRecord(studentId, data) {
       return isSignedIn() && (
         request.auth.uid == studentId ||
@@ -225,7 +268,7 @@ service cloud.firestore {
         (!('status' in request.resource.data) || request.resource.data.status in ['active', 'pending'])
       ));
       allow delete: if isStaff();
-      allow update: if hasNoClientFaceEnrollmentMutation() && (isStaff() || (
+      allow update: if canEnrollOrModifyBiometrics() && (isStaff() || (
         isSignedIn() &&
         isOwnStudentRecord(studentId, resource.data) &&
         !request.resource.data.diff(resource.data).affectedKeys().hasAny([
@@ -261,7 +304,7 @@ service cloud.firestore {
           ])
         )
       );
-      allow update: if hasNoClientFaceEnrollmentMutation() && isSignedIn() && (
+      allow update: if canEnrollOrModifyBiometrics() && isSignedIn() && (
         isAdmin() || (
           (
             request.auth.uid == userId ||
