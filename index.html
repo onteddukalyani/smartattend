@@ -1,15 +1,49 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" style="background-color: #0f172a; margin: 0; padding: 0;">
 
 <head>
   <meta charset="UTF-8" />
   <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#0f172a" />
   <title>SmartAttend</title>
+  <script>
+    (function() {
+      function showStartupError(msg) {
+        console.error('[SmartAttendStartupError]', msg);
+        var root = document.getElementById('root');
+        if (root) {
+          root.innerHTML = '<div style="padding: 24px; font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif; background: #0f172a; color: #fff; min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center;">' +
+            '<div style="max-width: 420px; width: 90%; padding: 26px 20px; background: #1e293b; border-radius: 18px; border: 1.5px solid #ef4444; box-shadow: 0 10px 30px rgba(0,0,0,0.5);">' +
+            '<div style="font-size: 2.2rem; margin-bottom: 8px;">⚠️</div>' +
+            '<h3 style="color: #ef4444; margin: 0 0 10px 0; font-size: 1.2rem;">SmartAttend Startup Notice</h3>' +
+            '<p style="color: #94a3b8; font-size: 0.88rem; line-height: 1.5; margin: 0 0 18px 0;">' + (msg || 'An unexpected error occurred during application initialization.') + '</p>' +
+            '<button onclick="window.location.reload()" style="width: 100%; padding: 12px 20px; background: #3b82f6; color: #fff; border: none; border-radius: 10px; cursor: pointer; font-weight: bold; font-size: 0.92rem;">Reload SmartAttend</button>' +
+            '</div></div>';
+        }
+      }
+      window.addEventListener('error', function(e) {
+        showStartupError(e.message || (e.error && e.error.message) || 'Script execution error');
+      });
+      window.addEventListener('unhandledrejection', function(e) {
+        showStartupError((e.reason && (e.reason.message || e.reason)) || 'Unhandled promise rejection');
+      });
+    })();
+  </script>
 </head>
 
-<body>
-  <div id="root"></div>
+<body style="margin: 0; padding: 0; background-color: #0f172a; color: #ffffff; min-height: 100vh; overflow-x: hidden;">
+  <div id="root">
+    <div id="app-initial-loader" style="min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #0f172a; color: #f8fafc; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; text-align: center; padding: 20px;">
+      <div style="position: relative; width: 68px; height: 68px; margin-bottom: 20px; display: flex; align-items: center; justify-content: center;">
+        <div style="position: absolute; inset: 0; border: 3.5px solid rgba(99, 102, 241, 0.2); border-top-color: #6366f1; border-radius: 50%; animation: saSpin 0.9s cubic-bezier(0.5, 0, 0.5, 1) infinite;"></div>
+        <svg style="width: 30px; height: 30px; fill: #6366f1;" viewBox="0 0 24 24"><path d="M12 3L1 9l11 6l9-4.91V17h2V9L12 3z M5 13.18v4L12 21l7-3.82v-4L12 17L5 13.18z"/></svg>
+      </div>
+      <h2 style="margin: 0 0 6px 0; font-size: 1.35rem; font-weight: 800; letter-spacing: -0.02em; color: #f8fafc;">SmartAttend</h2>
+      <p style="margin: 0; font-size: 0.85rem; color: #94a3b8; font-weight: 500;">Initializing attendance system...</p>
+      <style>@keyframes saSpin { to { transform: rotate(360deg); } }</style>
+    </div>
+  </div>
   <script type="module" src="/src/main.jsx"></script>
 </body>
 

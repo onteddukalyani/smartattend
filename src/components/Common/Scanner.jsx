@@ -87,12 +87,24 @@ function QrScannerApp() {
     // Platform & App Detection
     const isNativeApp = Capacitor.isNativePlatform();
     const isAndroidDevice = typeof navigator !== 'undefined' && (/Android/i.test(navigator.userAgent) || detectDeviceType() === 'android');
+    const isStaff = isStaffCameraUser(profile, user);
+    const isAndroidWebStudent = !isNativeApp && isAndroidDevice && !isStaff;
     const browserCameraAuth = isBrowserCameraAllowed(profile, user);
-    const isCameraAllowed = isNativeApp || browserCameraAuth.allowed || Boolean(searchParams.get('session')) || isAndroidDevice;
+    const isCameraAllowed = isNativeApp || (isStaff && browserCameraAuth.allowed) || (!isAndroidDevice && browserCameraAuth.allowed);
     const [showAppBanner, setShowAppBanner] = useState(false);
     const [dismissedAppBanner, setDismissedAppBanner] = useState(false);
     const [deviceOwnerStatus, setDeviceOwnerStatus] = useState({ checked: false, isDeviceOwner: true, isWeb: false });
     const [deviceIdentity, setDeviceIdentity] = useState(null);
+
+    // Automatically attempt to launch the native SmartAttend Android app when on Android web browser
+    useEffect(() => {
+        if (isAndroidWebStudent) {
+            const timer = setTimeout(() => {
+                handleOpenInSmartAttendApp();
+            }, 600);
+            return () => clearTimeout(timer);
+        }
+    }, [isAndroidWebStudent]);
 
     // App Update Gate & Reminder
     const [versionBlock, setVersionBlock] = useState(null);
@@ -168,7 +180,6 @@ function QrScannerApp() {
     });
 
     // Camera & Scanner State
-    const isStaff = isStaffCameraUser(profile, user);
     const [facingMode, setFacingMode] = useState('environment');
     // Students strictly use rear camera for QR scanning; lecturers have full front/rear toggle
     const effectiveFacingMode = isStaff ? facingMode : 'environment';
@@ -3649,6 +3660,143 @@ function QrScannerApp() {
                 >
                     <FaCheckCircle /> Return to Student Dashboard
                 </button>
+            </div>
+        );
+    }
+
+    // =========================================================================
+    // UI VIEW 1.2: ANDROID WEB USERS BLOCKED & REDIRECT SCREEN
+    // =========================================================================
+    if (isAndroidWebStudent) {
+        return (
+            <div style={{
+                maxWidth: '540px',
+                margin: '28px auto',
+                padding: '36px 24px',
+                background: 'var(--surface, #ffffff)',
+                borderRadius: '24px',
+                border: '1.5px solid #6366f1',
+                boxShadow: '0 20px 45px -10px rgba(99, 102, 241, 0.25)',
+                color: 'var(--text-main, #0f172a)',
+                textAlign: 'center',
+                position: 'relative'
+            }}>
+                <div style={{
+                    width: '84px',
+                    height: '84px',
+                    borderRadius: '24px',
+                    background: 'linear-gradient(135deg, #e0e7ff 0%, #c7d2fe 100%)',
+                    color: '#4f46e5',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    margin: '0 auto 18px',
+                    fontSize: '42px',
+                    boxShadow: '0 10px 25px rgba(99, 102, 241, 0.25)'
+                }}>
+                    <FaMobileAlt />
+                </div>
+
+                <div style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '6px 14px',
+                    borderRadius: '20px',
+                    background: 'rgba(239, 68, 68, 0.1)',
+                    color: '#dc2626',
+                    fontSize: '0.8rem',
+                    fontWeight: 800,
+                    marginBottom: '14px'
+                }}>
+                    <FaLock size={12} /> Browser Camera Blocked for Android
+                </div>
+
+                <h2 style={{ fontSize: '1.45rem', fontWeight: 800, margin: '0 0 10px 0', color: 'var(--text-main, #0f172a)' }}>
+                    Open SmartAttend Android App
+                </h2>
+                <p style={{ color: 'var(--text-muted, #64748b)', fontSize: '0.92rem', margin: '0 0 24px 0', lineHeight: 1.55 }}>
+                    Per institutional attendance security and anti-proxy rules, Android students <strong>cannot use the web browser camera</strong> to scan QR codes. Please mark attendance inside the official <strong>SmartAttend Android App</strong> (.apk).
+                </p>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '22px' }}>
+                    <button
+                        type="button"
+                        onClick={handleOpenInSmartAttendApp}
+                        style={{
+                            width: '100%',
+                            padding: '15px 20px',
+                            borderRadius: '14px',
+                            background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
+                            color: '#ffffff',
+                            border: 'none',
+                            fontWeight: 800,
+                            fontSize: '1rem',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '10px',
+                            boxShadow: '0 8px 24px rgba(79, 70, 229, 0.35)'
+                        }}
+                    >
+                        <FaBolt /> Launch SmartAttend App
+                    </button>
+
+                    <a
+                        href={getApkDownloadUrl()}
+                        download="SmartAttend-release.apk"
+                        style={{
+                            width: '100%',
+                            padding: '13px 20px',
+                            borderRadius: '14px',
+                            background: 'var(--surface-soft, #f8fafc)',
+                            color: '#334155',
+                            border: '1.5px solid var(--border, #cbd5e1)',
+                            fontWeight: 700,
+                            fontSize: '0.92rem',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '8px',
+                            textDecoration: 'none',
+                            boxSizing: 'border-box'
+                        }}
+                    >
+                        <FaDownload /> Download Official APK (.apk)
+                    </a>
+
+                    <button
+                        type="button"
+                        onClick={() => navigate('/student', { replace: true })}
+                        style={{
+                            width: '100%',
+                            padding: '11px 20px',
+                            borderRadius: '12px',
+                            background: 'transparent',
+                            color: '#64748b',
+                            border: 'none',
+                            fontWeight: 600,
+                            fontSize: '0.86rem',
+                            cursor: 'pointer'
+                        }}
+                    >
+                        ← Return to Student Dashboard
+                    </button>
+                </div>
+
+                <div style={{
+                    padding: '12px 14px',
+                    borderRadius: '12px',
+                    background: 'rgba(99, 102, 241, 0.06)',
+                    border: '1px solid rgba(99, 102, 241, 0.18)',
+                    fontSize: '0.78rem',
+                    color: '#4338ca',
+                    textAlign: 'left',
+                    lineHeight: 1.45
+                }}>
+                    <strong>💡 Instant Launch:</strong> If you already downloaded the APK, tapping <strong>Launch SmartAttend App</strong> will open the app directly. If your phone asks, choose <em>"Open with SmartAttend"</em>.
+                </div>
             </div>
         );
     }

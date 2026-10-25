@@ -655,7 +655,19 @@ function Settings() {
                                 <button
                                     type="button"
                                     className="st-btn-feature-filled"
-                                    onClick={() => setShowDeviceModal(true)}
+                                    onClick={() => {
+                                        const isLocked = Boolean(
+                                            profile?.deviceTypeLocked === true ||
+                                            localStorage.getItem('smartattend_student_device_locked') === 'true' ||
+                                            localStorage.getItem('smartattend_device_locked') === 'true' ||
+                                            (profile?.role === 'student' && profile?.deviceType)
+                                        );
+                                        if (isLocked) {
+                                            alert(`🔒 Device Selection Locked!\n\nYour account is locked to ${(profile?.deviceType || 'registered device').toUpperCase()}. Only your lecturer or system administrator can unlock or reset your device preference.`);
+                                            return;
+                                        }
+                                        setShowDeviceModal(true);
+                                    }}
                                     title="View or update device registration"
                                 >
                                     <FaEdit /> <span>Configure</span>

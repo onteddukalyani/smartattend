@@ -100,8 +100,6 @@ export function DeviceOnboardingModal({ isOpen, onClose }) {
         }
     }, [isNativeApp, currentRole, roll, user, profile, currentIp, onClose]);
 
-    if (!isOpen || isNativeApp) return null;
-
     const hasDeviceMismatch = Boolean(detectedDevice && selectedDevice && detectedDevice !== selectedDevice);
     const isReset = Boolean(
         profile?.deviceResetAt ||
@@ -119,9 +117,22 @@ export function DeviceOnboardingModal({ isOpen, onClose }) {
 
     const isLocked = !isReset && Boolean(
         profile?.role === 'student' &&
-        (localStorage.getItem('smartattend_student_device_type') || profile?.deviceType) &&
-        (profile?.deviceTypeLocked === true || localStorage.getItem('smartattend_student_device_locked') === 'true')
+        (
+            profile?.deviceTypeLocked === true ||
+            localStorage.getItem('smartattend_student_device_locked') === 'true' ||
+            localStorage.getItem('smartattend_device_locked') === 'true' ||
+            (profile?.deviceType && (profile?.isDeviceRegistered !== false || localStorage.getItem('smartattend_student_device_type')))
+        )
     );
+
+    // Auto-close if device is already locked so the dialogue is never shown again and again
+    useEffect(() => {
+        if (isLocked && isOpen && onClose) {
+            onClose();
+        }
+    }, [isLocked, isOpen, onClose]);
+
+    if (!isOpen || isNativeApp || isLocked) return null;
 
     const handleSelectDevice = async (deviceType) => {
         if (isLocked) {

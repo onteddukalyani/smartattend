@@ -183,12 +183,6 @@ export function isBrowserCameraAllowed(profile = {}, user = {}) {
     return { allowed: true, reason: "native_app" };
   }
 
-  // Development / Localhost allowance for local testing
-  if (typeof window !== "undefined" && (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")) {
-    return { allowed: true, reason: "localhost_dev" };
-  }
-
-  // Lecturer: Camera is allowed in browser
   const roleValues = [
     profile?.role,
     profile?.designation,
@@ -196,6 +190,8 @@ export function isBrowserCameraAllowed(profile = {}, user = {}) {
     user?.claims?.role,
     user?.customClaims?.role
   ].map((value) => String(value || "").trim().toLowerCase());
+
+  // Lecturer: Camera is allowed in browser
   const isLecturer = roleValues.some((role) =>
     ["lecturer", "faculty", "professor", "teacher", "instructor", "staff"].includes(role)
   ) || profile?.isLecturer === true || user?.isLecturer === true;

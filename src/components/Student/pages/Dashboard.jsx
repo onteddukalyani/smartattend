@@ -81,20 +81,7 @@ export default function StudentDashboard() {
             return '';
         }
     });
-    const [showDeviceModal, setShowDeviceModal] = useState(() => {
-        if (typeof window !== "undefined" && window.Capacitor?.isNativePlatform?.()) {
-            try {
-                localStorage.setItem('smartattend_student_device_type', 'android');
-                localStorage.setItem('smartattend_student_device_locked', 'true');
-            } catch (_) { }
-            return false;
-        }
-        try {
-            return !localStorage.getItem('smartattend_student_device_type');
-        } catch (_) {
-            return false;
-        }
-    });
+    const [showDeviceModal, setShowDeviceModal] = useState(false);
     const [overlayStatus, setOverlayStatus] = useState({ checked: false, granted: true });
     const [showPermissionsGuide, setShowPermissionsGuide] = useState(false);
     const [showReadinessModal, setShowReadinessModal] = useState(false);

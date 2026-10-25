@@ -34,6 +34,13 @@ public class MainActivity extends BridgeActivity {
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
+        // Install AndroidX SplashScreen to cleanly transition from launch theme to AppTheme.NoActionBar
+        try {
+            androidx.core.splashscreen.SplashScreen.installSplashScreen(this);
+        } catch (Throwable t) {
+            android.util.Log.w("MainActivity", "SplashScreen install notice: " + t.getMessage());
+        }
+
         sInstance = this;
         registerPlugin(KioskPlugin.class);
         registerPlugin(BiometricPlugin.class);
@@ -42,6 +49,28 @@ public class MainActivity extends BridgeActivity {
 
         // Enable Chrome remote debugging for WebView
         WebView.setWebContentsDebuggingEnabled(true);
+
+        // Configure WebView storage and permissions
+        try {
+            if (getBridge() != null && getBridge().getWebView() != null) {
+                WebView webView = getBridge().getWebView();
+                webView.setBackgroundColor(android.graphics.Color.parseColor("#0f172a"));
+                android.webkit.WebSettings settings = webView.getSettings();
+                settings.setJavaScriptEnabled(true);
+                settings.setDomStorageEnabled(true);
+                settings.setDatabaseEnabled(true);
+                settings.setGeolocationEnabled(true);
+                settings.setGeolocationDatabasePath(getFilesDir().getPath());
+                settings.setAllowFileAccess(true);
+                settings.setAllowContentAccess(true);
+                settings.setMixedContentMode(android.webkit.WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+                settings.setCacheMode(android.webkit.WebSettings.LOAD_DEFAULT);
+                settings.setLoadWithOverviewMode(true);
+                settings.setUseWideViewPort(true);
+            }
+        } catch (Throwable t) {
+            android.util.Log.w("MainActivity", "WebView config notice: " + t.getMessage());
+        }
 
         // Smoothly request runtime permissions after WebView has rendered initial frame (prevents APK launch blank freeze)
         mainHandler.postDelayed(() -> {
@@ -66,16 +95,6 @@ public class MainActivity extends BridgeActivity {
                 android.util.Log.w("MainActivity", "Permission request notice: " + t.getMessage());
             }
         }, 1200);
-
-        try {
-            if (getBridge() != null && getBridge().getWebView() != null) {
-                WebView webView = getBridge().getWebView();
-                webView.getSettings().setGeolocationEnabled(true);
-                webView.getSettings().setGeolocationDatabasePath(getFilesDir().getPath());
-            }
-        } catch (Throwable t) {
-            android.util.Log.w("MainActivity", "WebView geolocation config notice: " + t.getMessage());
-        }
     }
 
     public void bringToFront() {

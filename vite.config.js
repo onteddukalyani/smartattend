@@ -1,6 +1,5 @@
 import { defineConfig } from 'vite'
 import react, { reactCompilerPreset } from '@vitejs/plugin-react'
-import babel from '@rolldown/plugin-babel'
 import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
@@ -12,8 +11,11 @@ const __dirname = path.dirname(__filename)
 export default defineConfig({
   base: '/',
   plugins: [
-    react(),
-    babel({ presets: [reactCompilerPreset()] }),
+    react({
+      babel: {
+        presets: [reactCompilerPreset()]
+      }
+    }),
     {
       name: 'apk-mime-type',
       configureServer(server) {

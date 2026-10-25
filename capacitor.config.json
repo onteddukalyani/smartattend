@@ -2,6 +2,10 @@
   "appId": "com.smartattend.app",
   "appName": "SmartAttend",
   "webDir": "dist",
+  "server": {
+    "androidScheme": "https",
+    "cleartext": true
+  },
   "ios": {
     "contentInset": "always",
     "scheme": "SmartAttend",
