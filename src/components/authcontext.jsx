@@ -162,18 +162,24 @@ export const AuthProvider = ({ children }) => {
           ""
         ).trim();
 
+        const isRegisteredDirect = Boolean(
+          matchedStudentDoc.faceRegistered === true ||
+          matchedStudentDoc.biometricEnrolled === true ||
+          matchedStudentDoc.hasFaceRegistered === true ||
+          matchedStudentDoc.isRegistered === true ||
+          matchedStudentDoc.registeredGlobally === true ||
+          matchedStudentDoc.registrationStatus === "registered" ||
+          (Array.isArray(matchedStudentDoc.faceDescriptor) && matchedStudentDoc.faceDescriptor.length === 128) ||
+          (Array.isArray(matchedStudentDoc.descriptor) && matchedStudentDoc.descriptor.length === 128)
+        );
+
         const hasFaceRemoval = Boolean(
+          !isRegisteredDirect &&
           matchedStudentDoc.faceRemovedAt &&
           (!matchedStudentDoc.faceEnrolledAt || matchedStudentDoc.faceRemovedAt > matchedStudentDoc.faceEnrolledAt)
         );
 
-        const hasValidFace = Boolean(
-          !hasFaceRemoval &&
-          (matchedStudentDoc.faceRegistered === true ||
-            matchedStudentDoc.biometricEnrolled === true ||
-            matchedStudentDoc.hasFaceRegistered === true ||
-            (Array.isArray(matchedStudentDoc.faceDescriptor) && matchedStudentDoc.faceDescriptor.length === 128))
-        );
+        const hasValidFace = Boolean(!hasFaceRemoval && isRegisteredDirect);
 
         return {
           id: authoritativeRollNo || matchedStudentId || cleanEmail,
@@ -193,6 +199,9 @@ export const AuthProvider = ({ children }) => {
           faceRegistered: hasValidFace,
           biometricEnrolled: hasValidFace,
           hasFaceRegistered: hasValidFace,
+          isRegistered: Boolean(matchedStudentDoc.isRegistered || hasValidFace),
+          registeredGlobally: Boolean(matchedStudentDoc.registeredGlobally || hasValidFace),
+          registrationStatus: (matchedStudentDoc.registrationStatus || (hasValidFace ? "registered" : "pending")),
           faceRemovedAt: hasFaceRemoval ? matchedStudentDoc.faceRemovedAt : null
         };
       }
@@ -241,7 +250,17 @@ export const AuthProvider = ({ children }) => {
           if (!authoritativeBranch && c.branch && String(c.branch).toLowerCase() !== "general") {
             authoritativeBranch = String(c.branch).trim();
           }
-          if (c.faceRemovedAt && (!c.faceEnrolledAt || c.faceRemovedAt > c.faceEnrolledAt)) {
+          const isDocCandidateEnrolled = Boolean(
+            c.faceRegistered ||
+            c.biometricEnrolled ||
+            c.hasFaceRegistered ||
+            c.isRegistered ||
+            c.registeredGlobally ||
+            c.registrationStatus === "registered" ||
+            (Array.isArray(c.faceDescriptor) && c.faceDescriptor.length === 128) ||
+            (Array.isArray(c.descriptor) && c.descriptor.length === 128)
+          );
+          if (!isDocCandidateEnrolled && c.faceRemovedAt && (!c.faceEnrolledAt || c.faceRemovedAt > c.faceEnrolledAt)) {
             isExplicitlyFaceRemoved = true;
             if (typeof c.faceRemovedAt === "number" && c.faceRemovedAt > mostRecentRemovalTime) {
               mostRecentRemovalTime = c.faceRemovedAt;
@@ -251,12 +270,11 @@ export const AuthProvider = ({ children }) => {
             ...merged,
             ...c,
             faceRegistered: Boolean(
-              c.faceRegistered ||
-              c.biometricEnrolled ||
-              c.hasFaceRegistered ||
-              (Array.isArray(c.faceDescriptor) && c.faceDescriptor.length === 128) ||
+              isDocCandidateEnrolled ||
               merged.faceRegistered
             ),
+            isRegistered: Boolean(c.isRegistered || merged.isRegistered || isDocCandidateEnrolled || merged.faceRegistered),
+            registeredGlobally: Boolean(c.registeredGlobally || merged.registeredGlobally || isDocCandidateEnrolled || merged.faceRegistered),
             faceDescriptor: null,
             photoURL: c.photoURL || c.photo || c.image || merged.photoURL || "",
             branch: authoritativeBranch || (c.branch && String(c.branch).toLowerCase() !== "general" ? c.branch : (merged.branch || "CSE")),
@@ -266,7 +284,7 @@ export const AuthProvider = ({ children }) => {
           };
         }
 
-        if (isExplicitlyFaceRemoved) {
+        if (isExplicitlyFaceRemoved && !merged.faceRegistered && !merged.isRegistered) {
           merged.faceRegistered = false;
           merged.biometricEnrolled = false;
           merged.hasFaceRegistered = false;

@@ -289,7 +289,7 @@ function StudentsList() {
         try {
             setActionLoading(student.id || cleanRoll);
             const actorName = profile?.name || profile?.email || "Faculty/Admin";
-            
+
             const updated = await resetStudentDeviceLockGlobally(student, actorName);
 
             if (updated) {
@@ -352,7 +352,7 @@ function StudentsList() {
             };
 
             await setDoc(doc(db, "students", cleanRoll), hwPayload, { merge: true });
-            await setDoc(doc(db, "users", cleanRoll), hwPayload, { merge: true }).catch(() => {});
+            await setDoc(doc(db, "users", cleanRoll), hwPayload, { merge: true }).catch(() => { });
 
             const updatedStudent = {
                 ...student,
@@ -824,7 +824,7 @@ function StudentsList() {
                                     <th className="sortable-th th-roll" onClick={() => requestSort("rollNo")}>
                                         <div className="th-content">
                                             <span>Roll Number</span>
-                                             <SortIcon sortConfig={sortConfig} columnKey="rollNo" />
+                                            <SortIcon sortConfig={sortConfig} columnKey="rollNo" />
                                         </div>
                                     </th>
                                     <th className="sortable-th th-student" onClick={() => requestSort("name")}>

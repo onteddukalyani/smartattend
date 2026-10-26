@@ -278,23 +278,47 @@ export default function StudentDashboard() {
                         ? String(d.semester).trim()
                         : (prev?.semester || "1");
 
+                    const isDocDirectlyEnrolled = Boolean(
+                        d.faceRegistered === true ||
+                        d.biometricEnrolled === true ||
+                        d.hasFaceRegistered === true ||
+                        d.isRegistered === true ||
+                        d.registeredGlobally === true ||
+                        d.registrationStatus === "registered" ||
+                        (Array.isArray(d.faceDescriptor) && d.faceDescriptor.length === 128) ||
+                        (Array.isArray(d.descriptor) && d.descriptor.length === 128)
+                    );
+
+                    const isPrevEnrolled = Boolean(
+                        prev && (prev.faceRegistered || prev.biometricEnrolled || prev.hasFaceRegistered || prev.isRegistered || prev.registeredGlobally)
+                    );
+
                     const docFaceRemoved = Boolean(
-                        d.faceRemovedAt && (!d.faceEnrolledAt || d.faceRemovedAt > d.faceEnrolledAt)
+                        !isDocDirectlyEnrolled &&
+                        d.faceRemovedAt &&
+                        (!d.faceEnrolledAt || d.faceRemovedAt > d.faceEnrolledAt) &&
+                        (isCanonical || !isPrevEnrolled)
                     );
 
                     const hasFace = Boolean(
                         !docFaceRemoved &&
-                        (d.faceRegistered === true || d.biometricEnrolled === true || d.hasFaceRegistered === true ||
-                            (Array.isArray(d.faceDescriptor) && d.faceDescriptor.length === 128) ||
-                            (Array.isArray(d.descriptor) && d.descriptor.length === 128) ||
-                            (prev && (prev.faceRegistered || prev.biometricEnrolled || prev.hasFaceRegistered)))
+                        (isDocDirectlyEnrolled || isPrevEnrolled)
                     );
 
                     if (hasFace) {
                         try {
-                            if (activeRollNo) localStorage.setItem(`smartattend_face_enrolled_${activeRollNo}`, "true");
-                            if (user?.uid) localStorage.setItem(`smartattend_face_enrolled_${user.uid}`, "true");
+                            if (activeRollNo) {
+                                localStorage.setItem(`smartattend_face_enrolled_${activeRollNo}`, "true");
+                                localStorage.setItem(`smartattend_registered_${activeRollNo}`, "true");
+                            }
+                            if (user?.uid) {
+                                localStorage.setItem(`smartattend_face_enrolled_${user.uid}`, "true");
+                                localStorage.setItem(`smartattend_registered_${user.uid}`, "true");
+                            }
                             localStorage.setItem("smartattend_face_enrolled", "true");
+                            localStorage.setItem("smartattend_student_face_enrolled", "true");
+                            localStorage.setItem("smartattend_registered", "true");
+                            localStorage.setItem("smartattend_student_registered", "true");
                         } catch (_) {}
                     } else if (docFaceRemoved) {
                         try {
@@ -308,8 +332,8 @@ export default function StudentDashboard() {
                     const isDocHwReset = Boolean(
                         d.deviceResetAt ||
                         d.deviceFingerprintResetAt ||
-                        d.deviceTypeLocked === false ||
-                        d.isDeviceRegistered === false
+                        (isCanonical && d.deviceTypeLocked === false && !prev?.deviceTypeLocked) ||
+                        (isCanonical && d.isDeviceRegistered === false && !prev?.deviceTypeLocked)
                     );
 
                     if (isDocHwReset) {
@@ -326,7 +350,12 @@ export default function StudentDashboard() {
                         setCurrentDeviceType("");
                     }
 
-                    const hasHw = !isDocHwReset && Boolean(d.hardwareBiometricEnrolled || prev?.hardwareBiometricEnrolled);
+                    const hasHw = !isDocHwReset && Boolean(
+                        d.hardwareBiometricEnrolled ||
+                        (prev?.hardwareBiometricEnrolled && d.hardwareBiometricEnrolled !== false) ||
+                        (activeRollNo && localStorage.getItem(`smartattend_hw_enrolled_${activeRollNo}`) === "true") ||
+                        localStorage.getItem("smartattend_hw_enrolled") === "true"
+                    );
                     if (hasHw) {
                         try {
                             if (activeRollNo) localStorage.setItem(`smartattend_hw_enrolled_${activeRollNo}`, "true");
@@ -346,9 +375,12 @@ export default function StudentDashboard() {
                         faceRegistered: hasFace,
                         biometricEnrolled: hasFace,
                         hasFaceRegistered: hasFace,
+                        isRegistered: Boolean(hasFace || d.isRegistered || prev?.isRegistered),
+                        registeredGlobally: Boolean(hasFace || d.registeredGlobally || prev?.registeredGlobally),
+                        registrationStatus: hasFace ? "registered" : (d.registrationStatus || prev?.registrationStatus || "pending"),
                         hardwareBiometricEnrolled: hasHw,
                         deviceTypeLocked: isDocHwReset ? false : (d.deviceTypeLocked ?? prev?.deviceTypeLocked ?? false),
-                        deviceType: isDocHwReset ? null : (d.deviceType ?? prev?.deviceType ?? null),
+                        deviceType: isDocHwReset ? null : (d.deviceType || prev?.deviceType || null),
                         faceRemovedAt: docFaceRemoved ? (d.faceRemovedAt || Date.now()) : null,
                         faceDescriptor: null,
                         descriptor: null
@@ -359,10 +391,16 @@ export default function StudentDashboard() {
 
         // 1. Listen to students collection (canonical doc)
         unsubs.push(onSnapshot(doc(db, "students", activeRollNo), (snap) => handleDocUpdate(snap, true), (err) => console.warn("student doc snapshot notice:", err)));
+        if (activeRollNo.toLowerCase() !== activeRollNo) {
+            unsubs.push(onSnapshot(doc(db, "students", activeRollNo.toLowerCase()), (snap) => handleDocUpdate(snap, true), (err) => console.warn("student doc lower snapshot notice:", err)));
+        }
 
         // 2. Listen to users collection (by roll and by user.uid)
         unsubs.push(onSnapshot(doc(db, "users", activeRollNo), (snap) => handleDocUpdate(snap, false), (err) => console.warn("user doc snapshot notice:", err)));
-        if (user?.uid && user.uid !== activeRollNo) {
+        if (activeRollNo.toLowerCase() !== activeRollNo) {
+            unsubs.push(onSnapshot(doc(db, "users", activeRollNo.toLowerCase()), (snap) => handleDocUpdate(snap, false), (err) => console.warn("user doc lower snapshot notice:", err)));
+        }
+        if (user?.uid && user.uid !== activeRollNo && user.uid !== activeRollNo.toLowerCase()) {
             unsubs.push(onSnapshot(doc(db, "users", user.uid), (snap) => handleDocUpdate(snap, false), (err) => console.warn("user uid snapshot notice:", err)));
         }
 
@@ -429,11 +467,28 @@ export default function StudentDashboard() {
         ? String(fetchedStudentData.semester).trim()
         : (profile?.semester ? String(profile.semester).trim() : "1");
 
+    const isEnrolledFlagPresent = Boolean(
+        fetchedStudentData?.faceRegistered || fetchedStudentData?.biometricEnrolled || fetchedStudentData?.hasFaceRegistered ||
+        fetchedStudentData?.isRegistered || fetchedStudentData?.registeredGlobally || fetchedStudentData?.registrationStatus === "registered" ||
+        (Array.isArray(fetchedStudentData?.faceDescriptor) && fetchedStudentData.faceDescriptor.length === 128) ||
+        profile?.faceRegistered || profile?.biometricEnrolled || profile?.hasFaceRegistered ||
+        profile?.isRegistered || profile?.registeredGlobally || profile?.registrationStatus === "registered" ||
+        (activeRollNo && localStorage.getItem(`smartattend_face_enrolled_${activeRollNo}`) === "true") ||
+        (user?.uid && localStorage.getItem(`smartattend_face_enrolled_${user.uid}`) === "true") ||
+        localStorage.getItem("smartattend_face_enrolled") === "true" ||
+        localStorage.getItem("smartattend_student_face_enrolled") === "true" ||
+        localStorage.getItem("smartattend_registered") === "true" ||
+        localStorage.getItem("smartattend_student_registered") === "true" ||
+        (activeRollNo && localStorage.getItem(`smartattend_registered_${activeRollNo}`) === "true")
+    );
+
     const profileFaceRemoved = Boolean(
+        !isEnrolledFlagPresent &&
         profile?.faceRemovedAt &&
         (!profile?.faceEnrolledAt || profile.faceRemovedAt > profile.faceEnrolledAt)
     );
     const fetchedFaceRemoved = Boolean(
+        !isEnrolledFlagPresent &&
         fetchedStudentData?.faceRemovedAt &&
         (!fetchedStudentData?.faceEnrolledAt || fetchedStudentData.faceRemovedAt > fetchedStudentData.faceEnrolledAt)
     );
@@ -447,25 +502,13 @@ export default function StudentDashboard() {
         } catch (_) {}
     }
 
-    const hasFaceRegistered = Boolean(
-        !hasRemoval && (
-            fetchedStudentData?.faceRegistered || fetchedStudentData?.biometricEnrolled || fetchedStudentData?.hasFaceRegistered ||
-            (Array.isArray(fetchedStudentData?.faceDescriptor) && fetchedStudentData.faceDescriptor.length === 128) ||
-            profile?.faceRegistered || profile?.biometricEnrolled || profile?.hasFaceRegistered ||
-            (activeRollNo && localStorage.getItem(`smartattend_face_enrolled_${activeRollNo}`) === "true") ||
-            (user?.uid && localStorage.getItem(`smartattend_face_enrolled_${user.uid}`) === "true") ||
-            localStorage.getItem("smartattend_face_enrolled") === "true"
-        )
-    );
+    const hasFaceRegistered = !hasRemoval && isEnrolledFlagPresent;
 
     const isDeviceReset = Boolean(
-        fetchedStudentData?.deviceResetAt ||
-        profile?.deviceResetAt ||
-        fetchedStudentData?.deviceFingerprintResetAt ||
-        profile?.deviceFingerprintResetAt ||
-        fetchedStudentData?.deviceTypeLocked === false ||
-        profile?.deviceTypeLocked === false ||
-        fetchedStudentData?.hardwareBiometricEnrolled === false
+        (fetchedStudentData?.deviceResetAt && (!fetchedStudentData?.deviceSelectedAt || fetchedStudentData.deviceResetAt > fetchedStudentData.deviceSelectedAt)) ||
+        (profile?.deviceResetAt && (!profile?.deviceSelectedAt || profile.deviceResetAt > profile.deviceSelectedAt)) ||
+        (fetchedStudentData?.deviceFingerprintResetAt && (!fetchedStudentData?.platformBoundAt || fetchedStudentData.deviceFingerprintResetAt > fetchedStudentData.platformBoundAt)) ||
+        (profile?.deviceFingerprintResetAt && (!profile?.platformBoundAt || profile.deviceFingerprintResetAt > profile.platformBoundAt))
     );
 
     if (isDeviceReset && typeof window !== "undefined") {
@@ -487,9 +530,24 @@ export default function StudentDashboard() {
         profile?.hardwareBiometricEnrolled ||
         (activeRollNo && localStorage.getItem(`smartattend_hw_enrolled_${activeRollNo}`) === "true") ||
         (user?.uid && localStorage.getItem(`smartattend_hw_enrolled_${user.uid}`) === "true") ||
-        localStorage.getItem("smartattend_hw_enrolled") === "true"
+        localStorage.getItem("smartattend_hw_enrolled") === "true" ||
+        localStorage.getItem("smartattend_fingerprint_enrolled") === "true"
     );
-    const isDualBioRegistered = hasFaceRegistered && hasHwRegistered;
+
+    const isRegisteredGlobally = Boolean(
+        hasFaceRegistered ||
+        fetchedStudentData?.isRegistered ||
+        fetchedStudentData?.registeredGlobally ||
+        fetchedStudentData?.registrationStatus === "registered" ||
+        profile?.isRegistered ||
+        profile?.registeredGlobally ||
+        profile?.registrationStatus === "registered" ||
+        (activeRollNo && localStorage.getItem(`smartattend_registered_${activeRollNo}`) === "true") ||
+        localStorage.getItem("smartattend_registered") === "true" ||
+        localStorage.getItem("smartattend_student_registered") === "true"
+    );
+
+    const isDualBioRegistered = (hasFaceRegistered || isRegisteredGlobally) && hasHwRegistered;
     const isStaff = isStaffCameraUser(profile, user);
     const [reRegPermission, setReRegPermission] = useState(null);
 
@@ -1262,7 +1320,7 @@ export default function StudentDashboard() {
                             <span
                                 className="student-sub-badge"
                                 onClick={() => {
-                                    if (hasFaceRegistered) {
+                                    if (hasFaceRegistered || isRegisteredGlobally) {
                                         setShowLockedFaceModal(true);
                                     } else {
                                         setShowFaceModal(true);
@@ -1270,17 +1328,17 @@ export default function StudentDashboard() {
                                 }}
                                 style={{
                                     cursor: "pointer",
-                                    background: hasFaceRegistered ? "#dcfce7" : "#fef3c7",
-                                    color: hasFaceRegistered ? "#15803d" : "#b45309",
-                                    border: hasFaceRegistered ? "1px solid #bbf7d0" : "1px solid #fde68a",
+                                    background: (hasFaceRegistered || isRegisteredGlobally) ? "#dcfce7" : "#fef3c7",
+                                    color: (hasFaceRegistered || isRegisteredGlobally) ? "#15803d" : "#b45309",
+                                    border: (hasFaceRegistered || isRegisteredGlobally) ? "1px solid #bbf7d0" : "1px solid #fde68a",
                                     fontWeight: 700,
                                     display: "inline-flex",
                                     alignItems: "center",
                                     gap: "5px"
                                 }}
-                                title={hasFaceRegistered ? "Facial biometrics registered & locked. Click to view security status" : "Click to register your face biometrics"}
+                                title={(hasFaceRegistered || isRegisteredGlobally) ? "Facial biometrics registered & locked. Click to view security status" : "Click to register your face biometrics"}
                             >
-                                {hasFaceRegistered ? (
+                                {(hasFaceRegistered || isRegisteredGlobally) ? (
                                     <><FaLock size={11} /> Face Enrolled (Locked 🔒)</>
                                 ) : (
                                     <><FaCamera size={11} /> Face Pending (Click to Enroll)</>
@@ -1444,7 +1502,7 @@ export default function StudentDashboard() {
 
 
             {/* Face Biometrics Pending Banner: Only displayed if student has not enrolled their face yet */}
-            {!hasFaceRegistered && (
+            {!hasFaceRegistered && !isRegisteredGlobally && (
                 <div className="face-pending-alert-banner">
                     <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
                         <FaExclamationTriangle className="face-pending-icon" />

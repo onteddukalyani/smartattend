@@ -83,6 +83,9 @@ export async function registerStudentFace(rollNo, faceDescriptor) {
     targets.push(doc(db, "users", cleanEmail));
     targets.push(doc(db, "authorizedUsers", cleanEmail));
   }
+  const institutionalEmail = `${cleanRoll.toLowerCase()}@iiitdwd.ac.in`;
+  targets.push(doc(db, "users", institutionalEmail));
+  targets.push(doc(db, "authorizedUsers", institutionalEmail));
 
   await Promise.allSettled(targets.map(ref => setDoc(ref, enrollPayload, { merge: true })));
 

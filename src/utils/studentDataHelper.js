@@ -282,9 +282,12 @@ export function mergeAllStudentRecords(authDocs = [], studentsDocs = [], usersDo
 
         const latestRemovedAt = data.faceRemovedAt || existing.faceRemovedAt || null;
 
-        const isExplicitlyRemoved = Boolean(latestRemovedAt);
+        const isExplicitlyRemoved = Boolean(
+            latestRemovedAt && (!latestEnrolledAt || latestRemovedAt > latestEnrolledAt) &&
+            !data.isRegistered && !existing.isRegistered && !data.registeredGlobally && !existing.registeredGlobally
+        );
 
-        const faceRegistered = Boolean(!isExplicitlyRemoved && hasStoredFace);
+        const faceRegistered = Boolean(!isExplicitlyRemoved && (hasStoredFace || data.isRegistered || existing.isRegistered || data.registeredGlobally || existing.registeredGlobally));
         const biometricEnrolled = faceRegistered;
         const hasFaceRegistered = faceRegistered;
 
