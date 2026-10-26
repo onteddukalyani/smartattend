@@ -15,7 +15,9 @@ import {
   FaQrcode,
   FaMobileAlt,
   FaDatabase,
-  FaTools
+  FaTools,
+  FaBookOpen,
+  FaLayerGroup
 } from "react-icons/fa";
 import { Capacitor } from "@capacitor/core";
 import { collection, getDocs, query, where, onSnapshot } from "firebase/firestore";
@@ -340,7 +342,7 @@ const AdminOverview = () => {
             }}
             title="Open Database & System Control Hub"
           >
-            <FaDatabase /> Database Hub
+            <FaDatabase /> Database
           </button>
 
           <button
@@ -378,7 +380,7 @@ const AdminOverview = () => {
             <FaDatabase />
           </div>
           <div>
-            <span>Database Hub</span>
+            <span>Database</span>
             <strong style={{ fontSize: "1.05rem", color: "#6366f1" }}>Inspect &amp; Control</strong>
           </div>
         </div>
@@ -441,6 +443,114 @@ const AdminOverview = () => {
             <span>Total Attendances</span>
             <strong>{loading ? "..." : stats.attendancesCount}</strong>
           </div>
+        </div>
+      </div>
+
+      {/* Visual In-App Database & Schema Control Banner */}
+      <div
+        style={{
+          margin: "0 0 2rem 0",
+          padding: "1.25rem 1.5rem",
+          borderRadius: "16px",
+          background: "linear-gradient(135deg, rgba(99, 102, 241, 0.08) 0%, rgba(79, 70, 229, 0.03) 100%)",
+          border: "1px solid rgba(99, 102, 241, 0.25)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: "1.5rem",
+          flexWrap: "wrap",
+          boxShadow: "0 4px 16px rgba(0, 0, 0, 0.03)"
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: "1.2rem" }}>
+          <div
+            style={{
+              width: "50px",
+              height: "50px",
+              borderRadius: "14px",
+              background: "linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)",
+              color: "#ffffff",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: "1.5rem",
+              boxShadow: "0 4px 14px rgba(99, 102, 241, 0.35)",
+              flexShrink: 0
+            }}
+          >
+            <FaDatabase />
+          </div>
+          <div>
+            <h3 style={{ margin: "0 0 4px", fontSize: "1.1rem", fontWeight: "800", color: "var(--text-main, #0f172a)" }}>
+              In-App Database Hub &amp; Schema Blueprint
+            </h3>
+            <p style={{ margin: 0, fontSize: "0.88rem", color: "var(--text-muted, #64748b)" }}>
+              Full visual control over Firestore collections: browse live records, inspect schemas, reset devices, and repair accounts without JSON.
+            </p>
+          </div>
+        </div>
+
+        <div style={{ display: "flex", gap: "0.6rem", flexWrap: "wrap" }}>
+          <button
+            type="button"
+            onClick={() => navigate("/admin/database?tab=explorer")}
+            style={{
+              padding: "0.6rem 1.1rem",
+              borderRadius: "10px",
+              background: "#6366f1",
+              color: "#ffffff",
+              border: "none",
+              fontWeight: "700",
+              fontSize: "0.85rem",
+              cursor: "pointer",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "7px",
+              boxShadow: "0 4px 12px rgba(99, 102, 241, 0.25)"
+            }}
+          >
+            <FaDatabase /> Live Explorer
+          </button>
+
+          <button
+            type="button"
+            onClick={() => navigate("/admin/database?tab=schema")}
+            style={{
+              padding: "0.6rem 1.1rem",
+              borderRadius: "10px",
+              background: "var(--surface, #ffffff)",
+              color: "#334155",
+              border: "1px solid #cbd5e1",
+              fontWeight: "700",
+              fontSize: "0.85rem",
+              cursor: "pointer",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "7px"
+            }}
+          >
+            <FaBookOpen /> Schema Blueprint
+          </button>
+
+          <button
+            type="button"
+            onClick={() => navigate("/admin/database?tab=repair")}
+            style={{
+              padding: "0.6rem 1.1rem",
+              borderRadius: "10px",
+              background: "var(--surface, #ffffff)",
+              color: "#334155",
+              border: "1px solid #cbd5e1",
+              fontWeight: "700",
+              fontSize: "0.85rem",
+              cursor: "pointer",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "7px"
+            }}
+          >
+            <FaTools /> System Tools
+          </button>
         </div>
       </div>
 
