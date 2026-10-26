@@ -679,9 +679,15 @@ public class KioskPlugin extends Plugin {
     }
 
     private void stopKioskInternal(PluginCall call) {
+        isKioskEnforced = false;
         Activity activity = getActivity();
         if (activity == null) {
-            call.reject("Activity is null");
+            if (call != null) {
+                JSObject ret = new JSObject();
+                ret.put("active", false);
+                ret.put("message", "Kiosk enforcement disabled (activity null).");
+                call.resolve(ret);
+            }
             return;
         }
 

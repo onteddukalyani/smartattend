@@ -752,32 +752,63 @@ export default function StudentDashboard() {
         return () => unsubscribeSessions();
     }, []);
 
-    // 3. Real-time Attendance Records listener
+    // Ensure student device is cleanly unlocked from any leftover kiosk session when viewing dashboard
+    useEffect(() => {
+        try {
+            const kioskState = localStorage.getItem("smartattend_kiosk_session_state");
+            if (!kioskState) {
+                import("../../../plugins/kiosk").then(({ Kiosk }) => {
+                    Kiosk.stopKioskMode().catch(() => {});
+                    Kiosk.clearAttendanceRestrictions().catch(() => {});
+                }).catch(() => {});
+            }
+        } catch (_) {}
+    }, []);
+
+    // 3. Real-time Attendance Records listener (Dual listen by studentUid AND candidate roll numbers with clean sub-map tracking)
     useEffect(() => {
         if (!user?.uid && (!candidateRolls || candidateRolls.length === 0)) {
             return;
         }
 
-        const recordsQ = user?.uid
-            ? query(collection(db, "attendance_records"), where("studentUid", "==", user.uid))
-            : query(collection(db, "attendance_records"), where("rollNo", "in", candidateRolls));
+        const unsubs = [];
+        const uidMap = new Map();
+        const rollMap = new Map();
 
-        const unsubscribeRecords = onSnapshot(
-            recordsQ,
-            (snapshot) => {
-                const list = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
-                setRecords(list);
-                setLoading(false);
-                setRefreshing(false);
-            },
-            (err) => {
-                console.error("Error listening to student attendance records:", err);
-                setLoading(false);
-                setRefreshing(false);
-            }
-        );
+        const emitMergedRecords = () => {
+            const merged = new Map([...uidMap, ...rollMap]);
+            const list = Array.from(merged.values());
+            setRecords(list);
+            setLoading(false);
+            setRefreshing(false);
+        };
 
-        return () => unsubscribeRecords();
+        if (user?.uid) {
+            const qUid = query(collection(db, "attendance_records"), where("studentUid", "==", user.uid));
+            unsubs.push(onSnapshot(qUid, (snapshot) => {
+                uidMap.clear();
+                snapshot.docs.forEach((d) => uidMap.set(d.id, { id: d.id, ...d.data() }));
+                emitMergedRecords();
+            }, (err) => {
+                console.warn("UID records listener notice:", err);
+                emitMergedRecords();
+            }));
+        }
+
+        const rollsToQuery = (candidateRolls || []).slice(0, 10).filter(Boolean);
+        if (rollsToQuery.length > 0) {
+            const qRoll = query(collection(db, "attendance_records"), where("rollNo", "in", rollsToQuery));
+            unsubs.push(onSnapshot(qRoll, (snapshot) => {
+                rollMap.clear();
+                snapshot.docs.forEach((d) => rollMap.set(d.id, { id: d.id, ...d.data() }));
+                emitMergedRecords();
+            }, (err) => {
+                console.warn("Roll records listener notice:", err);
+                emitMergedRecords();
+            }));
+        }
+
+        return () => unsubs.forEach((u) => { try { u(); } catch (_) { } });
     }, [user?.uid, candidateRolls]);
 
     // Native-feel pull-to-refresh touch listener for Android & mobile WebView

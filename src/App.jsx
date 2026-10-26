@@ -237,6 +237,46 @@ function App() {
     };
   }, [user, navigate]);
 
+  // 1.8 Global Android Hardware/Software Back Button Handler
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+
+    let backHandler = null;
+    CapacitorApp.addListener("backButton", ({ canGoBack }) => {
+      const path = (window.location.pathname || "").toLowerCase();
+      // If user is actively scanning QR/biometrics in kiosk mode, Scanner.jsx handles/blocks it
+      const hasActiveKioskScan = Boolean(
+        localStorage.getItem("smartattend_kiosk_session_state") &&
+        (path.includes("mark-attendance") || path.includes("scanqr"))
+      );
+      if (hasActiveKioskScan) {
+        return;
+      }
+
+      // Root portal pages where pressing back cleanly exits the Android app:
+      const isRootPortalPage =
+        path === "/student" || path === "/student/" ||
+        path === "/lecturer" || path === "/lecturer/" ||
+        path === "/admin" || path === "/admin/" ||
+        path === "/login" || path === "/" || path === "";
+
+      if (isRootPortalPage || !canGoBack) {
+        console.log("[App] Exiting Android app via Back button on root page:", path);
+        CapacitorApp.exitApp();
+      } else {
+        navigate(-1);
+      }
+    }).then((h) => {
+      backHandler = h;
+    });
+
+    return () => {
+      if (backHandler && typeof backHandler.remove === "function") {
+        backHandler.remove();
+      }
+    };
+  }, [navigate]);
+
   // 1.5 Restore preserved attendance deep-link once user auth is resolved
   useEffect(() => {
     if (!loading && user && typeof window !== "undefined") {

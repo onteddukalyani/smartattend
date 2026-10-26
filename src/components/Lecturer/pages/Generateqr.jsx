@@ -582,22 +582,64 @@ function GenerateQR() {
                 lecturerInfo.name
             ).catch(() => { });
 
-            // Targeted Student Session Notification (ONLY students registered for this course receive it)
+            // Targeted Student Session Notification (ONLY students enrolled in this course receive it)
             const cleanTargetCode = courseCode.trim().toUpperCase();
-            const matchedCourse = (availableCourses || []).find((c) =>
-                (c.courseCode || c.code || c.id || "").toUpperCase() === cleanTargetCode
-            );
+            const normTargetCode = cleanTargetCode.replace(/[^A-Z0-9]/g, "");
+
+            // 1. Fetch fresh authoritative course document from Firestore to ensure latest roster
+            let matchedCourse = (availableCourses || []).find((c) => {
+                const c1 = String(c.courseCode || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+                const c2 = String(c.code || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+                const c3 = String(c.id || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+                return c1 === normTargetCode || c2 === normTargetCode || c3 === normTargetCode;
+            });
+
+            try {
+                if (matchedCourse?.id) {
+                    const freshDocSnap = await getDoc(doc(db, "courses", matchedCourse.id));
+                    if (freshDocSnap.exists()) {
+                        matchedCourse = { id: freshDocSnap.id, ...freshDocSnap.data() };
+                    }
+                } else {
+                    const freshSnap = await getDocs(collection(db, "courses"));
+                    const freshList = freshSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+                    const found = freshList.find((c) => {
+                        const c1 = String(c.courseCode || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+                        const c2 = String(c.code || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+                        const c3 = String(c.id || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+                        return c1 === normTargetCode || c2 === normTargetCode || c3 === normTargetCode;
+                    });
+                    if (found) matchedCourse = found;
+                }
+            } catch (courseFetchErr) {
+                console.warn("[Generateqr] Error fetching fresh course roster:", courseFetchErr);
+            }
+
             const rawRoster = matchedCourse
                 ? (Array.isArray(matchedCourse.enrolledStudents) ? matchedCourse.enrolledStudents : (Array.isArray(matchedCourse.students) ? matchedCourse.students : []))
                 : [];
 
             const enrolledRolls = Array.from(new Set(
-                rawRoster.map((s) => typeof s === "object" ? (s.rollNo || s.rollNumber || s.id || s.studentId || s.email) : s)
-                    .filter(Boolean)
-                    .map((r) => String(r).trim().toUpperCase())
+                rawRoster.map((s) => {
+                    if (typeof s === "object" && s !== null) {
+                        return s.rollNo || s.rollNumber || s.studentId || s.id || s.email;
+                    }
+                    return s;
+                })
+                .filter(Boolean)
+                .map((r) => {
+                    const str = String(r).trim().toUpperCase();
+                    if (str.includes("@") && dbStudentsMap?.has(str.toLowerCase())) {
+                        const info = dbStudentsMap.get(str.toLowerCase());
+                        if (info?.rollNo) return info.rollNo.toUpperCase();
+                    }
+                    return str;
+                })
+                .filter(Boolean)
             ));
 
             if (enrolledRolls.length > 0) {
+                console.log(`[Generateqr] Session started for ${cleanTargetCode}. Dispatching notifications to ${enrolledRolls.length} enrolled students:`, enrolledRolls);
                 enrolledRolls.forEach((studentRoll) => {
                     sendStudentNotification(
                         studentRoll,
@@ -605,18 +647,17 @@ function GenerateQR() {
                         `Attendance session opened for ${cleanTargetCode} in Room ${roomNo.trim()}. Open SmartAttend app and scan the QR code before it expires.`,
                         "SESSION_STARTED",
                         lecturerInfo.name,
-                        { courseCode: cleanTargetCode, sessionId: result.sessionId, roomNo: roomNo.trim() }
+                        {
+                            courseCode: cleanTargetCode,
+                            courseName: matchedCourse?.name || matchedCourse?.courseName || cleanTargetCode,
+                            sessionId: result.sessionId,
+                            roomNo: roomNo.trim(),
+                            targetStudentOnly: true
+                        }
                     ).catch(() => { });
                 });
             } else {
-                sendStudentNotification(
-                    cleanTargetCode,
-                    `🟢 Live Attendance: ${cleanTargetCode}`,
-                    `Attendance session opened for ${cleanTargetCode} in Room ${roomNo.trim()}. Open SmartAttend app and scan the QR code before it expires.`,
-                    "SESSION_STARTED",
-                    lecturerInfo.name,
-                    { courseCode: cleanTargetCode, sessionId: result.sessionId, roomNo: roomNo.trim() }
-                ).catch(() => { });
+                console.warn(`[Generateqr] Course ${cleanTargetCode} has 0 enrolled students. No session start notification sent.`);
             }
         } catch (error) {
             console.error("Error creating attendance session:", error);

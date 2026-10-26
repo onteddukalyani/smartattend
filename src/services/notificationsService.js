@@ -206,13 +206,20 @@ export async function sendStudentNotification(
     addDoc(collection(db, "student_notifications", cleanRoll, "notifications"), {
       ...notifPayload,
       timestamp: serverTimestamp()
-    }).catch(() => { }),
-    addDoc(collection(db, "notifications"), {
-      ...notifPayload,
-      targetRoles: ["student"],
-      timestamp: serverTimestamp()
     }).catch(() => { })
   ];
+
+  // ONLY non-session notifications go to the general notifications collection.
+  // Live attendance session start alerts are strictly course-specific and must NEVER be saved to untargeted notifications!
+  if (!isSessionStart) {
+    writes.push(
+      addDoc(collection(db, "notifications"), {
+        ...notifPayload,
+        targetRoles: ["student"],
+        timestamp: serverTimestamp()
+      }).catch(() => { })
+    );
+  }
 
   if (rollPrefix && rollPrefix !== cleanRoll) {
     writes.push(
@@ -389,12 +396,17 @@ export async function sendBroadcastNotification({
     normalizedTargetRoles.push("student", "lecturer", "admin", "faculty", "all", "everyone");
   }
 
-  // STUDENT NOTIFICATION POLICY: Students receive live "SESSION_STARTED" notifications and "APP_UPDATE" notifications.
-  const isSessionBroadcast = type === "SESSION_STARTED" || type === "CLASS_UPDATE" || (title && (title.includes("Live Attendance") || title.includes("Session Started")));
+  // STUDENT NOTIFICATION POLICY: Session start notifications are strictly course-enrolled only.
+  // They must NEVER be broadcast to all students.
+  const isSessionBroadcast = type === "SESSION_STARTED" || (title && (title.includes("Live Attendance") || title.includes("Session Started")));
   const isAppUpdateBroadcast = type === "APP_UPDATE" || (title && (title.toLowerCase().includes("update") || title.toLowerCase().includes("version")));
-  let effectiveTargetRoles = (isSessionBroadcast || isAppUpdateBroadcast)
-    ? normalizedTargetRoles
-    : normalizedTargetRoles.filter(r => r !== "student" && r !== "students");
+  let effectiveTargetRoles = normalizedTargetRoles;
+  if (isSessionBroadcast) {
+    // Exclude students from session broadcasts - session notifications are only targeted to enrolled students
+    effectiveTargetRoles = effectiveTargetRoles.filter(r => r !== "student" && r !== "students");
+  } else if (!isAppUpdateBroadcast) {
+    effectiveTargetRoles = effectiveTargetRoles.filter(r => r !== "student" && r !== "students");
+  }
 
   const nowMs = Date.now();
 
@@ -424,8 +436,8 @@ export async function sendBroadcastNotification({
     metadata: metadata || {}
   };
 
-  // 1. Instantly dispatch to in-memory Student listeners & local student caches
-  if (normalizedTargetRoles.some(r => ["student", "students", "all", "everyone"].includes(r))) {
+  // 1. Instantly dispatch to in-memory Student listeners & local student caches (ONLY for legitimate student broadcasts, never for session starts)
+  if (effectiveTargetRoles.some(r => ["student", "students", "all", "everyone"].includes(r)) && !isSessionBroadcast) {
     localStudentListeners.forEach((listeners, rollKey) => {
       const existing = getLocalStudentNotifs(rollKey);
       const updated = [payload, ...existing.filter(n => n.id !== payload.id && n.title !== payload.title)];
@@ -678,6 +690,49 @@ export function subscribeToStudentNotifications(studentRollNo, callback, student
   let remoteAnnouncements = [];
   let remoteGlobalNotifs = [];
   let isInitialStudentLoad = true;
+  let studentEnrolledCourses = new Set();
+  let coursesLoaded = false;
+
+  // Real-time track of courses this student is actively enrolled in
+  const unsubs = [];
+  try {
+    const unsubCourses = onSnapshot(collection(db, "courses"), (snap) => {
+      const set = new Set();
+      snap.docs.forEach((d) => {
+        const data = d.data();
+        const roster = [
+          ...(Array.isArray(data.enrolledStudents) ? data.enrolledStudents : []),
+          ...(Array.isArray(data.students) ? data.students : [])
+        ];
+        const isEnrolled = roster.some((entry) => {
+          const identifiers = entry && typeof entry === "object" && entry !== null
+            ? [entry.rollNo, entry.rollNumber, entry.studentId, entry.uid, entry.email, entry.id]
+            : [entry];
+          return identifiers.some((val) => {
+            const idStr = String(val || "").trim().toUpperCase();
+            if (!idStr) return false;
+            if (allKeySet.has(idStr)) return true;
+            const prefix = idStr.split("@")[0];
+            return allKeySet.has(prefix);
+          });
+        });
+        if (isEnrolled) {
+          const c1 = String(data.courseCode || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+          const c2 = String(data.code || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+          const c3 = String(d.id || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+          if (c1) set.add(c1);
+          if (c2) set.add(c2);
+          if (c3) set.add(c3);
+        }
+      });
+      studentEnrolledCourses = set;
+      coursesLoaded = true;
+      mergeAndEmit();
+    }, (err) => {
+      console.warn("Notice loading courses in notification subscriber:", err);
+    });
+    unsubs.push(unsubCourses);
+  } catch (_) { }
 
   const mergeAndEmit = () => {
     const currentReadSet = getReadNotifIds(primaryKey);
@@ -712,16 +767,62 @@ export function subscribeToStudentNotifications(studentRollNo, callback, student
         if (!n) return false;
         const t = String(n.type || "").toUpperCase();
         const ttl = String(n.title || "").toUpperCase();
-        return (
+        const isSessionStart =
           t === "SESSION_STARTED" ||
           t === "CLASS_UPDATE" ||
-          t === "APP_UPDATE" ||
           ttl.includes("LIVE ATTENDANCE") ||
-          ttl.includes("SESSION STARTED") ||
+          ttl.includes("SESSION STARTED");
+        const isAppUpdate =
+          t === "APP_UPDATE" ||
           ttl.includes("UPDATE AVAILABLE") ||
           ttl.includes("APP UPDATE") ||
-          ttl.includes("NEW VERSION")
-        );
+          ttl.includes("NEW VERSION");
+
+        if (!isSessionStart && !isAppUpdate) return false;
+
+        // STRICT ENROLLMENT SECURITY:
+        // If it's a live attendance session notification, it must ONLY be delivered to students enrolled in that specific course!
+        if (isSessionStart) {
+          // Never accept session notifications from untargeted broadcasts or campus-wide announcements
+          if (n.isBroadcast || n.isAnnouncement) return false;
+
+          // If a target roll is explicitly specified, it must match this student
+          const targetRoll = String(n.studentRollNo || n.recipientRollNo || n.recipientRollPrefix || "").trim().toUpperCase();
+          if (targetRoll && targetRoll !== "ALL") {
+            const matchesStudent = allKeySet.has(targetRoll) || allKeySet.has(targetRoll.split("@")[0]);
+            if (!matchesStudent) return false;
+          }
+
+          // Verify against student's enrolled courses once courses list has loaded
+          if (coursesLoaded) {
+            let notifCourseCode = "";
+            if (n.metadata?.courseCode) {
+              notifCourseCode = String(n.metadata.courseCode).toUpperCase().replace(/[^A-Z0-9]/g, "");
+            } else if (n.courseCode) {
+              notifCourseCode = String(n.courseCode).toUpperCase().replace(/[^A-Z0-9]/g, "");
+            } else if (n.metadata?.courseId) {
+              notifCourseCode = String(n.metadata.courseId).toUpperCase().replace(/[^A-Z0-9]/g, "");
+            } else if (ttl.includes("LIVE ATTENDANCE:")) {
+              const parts = ttl.split("LIVE ATTENDANCE:");
+              if (parts[1]) notifCourseCode = parts[1].trim().split(" ")[0].replace(/[^A-Z0-9]/g, "");
+            } else if (ttl.includes("SESSION STARTED:")) {
+              const parts = ttl.split("SESSION STARTED:");
+              if (parts[1]) notifCourseCode = parts[1].trim().split(" ")[0].replace(/[^A-Z0-9]/g, "");
+            }
+
+            if (notifCourseCode) {
+              // If student has loaded enrolled courses, verify that this course is in their enrolled courses list
+              if (!studentEnrolledCourses.has(notifCourseCode)) {
+                return false; // Student is NOT enrolled in this course!
+              }
+            } else if (studentEnrolledCourses.size === 0) {
+              // Student has no enrolled courses at all
+              return false;
+            }
+          }
+        }
+
+        return true;
       })
       .map(n => ({
         ...n,
@@ -763,8 +864,6 @@ export function subscribeToStudentNotifications(studentRollNo, callback, student
       });
     }
   };
-
-  const unsubs = [];
 
   // 1. Direct Student subcollection listeners (students/{k}/notifications and student_notifications/{k}/notifications)
   allKeySet.forEach(k => {

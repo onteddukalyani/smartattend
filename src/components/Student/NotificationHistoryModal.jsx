@@ -120,7 +120,7 @@ export function NotificationHistoryModal({
                 n.isAnnouncement ||
                 n.isBroadcast ||
                 Boolean(n.targetRoles && n.targetRoles.length > 0) ||
-                (n.title && (n.title.toLowerCase().includes('announcement') || n.title.toLowerCase().includes('notice') || n.title.toLowerCase().includes('broadcast') || n.title.toLowerCase().includes('live attendance')))
+                (n.title && (n.title.toLowerCase().includes('announcement') || n.title.toLowerCase().includes('notice') || n.title.toLowerCase().includes('broadcast')))
             );
         }
 

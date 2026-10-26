@@ -81,24 +81,6 @@ const getCameraStream = async (requestedFacingMode = "user", maxRetries = 3) => 
 
   if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
     const attempts = [
-      ...(preferredDeviceId ? [{
-        video: {
-          deviceId: { exact: preferredDeviceId },
-          width: { ideal: 640, max: 1280 },
-          height: { ideal: 480, max: 720 },
-          frameRate: { ideal: 30, max: 30 }
-        },
-        audio: false
-      }] : []),
-      {
-        video: {
-          facingMode: { exact: facingMode },
-          width: { ideal: 640, max: 1280 },
-          height: { ideal: 480, max: 720 },
-          frameRate: { ideal: 30, max: 30 }
-        },
-        audio: false
-      },
       {
         video: {
           facingMode: { ideal: facingMode },
@@ -108,7 +90,23 @@ const getCameraStream = async (requestedFacingMode = "user", maxRetries = 3) => 
         },
         audio: false
       },
-      { video: { facingMode: { ideal: facingMode }, width: { ideal: 640 }, height: { ideal: 480 } }, audio: false },
+      {
+        video: {
+          facingMode: facingMode,
+          width: { ideal: 640 },
+          height: { ideal: 480 }
+        },
+        audio: false
+      },
+      ...(preferredDeviceId ? [{
+        video: {
+          deviceId: { exact: preferredDeviceId },
+          width: { ideal: 640, max: 1280 },
+          height: { ideal: 480, max: 720 },
+          frameRate: { ideal: 30, max: 30 }
+        },
+        audio: false
+      }] : []),
       { video: { facingMode: { ideal: facingMode } }, audio: false },
       { video: { facingMode }, audio: false },
       { video: true, audio: false }
@@ -583,7 +581,15 @@ function FaceScanner({
               setIsSpoof(false);
             }
 
+            // Server face matching only needed if no local enrolled descriptor is loaded
+            const hasLocalEnrolled = Boolean(
+              verifiedStudent?.faceDescriptor?.length === 128 ||
+              verifiedStudent?.descriptor?.length === 128 ||
+              (Array.isArray(profile?.faceDescriptor) && profile.faceDescriptor.length === 128)
+            );
+
             if (
+              !hasLocalEnrolled &&
               liveDescriptor &&
               !challengeEngine.spoofDetected &&
               !matchInFlightRef.current &&

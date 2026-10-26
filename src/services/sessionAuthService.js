@@ -1796,12 +1796,34 @@ export async function closeAttendanceSession(sessionId) {
     // Direct Firestore update fallback if functions not running locally (protected by Security Rules)
     try {
       const sessionRef = doc(db, "attendance_sessions", sessionId);
-      await updateDoc(sessionRef, {
+      await setDoc(sessionRef, {
         status: "CLOSED",
         phase: "CLOSED",
         active: false,
+        allReleased: true,
+        releaseAllKiosks: true,
+        released: true,
         closedAt: Date.now()
-      });
+      }, { merge: true });
+
+      // Ensure all individual student authorizations are also marked released
+      try {
+        const colRef = collection(db, "attendance_sessions", sessionId, "authorizations");
+        const snap = await getDocs(colRef);
+        if (!snap.empty) {
+          const batch = writeBatch(db);
+          snap.docs.forEach((d) => {
+            batch.set(d.ref, {
+              released: true,
+              releaseStatus: "RELEASED",
+              status: "RELEASED",
+              releasedAt: Date.now()
+            }, { merge: true });
+          });
+          await batch.commit();
+        }
+      } catch (_) { }
+
       return { success: true, status: "CLOSED" };
     } catch (dbErr) {
       console.error("Failed to close session:", dbErr);

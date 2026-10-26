@@ -111,48 +111,75 @@ export default function StudentCourses() {
         return () => unsubscribeSessions();
     }, []);
 
-    // 3. Real-time Attendance Records listener
+    // 3. Real-time Attendance Records listener (Dual listen by studentUid AND candidate roll numbers with clean sub-map tracking)
     useEffect(() => {
         if (!user?.uid && (!candidateRolls || candidateRolls.length === 0)) return;
 
-        const q = user?.uid
-            ? query(collection(db, "attendance_records"), where("studentUid", "==", user.uid))
-            : query(collection(db, "attendance_records"), where("rollNo", "in", candidateRolls));
+        const unsubs = [];
+        const uidMap = new Map();
+        const rollMap = new Map();
 
-        const unsubscribeRecords = onSnapshot(
-            q,
-            (snapshot) => {
-                const list = snapshot.docs.map((d) => ({
-                    id: d.id,
-                    ...d.data()
-                }));
-                setRecords(list);
-            },
-            (err) => console.warn("Error loading attendance records for courses:", err)
-        );
+        const emitMergedRecords = () => {
+            const merged = new Map([...uidMap, ...rollMap]);
+            const list = Array.from(merged.values());
+            setRecords(list);
+            setLoading(false);
+        };
 
-        return () => unsubscribeRecords();
+        if (user?.uid) {
+            const qUid = query(collection(db, "attendance_records"), where("studentUid", "==", user.uid));
+            unsubs.push(onSnapshot(qUid, (snapshot) => {
+                uidMap.clear();
+                snapshot.docs.forEach((d) => uidMap.set(d.id, { id: d.id, ...d.data() }));
+                emitMergedRecords();
+            }, (err) => {
+                console.warn("UID records listener notice in StudentCourses:", err);
+                emitMergedRecords();
+            }));
+        }
+
+        const rollsToQuery = (candidateRolls || []).slice(0, 10).filter(Boolean);
+        if (rollsToQuery.length > 0) {
+            const qRoll = query(collection(db, "attendance_records"), where("rollNo", "in", rollsToQuery));
+            unsubs.push(onSnapshot(qRoll, (snapshot) => {
+                rollMap.clear();
+                snapshot.docs.forEach((d) => rollMap.set(d.id, { id: d.id, ...d.data() }));
+                emitMergedRecords();
+            }, (err) => {
+                console.warn("Roll records listener notice in StudentCourses:", err);
+                emitMergedRecords();
+            }));
+        }
+
+        return () => unsubs.forEach((u) => { try { u(); } catch (_) { } });
     }, [user?.uid, candidateRolls]);
 
     // Manual Refresh Handler
     const handleRefresh = async () => {
         setRefreshing(true);
         try {
-            const [coursesSnap, sessionsSnap, recordsSnap] = await Promise.all([
+            const [coursesSnap, sessionsSnap, uidRecordsSnap, rollRecordsSnap] = await Promise.all([
                 getDocs(collection(db, "courses")).catch(() => ({ docs: [] })),
                 getDocs(collection(db, "attendance_sessions")).catch(() => ({ docs: [] })),
                 user?.uid
                     ? getDocs(query(collection(db, "attendance_records"), where("studentUid", "==", user.uid))).catch(() => ({ docs: [] }))
-                    : (candidateRolls.length > 0
-                        ? getDocs(query(collection(db, "attendance_records"), where("rollNo", "in", candidateRolls))).catch(() => ({ docs: [] }))
-                        : { docs: [] })
+                    : Promise.resolve({ docs: [] }),
+                (candidateRolls && candidateRolls.length > 0)
+                    ? getDocs(query(collection(db, "attendance_records"), where("rollNo", "in", candidateRolls.slice(0, 10)))).catch(() => ({ docs: [] }))
+                    : Promise.resolve({ docs: [] })
             ]);
 
             setCourses(coursesSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
             setSessions(sessionsSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
-            setRecords(recordsSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
+
+            // Merge and deduplicate records by ID
+            const recMap = new Map();
+            [...uidRecordsSnap.docs, ...rollRecordsSnap.docs].forEach((d) => {
+                recMap.set(d.id, { id: d.id, ...d.data() });
+            });
+            setRecords(Array.from(recMap.values()));
         } catch (err) {
-            console.error("Refresh error:", err);
+            console.error("Refresh error in StudentCourses:", err);
         } finally {
             setRefreshing(false);
         }

@@ -128,6 +128,8 @@ async function callFaceApi(path, payload) {
   const token = await currentUser.getIdToken();
   const baseUrl = getApiBaseUrl();
   let response;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 3500);
   try {
     response = await fetch(`${baseUrl}${path}`, {
       method: "POST",
@@ -135,10 +137,14 @@ async function callFaceApi(path, payload) {
         "Content-Type": "application/json",
         Authorization: `Bearer ${token}`
       },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
+      signal: controller.signal
     });
-  } catch {
-    throw new Error("The face service could not be reached. No operation was confirmed.");
+  } catch (fetchErr) {
+    clearTimeout(timeoutId);
+    throw new Error(fetchErr?.name === "AbortError" ? "Face service request timed out." : "The face service could not be reached. No operation was confirmed.");
+  } finally {
+    clearTimeout(timeoutId);
   }
 
   const contentType = response.headers.get("content-type") || "";

@@ -111,6 +111,10 @@ public class MainActivity extends BridgeActivity {
         if (!KioskPlugin.isKioskEnforced || isReordering) return;
         isReordering = true;
         mainHandler.post(() -> {
+            if (!KioskPlugin.isKioskEnforced) {
+                isReordering = false;
+                return;
+            }
             try {
                 // Send broadcast to close system dialogs/notification pull-downs
                 Intent closeDialogs = new Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS);

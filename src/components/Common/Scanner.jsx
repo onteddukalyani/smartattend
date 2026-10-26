@@ -1226,8 +1226,30 @@ function QrScannerApp() {
             requestAutoFailSafeUnlock(activeSessionId, user?.uid, deviceIdentity?.deviceId).catch(() => { });
         }
         setSessionEndedAutoReleased(true);
-        navigate('/student', { replace: true });
+        if (reason.toLowerCase().includes('dashboard') || reason.toLowerCase().includes('manual') || reason.toLowerCase().includes('pin')) {
+            navigate('/student', { replace: true });
+        }
     }, [activeSessionId, releaseCameraLock, user?.uid, deviceIdentity?.deviceId, navigate]);
+
+    // Direct exit app handler for Android native and browser
+    const handleExitApp = useCallback(async () => {
+        try { localStorage.removeItem('smartattend_kiosk_session_state'); } catch (_) { }
+        try { sessionStorage.removeItem(`smartattend_qr1_auth_${activeSessionId}`); } catch (_) { }
+        try { localStorage.removeItem(`smartattend_qr1_auth_${activeSessionId}`); } catch (_) { }
+        try { sessionStorage.removeItem('smartattend_kiosk_session_id'); } catch (_) { }
+        try { localStorage.removeItem('smartattend_kiosk_session_id'); } catch (_) { }
+        releaseCameraLock();
+        releaseAllMediaTracks();
+        try {
+            await Kiosk.stopKioskMode().catch(() => { });
+            await Kiosk.clearAttendanceRestrictions().catch(() => { });
+        } catch (_) { }
+        if (Capacitor.isNativePlatform() && CapacitorApp?.exitApp) {
+            CapacitorApp.exitApp();
+        } else {
+            navigate('/student', { replace: true });
+        }
+    }, [activeSessionId, releaseCameraLock, navigate]);
 
     // 3-Minute Fail-Safe Watchdog Timer across all Kiosk states and after Attendance Submission
     const kioskEntryTimeRef = useRef(null);
@@ -1382,13 +1404,14 @@ function QrScannerApp() {
                     getDoc(doc(db, 'attendance_sessions', parsed.sessionId)).then((snap) => {
                         if (snap && typeof snap.exists === 'function' && snap.exists()) {
                             const sData = snap.data();
-                            if (sData.active === false || sData.status === 'CLOSED' || sData.phase === 'CLOSED' || (sData.kioskEndsAt && Date.now() > sData.kioskEndsAt)) {
-                                console.log('[Kiosk] Session is closed in Firestore; releasing kiosk lock.');
+                            if (sData.active === false || sData.status === 'CLOSED' || sData.phase === 'CLOSED' || sData.released === true || sData.allReleased === true || sData.releaseAllKiosks === true || (sData.kioskEndsAt && Date.now() > sData.kioskEndsAt)) {
+                                console.log('[Kiosk] Session is closed or released in Firestore; releasing kiosk lock.');
                                 localStorage.removeItem('smartattend_kiosk_session_state');
                                 Kiosk.stopKioskMode().catch(() => { });
                                 Kiosk.clearAttendanceRestrictions().catch(() => { });
                                 setScanState('IDLE');
                                 setActiveSessionId(null);
+                                navigate('/student', { replace: true });
                             }
                         } else {
                             localStorage.removeItem('smartattend_kiosk_session_state');
@@ -1422,11 +1445,16 @@ function QrScannerApp() {
         let backListener = null;
         if (isNativeApp) {
             CapacitorApp.addListener('backButton', () => {
-                const isSessionActive = scanState === 'KIOSK_WAITING_QR2' || scanState === 'BIOMETRIC_SCAN' || scanState === 'ATTENDANCE_SUCCESS';
-                if (isSessionActive) {
+                if (scanState === 'ATTENDANCE_SUCCESS' || sessionEndedAutoReleased) {
+                    console.log('[Kiosk] Back navigation allowed after attendance success.');
+                    handleSessionCompletedAutoUnlock('Back button pressed after attendance recorded');
+                    return;
+                }
+                const isWaitingPhase = scanState === 'KIOSK_WAITING_QR2' || scanState === 'BIOMETRIC_SCAN';
+                if (isWaitingPhase) {
                     console.log('[Kiosk] Back navigation blocked during active attendance kiosk session.');
                 } else {
-                    navigate('/student', { replace: true });
+                    handleSessionCompletedAutoUnlock('Back navigation');
                 }
             }).then((handle) => {
                 backListener = handle;
@@ -2136,9 +2164,8 @@ function QrScannerApp() {
             return;
         }
 
-        // Strictly block QR 2 validation if student is disqualified or exceeded allowed violations
-        const isAndroidStudent = isNativeApp ? !isIOSDevice() : (typeof navigator !== 'undefined' && /Android/i.test(navigator?.userAgent || ''));
-        const maxViolationsAllowed = isAndroidStudent ? 2 : 1;
+        // Universal Policy (All Platforms): 1 warning chance allowed. Disqualify only on strike 2.
+        const maxViolationsAllowed = 2;
         if (scanState === 'DISQUALIFIED' || violationCount >= maxViolationsAllowed || (supervisionViolation && violationCount >= maxViolationsAllowed)) {
             setErrorMessage('❌ Attendance Disqualified: Security violation detected on your session. Attendance forfeited.');
             return;
@@ -2833,7 +2860,12 @@ function QrScannerApp() {
                         autoReleaseAt: autoReleaseMs
                     });
 
-                    // Keep device in Lock Task Mode until released
+                    // Attendance successfully recorded! Release camera hardware & stop kiosk lock immediately
+                    releaseCameraLock();
+                    releaseAllMediaTracks();
+                    Kiosk.stopKioskMode().catch(() => { });
+                    Kiosk.clearAttendanceRestrictions().catch(() => { });
+
                     setFaceSubmissionFailed(false);
                     setScanState('ATTENDANCE_SUCCESS');
                 } catch (subErr) {
@@ -2841,6 +2873,10 @@ function QrScannerApp() {
                     setFaceSubmissionFailed(true);
                     const msg = subErr.message || '';
                     if (msg.includes('already recorded') || msg.includes('already-exists') || msg.includes('already been recorded') || msg.includes('already submitted')) {
+                        releaseCameraLock();
+                        releaseAllMediaTracks();
+                        Kiosk.stopKioskMode().catch(() => { });
+                        Kiosk.clearAttendanceRestrictions().catch(() => { });
                         setErrorMessage('');
                         setFaceSubmissionFailed(false);
                         setScanState('ATTENDANCE_SUCCESS');
@@ -4077,6 +4113,53 @@ function QrScannerApp() {
                         {formatMmSs(autoReleaseRemaining)}
                     </div>
                 </div>
+
+                {/* Instant Actions — Return to Dashboard or Cleanly Exit App */}
+                <div style={{ marginTop: '20px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    <button
+                        type="button"
+                        onClick={() => handleSessionCompletedAutoUnlock('Student clicked Return to Dashboard')}
+                        className="st-pin-submit-btn"
+                        style={{
+                            background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                            color: '#ffffff',
+                            fontWeight: 700,
+                            boxShadow: '0 4px 14px rgba(16, 185, 129, 0.35)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '8px',
+                            cursor: 'pointer',
+                            padding: '14px 20px',
+                            borderRadius: '12px',
+                            border: 'none',
+                            fontSize: '0.95rem'
+                        }}
+                    >
+                        <FaArrowLeft /> Return to Student Dashboard
+                    </button>
+
+                    <button
+                        type="button"
+                        onClick={handleExitApp}
+                        style={{
+                            background: 'var(--surface-soft, #f1f5f9)',
+                            color: '#475569',
+                            fontWeight: 700,
+                            border: '1.5px solid var(--border, #cbd5e1)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '8px',
+                            cursor: 'pointer',
+                            padding: '12px 20px',
+                            borderRadius: '12px',
+                            fontSize: '0.9rem'
+                        }}
+                    >
+                        <FaUnlock /> Exit SmartAttend App
+                    </button>
+                </div>
             </div>
         );
     }
@@ -4117,36 +4200,60 @@ function QrScannerApp() {
                 <h2 style={{ fontSize: '1.45rem', fontWeight: 800, margin: '0 0 8px 0', color: '#15803d' }}>
                     Session Ended · Device Released
                 </h2>
-                <p style={{ color: 'var(--text-muted, #64748b)', fontSize: '0.92rem', margin: '0 0 20px 0', lineHeight: 1.55 }}>
+                <p style={{ color: 'var(--text-muted, #64748b)', fontSize: '0.92rem', margin: '0 0 24px 0', lineHeight: 1.55 }}>
                     The attendance session has officially concluded. All kiosk mode restrictions and camera locks have been automatically cleared.
                 </p>
 
-                <button
-                    type="button"
-                    onClick={() => {
-                        releaseCameraLock();
-                        releaseAllMediaTracks();
-                        Kiosk.stopKioskMode().catch(() => { });
-                        Kiosk.clearAttendanceRestrictions().catch(() => { });
-                        navigate('/student', { replace: true });
-                    }}
-                    style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '8px',
-                        padding: '12px 24px',
-                        borderRadius: '12px',
-                        background: '#10b981',
-                        color: '#ffffff',
-                        border: 'none',
-                        fontSize: '0.92rem',
-                        fontWeight: 800,
-                        cursor: 'pointer',
-                        boxShadow: '0 4px 14px rgba(16, 185, 129, 0.35)'
-                    }}
-                >
-                    <FaCheckCircle /> Return to Student Dashboard
-                </button>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', maxWidth: '320px', margin: '0 auto' }}>
+                    <button
+                        type="button"
+                        onClick={() => {
+                            releaseCameraLock();
+                            releaseAllMediaTracks();
+                            Kiosk.stopKioskMode().catch(() => { });
+                            Kiosk.clearAttendanceRestrictions().catch(() => { });
+                            navigate('/student', { replace: true });
+                        }}
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '8px',
+                            padding: '13px 24px',
+                            borderRadius: '12px',
+                            background: '#10b981',
+                            color: '#ffffff',
+                            border: 'none',
+                            fontSize: '0.95rem',
+                            fontWeight: 800,
+                            cursor: 'pointer',
+                            boxShadow: '0 4px 14px rgba(16, 185, 129, 0.35)'
+                        }}
+                    >
+                        <FaCheckCircle /> Return to Student Dashboard
+                    </button>
+
+                    <button
+                        type="button"
+                        onClick={handleExitApp}
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '8px',
+                            padding: '12px 24px',
+                            borderRadius: '12px',
+                            background: 'var(--surface-soft, #f8fafc)',
+                            color: '#475569',
+                            border: '1.5px solid var(--border, #cbd5e1)',
+                            fontSize: '0.9rem',
+                            fontWeight: 700,
+                            cursor: 'pointer'
+                        }}
+                    >
+                        <FaUnlock /> Exit SmartAttend App
+                    </button>
+                </div>
             </div>
         );
     }
