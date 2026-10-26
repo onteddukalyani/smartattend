@@ -50,9 +50,15 @@ export default function Statistics() {
     const [selectedCourseFilter, setSelectedCourseFilter] = useState("all");
     const [fetchedStudentData, setFetchedStudentData] = useState(null);
 
+    // Helper to detect internal secret IDs / Firebase Auth UIDs (20+ chars, base62/alphanumeric)
+    const isInternalUidLike = (val) => Boolean(val && typeof val === "string" && val.length >= 20 && !val.includes("@"));
+
     // Roll number strictly derived from Gmail prefix or profile
-    const emailRoll = (user?.email || "").split("@")[0].trim().toUpperCase();
-    const activeRollNo = (profile?.rollNo || emailRoll || "").trim().toUpperCase();
+    const emailPrefix = (user?.email || "").split("@")[0].trim().toUpperCase();
+    const emailRoll = !isInternalUidLike(emailPrefix) ? emailPrefix : "";
+    const cleanProfileRoll = profile?.rollNo && !isInternalUidLike(profile.rollNo) ? String(profile.rollNo).trim().toUpperCase() : "";
+    const activeRollNo = cleanProfileRoll || (!isInternalUidLike(emailRoll) ? emailRoll : "");
+    const cleanEmail = (user?.email || "").toLowerCase().trim();
 
     // Fetch student profile details from Firestore across all collections in real-time
     useEffect(() => {
@@ -194,10 +200,10 @@ export default function Statistics() {
 
         const unsubs = [];
         const uidMap = new Map();
-        const rollMap = new Map();
+        const emailMap = new Map();
 
         const emitMergedRecords = () => {
-            const merged = new Map([...uidMap, ...rollMap]);
+            const merged = new Map([...uidMap, ...emailMap]);
             const list = Array.from(merged.values());
             setRecords(list);
             setLoading(false);
@@ -216,33 +222,32 @@ export default function Statistics() {
             }));
         }
 
-        const rollsToQuery = (candidateRolls || []).slice(0, 10).filter(Boolean);
-        if (rollsToQuery.length > 0) {
-            const qRoll = query(collection(db, "attendance_records"), where("rollNo", "in", rollsToQuery));
-            unsubs.push(onSnapshot(qRoll, (snapshot) => {
-                rollMap.clear();
-                snapshot.docs.forEach((d) => rollMap.set(d.id, { id: d.id, ...d.data() }));
+        if (cleanEmail) {
+            const qEmail = query(collection(db, "attendance_records"), where("studentEmail", "==", cleanEmail));
+            unsubs.push(onSnapshot(qEmail, (snapshot) => {
+                emailMap.clear();
+                snapshot.docs.forEach((d) => emailMap.set(d.id, { id: d.id, ...d.data() }));
                 emitMergedRecords();
             }, (err) => {
-                console.warn("Roll records listener notice in Statistics:", err);
+                console.warn("Email records listener notice in Statistics:", err);
                 emitMergedRecords();
             }));
         }
 
         return () => unsubs.forEach((u) => { try { u(); } catch (_) { } });
-    }, [user?.uid, candidateRolls]);
+    }, [user?.uid, cleanEmail]);
 
     const handleRefresh = async () => {
         setRefreshing(true);
         try {
-            const [coursesSnap, sessionsSnap, uidRecordsSnap, rollRecordsSnap] = await Promise.all([
+            const [coursesSnap, sessionsSnap, uidRecordsSnap, emailRecordsSnap] = await Promise.all([
                 getDocs(collection(db, "courses")).catch(() => ({ docs: [] })),
                 getDocs(collection(db, "attendance_sessions")).catch(() => ({ docs: [] })),
                 user?.uid
                     ? getDocs(query(collection(db, "attendance_records"), where("studentUid", "==", user.uid))).catch(() => ({ docs: [] }))
                     : Promise.resolve({ docs: [] }),
-                (candidateRolls && candidateRolls.length > 0)
-                    ? getDocs(query(collection(db, "attendance_records"), where("rollNo", "in", candidateRolls.slice(0, 10)))).catch(() => ({ docs: [] }))
+                cleanEmail
+                    ? getDocs(query(collection(db, "attendance_records"), where("studentEmail", "==", cleanEmail))).catch(() => ({ docs: [] }))
                     : Promise.resolve({ docs: [] })
             ]);
 
@@ -251,7 +256,7 @@ export default function Statistics() {
 
             // Merge and deduplicate records by ID
             const recMap = new Map();
-            [...uidRecordsSnap.docs, ...rollRecordsSnap.docs].forEach((d) => {
+            [...uidRecordsSnap.docs, ...emailRecordsSnap.docs].forEach((d) => {
                 recMap.set(d.id, { id: d.id, ...d.data() });
             });
             setRecords(Array.from(recMap.values()));

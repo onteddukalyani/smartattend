@@ -26,8 +26,6 @@ import {
   logoutUser as firebaseLogoutUser
 } from "../firebase";
 import { isGenericName, subscribeToStudentUpdates, PROFILE_UPDATED_EVENT } from "../utils/studentDataHelper";
-import { reportUserVerificationComplaint } from "../services/notificationsService";
-import { registerUserDevice } from "../services/deviceRegistrationService";
 
 // Canonical set of statuses that indicate a user has been disabled, deleted, or removed
 export const TERMINATED_STATUSES = new Set([
@@ -141,31 +139,26 @@ export const AuthProvider = ({ children }) => {
         cleanEmail ? getDocs(query(collection(db, "lecturers"), where("email", "==", cleanEmail))).catch(() => ({ empty: true, docs: [] })) : Promise.resolve({ empty: true, docs: [] })
       ]);
 
-      // Check Admin
+      // 1. Resolve Admin candidate
+      let adminCandidate = null;
       if (adminPrefixSnap.exists()) {
         const d = adminPrefixSnap.data();
         const term = isAccountTerminated(d);
-        return { id: adminPrefixSnap.id, ...d, email: d.email || cleanEmail, role: "admin", isTerminated: term, status: term ? "disabled" : (d.status || "active"), approved: !term && d.approved !== false };
-      }
-      if (adminEmailSnap.exists()) {
+        adminCandidate = { id: adminPrefixSnap.id, ...d, email: d.email || cleanEmail, role: "admin", isTerminated: term, status: term ? "disabled" : (d.status || "active"), approved: !term && d.approved !== false };
+      } else if (adminEmailSnap.exists()) {
         const d = adminEmailSnap.data();
         const term = isAccountTerminated(d);
-        return { id: adminEmailSnap.id, ...d, email: cleanEmail, role: "admin", isTerminated: term, status: term ? "disabled" : (d.status || "active"), approved: !term && d.approved !== false };
-      }
-      if (adminUidSnap?.exists()) {
+        adminCandidate = { id: adminEmailSnap.id, ...d, email: cleanEmail, role: "admin", isTerminated: term, status: term ? "disabled" : (d.status || "active"), approved: !term && d.approved !== false };
+      } else if (adminUidSnap?.exists()) {
         const d = adminUidSnap.data();
         const term = isAccountTerminated(d);
-        return { id: adminUidSnap.id, ...d, email: d.email || cleanEmail, role: "admin", isTerminated: term, status: term ? "disabled" : (d.status || "active"), approved: !term && d.approved !== false };
-      }
-      if (!adminQuerySnap.empty && adminQuerySnap.docs?.[0]) {
+        adminCandidate = { id: adminUidSnap.id, ...d, email: d.email || cleanEmail, role: "admin", isTerminated: term, status: term ? "disabled" : (d.status || "active"), approved: !term && d.approved !== false };
+      } else if (!adminQuerySnap.empty && adminQuerySnap.docs?.[0]) {
         const d = adminQuerySnap.docs[0].data();
         const term = isAccountTerminated(d);
-        return { id: adminQuerySnap.docs[0].id, ...d, email: cleanEmail, role: "admin", isTerminated: term, status: term ? "disabled" : (d.status || "active"), approved: !term && d.approved !== false };
-      }
-
-      // Root bootstrap for project owner if database was wiped clean
-      if (cleanEmail === "onteddukalyani@gmail.com" || prefix === "onteddukalyani") {
-        const bootstrapAdmin = {
+        adminCandidate = { id: adminQuerySnap.docs[0].id, ...d, email: cleanEmail, role: "admin", isTerminated: term, status: term ? "disabled" : (d.status || "active"), approved: !term && d.approved !== false };
+      } else if (cleanEmail === "onteddukalyani@gmail.com" || prefix === "onteddukalyani") {
+        adminCandidate = {
           id: prefix || cleanEmail,
           name: "Kalyani Onteddu",
           email: cleanEmail || "onteddukalyani@gmail.com",
@@ -176,68 +169,48 @@ export const AuthProvider = ({ children }) => {
           department: "Administration",
           designation: "System Administrator"
         };
-        const adminId = prefix || "onteddukalyani";
-        Promise.all([
-          setDoc(doc(db, "admins", adminId), { ...bootstrapAdmin, createdAt: Date.now(), updatedAt: Date.now() }, { merge: true }),
-          cleanEmail ? setDoc(doc(db, "admins", cleanEmail), { ...bootstrapAdmin, createdAt: Date.now(), updatedAt: Date.now() }, { merge: true }) : Promise.resolve(),
-          setDoc(doc(db, "institution", "settings"), {
-            name: "Indian Institute of Information Technology, Dharwad",
-            shortName: "IIIT Dharwad",
-            domain: "iiitdwd.ac.in",
-            sessionDuration: 10,
-            qrRefreshInterval: 10,
-            attendanceWindow: 5,
-            allowLateAttendance: true,
-            defaultGeofenceRadius: 10,
-            updatedAt: Date.now()
-          }, { merge: true }),
-          setDoc(doc(db, "app_updates", "latest"), {
-            version: "1.0.4",
-            versionCode: 6,
-            releaseDate: "2026-10-23",
-            minRequiredVersion: "1.0.1",
-            title: "SmartAttend Release (v1.0.4)",
-            isMandatory: false,
-            updatedAt: Date.now()
-          }, { merge: true })
-        ]).catch(() => {});
-        return bootstrapAdmin;
       }
 
-      // Check Lecturer
+      // 2. Resolve Lecturer candidate
+      let lecturerCandidate = null;
       if (lectPrefixSnap.exists()) {
         const d = lectPrefixSnap.data();
         const term = isAccountTerminated(d);
-        return { id: lectPrefixSnap.id, ...d, email: d.email || cleanEmail, role: "lecturer", isTerminated: term, status: term ? "disabled" : (d.status || "active"), approved: !term && d.approved !== false };
-      }
-      if (lectEmailSnap.exists()) {
+        lecturerCandidate = { id: lectPrefixSnap.id, ...d, email: d.email || cleanEmail, role: "lecturer", isTerminated: term, status: term ? "disabled" : (d.status || "active"), approved: !term && d.approved !== false };
+      } else if (lectEmailSnap.exists()) {
         const d = lectEmailSnap.data();
         const term = isAccountTerminated(d);
-        return { id: lectEmailSnap.id, ...d, email: cleanEmail, role: "lecturer", isTerminated: term, status: term ? "disabled" : (d.status || "active"), approved: !term && d.approved !== false };
-      }
-      if (lectUidSnap?.exists()) {
+        lecturerCandidate = { id: lectEmailSnap.id, ...d, email: cleanEmail, role: "lecturer", isTerminated: term, status: term ? "disabled" : (d.status || "active"), approved: !term && d.approved !== false };
+      } else if (lectUidSnap?.exists()) {
         const d = lectUidSnap.data();
         const term = isAccountTerminated(d);
-        return { id: lectUidSnap.id, ...d, email: d.email || cleanEmail, role: "lecturer", isTerminated: term, status: term ? "disabled" : (d.status || "active"), approved: !term && d.approved !== false };
-      }
-      if (!lectQuerySnap.empty && lectQuerySnap.docs?.[0]) {
+        lecturerCandidate = { id: lectUidSnap.id, ...d, email: d.email || cleanEmail, role: "lecturer", isTerminated: term, status: term ? "disabled" : (d.status || "active"), approved: !term && d.approved !== false };
+      } else if (!lectQuerySnap.empty && lectQuerySnap.docs?.[0]) {
         const d = lectQuerySnap.docs[0].data();
         const term = isAccountTerminated(d);
-        return { id: lectQuerySnap.docs[0].id, ...d, email: cleanEmail, role: "lecturer", isTerminated: term, status: term ? "disabled" : (d.status || "active"), approved: !term && d.approved !== false };
+        lecturerCandidate = { id: lectQuerySnap.docs[0].id, ...d, email: cleanEmail, role: "lecturer", isTerminated: term, status: term ? "disabled" : (d.status || "active"), approved: !term && d.approved !== false };
       }
 
-      // 2. CHECK STUDENTS DATABASE COLLECTION BY LOGGED IN EMAIL ID, ROLL, AND UID
+      // 3. Resolve Student candidate
+      // Helper to detect internal secret IDs / Firebase Auth UIDs (20+ chars, base62/alphanumeric)
+      const isInternalSecretOrUid = (val) => {
+        if (!val || typeof val !== "string") return false;
+        const clean = val.trim();
+        return clean.length >= 20 && !clean.includes("@");
+      };
+
+      // Canonical priority: check actual academic roll number (e.g. 25BCS108) first!
       const [
+        studentRollSnap,
         studentEmailQuerySnap,
         studentEmailDocSnap,
-        studentRollSnap,
         studentPrefixSnap,
         studentUidSnap,
         studentUidQuerySnap
       ] = await Promise.all([
+        rollFromEmail ? getDoc(doc(db, "students", rollFromEmail)).catch(() => ({ exists: () => false })) : Promise.resolve({ exists: () => false }),
         cleanEmail ? getDocs(query(collection(db, "students"), where("email", "==", cleanEmail))).catch(() => ({ empty: true, docs: [] })) : Promise.resolve({ empty: true, docs: [] }),
         cleanEmail ? getDoc(doc(db, "students", cleanEmail)).catch(() => ({ exists: () => false })) : Promise.resolve({ exists: () => false }),
-        rollFromEmail ? getDoc(doc(db, "students", rollFromEmail)).catch(() => ({ exists: () => false })) : Promise.resolve({ exists: () => false }),
         (prefix && prefix !== rollFromEmail.toLowerCase()) ? getDoc(doc(db, "students", prefix)).catch(() => ({ exists: () => false })) : Promise.resolve({ exists: () => false }),
         cleanUid ? getDoc(doc(db, "students", cleanUid)).catch(() => ({ exists: () => false })) : Promise.resolve({ exists: () => false }),
         cleanUid ? getDocs(query(collection(db, "students"), where("uid", "==", cleanUid))).catch(() => ({ empty: true, docs: [] })) : Promise.resolve({ empty: true, docs: [] })
@@ -246,17 +219,27 @@ export const AuthProvider = ({ children }) => {
       let matchedStudentDoc = null;
       let matchedStudentId = "";
 
-      // A. Query students by exact email
-      if (!studentEmailQuerySnap.empty && studentEmailQuerySnap.docs?.[0]) {
+      // 1. Direct Roll Number document lookup (Canonical student profile in students collection)
+      if (studentRollSnap.exists()) {
+        matchedStudentDoc = studentRollSnap.data();
+        matchedStudentId = studentRollSnap.id;
+      }
+      // 2. Query students by exact email
+      else if (!studentEmailQuerySnap.empty && studentEmailQuerySnap.docs?.[0]) {
         matchedStudentDoc = studentEmailQuerySnap.docs[0].data();
         matchedStudentId = studentEmailQuerySnap.docs[0].id;
       }
-      // B. Direct document lookup by email
+      // 3. Direct document lookup by email
       else if (studentEmailDocSnap.exists()) {
         matchedStudentDoc = studentEmailDocSnap.data();
         matchedStudentId = studentEmailDocSnap.id;
       }
-      // C. Direct document lookup by UID or UID query
+      // 4. Document lookup by prefix
+      else if (studentPrefixSnap.exists()) {
+        matchedStudentDoc = studentPrefixSnap.data();
+        matchedStudentId = studentPrefixSnap.id;
+      }
+      // 5. Fallback: Direct document lookup by UID or UID query
       else if (studentUidSnap?.exists()) {
         matchedStudentDoc = studentUidSnap.data();
         matchedStudentId = studentUidSnap.id;
@@ -265,22 +248,25 @@ export const AuthProvider = ({ children }) => {
         matchedStudentDoc = studentUidQuerySnap.docs[0].data();
         matchedStudentId = studentUidQuerySnap.docs[0].id;
       }
-      // D. Roll number document lookup in students
-      else if (studentRollSnap.exists()) {
-        matchedStudentDoc = studentRollSnap.data();
-        matchedStudentId = studentRollSnap.id;
-      }
-      else if (studentPrefixSnap.exists()) {
-        matchedStudentDoc = studentPrefixSnap.data();
-        matchedStudentId = studentPrefixSnap.id;
-      }
+
+      let studentCandidate = null;
 
       // If student is found in database, USE EXACT DATABASE DETAILS!
       if (matchedStudentDoc) {
-        const authoritativeRollNo = String(
-          matchedStudentDoc.rollNo ||
-          (!matchedStudentId.includes("@") ? matchedStudentId : "")
-        ).trim().toUpperCase();
+        const rawDocRoll = String(matchedStudentDoc.rollNo || matchedStudentDoc.rollNumber || "").trim().toUpperCase();
+        let authoritativeRollNo = "";
+
+        if (rawDocRoll && !isInternalSecretOrUid(rawDocRoll)) {
+          authoritativeRollNo = rawDocRoll;
+        } else if (studentRollSnap.exists() && !isInternalSecretOrUid(studentRollSnap.id)) {
+          authoritativeRollNo = String(studentRollSnap.id).trim().toUpperCase();
+        } else if (matchedStudentId && !matchedStudentId.includes("@") && !isInternalSecretOrUid(matchedStudentId)) {
+          authoritativeRollNo = String(matchedStudentId).trim().toUpperCase();
+        } else if (rollFromEmail && !isInternalSecretOrUid(rollFromEmail)) {
+          authoritativeRollNo = rollFromEmail;
+        } else if (prefix && !isInternalSecretOrUid(prefix)) {
+          authoritativeRollNo = prefix.toUpperCase();
+        }
 
         const authoritativeName = String(
           matchedStudentDoc.name ||
@@ -308,7 +294,7 @@ export const AuthProvider = ({ children }) => {
         const hasValidFace = Boolean(!hasFaceRemoval && isRegisteredDirect);
         const isStudentTerminated = isAccountTerminated(matchedStudentDoc);
 
-        return {
+        studentCandidate = {
           id: authoritativeRollNo || matchedStudentId || cleanEmail,
           ...matchedStudentDoc,
           rollNo: authoritativeRollNo,
@@ -332,113 +318,154 @@ export const AuthProvider = ({ children }) => {
           registrationStatus: (matchedStudentDoc.registrationStatus || (hasValidFace ? "registered" : "pending")),
           faceRemovedAt: hasFaceRemoval ? matchedStudentDoc.faceRemovedAt : null
         };
-      }
+      } else {
+        // Fallback: Check authorizedUsers & users collections if not yet in students
+        const [userRollSnap, userPrefixSnap, authPrefixSnap, authEmailSnap, qUserEmail, qAuthEmail] = await Promise.all([
+          getDoc(doc(db, "users", rollFromEmail)).catch(() => ({ exists: () => false })),
+          prefix !== rollFromEmail.toLowerCase() ? getDoc(doc(db, "users", prefix)).catch(() => ({ exists: () => false })) : Promise.resolve({ exists: () => false }),
+          getDoc(doc(db, "authorizedUsers", prefix)).catch(() => ({ exists: () => false })),
+          getDoc(doc(db, "authorizedUsers", cleanEmail)).catch(() => ({ exists: () => false })),
+          getDocs(query(collection(db, "users"), where("email", "==", cleanEmail))).catch(() => ({ empty: true, docs: [] })),
+          getDocs(query(collection(db, "authorizedUsers"), where("email", "==", cleanEmail))).catch(() => ({ empty: true, docs: [] }))
+        ]);
 
-      // 3. Fallback: Check authorizedUsers & users collections if not yet in students
-      const [userRollSnap, userPrefixSnap, authPrefixSnap, authEmailSnap, qUserEmail, qAuthEmail] = await Promise.all([
-        getDoc(doc(db, "users", rollFromEmail)).catch(() => ({ exists: () => false })),
-        prefix !== rollFromEmail.toLowerCase() ? getDoc(doc(db, "users", prefix)).catch(() => ({ exists: () => false })) : Promise.resolve({ exists: () => false }),
-        getDoc(doc(db, "authorizedUsers", prefix)).catch(() => ({ exists: () => false })),
-        getDoc(doc(db, "authorizedUsers", cleanEmail)).catch(() => ({ exists: () => false })),
-        getDocs(query(collection(db, "users"), where("email", "==", cleanEmail))).catch(() => ({ empty: true, docs: [] })),
-        getDocs(query(collection(db, "authorizedUsers"), where("email", "==", cleanEmail))).catch(() => ({ empty: true, docs: [] }))
-      ]);
+        const candidateDocs = [
+          authEmailSnap.exists() ? authEmailSnap.data() : null,
+          authPrefixSnap.exists() ? authPrefixSnap.data() : null,
+          userPrefixSnap.exists() ? userPrefixSnap.data() : null,
+          userRollSnap.exists() ? userRollSnap.data() : null,
+          !qAuthEmail.empty ? qAuthEmail.docs[0].data() : null,
+          !qUserEmail.empty ? qUserEmail.docs[0].data() : null
+        ].filter(Boolean);
 
-      const candidateDocs = [
-        authEmailSnap.exists() ? authEmailSnap.data() : null,
-        authPrefixSnap.exists() ? authPrefixSnap.data() : null,
-        userPrefixSnap.exists() ? userPrefixSnap.data() : null,
-        userRollSnap.exists() ? userRollSnap.data() : null,
-        !qAuthEmail.empty ? qAuthEmail.docs[0].data() : null,
-        !qUserEmail.empty ? qUserEmail.docs[0].data() : null
-      ].filter(Boolean);
+        if (candidateDocs.length > 0) {
+          let merged = {};
+          let authoritativeRollNo = "";
+          let authoritativeName = "";
+          let authoritativeSemester = "";
+          let authoritativeBranch = "";
+          let isExplicitlyFaceRemoved = false;
+          let mostRecentRemovalTime = 0;
 
-      if (candidateDocs.length > 0) {
-        let merged = {};
-        let authoritativeRollNo = "";
-        let authoritativeName = "";
-        let authoritativeSemester = "";
-        let authoritativeBranch = "";
-        let isExplicitlyFaceRemoved = false;
-        let mostRecentRemovalTime = 0;
-
-        for (const c of candidateDocs) {
-          if (!authoritativeRollNo && c.rollNo && !String(c.rollNo).includes("@")) {
-            authoritativeRollNo = String(c.rollNo).trim().toUpperCase();
-          }
-          if (!authoritativeName && c.name && !isGenericName(c.name, authoritativeRollNo, cleanEmail)) {
-            authoritativeName = String(c.name).trim();
-          }
-          if (!authoritativeName && c.fullName && !isGenericName(c.fullName, authoritativeRollNo, cleanEmail)) {
-            authoritativeName = String(c.fullName).trim();
-          }
-          if (!authoritativeSemester && c.semester) {
-            authoritativeSemester = String(c.semester).trim();
-          }
-          if (!authoritativeBranch && c.branch && String(c.branch).toLowerCase() !== "general") {
-            authoritativeBranch = String(c.branch).trim();
-          }
-          const isDocCandidateEnrolled = Boolean(
-            c.faceRegistered ||
-            c.biometricEnrolled ||
-            c.hasFaceRegistered ||
-            c.isRegistered ||
-            c.registeredGlobally ||
-            c.registrationStatus === "registered" ||
-            (Array.isArray(c.faceDescriptor) && c.faceDescriptor.length === 128) ||
-            (Array.isArray(c.descriptor) && c.descriptor.length === 128)
-          );
-          if (!isDocCandidateEnrolled && c.faceRemovedAt && (!c.faceEnrolledAt || c.faceRemovedAt > c.faceEnrolledAt)) {
-            isExplicitlyFaceRemoved = true;
-            if (typeof c.faceRemovedAt === "number" && c.faceRemovedAt > mostRecentRemovalTime) {
-              mostRecentRemovalTime = c.faceRemovedAt;
+          for (const c of candidateDocs) {
+            if (!authoritativeRollNo && c.rollNo && !String(c.rollNo).includes("@") && !isInternalSecretOrUid(c.rollNo)) {
+              authoritativeRollNo = String(c.rollNo).trim().toUpperCase();
             }
+            if (!authoritativeName && c.name && !isGenericName(c.name, authoritativeRollNo, cleanEmail)) {
+              authoritativeName = String(c.name).trim();
+            }
+            if (!authoritativeName && c.fullName && !isGenericName(c.fullName, authoritativeRollNo, cleanEmail)) {
+              authoritativeName = String(c.fullName).trim();
+            }
+            if (!authoritativeSemester && c.semester) {
+              authoritativeSemester = String(c.semester).trim();
+            }
+            if (!authoritativeBranch && c.branch && String(c.branch).toLowerCase() !== "general") {
+              authoritativeBranch = String(c.branch).trim();
+            }
+            const isDocCandidateEnrolled = Boolean(
+              c.faceRegistered ||
+              c.biometricEnrolled ||
+              c.hasFaceRegistered ||
+              c.isRegistered ||
+              c.registeredGlobally ||
+              c.registrationStatus === "registered" ||
+              (Array.isArray(c.faceDescriptor) && c.faceDescriptor.length === 128) ||
+              (Array.isArray(c.descriptor) && c.descriptor.length === 128)
+            );
+            if (!isDocCandidateEnrolled && c.faceRemovedAt && (!c.faceEnrolledAt || c.faceRemovedAt > c.faceEnrolledAt)) {
+              isExplicitlyFaceRemoved = true;
+              if (typeof c.faceRemovedAt === "number" && c.faceRemovedAt > mostRecentRemovalTime) {
+                mostRecentRemovalTime = c.faceRemovedAt;
+              }
+            }
+            merged = {
+              ...merged,
+              ...c,
+              faceRegistered: Boolean(
+                isDocCandidateEnrolled ||
+                merged.faceRegistered
+              ),
+              isRegistered: Boolean(c.isRegistered || merged.isRegistered || isDocCandidateEnrolled || merged.faceRegistered),
+              registeredGlobally: Boolean(c.registeredGlobally || merged.registeredGlobally || isDocCandidateEnrolled || merged.faceRegistered),
+              faceDescriptor: null,
+              photoURL: c.photoURL || c.photo || c.image || merged.photoURL || "",
+              branch: authoritativeBranch || (c.branch && String(c.branch).toLowerCase() !== "general" ? c.branch : (merged.branch || "CSE")),
+              semester: authoritativeSemester || c.semester || merged.semester || "1",
+              rollNo: authoritativeRollNo || (!isInternalSecretOrUid(c.rollNo) ? String(c.rollNo).trim().toUpperCase() : (!isInternalSecretOrUid(merged.rollNo) ? merged.rollNo : "")),
+              role: c.role || merged.role || "student"
+            };
           }
-          merged = {
+
+          if (isExplicitlyFaceRemoved && !merged.faceRegistered && !merged.isRegistered) {
+            merged.faceRegistered = false;
+            merged.biometricEnrolled = false;
+            merged.hasFaceRegistered = false;
+            merged.faceRemovedAt = mostRecentRemovalTime || Date.now();
+          }
+          merged.faceDescriptor = null;
+          merged.hasFaceRegistered = Boolean(merged.faceRegistered);
+
+          const isFallbackTerminated = candidateDocs.some((c) => isAccountTerminated(c));
+          const finalRollNo = authoritativeRollNo || (!isInternalSecretOrUid(merged.rollNo) ? merged.rollNo : "") || rollFromEmail || prefix.toUpperCase();
+          const finalName = authoritativeName || merged.name || merged.fullName || finalRollNo || "";
+          studentCandidate = {
+            id: finalRollNo || cleanEmail,
             ...merged,
-            ...c,
-            faceRegistered: Boolean(
-              isDocCandidateEnrolled ||
-              merged.faceRegistered
-            ),
-            isRegistered: Boolean(c.isRegistered || merged.isRegistered || isDocCandidateEnrolled || merged.faceRegistered),
-            registeredGlobally: Boolean(c.registeredGlobally || merged.registeredGlobally || isDocCandidateEnrolled || merged.faceRegistered),
-            faceDescriptor: null,
-            photoURL: c.photoURL || c.photo || c.image || merged.photoURL || "",
-            branch: authoritativeBranch || (c.branch && String(c.branch).toLowerCase() !== "general" ? c.branch : (merged.branch || "CSE")),
-            semester: authoritativeSemester || c.semester || merged.semester || "1",
-            rollNo: authoritativeRollNo || (c.rollNo ? String(c.rollNo).trim().toUpperCase() : (merged.rollNo || "")),
-            role: c.role || merged.role || "student"
+            name: finalName,
+            fullName: finalName,
+            email: merged.email || cleanEmail,
+            rollNo: finalRollNo,
+            role: String(merged.role || "student").trim().toLowerCase(),
+            isTerminated: isFallbackTerminated,
+            status: isFallbackTerminated ? "disabled" : (merged.status || "active"),
+            approved: !isFallbackTerminated && merged.approved !== false
           };
         }
+      }
 
-        if (isExplicitlyFaceRemoved && !merged.faceRegistered && !merged.isRegistered) {
-          merged.faceRegistered = false;
-          merged.biometricEnrolled = false;
-          merged.hasFaceRegistered = false;
-          merged.faceRemovedAt = mostRecentRemovalTime || Date.now();
-        }
-        merged.faceDescriptor = null;
-        merged.hasFaceRegistered = Boolean(merged.faceRegistered);
+      // 4. Evaluate Active Candidates & Authoritative Consistency Checks
+      const activeMatches = [];
+      if (adminCandidate && !adminCandidate.isTerminated) {
+        activeMatches.push({ role: "admin", user: adminCandidate });
+      }
+      if (lecturerCandidate && !lecturerCandidate.isTerminated) {
+        activeMatches.push({ role: "lecturer", user: lecturerCandidate });
+      }
+      if (studentCandidate && !studentCandidate.isTerminated) {
+        activeMatches.push({ role: "student", user: studentCandidate });
+      }
 
-        const isFallbackTerminated = candidateDocs.some((c) => isAccountTerminated(c));
-        const finalRollNo = authoritativeRollNo || merged.rollNo || "";
-        const finalName = authoritativeName || merged.name || merged.fullName || finalRollNo || "";
+      // Scenario 13: The same email appears in multiple role collections
+      if (activeMatches.length > 1) {
         return {
-          id: finalRollNo || cleanEmail,
-          ...merged,
-          name: finalName,
-          fullName: finalName,
-          email: merged.email || cleanEmail,
-          rollNo: finalRollNo,
-          role: String(merged.role || "student").trim().toLowerCase(),
-          isTerminated: isFallbackTerminated,
-          status: isFallbackTerminated ? "disabled" : (merged.status || "active"),
-          approved: !isFallbackTerminated && merged.approved !== false
+          isAmbiguous: true,
+          foundRoles: activeMatches.map((m) => m.role),
+          email: cleanEmail
         };
       }
 
-      // If not registered in authoritative collections (students, users, authorizedUsers), require enrollment
+      if (activeMatches.length === 1) {
+        const chosen = activeMatches[0].user;
+        const recordUid = String(chosen.uid || chosen.studentUid || "").trim();
+        // Scenario 12: User record exists, but the Firebase UID does not match
+        if (recordUid && cleanUid && recordUid !== cleanUid) {
+          return {
+            ...chosen,
+            uidMismatch: true,
+            recordUid,
+            authUid: cleanUid
+          };
+        }
+        return chosen;
+      }
+
+      // No active records found - check if there is a terminated/deactivated record
+      const terminated = [adminCandidate, lecturerCandidate, studentCandidate].find((c) => c && c.isTerminated);
+      if (terminated) {
+        return terminated;
+      }
+
       return null;
     } catch (err) {
       console.error("Error looking up user in system:", err);
@@ -972,118 +999,114 @@ export const AuthProvider = ({ children }) => {
     const cleanEmail = currentUser.email.toLowerCase().trim();
 
     // -------------------------------------------------------
-    // STRICT VERIFICATION: MUST EXIST IN DATABASE
+    // STRICT VERIFICATION: MUST EXIST IN DATABASE (ZERO WRITES)
     // -------------------------------------------------------
     const registeredUser = await lookupUserInSystem(cleanEmail, currentUser.uid);
 
+    // CASE C: Email Does Not Exist in Any Role
     if (!registeredUser) {
-      // User is completely unregistered or was removed from database - report complaint and deny access immediately
-      await reportUserVerificationComplaint(
-        { email: cleanEmail, name: currentUser.displayName || "Unknown User" },
-        "Unregistered or removed user attempted access to platform",
-        "GOOGLE_LOGIN"
-      );
       try {
         localStorage.removeItem("smartattend-user-role");
         localStorage.removeItem(`smartattend-cached-profile-${currentUser.uid}`);
         sessionStorage.clear();
       } catch (_) {}
       await firebaseLogoutUser();
-      throw new Error(
-        `Access Denied: This Google account (${currentUser.email}) is not registered in the database. If you were recently removed from the database by an administrator, you cannot log in. Please contact your administrator.`
+      setUser(null);
+      setProfile(null);
+      const notRegisteredErr = new Error(
+        "You are not registered with SmartAttend. Please contact your administrator."
       );
+      notRegisteredErr.code = "NOT_REGISTERED";
+      throw notRegisteredErr;
     }
 
-    // Check account status & approval
-    if (isAccountTerminated(registeredUser) || registeredUser.isTerminated) {
-      await reportUserVerificationComplaint(
-        { email: cleanEmail, name: registeredUser.name, rollNo: registeredUser.rollNo },
-        "Deactivated or removed account attempted login",
-        "DEACTIVATED_LOGIN"
-      );
+    // Inconsistency check: Same email appears in multiple role collections
+    if (registeredUser.isAmbiguous) {
       try {
         localStorage.removeItem("smartattend-user-role");
         localStorage.removeItem(`smartattend-cached-profile-${currentUser.uid}`);
         sessionStorage.clear();
       } catch (_) {}
       await firebaseLogoutUser();
-      throw new Error(
+      setUser(null);
+      setProfile(null);
+      const ambigErr = new Error(
+        `Account inconsistency detected: Email is registered under multiple roles (${(registeredUser.foundRoles || []).join(", ")}). Please contact your administrator.`
+      );
+      ambigErr.code = "MULTIPLE_ROLES";
+      ambigErr.foundRoles = registeredUser.foundRoles;
+      throw ambigErr;
+    }
+
+    // UID Mismatch: Authenticated Google UID does not match registered UID
+    if (registeredUser.uidMismatch) {
+      try {
+        localStorage.removeItem("smartattend-user-role");
+        localStorage.removeItem(`smartattend-cached-profile-${currentUser.uid}`);
+        sessionStorage.clear();
+      } catch (_) {}
+      await firebaseLogoutUser();
+      setUser(null);
+      setProfile(null);
+      const uidErr = new Error(
+        "Authentication error: The authenticated account UID does not match the registered user record. Please contact your administrator."
+      );
+      uidErr.code = "UID_MISMATCH";
+      throw uidErr;
+    }
+
+    // Check account status & approval (Deactivated / Terminated accounts)
+    if (isAccountTerminated(registeredUser) || registeredUser.isTerminated) {
+      try {
+        localStorage.removeItem("smartattend-user-role");
+        localStorage.removeItem(`smartattend-cached-profile-${currentUser.uid}`);
+        sessionStorage.clear();
+      } catch (_) {}
+      await firebaseLogoutUser();
+      setUser(null);
+      setProfile(null);
+      const termErr = new Error(
         `Access Denied: Your account (${currentUser.email}) has been removed or deactivated by the administrator.`
       );
+      termErr.code = "ACCOUNT_DISABLED";
+      throw termErr;
     }
 
     // -------------------------------------------------------
     // AUTHORITATIVE ROLE: DERIVED DIRECTLY FROM DATABASE
-    // Look up user in database and give access according to their document
     // -------------------------------------------------------
     const databaseRole = normalizeRole(registeredUser.role);
+    const normalizedSelectedRole = selectedRole ? normalizeRole(selectedRole) : "";
+
+    // CASE B: Email Exists, but the Selected Role Is Incorrect
+    if (normalizedSelectedRole && normalizedSelectedRole !== databaseRole) {
+      try {
+        localStorage.removeItem("smartattend-user-role");
+        localStorage.removeItem(`smartattend-cached-profile-${currentUser.uid}`);
+        sessionStorage.clear();
+      } catch (_) {}
+      await firebaseLogoutUser();
+      setUser(null);
+      setProfile(null);
+
+      const capRole = databaseRole === "admin" ? "Admin" : (databaseRole === "lecturer" ? "Lecturer" : "Student");
+      const article = databaseRole === "admin" ? "an" : "a";
+      const mismatchMsg = `You are registered as ${article} ${capRole}. Please select the ${capRole} role to continue.`;
+
+      const mismatchErr = new Error(mismatchMsg);
+      mismatchErr.code = "ROLE_MISMATCH";
+      mismatchErr.registeredRole = databaseRole;
+      mismatchErr.selectedRole = normalizedSelectedRole;
+      throw mismatchErr;
+    }
+
+    // CASE A: Email Exists and the Selected Role Matches
     localStorage.setItem("smartattend-user-role", databaseRole);
+    const enrichedProfile = buildEnrichedProfile(registeredUser, currentUser);
 
-    const prefix = cleanEmail.split("@")[0].toLowerCase().trim();
-    const cleanRollNo = registeredUser.rollNo || (databaseRole === "student" ? prefix.toUpperCase() : undefined);
-    const branch = (registeredUser.branch && String(registeredUser.branch).toLowerCase() !== "general")
-      ? registeredUser.branch
-      : ((registeredUser.department && String(registeredUser.department).toLowerCase() !== "general") ? registeredUser.department : "CSE");
-
-    // STRICT: Extract name strictly from database record only (never from email or Google account)
-    const databaseName = (registeredUser.name && !isGenericName(registeredUser.name, cleanRollNo, cleanEmail))
-      ? registeredUser.name.trim()
-      : (registeredUser.fullName && !isGenericName(registeredUser.fullName, cleanRollNo, cleanEmail) ? registeredUser.fullName.trim() : "");
-
-    const resolvedName = databaseName || (databaseRole === "student" ? (cleanRollNo || "Student") : prefix);
-
-    // Strict profile photo resolution: Check if photo was explicitly deleted or removed
-    const hasPhotoRemoval = Boolean(
-      registeredUser.photoRemovedAt ||
-      registeredUser.photoDeleted === true ||
-      registeredUser.photoURL === "" ||
-      registeredUser.photo === ""
-    );
-
-    const dbPhoto = registeredUser.photoURL || registeredUser.photo || registeredUser.image || registeredUser.avatar || registeredUser.profilePic || "";
-    const resolvedPhoto = hasPhotoRemoval
-      ? ""
-      : (dbPhoto || currentUser.photoURL || currentUser.providerData?.[0]?.photoURL || "");
-
-    const enrichedProfile = {
-      id: registeredUser.id || cleanRollNo || cleanEmail,
-      ...registeredUser,
-      rollNo: cleanRollNo,
-      email: registeredUser.email || cleanEmail,
-      name: resolvedName,
-      fullName: resolvedName,
-      branch: branch,
-      semester: registeredUser.semester || "1",
-      uid: currentUser.uid,
-      role: databaseRole,
-      photoURL: resolvedPhoto,
-      photo: resolvedPhoto,
-      image: resolvedPhoto,
-      faceDescriptor: null,
-      faceRegistered: Boolean(
-        !registeredUser.faceRemovedAt &&
-        (registeredUser.faceRegistered === true ||
-          registeredUser.biometricEnrolled === true ||
-          registeredUser.hasFaceRegistered === true ||
-          (Array.isArray(registeredUser.faceDescriptor) && registeredUser.faceDescriptor.length === 128))
-      ),
-      biometricEnrolled: Boolean(
-        !registeredUser.faceRemovedAt &&
-        (registeredUser.faceRegistered === true ||
-          registeredUser.biometricEnrolled === true ||
-          registeredUser.hasFaceRegistered === true ||
-          (Array.isArray(registeredUser.faceDescriptor) && registeredUser.faceDescriptor.length === 128))
-      ),
-      hasFaceRegistered: Boolean(
-        !registeredUser.faceRemovedAt &&
-        (registeredUser.faceRegistered === true ||
-          registeredUser.biometricEnrolled === true ||
-          registeredUser.hasFaceRegistered === true ||
-          (Array.isArray(registeredUser.faceDescriptor) && registeredUser.faceDescriptor.length === 128))
-      ),
-      approved: registeredUser.approved !== false,
-      status: registeredUser.status || "active"
-    };
+    try {
+      localStorage.setItem(`smartattend-cached-profile-${currentUser.uid}`, JSON.stringify(enrichedProfile));
+    } catch (_) {}
 
     // Grant access in React state - Zero database writes!
     setUser(currentUser);

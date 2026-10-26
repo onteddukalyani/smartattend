@@ -25,7 +25,9 @@ function Sidebar({ hidden, onClose }) {
         { icon: <IoQrCodeOutline />, text: "Launch Session QR", path: '/lecturer/lecturerpage' },
         { icon: <SiGoogleclassroom />, text: "Classes & Sessions", path: "/lecturer/attendance-sessions" },
         { icon: <FaBookOpen />, text: "My Courses", path: "/lecturer/courses" },
-        { icon: <FaUserGraduate />, text: "Students Directory", path: "/lecturer/students" },
+        { icon: <FaUserGraduate />, text: "Students", path: "/lecturer/students" },
+        { icon: <FaChalkboardTeacher />, text: "Faculty List", path: "/lecturer/lecturers" },
+        { icon: <FaUserShield />, text: "Admin List", path: "/lecturer/admins" },
         { icon: <FaHeadset />, text: "Help & Support", path: "/lecturer/support" },
         { icon: <FaCog />, text: "Settings", path: "/lecturer/settings" }
     ];

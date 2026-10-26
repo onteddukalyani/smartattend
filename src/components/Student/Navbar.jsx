@@ -4,15 +4,27 @@ import {
     FaBell
 } from "react-icons/fa";
 import React, { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import './Navbar.css'
 import { useAuth } from "../authcontext";
 
 function Navbar({ onMenuClick, unreadCount = 0, onNotifClick }) {
     const { user, profile } = useAuth();
+    const navigate = useNavigate();
     const [profileImageFailed, setProfileImageFailed] = useState(false);
-    const profileName = profile?.name || (user?.isAnonymous ? "Guest" : (profile?.rollNo || "Student"));
+
+    const isInternalUidLike = (val) => Boolean(val && typeof val === "string" && val.length >= 20 && !val.includes("@"));
+    const safeRoll = profile?.rollNo && !isInternalUidLike(profile.rollNo) ? profile.rollNo : "";
+    const emailPrefix = (user?.email || "").split("@")[0];
+    const safeEmailRoll = !isInternalUidLike(emailPrefix) ? emailPrefix : "";
+    const profileName = profile?.name || (user?.isAnonymous ? "Guest" : (safeRoll || safeEmailRoll || "Student"));
     const profileImage = profile?.photoURL || profile?.photo || profile?.image || user?.photoURL || user?.providerData?.[0]?.photoURL;
+
+    const handleProfileClick = (e) => {
+        if (e && typeof e.preventDefault === "function") e.preventDefault();
+        navigate("/student/profile");
+    };
+
     return (
         <header className="navbar">
 
@@ -74,11 +86,21 @@ function Navbar({ onMenuClick, unreadCount = 0, onNotifClick }) {
                     )}
                 </button>
 
-                <Link to="/student/profile" className="nav-profile-btn-link" title="Click to view Profile" style={{ textDecoration: "none" }}>
-                    <div className="profile">
+                <Link
+                    to="/student/profile"
+                    onClick={handleProfileClick}
+                    className="nav-profile-btn-link"
+                    title="Click to view Profile & Settings"
+                    style={{ textDecoration: "none", cursor: "pointer" }}
+                >
+                    <div
+                        className="profile"
+                        style={{ cursor: "pointer" }}
+                    >
                         {profileImage && !profileImageFailed ? (
                             <img
                                 src={profileImage}
+                                referrerPolicy="no-referrer"
                                 alt="Profile"
                                 className="nav-profile-img"
                                 onError={() => setProfileImageFailed(true)}

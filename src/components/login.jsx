@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+
 import {
   FaGoogle,
   FaLock,
@@ -8,34 +9,63 @@ import {
   FaUserGraduate,
   FaGraduationCap,
   FaExclamationTriangle,
-  FaShieldAlt,
-  FaCheckCircle
+  FaExchangeAlt,
+  FaShieldAlt
 } from "react-icons/fa";
+
 import { useAuth } from "./authcontext";
+
 import "./login.css";
 
 const Login = () => {
   const navigate = useNavigate();
-  const { loginWithGoogle } = useAuth();
+
+  const {
+    loginWithGoogle
+  } = useAuth();
 
   const [selectedRole, setSelectedRole] = useState("");
   const [error, setError] = useState("");
+  const [roleMismatch, setRoleMismatch] = useState(null);
   const [loading, setLoading] = useState(false);
 
+  // =====================================================
+  // SELECT ROLE
+  // =====================================================
+
   const handleRoleSelect = (role) => {
-    setSelectedRole((prev) => (prev === role ? "" : role));
+    setSelectedRole(role);
     setError("");
+    setRoleMismatch(null);
   };
 
+  // =====================================================
+  // GOOGLE LOGIN
+  // =====================================================
+
   const handleGoogleLogin = async (overrideRole) => {
-    const roleToUse = overrideRole || selectedRole || "";
+    const roleToUse = overrideRole || selectedRole;
     try {
       setError("");
+      setRoleMismatch(null);
+
+      if (!roleToUse) {
+        setError("Please select a role before signing in.");
+        return;
+      }
+
       setLoading(true);
+
+      console.log("LOGIN PAGE ROLE:", roleToUse);
 
       const authorizedUser = await loginWithGoogle(roleToUse);
 
-      const roleTarget = String(authorizedUser?.role || "student").toLowerCase().trim();
+      console.log(
+        "LOGIN SUCCESS:",
+        authorizedUser
+      );
+
+      const roleTarget = String(authorizedUser?.role || roleToUse || "student").toLowerCase().trim();
       const pendingRedirect = sessionStorage.getItem("smartattend_redirect_after_login");
 
       if (roleTarget === "admin" || roleTarget === "administrator" || roleTarget === "superadmin") {
@@ -67,32 +97,67 @@ const Login = () => {
           navigate("/student", { replace: true });
         }
       }
+
     } catch (err) {
-      console.error("LOGIN ERROR:", err);
-      setError(err.message || "Authentication failed. Please verify your institutional account.");
+      console.error(
+        "LOGIN ERROR:",
+        err
+      );
+
+      // Detect role mismatch
+      if (err.code === "ROLE_MISMATCH" || (err.message && err.message.toLowerCase().includes("role mismatch")) || (err.message && err.message.toLowerCase().includes("select the") && err.message.toLowerCase().includes("role to continue"))) {
+        const regRole = err.registeredRole || (err.message.match(/registered as (?:an|a) ([A-Za-z]+)\./i)?.[1]?.toLowerCase()) || "";
+        const selRole = err.selectedRole || roleToUse;
+        setRoleMismatch({
+          selectedRole: selRole,
+          registeredRole: regRole,
+          message: err.message
+        });
+        setError("");
+      } else if (err.code === "auth/popup-closed-by-user" || err.message?.includes("closed-by-user")) {
+        setRoleMismatch(null);
+        setError("Sign in was cancelled. Please try again.");
+      } else if (err.code === "auth/network-request-failed" || err.message?.includes("network-request-failed")) {
+        setRoleMismatch(null);
+        setError("Network error connecting to authentication service. Please check your internet connection.");
+      } else {
+        setRoleMismatch(null);
+        setError(err.message || "Login failed. Please try again.");
+      }
+
     } finally {
       setLoading(false);
     }
   };
 
+
   return (
+
     <main className="login-page">
-      <section className="login-shell" aria-label="SmartAttend Institutional Sign In">
+
+      <section
+        className="login-shell"
+        aria-label="SmartAttend sign in"
+      >
+
+
         {/* =================================================
-            LEFT SIDE: INSTITUTIONAL BRANDING
+            LEFT SIDE
         ================================================= */}
+
         <div className="login-intro">
+
           <div>
-            <div className="login-mark" aria-hidden="true">
+
+            <div
+              className="login-mark"
+              aria-hidden="true"
+            >
               <FaGraduationCap />
             </div>
 
-            <div style={{ margin: "20px 0 6px", fontSize: "13px", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.08em", color: "#f7c948" }}>
-              IIIT Dharwad
-            </div>
-
             <h1>
-              SmartAttend Academic Portal
+              Attendance, with a clear record.
             </h1>
 
             <p>
@@ -100,6 +165,7 @@ const Login = () => {
             </p>
 
           </div>
+
 
           <div className="login-caption">
 
@@ -110,10 +176,12 @@ const Login = () => {
             </span>
 
           </div>
+
         </div>
 
+
         {/* =================================================
-            RIGHT SIDE: ONE-CLICK SIGN IN & ROLES
+            RIGHT SIDE
         ================================================= */}
 
         <div className="login-form">
@@ -137,7 +205,7 @@ const Login = () => {
                 <div>
                   <h4 className="mismatch-box-title">Role Mismatch Detected</h4>
                   <p className="mismatch-box-sub">
-                    You selected <strong className="mismatch-highlight red">{roleMismatch.selectedRole.toUpperCase()}</strong>, but your email is registered as an <strong className="mismatch-highlight green">{roleMismatch.registeredRole.toUpperCase()}</strong> in the institution directory.
+                    {roleMismatch.message || `You are registered as ${roleMismatch.registeredRole === "admin" ? "an Admin" : (roleMismatch.registeredRole === "lecturer" ? "a Lecturer" : "a Student")}. Please select the ${roleMismatch.registeredRole === "admin" ? "Admin" : (roleMismatch.registeredRole === "lecturer" ? "Lecturer" : "Student")} role to continue.`}
                   </p>
                 </div>
               </div>
@@ -157,7 +225,7 @@ const Login = () => {
                 >
                   <FaExchangeAlt />
                   <span>
-                    Switch to {roleMismatch.registeredRole.charAt(0).toUpperCase() + roleMismatch.registeredRole.slice(1)} &amp; Sign In
+                    Select {roleMismatch.registeredRole.charAt(0).toUpperCase() + roleMismatch.registeredRole.slice(1)} &amp; Sign In
                   </span>
                 </button>
               </div>

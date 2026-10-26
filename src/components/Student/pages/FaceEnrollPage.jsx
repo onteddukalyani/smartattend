@@ -92,7 +92,7 @@ export default function FaceEnrollPage() {
     const studentName = profile?.name || profile?.fullName || activeRollNo || "Student";
     const isNative = Capacitor.isNativePlatform();
     const platform = Capacitor.getPlatform();
-    const browserCameraAuth = isBrowserCameraAllowed(profile, user);
+    const browserCameraAuth = isBrowserCameraAllowed(profile, user, "biometric_registration");
     const isCameraAllowed = browserCameraAuth.allowed;
 
     const userRole = String(profile?.role || "").trim().toLowerCase();

@@ -36,7 +36,7 @@ export function LiveFaceEnrollment({
     const { user, profile } = useAuth();
     const canSwitchCamera = isStaffCameraUser(profile, user) ||
         (typeof window !== "undefined" && (window.location.pathname.includes("/lecturer") || window.location.pathname.includes("/admin")));
-    const browserCameraAuth = isBrowserCameraAllowed(profile, user);
+    const browserCameraAuth = isBrowserCameraAllowed(profile, user, "biometric_registration");
     const isCameraAllowed = canSwitchCamera ? true : browserCameraAuth.allowed;
 
     const videoRef = useRef(null);

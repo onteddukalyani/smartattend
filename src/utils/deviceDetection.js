@@ -179,7 +179,7 @@ export function isStaffCameraUser(profile = {}, user = {}) {
  * @param {Object} user - Firebase auth user
  * @returns {{ allowed: boolean, reason: string, message?: string }}
  */
-export function isBrowserCameraAllowed(profile = {}, user = {}) {
+export function isBrowserCameraAllowed(profile = {}, user = {}, context = "qr_scanner") {
   // If running inside native mobile app (Capacitor APK), camera is always allowed
   if (Capacitor.isNativePlatform()) {
     return { allowed: true, reason: "native_app" };
@@ -195,7 +195,7 @@ export function isBrowserCameraAllowed(profile = {}, user = {}) {
     user?.customClaims?.role
   ].map((value) => String(value || "").trim().toLowerCase());
 
-  // Lecturer: Camera is allowed in browser across any device
+  // Lecturer: Camera is allowed in browser across any device (front + rear switch)
   const isLecturer = roleValues.some((role) =>
     ["lecturer", "faculty", "professor", "teacher", "instructor", "staff"].includes(role)
   ) || profile?.isLecturer === true || user?.isLecturer === true;
@@ -203,7 +203,7 @@ export function isBrowserCameraAllowed(profile = {}, user = {}) {
     return { allowed: true, reason: "lecturer" };
   }
 
-  // Admin: Camera is allowed in browser across any device
+  // Admin: Camera is allowed in browser across any device (front + rear switch)
   const isAdmin = roleValues.some((role) =>
     ["admin", "administrator", "superadmin"].includes(role)
   ) || profile?.isAdmin === true || user?.isAdmin === true;
@@ -216,7 +216,7 @@ export function isBrowserCameraAllowed(profile = {}, user = {}) {
     return { allowed: true, reason: isAdmin ? "admin" : "lecturer" };
   }
 
-  // iPhone / iPad (iOS): Camera is allowed in browser (iOS uses Safari/PWA + Guided Access)
+  // iPhone / iPad (iOS): Camera is allowed in browser for everything (Safari/PWA + Guided Access)
   const isIOS =
     detectDeviceType() === "ios" ||
     (typeof navigator !== "undefined" && (/iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1))) ||
@@ -227,7 +227,17 @@ export function isBrowserCameraAllowed(profile = {}, user = {}) {
     return { allowed: true, reason: "iphone_user" };
   }
 
-  // Android web browser or desktop student: Camera is NOT available in browser
+  // Students can use browser for biometric face registration / enrollment!
+  const isBiometricRegistration =
+    context === "biometric_registration" ||
+    context === "face_enrollment" ||
+    (typeof window !== "undefined" && window.location?.pathname?.includes("face-enroll"));
+
+  if (isBiometricRegistration) {
+    return { allowed: true, reason: "biometric_registration" };
+  }
+
+  // Android web browser or desktop student: Camera is NOT available in browser for QR scanning
   return {
     allowed: false,
     reason: "android_web_student",

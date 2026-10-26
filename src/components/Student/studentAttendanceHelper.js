@@ -46,49 +46,35 @@ function isStudentEnrolledInCourse(course, studentIdentifiers) {
     });
 }
 
+export const isInternalSecretOrUid = (val) => {
+    if (!val || typeof val !== "string") return false;
+    const clean = val.trim();
+    return clean.length >= 20 && !clean.includes("@");
+};
+
 export function getCandidateRolls(user, profile, fetchedStudentData = null) {
     const set = new Set();
 
-    const emailRoll = (user?.email || "").split("@")[0].trim().toUpperCase();
-    const activeRollNo = (profile?.rollNo || fetchedStudentData?.rollNo || emailRoll || "").trim().toUpperCase();
+    const emailPrefix = (user?.email || "").split("@")[0].trim().toUpperCase();
+    const emailRoll = !isInternalSecretOrUid(emailPrefix) ? emailPrefix : "";
+    const pRoll = profile?.rollNo && !isInternalSecretOrUid(profile.rollNo) ? String(profile.rollNo).trim().toUpperCase() : "";
+    const fRoll = fetchedStudentData?.rollNo && !isInternalSecretOrUid(fetchedStudentData.rollNo) ? String(fetchedStudentData.rollNo).trim().toUpperCase() : "";
+    const activeRollNo = pRoll || fRoll || emailRoll;
 
-    if (activeRollNo) {
-        set.add(activeRollNo);
-        set.add(activeRollNo.toLowerCase());
-        const digits = activeRollNo.replace(/\D/g, "");
+    const addSafeRoll = (raw) => {
+        if (!raw || isInternalSecretOrUid(raw)) return;
+        const str = String(raw).trim();
+        set.add(str);
+        set.add(str.toUpperCase());
+        set.add(str.toLowerCase());
+        const digits = str.replace(/\D/g, "");
         if (digits && digits.length >= 2) set.add(digits);
-    }
+    };
 
-    if (profile?.rollNo) {
-        const r = String(profile.rollNo).trim();
-        set.add(r);
-        set.add(r.toUpperCase());
-        set.add(r.toLowerCase());
-        const digits = r.replace(/\D/g, "");
-        if (digits && digits.length >= 2) set.add(digits);
-    }
-
-    if (fetchedStudentData?.rollNo) {
-        const r = String(fetchedStudentData.rollNo).trim();
-        set.add(r);
-        set.add(r.toUpperCase());
-        set.add(r.toLowerCase());
-        const digits = r.replace(/\D/g, "");
-        if (digits && digits.length >= 2) set.add(digits);
-    }
-
-    if (user?.email) {
-        const prefix = user.email.split("@")[0].trim();
-        set.add(prefix);
-        set.add(prefix.toUpperCase());
-        set.add(prefix.toLowerCase());
-        const digits = prefix.replace(/\D/g, "");
-        if (digits && digits.length >= 2) set.add(digits);
-    }
-
-    if (user?.uid) {
-        set.add(user.uid);
-    }
+    if (activeRollNo) addSafeRoll(activeRollNo);
+    if (pRoll) addSafeRoll(pRoll);
+    if (fRoll) addSafeRoll(fRoll);
+    if (emailRoll) addSafeRoll(emailRoll);
 
     return Array.from(set).filter(Boolean);
 }

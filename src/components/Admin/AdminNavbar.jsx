@@ -10,10 +10,10 @@ import { useAuth } from "../authcontext";
 
 import "./AdminNavbar.css";
 
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 
 const AdminNavbar = ({ onMenuClick, unreadCount = 0, onNotifClick }) => {
-
+  const navigate = useNavigate();
   const {
     user,
     profile
@@ -89,13 +89,22 @@ const AdminNavbar = ({ onMenuClick, unreadCount = 0, onNotifClick }) => {
           )}
         </button>
 
-        <Link to="/admin/profile" style={{ textDecoration: "none", color: "inherit" }} title="Click to view Profile">
-          <div className="admin-user">
+        <Link
+          to="/admin/profile"
+          onClick={(e) => {
+            if (e && typeof e.preventDefault === "function") e.preventDefault();
+            navigate("/admin/profile");
+          }}
+          style={{ textDecoration: "none", color: "inherit", cursor: "pointer" }}
+          title="Click to view Profile & Settings"
+        >
+          <div className="admin-user" style={{ cursor: "pointer" }}>
 
             {(profile?.photoURL || profile?.photo || profile?.image || user?.photoURL) ? (
 
               <img
                 src={profile?.photoURL || profile?.photo || profile?.image || user?.photoURL}
+                referrerPolicy="no-referrer"
                 alt=""
                 className="admin-user-photo"
               />

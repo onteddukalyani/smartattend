@@ -731,7 +731,11 @@ service cloud.firestore {
     match /attendance_records/{recordId} {
       allow read: if isStaff() || (isSignedIn() && (
         resource.data.studentUid == request.auth.uid ||
-        (request.auth.token.email != null && resource.data.studentEmail != null && resource.data.studentEmail.lower() == request.auth.token.email.lower())
+        (request.auth.token.email != null && resource.data.studentEmail != null && resource.data.studentEmail.lower() == request.auth.token.email.lower()) ||
+        (request.auth.token.email != null && resource.data.rollNo != null && (
+          resource.data.rollNo.lower() == request.auth.token.email.split('@')[0].lower() ||
+          resource.data.rollNo == request.auth.token.email.split('@')[0].upper()
+        ))
       ));
       allow create, update: if isStaff() || (
         isSignedIn() && (
@@ -743,7 +747,11 @@ service cloud.firestore {
       match /{document=**} {
         allow read: if isStaff() || (isSignedIn() && (
           resource.data.studentUid == request.auth.uid ||
-          (request.auth.token.email != null && resource.data.studentEmail != null && resource.data.studentEmail.lower() == request.auth.token.email.lower())
+          (request.auth.token.email != null && resource.data.studentEmail != null && resource.data.studentEmail.lower() == request.auth.token.email.lower()) ||
+          (request.auth.token.email != null && resource.data.rollNo != null && (
+            resource.data.rollNo.lower() == request.auth.token.email.split('@')[0].lower() ||
+            resource.data.rollNo == request.auth.token.email.split('@')[0].upper()
+          ))
         ));
         allow write: if isStaff();
       }

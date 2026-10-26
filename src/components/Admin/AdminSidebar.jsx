@@ -36,12 +36,13 @@ const AdminSidebar = ({ isOpen, onClose }) => {
 
   const menuItems = [
     { path: "/admin", label: "Dashboard", icon: FaHome, end: true },
-    { path: "/admin/students", label: "Students", icon: FaUserGraduate },
-    { path: "/admin/lecturers", label: "Faculty & Staff", icon: FaChalkboardTeacher },
+    { path: "/admin/admins", label: "Manage Admins", icon: FaUserShield },
+    { path: "/admin/lecturers", label: "Manage Lecturers", icon: FaChalkboardTeacher },
+    { path: "/admin/students", label: "Manage Students", icon: FaUserGraduate },
     { path: "/admin/courses", label: "Courses", icon: FaBookOpen },
     { path: "/admin/attendance", label: "Attendance Logs", icon: FaClipboardCheck },
     { path: "/admin/database", label: "Database Hub", icon: FaDatabase },
-    { path: "/admin/institution", label: "Institution Settings", icon: FaCog },
+    { path: "/admin/institution", label: "Institution Settings", icon: FaUniversity },
     { path: "/admin/support", label: "Help & Ticket Desk", icon: FaHeadset }
   ];
 

@@ -5,15 +5,21 @@ import {
     FaBell
 } from "react-icons/fa";
 import React, { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import './Navbar.css'
 import { useAuth } from "../authcontext";
 
 function Navbar({ sidebarHidden, onMenuClick, unreadCount = 0, onNotifClick }) {
     const { user, profile } = useAuth();
+    const navigate = useNavigate();
     const [profileImageFailed, setProfileImageFailed] = useState(false);
     const profileName = profile?.name || user?.displayName || (user?.isAnonymous ? "Guest" : "Lecturer");
     const profileImage = profile?.photoURL || profile?.photo || profile?.image || user?.photoURL || user?.providerData?.[0]?.photoURL;
+
+    const handleProfileClick = (e) => {
+        if (e && typeof e.preventDefault === "function") e.preventDefault();
+        navigate("/lecturer/profile");
+    };
     return (
         <header className="navbar">
 
@@ -75,8 +81,14 @@ function Navbar({ sidebarHidden, onMenuClick, unreadCount = 0, onNotifClick }) {
                     )}
                 </button>
 
-                <Link to="/lecturer/profile" className="nav-profile-btn-link" title="Click to view Profile" style={{ textDecoration: "none" }}>
-                    <div className="profile">
+                <Link
+                    to="/lecturer/profile"
+                    onClick={handleProfileClick}
+                    className="nav-profile-btn-link"
+                    title="Click to view Profile & Settings"
+                    style={{ textDecoration: "none", cursor: "pointer" }}
+                >
+                    <div className="profile" style={{ cursor: "pointer" }}>
                         {profileImage && !profileImageFailed ? (
                             <img
                                 src={profileImage}
