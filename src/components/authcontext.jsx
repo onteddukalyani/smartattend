@@ -2,7 +2,8 @@ import React, {
   createContext,
   useContext,
   useEffect,
-  useState
+  useState,
+  useRef
 } from "react";
 
 import { onAuthStateChanged, updateProfile } from "firebase/auth";
@@ -28,6 +29,31 @@ import { isGenericName, subscribeToStudentUpdates, PROFILE_UPDATED_EVENT } from 
 import { reportUserVerificationComplaint } from "../services/notificationsService";
 import { registerUserDevice } from "../services/deviceRegistrationService";
 
+// Canonical set of statuses that indicate a user has been disabled, deleted, or removed
+export const TERMINATED_STATUSES = new Set([
+  "disabled",
+  "deleted",
+  "removed",
+  "inactive",
+  "suspended",
+  "deactivated"
+]);
+
+export const isAccountTerminated = (userData) => {
+  if (!userData) return true;
+  if (userData.isDeleted === true || userData.deleted === true || userData.removed === true) {
+    return true;
+  }
+  const status = String(userData.status || "").trim().toLowerCase();
+  if (TERMINATED_STATUSES.has(status)) {
+    return true;
+  }
+  if (userData.approved === false) {
+    return true;
+  }
+  return false;
+};
+
 const AuthContext = createContext(null);
 
 export const AuthProvider = ({ children }) => {
@@ -35,6 +61,57 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
+  const isForceLoggingOutRef = useRef(false);
+
+  // =========================================================
+  // AUTOMATIC FORCE LOGOUT (Instant Invalidation on Removal)
+  // Invoked when an account is deleted or disabled in Firestore
+  // =========================================================
+  const handleForceLogout = async (reason = "Your account has been removed from the database. You have been logged out.") => {
+    if (isForceLoggingOutRef.current) return;
+    isForceLoggingOutRef.current = true;
+    console.warn("[SmartAttend ForceLogout Triggered]:", reason);
+
+    try {
+      if (user?.uid) {
+        localStorage.removeItem(`smartattend-cached-profile-${user.uid}`);
+      }
+      localStorage.removeItem("smartattend-user-role");
+      localStorage.removeItem("smartattend_student_device_locked");
+      localStorage.removeItem("smartattend_device_locked");
+      localStorage.removeItem("smartattend_face_enrolled");
+      localStorage.removeItem("smartattend_hw_enrolled");
+      localStorage.removeItem("smartattend_hardware_biometric_enrolled");
+      localStorage.removeItem("smartattend_just_logged_in");
+      sessionStorage.clear();
+    } catch (_) {}
+
+    try {
+      await firebaseLogoutUser();
+    } catch (_) {}
+
+    setUser(null);
+    setProfile(null);
+    setLoading(false);
+
+    if (typeof window !== "undefined") {
+      try {
+        window.dispatchEvent(new CustomEvent("smartattend:forced-logout", { detail: { reason } }));
+      } catch (_) {}
+
+      try {
+        alert(reason);
+      } catch (_) {}
+
+      if (window.location.pathname !== "/login" && window.location.pathname !== "/") {
+        window.location.replace("/login");
+      }
+    }
+
+    setTimeout(() => {
+      isForceLoggingOutRef.current = false;
+    }, 2500);
+  };
 
   // =========================================================
   // LOOKUP REGISTERED USER IN FIRESTORE (PARALLELIZED READ-ONLY)
@@ -67,19 +144,23 @@ export const AuthProvider = ({ children }) => {
       // Check Admin
       if (adminPrefixSnap.exists()) {
         const d = adminPrefixSnap.data();
-        return { id: adminPrefixSnap.id, ...d, email: d.email || cleanEmail, role: "admin" };
+        const term = isAccountTerminated(d);
+        return { id: adminPrefixSnap.id, ...d, email: d.email || cleanEmail, role: "admin", isTerminated: term, status: term ? "disabled" : (d.status || "active"), approved: !term && d.approved !== false };
       }
       if (adminEmailSnap.exists()) {
         const d = adminEmailSnap.data();
-        return { id: adminEmailSnap.id, ...d, email: cleanEmail, role: "admin" };
+        const term = isAccountTerminated(d);
+        return { id: adminEmailSnap.id, ...d, email: cleanEmail, role: "admin", isTerminated: term, status: term ? "disabled" : (d.status || "active"), approved: !term && d.approved !== false };
       }
       if (adminUidSnap?.exists()) {
         const d = adminUidSnap.data();
-        return { id: adminUidSnap.id, ...d, email: d.email || cleanEmail, role: "admin" };
+        const term = isAccountTerminated(d);
+        return { id: adminUidSnap.id, ...d, email: d.email || cleanEmail, role: "admin", isTerminated: term, status: term ? "disabled" : (d.status || "active"), approved: !term && d.approved !== false };
       }
-      if (!adminQuerySnap.empty) {
+      if (!adminQuerySnap.empty && adminQuerySnap.docs?.[0]) {
         const d = adminQuerySnap.docs[0].data();
-        return { id: adminQuerySnap.docs[0].id, ...d, email: cleanEmail, role: "admin" };
+        const term = isAccountTerminated(d);
+        return { id: adminQuerySnap.docs[0].id, ...d, email: cleanEmail, role: "admin", isTerminated: term, status: term ? "disabled" : (d.status || "active"), approved: !term && d.approved !== false };
       }
 
       // Root bootstrap for project owner if database was wiped clean
@@ -126,19 +207,23 @@ export const AuthProvider = ({ children }) => {
       // Check Lecturer
       if (lectPrefixSnap.exists()) {
         const d = lectPrefixSnap.data();
-        return { id: lectPrefixSnap.id, ...d, email: d.email || cleanEmail, role: "lecturer" };
+        const term = isAccountTerminated(d);
+        return { id: lectPrefixSnap.id, ...d, email: d.email || cleanEmail, role: "lecturer", isTerminated: term, status: term ? "disabled" : (d.status || "active"), approved: !term && d.approved !== false };
       }
       if (lectEmailSnap.exists()) {
         const d = lectEmailSnap.data();
-        return { id: lectEmailSnap.id, ...d, email: cleanEmail, role: "lecturer" };
+        const term = isAccountTerminated(d);
+        return { id: lectEmailSnap.id, ...d, email: cleanEmail, role: "lecturer", isTerminated: term, status: term ? "disabled" : (d.status || "active"), approved: !term && d.approved !== false };
       }
       if (lectUidSnap?.exists()) {
         const d = lectUidSnap.data();
-        return { id: lectUidSnap.id, ...d, email: d.email || cleanEmail, role: "lecturer" };
+        const term = isAccountTerminated(d);
+        return { id: lectUidSnap.id, ...d, email: d.email || cleanEmail, role: "lecturer", isTerminated: term, status: term ? "disabled" : (d.status || "active"), approved: !term && d.approved !== false };
       }
-      if (!lectQuerySnap.empty) {
+      if (!lectQuerySnap.empty && lectQuerySnap.docs?.[0]) {
         const d = lectQuerySnap.docs[0].data();
-        return { id: lectQuerySnap.docs[0].id, ...d, email: cleanEmail, role: "lecturer" };
+        const term = isAccountTerminated(d);
+        return { id: lectQuerySnap.docs[0].id, ...d, email: cleanEmail, role: "lecturer", isTerminated: term, status: term ? "disabled" : (d.status || "active"), approved: !term && d.approved !== false };
       }
 
       // 2. CHECK STUDENTS DATABASE COLLECTION BY LOGGED IN EMAIL ID, ROLL, AND UID
@@ -221,6 +306,7 @@ export const AuthProvider = ({ children }) => {
         );
 
         const hasValidFace = Boolean(!hasFaceRemoval && isRegisteredDirect);
+        const isStudentTerminated = isAccountTerminated(matchedStudentDoc);
 
         return {
           id: authoritativeRollNo || matchedStudentId || cleanEmail,
@@ -234,8 +320,9 @@ export const AuthProvider = ({ children }) => {
             : (matchedStudentDoc.department || "CSE"),
           semester: matchedStudentDoc.semester ? String(matchedStudentDoc.semester).trim() : "1",
           role: "student",
-          status: matchedStudentDoc.status || "active",
-          approved: matchedStudentDoc.approved !== false,
+          isTerminated: isStudentTerminated,
+          status: isStudentTerminated ? "disabled" : (matchedStudentDoc.status || "active"),
+          approved: !isStudentTerminated && matchedStudentDoc.approved !== false,
           faceDescriptor: null,
           faceRegistered: hasValidFace,
           biometricEnrolled: hasValidFace,
@@ -334,6 +421,7 @@ export const AuthProvider = ({ children }) => {
         merged.faceDescriptor = null;
         merged.hasFaceRegistered = Boolean(merged.faceRegistered);
 
+        const isFallbackTerminated = candidateDocs.some((c) => isAccountTerminated(c));
         const finalRollNo = authoritativeRollNo || merged.rollNo || "";
         const finalName = authoritativeName || merged.name || merged.fullName || finalRollNo || "";
         return {
@@ -343,7 +431,10 @@ export const AuthProvider = ({ children }) => {
           fullName: finalName,
           email: merged.email || cleanEmail,
           rollNo: finalRollNo,
-          role: String(merged.role || "student").trim().toLowerCase()
+          role: String(merged.role || "student").trim().toLowerCase(),
+          isTerminated: isFallbackTerminated,
+          status: isFallbackTerminated ? "disabled" : (merged.status || "active"),
+          approved: !isFallbackTerminated && merged.approved !== false
         };
       }
 
@@ -524,24 +615,25 @@ export const AuthProvider = ({ children }) => {
 
           if (!isMounted) return;
 
-          if (!registeredUser) {
-            console.warn("Unregistered user attempted access on session restore:", currentUser.email);
-            try { localStorage.removeItem(cacheKey); } catch (_) {}
-            await firebaseLogoutUser();
-            setUser(null);
-            setProfile(null);
-            setLoading(false);
-            return;
-          }
-
-          // If account is deactivated or unapproved, deny access
-          if (registeredUser.status === "disabled" || registeredUser.approved === false) {
-            console.warn("Deactivated or unapproved user attempted access:", currentUser.email);
-            try { localStorage.removeItem(cacheKey); } catch (_) {}
-            await firebaseLogoutUser();
-            setUser(null);
-            setProfile(null);
-            setLoading(false);
+          if (!registeredUser || isAccountTerminated(registeredUser) || registeredUser.isTerminated) {
+            console.warn("Unregistered, removed, or deactivated user attempted access on session restore:", currentUser.email);
+            try {
+              localStorage.removeItem(cacheKey);
+              localStorage.removeItem("smartattend-user-role");
+              localStorage.removeItem("smartattend_student_device_locked");
+              localStorage.removeItem("smartattend_device_locked");
+              localStorage.removeItem("smartattend_face_enrolled");
+              localStorage.removeItem("smartattend_hw_enrolled");
+              localStorage.removeItem("smartattend_hardware_biometric_enrolled");
+              localStorage.removeItem("smartattend_just_logged_in");
+              sessionStorage.clear();
+            } catch (_) {}
+            await firebaseLogoutUser().catch(() => {});
+            if (isMounted) {
+              setUser(null);
+              setProfile(null);
+              setLoading(false);
+            }
             return;
           }
 
@@ -580,108 +672,179 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   // =========================================================
-  // REAL-TIME PROFILE SYNCHRONIZATION (Instant onSnapshot Sync)
-  // Reflects staff photo removal, name edits, device resets instantly!
+  // REAL-TIME PROFILE SYNCHRONIZATION & AUTO-LOGOUT ON REMOVAL
+  // Instantly kicks out deleted/deactivated students or lecturers!
   // =========================================================
   useEffect(() => {
     if (!user || !user.email) return;
 
     const cleanEmail = user.email.toLowerCase().trim();
+    const isRootOwner = cleanEmail === "onteddukalyani@gmail.com";
     const prefix = cleanEmail.split("@")[0].toLowerCase().trim();
     const role = normalizeRole(profile?.role || "student");
     const rollNo = (profile?.rollNo || (role === "student" ? prefix.toUpperCase() : "")).trim().toUpperCase();
 
-    const targets = [];
+    // Primary authoritative document paths that determine account existence
+    const primaryTargets = [];
+    if (role === "student") {
+      if (rollNo) primaryTargets.push({ coll: "students", id: rollNo });
+      if (cleanEmail) primaryTargets.push({ coll: "students", id: cleanEmail });
+    } else if (role === "lecturer") {
+      primaryTargets.push({ coll: "lecturers", id: cleanEmail });
+      if (prefix) primaryTargets.push({ coll: "lecturers", id: prefix });
+    } else if (role === "admin" && !isRootOwner) {
+      primaryTargets.push({ coll: "admins", id: cleanEmail });
+      if (prefix) primaryTargets.push({ coll: "admins", id: prefix });
+    }
+
+    // Secondary targets for biometric/field synchronization
+    const secondaryTargets = [];
     if (role === "student") {
       if (rollNo) {
-        targets.push({ coll: "students", id: rollNo });
-        targets.push({ coll: "students", id: rollNo.toLowerCase() });
-        targets.push({ coll: "users", id: rollNo });
-        targets.push({ coll: "users", id: rollNo.toLowerCase() });
-        targets.push({ coll: "authorizedUsers", id: rollNo });
-        targets.push({ coll: "authorizedUsers", id: rollNo.toLowerCase() });
+        secondaryTargets.push({ coll: "users", id: rollNo });
+        secondaryTargets.push({ coll: "authorizedUsers", id: rollNo });
       }
       if (cleanEmail) {
-        targets.push({ coll: "students", id: cleanEmail });
-        targets.push({ coll: "users", id: cleanEmail });
-        targets.push({ coll: "authorizedUsers", id: cleanEmail });
-      }
-      if (prefix && prefix !== rollNo.toLowerCase()) {
-        targets.push({ coll: "authorizedUsers", id: prefix });
+        secondaryTargets.push({ coll: "users", id: cleanEmail });
+        secondaryTargets.push({ coll: "authorizedUsers", id: cleanEmail });
       }
       if (user?.uid) {
-        targets.push({ coll: "students", id: user.uid });
-        targets.push({ coll: "users", id: user.uid });
+        secondaryTargets.push({ coll: "students", id: user.uid });
+        secondaryTargets.push({ coll: "users", id: user.uid });
       }
     } else {
-      if (role === "lecturer") {
-        targets.push({ coll: "lecturers", id: cleanEmail });
-        targets.push({ coll: "lecturers", id: prefix });
-      }
-      if (role === "admin") {
-        targets.push({ coll: "admins", id: cleanEmail });
-        targets.push({ coll: "admins", id: prefix });
-      }
-      targets.push({ coll: "users", id: cleanEmail });
-      if (user?.uid) targets.push({ coll: "users", id: user.uid });
+      secondaryTargets.push({ coll: "users", id: cleanEmail });
+      if (user?.uid) secondaryTargets.push({ coll: "users", id: user.uid });
     }
 
     const unsubs = [];
-    targets.forEach(({ coll, id }) => {
+    const activeConfirmedDocs = new Set();
+
+    // Handle primary listeners (with automatic deletion logout detection)
+    primaryTargets.forEach(({ coll, id }) => {
+      if (!id) return;
+      try {
+        const unsub = onSnapshot(
+          doc(db, coll, id),
+          async (snap) => {
+            if (!snap.exists()) {
+              // Document does not exist or was just deleted!
+              if (!isRootOwner && activeConfirmedDocs.has(`${coll}/${id}`)) {
+                console.warn(`[SmartAttend] Primary account document removed: ${coll}/${id}. Verifying user status...`);
+                const userInSystem = await lookupUserInSystem(cleanEmail, user.uid);
+                if (!userInSystem || isAccountTerminated(userInSystem) || userInSystem.isTerminated) {
+                  await handleForceLogout(
+                    "Your account record was removed from the database by an administrator. You have been automatically logged out."
+                  );
+                  return;
+                }
+              }
+              return;
+            }
+
+            // Doc exists: record it as confirmed active
+            activeConfirmedDocs.add(`${coll}/${id}`);
+            const freshData = snap.data();
+
+            // Check if status changed to deleted, disabled, inactive, or unapproved
+            if (!isRootOwner && (isAccountTerminated(freshData) || freshData.isDeleted === true)) {
+              await handleForceLogout(
+                "Your account has been deactivated or removed by an administrator. You have been automatically logged out."
+              );
+              return;
+            }
+
+            // Apply regular updates (face registration, device reset, name edits)
+            setProfile((prev) => {
+              if (!prev) return prev;
+              const isFaceReset = Boolean(
+                freshData.faceRemovedAt &&
+                (!freshData.faceEnrolledAt || freshData.faceRemovedAt > freshData.faceEnrolledAt)
+              );
+              const isFaceEnrolled = Boolean(
+                !isFaceReset && (
+                  freshData.faceRegistered === true ||
+                  freshData.biometricEnrolled === true ||
+                  freshData.hasFaceRegistered === true ||
+                  (Array.isArray(freshData.faceDescriptor) && freshData.faceDescriptor.length === 128) ||
+                  (Array.isArray(freshData.descriptor) && freshData.descriptor.length === 128)
+                )
+              );
+
+              const isDeviceReset = Boolean(
+                freshData.deviceResetAt ||
+                freshData.deviceFingerprintResetAt ||
+                freshData.deviceTypeLocked === false
+              );
+
+              const merged = { ...prev, ...freshData };
+              if (isFaceReset) {
+                merged.faceRegistered = false;
+                merged.biometricEnrolled = false;
+                merged.hasFaceRegistered = false;
+                merged.faceDescriptor = null;
+                merged.descriptor = null;
+                merged.photoURL = "";
+                merged.photo = "";
+                merged.image = "";
+              } else if (isFaceEnrolled || prev.faceRegistered) {
+                merged.faceRegistered = true;
+                merged.biometricEnrolled = true;
+                merged.hasFaceRegistered = true;
+              }
+
+              if (isDeviceReset) {
+                merged.deviceType = null;
+                merged.deviceTypeLocked = false;
+                merged.isDeviceRegistered = false;
+                merged.hardwareBiometricEnrolled = false;
+                merged.registeredDevice = null;
+                merged.registeredPlatform = null;
+                merged.deviceFingerprint = null;
+              } else if (freshData.hardwareBiometricEnrolled || prev.hardwareBiometricEnrolled) {
+                merged.hardwareBiometricEnrolled = true;
+              }
+              const enriched = buildEnrichedProfile(merged, user);
+              try {
+                localStorage.setItem(`smartattend-cached-profile-${user.uid}`, JSON.stringify(enriched));
+              } catch (_) {}
+              if (typeof window !== "undefined") {
+                window.dispatchEvent(new CustomEvent(PROFILE_UPDATED_EVENT, { detail: enriched }));
+              }
+              return enriched;
+            });
+          },
+          (err) => {
+            // Permission denied usually indicates security rules blocked access because user record was deleted
+            if (err?.code === "permission-denied" && !isRootOwner) {
+              lookupUserInSystem(cleanEmail, user.uid).then((res) => {
+                if (!res || isAccountTerminated(res) || res.isTerminated) {
+                  handleForceLogout("Your account permissions were revoked or your record was removed. You have been automatically logged out.");
+                }
+              }).catch(() => {});
+            }
+          }
+        );
+        unsubs.push(unsub);
+      } catch (_) {}
+    });
+
+    // Handle secondary listeners (biometrics / users collection fallback)
+    secondaryTargets.forEach(({ coll, id }) => {
       if (!id) return;
       try {
         const unsub = onSnapshot(doc(db, coll, id), (snap) => {
           if (!snap.exists()) return;
           const freshData = snap.data();
+          if (!isRootOwner && (isAccountTerminated(freshData) || freshData.isDeleted === true)) {
+            handleForceLogout(
+              "Your account has been deactivated or removed by an administrator. You have been automatically logged out."
+            );
+            return;
+          }
           setProfile((prev) => {
             if (!prev) return prev;
-            const isFaceReset = Boolean(
-              freshData.faceRemovedAt &&
-              (!freshData.faceEnrolledAt || freshData.faceRemovedAt > freshData.faceEnrolledAt)
-            );
-            const isFaceEnrolled = Boolean(
-              !isFaceReset && (
-                freshData.faceRegistered === true ||
-                freshData.biometricEnrolled === true ||
-                freshData.hasFaceRegistered === true ||
-                (Array.isArray(freshData.faceDescriptor) && freshData.faceDescriptor.length === 128) ||
-                (Array.isArray(freshData.descriptor) && freshData.descriptor.length === 128)
-              )
-            );
-
-            const isDeviceReset = Boolean(
-              freshData.deviceResetAt ||
-              freshData.deviceFingerprintResetAt ||
-              freshData.deviceTypeLocked === false
-            );
-
             const merged = { ...prev, ...freshData };
-            if (isFaceReset) {
-              merged.faceRegistered = false;
-              merged.biometricEnrolled = false;
-              merged.hasFaceRegistered = false;
-              merged.faceDescriptor = null;
-              merged.descriptor = null;
-              merged.photoURL = "";
-              merged.photo = "";
-              merged.image = "";
-            } else if (isFaceEnrolled || prev.faceRegistered) {
-              merged.faceRegistered = true;
-              merged.biometricEnrolled = true;
-              merged.hasFaceRegistered = true;
-            }
-
-            if (isDeviceReset) {
-              merged.deviceType = null;
-              merged.deviceTypeLocked = false;
-              merged.isDeviceRegistered = false;
-              merged.hardwareBiometricEnrolled = false;
-              merged.registeredDevice = null;
-              merged.registeredPlatform = null;
-              merged.deviceFingerprint = null;
-            } else if (freshData.hardwareBiometricEnrolled || prev.hardwareBiometricEnrolled) {
-              merged.hardwareBiometricEnrolled = true;
-            }
             const enriched = buildEnrichedProfile(merged, user);
             try {
               localStorage.setItem(`smartattend-cached-profile-${user.uid}`, JSON.stringify(enriched));
@@ -697,16 +860,62 @@ export const AuthProvider = ({ children }) => {
     });
 
     return () => {
-      unsubs.forEach(u => {
+      unsubs.forEach((u) => {
         try { u(); } catch (_) {}
       });
     };
   }, [user?.uid, user?.email, profile?.role, profile?.rollNo]);
 
+  // Periodic heartbeat & window visibility/focus verification
+  // Safeguards against offline deletions, console-level manual deletions, and background tab drops
+  useEffect(() => {
+    if (!user || !user.email) return;
+    const cleanEmail = user.email.toLowerCase().trim();
+    if (cleanEmail === "onteddukalyani@gmail.com") return; // Root admin is safe
+
+    let isVerifying = false;
+    const verifyUserActive = async () => {
+      if (isVerifying || !user?.email) return;
+      isVerifying = true;
+      try {
+        const userInSystem = await lookupUserInSystem(user.email, user.uid);
+        if (!userInSystem || isAccountTerminated(userInSystem) || userInSystem.isTerminated) {
+          await handleForceLogout(
+            "Your account record was removed from the database by an administrator. You have been automatically logged out."
+          );
+        }
+      } catch (_) {} finally {
+        isVerifying = false;
+      }
+    };
+
+    // Check periodically every 25 seconds
+    const intervalId = setInterval(verifyUserActive, 25000);
+
+    // Check when user returns to or focuses the window/tab
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        verifyUserActive();
+      }
+    };
+    const handleFocus = () => {
+      verifyUserActive();
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("focus", handleFocus);
+
+    return () => {
+      clearInterval(intervalId);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("focus", handleFocus);
+    };
+  }, [user?.email, user?.uid]);
+
   // Real-time synchronization with global student updates dispatched from any tab or modal
   useEffect(() => {
     if (!user) return;
-    const unsub = subscribeToStudentUpdates((updatedStudent) => {
+    const unsub = subscribeToStudentUpdates(async (updatedStudent) => {
       if (!updatedStudent) return;
       const cleanRoll = (profile?.rollNo || "").toUpperCase().trim();
       const updatedRoll = String(updatedStudent.rollNo || updatedStudent.id || "").toUpperCase().trim();
@@ -721,6 +930,13 @@ export const AuthProvider = ({ children }) => {
       );
 
       if (isMatch) {
+        if (updatedStudent.isDeleted || isAccountTerminated(updatedStudent) || updatedStudent.isTerminated) {
+          await handleForceLogout(
+            "Your account record was removed from the database by an administrator. You have been automatically logged out."
+          );
+          return;
+        }
+
         setProfile((prev) => {
           if (!prev) return prev;
           const merged = { ...prev, ...updatedStudent };
@@ -771,40 +987,38 @@ export const AuthProvider = ({ children }) => {
     const registeredUser = await lookupUserInSystem(cleanEmail, currentUser.uid);
 
     if (!registeredUser) {
-      // User is completely unregistered - report complaint to Admin & Lecturer and kick out immediately
+      // User is completely unregistered or was removed from database - report complaint and deny access immediately
       await reportUserVerificationComplaint(
         { email: cleanEmail, name: currentUser.displayName || "Unknown User" },
-        "Unregistered user attempted access to platform",
+        "Unregistered or removed user attempted access to platform",
         "GOOGLE_LOGIN"
       );
+      try {
+        localStorage.removeItem("smartattend-user-role");
+        localStorage.removeItem(`smartattend-cached-profile-${currentUser.uid}`);
+        sessionStorage.clear();
+      } catch (_) {}
       await firebaseLogoutUser();
       throw new Error(
-        `Access Denied: This Google account (${currentUser.email}) is not registered in the system. Only pre-registered students and staff can log in. Please contact the administrator to get your account registered.`
+        `Access Denied: This Google account (${currentUser.email}) is not registered in the database. If you were recently removed from the database by an administrator, you cannot log in. Please contact your administrator.`
       );
     }
 
     // Check account status & approval
-    if (registeredUser.status === "disabled") {
+    if (isAccountTerminated(registeredUser) || registeredUser.isTerminated) {
       await reportUserVerificationComplaint(
         { email: cleanEmail, name: registeredUser.name, rollNo: registeredUser.rollNo },
-        "Disabled account attempted login",
+        "Deactivated or removed account attempted login",
         "DEACTIVATED_LOGIN"
       );
+      try {
+        localStorage.removeItem("smartattend-user-role");
+        localStorage.removeItem(`smartattend-cached-profile-${currentUser.uid}`);
+        sessionStorage.clear();
+      } catch (_) {}
       await firebaseLogoutUser();
       throw new Error(
-        `Access Denied: Your account (${currentUser.email}) has been deactivated by the administrator.`
-      );
-    }
-
-    if (registeredUser.approved === false) {
-      await reportUserVerificationComplaint(
-        { email: cleanEmail, name: registeredUser.name, rollNo: registeredUser.rollNo },
-        "Unapproved account attempted login",
-        "PENDING_APPROVAL_LOGIN"
-      );
-      await firebaseLogoutUser();
-      throw new Error(
-        `Access Denied: Your account (${currentUser.email}) is pending approval by the institution administrator.`
+        `Access Denied: Your account (${currentUser.email}) has been removed or deactivated by the administrator.`
       );
     }
 
@@ -1133,7 +1347,17 @@ export const AuthProvider = ({ children }) => {
 
   const handleLogout = async () => {
     try {
+      if (user?.uid) {
+        localStorage.removeItem(`smartattend-cached-profile-${user.uid}`);
+      }
       localStorage.removeItem("smartattend-user-role");
+      localStorage.removeItem("smartattend_student_device_locked");
+      localStorage.removeItem("smartattend_device_locked");
+      localStorage.removeItem("smartattend_face_enrolled");
+      localStorage.removeItem("smartattend_hw_enrolled");
+      localStorage.removeItem("smartattend_hardware_biometric_enrolled");
+      localStorage.removeItem("smartattend_just_logged_in");
+      sessionStorage.clear();
       await firebaseLogoutUser();
       setUser(null);
       setProfile(null);
