@@ -33,7 +33,7 @@ export async function getRunningAppVersion() {
         const parsed = parseInt(info.build, 10);
         if (Number.isFinite(parsed) && parsed > 0) code = parsed;
       }
-    } catch (_) {}
+    } catch (_) { }
   }
   cachedRunningVersion = v;
   cachedRunningVersionCode = code;
@@ -110,16 +110,21 @@ export async function computeSha256(data) {
 }
 
 async function fetchJsonWithTimeout(url, timeoutMs) {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+  const timeoutId = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
   try {
     const response = await fetch(url, {
       cache: "no-store",
-      signal: controller.signal
+      signal: controller ? controller.signal : undefined
     });
     return response.ok ? await response.json() : null;
+  } catch (err) {
+    if (err?.name === "AbortError" || String(err?.message || "").toLowerCase().includes("abort")) {
+      return null;
+    }
+    throw err;
   } finally {
-    clearTimeout(timeoutId);
+    if (timeoutId) clearTimeout(timeoutId);
   }
 }
 
@@ -172,7 +177,7 @@ async function performAppUpdateCheck() {
     const firestorePromise = getDoc(doc(db, "app_updates", "latest"))
       .then((snapshot) => ({ snapshot }));
     const timeoutPromise = new Promise((resolve) => {
-      timeoutId = setTimeout(() => resolve({ timedOut: true }), 1200);
+      timeoutId = setTimeout(() => resolve({ timedOut: true }), 3500);
     });
     let firestoreResult;
     try {
@@ -194,7 +199,7 @@ async function performAppUpdateCheck() {
   // 3. The deployed site's version file is the fastest public fallback.
   if (!remoteData) {
     try {
-      remoteData = await fetchJsonWithTimeout(`/version.json?_nocache=${Date.now()}`, 2500);
+      remoteData = await fetchJsonWithTimeout(`/version.json?_nocache=${Date.now()}`, 4000);
     } catch (err) {
       console.debug("[AppUpdate] Site version file unavailable:", err.message);
     }
@@ -205,10 +210,10 @@ async function performAppUpdateCheck() {
     try {
       remoteData = await fetchJsonWithTimeout(
         `${GITHUB_VERSION_JSON_URL}?_nocache=${Date.now()}`,
-        4000
+        5000
       );
     } catch (err) {
-      console.warn("[AppUpdate] Public version fallback unavailable:", err.message);
+      console.debug("[AppUpdate] Public version fallback unavailable:", err.message);
     }
   }
 

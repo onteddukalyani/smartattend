@@ -525,36 +525,12 @@ const AddStudent = () => {
             role: "student",
             status: "active",
             approved: true,
-            faceRegistered: false,
             createdAt: serverTimestamp(),
             updatedAt: serverTimestamp()
           };
 
-          // 1. Write to students collection
+          // Write strictly to master canonical students collection
           batch.set(doc(db, "students", cleanRoll), studentPayload, { merge: true });
-          if (rollLower !== cleanRoll) {
-            batch.set(doc(db, "students", rollLower), studentPayload, { merge: true });
-          }
-
-          // 2. Write to users collection
-          batch.set(doc(db, "users", cleanRoll), studentPayload, { merge: true });
-          if (prefix && prefix !== cleanRoll) {
-            batch.set(doc(db, "users", prefix), studentPayload, { merge: true });
-          }
-
-          // 3. Write to authorizedUsers collection
-          if (cleanEmail) {
-            batch.set(doc(db, "authorizedUsers", cleanEmail), {
-              ...studentPayload,
-              createdAt: Date.now()
-            }, { merge: true });
-            if (prefix && prefix !== cleanEmail) {
-              batch.set(doc(db, "authorizedUsers", prefix), {
-                ...studentPayload,
-                createdAt: Date.now()
-              }, { merge: true });
-            }
-          }
         }
 
         await batch.commit();
