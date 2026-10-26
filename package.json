@@ -16,6 +16,7 @@
     "build:release": "node scripts/build_release_apk.js",
     "build:bundle": "node scripts/build_bundle.js",
     "serve:apk": "node scripts/serve_apk.js",
+    "seed": "node scripts/seedDatabase.mjs",
     "postinstall": "node scripts/patch_spm.js"
   },
   "dependencies": {

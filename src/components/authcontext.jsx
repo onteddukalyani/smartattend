@@ -82,6 +82,47 @@ export const AuthProvider = ({ children }) => {
         return { id: adminQuerySnap.docs[0].id, ...d, email: cleanEmail, role: "admin" };
       }
 
+      // Root bootstrap for project owner if database was wiped clean
+      if (cleanEmail === "onteddukalyani@gmail.com" || prefix === "onteddukalyani") {
+        const bootstrapAdmin = {
+          id: prefix || cleanEmail,
+          name: "Kalyani Onteddu",
+          email: cleanEmail || "onteddukalyani@gmail.com",
+          role: "admin",
+          isAdmin: true,
+          status: "active",
+          approved: true,
+          department: "Administration",
+          designation: "System Administrator"
+        };
+        const adminId = prefix || "onteddukalyani";
+        Promise.all([
+          setDoc(doc(db, "admins", adminId), { ...bootstrapAdmin, createdAt: Date.now(), updatedAt: Date.now() }, { merge: true }),
+          cleanEmail ? setDoc(doc(db, "admins", cleanEmail), { ...bootstrapAdmin, createdAt: Date.now(), updatedAt: Date.now() }, { merge: true }) : Promise.resolve(),
+          setDoc(doc(db, "institution", "settings"), {
+            name: "Indian Institute of Information Technology, Dharwad",
+            shortName: "IIIT Dharwad",
+            domain: "iiitdwd.ac.in",
+            sessionDuration: 10,
+            qrRefreshInterval: 10,
+            attendanceWindow: 5,
+            allowLateAttendance: true,
+            defaultGeofenceRadius: 10,
+            updatedAt: Date.now()
+          }, { merge: true }),
+          setDoc(doc(db, "app_updates", "latest"), {
+            version: "1.0.4",
+            versionCode: 6,
+            releaseDate: "2026-10-23",
+            minRequiredVersion: "1.0.1",
+            title: "SmartAttend Release (v1.0.4)",
+            isMandatory: false,
+            updatedAt: Date.now()
+          }, { merge: true })
+        ]).catch(() => {});
+        return bootstrapAdmin;
+      }
+
       // Check Lecturer
       if (lectPrefixSnap.exists()) {
         const d = lectPrefixSnap.data();
