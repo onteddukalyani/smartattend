@@ -21,7 +21,9 @@ import {
     FaBan,
     FaBuilding,
     FaUserCheck,
-    FaHistory
+    FaHistory,
+    FaUniversity,
+    FaBell
 } from "react-icons/fa";
 import { collection, getDocs, doc, onSnapshot, query, where } from "firebase/firestore";
 import { db } from "../../firebase";
@@ -29,7 +31,10 @@ import { useAuth } from "../authcontext";
 import {
     grantBiometricReRegistration,
     revokeBiometricReRegistration,
-    listBiometricReRegistrationPermissions
+    listBiometricReRegistrationPermissions,
+    approveReRegistrationRequest,
+    rejectReRegistrationRequest,
+    subscribeToPendingReRegistrationRequests
 } from "../../services/faceEnrollmentService";
 import "./ManageBiometricReRegistration.css";
 
@@ -66,12 +71,23 @@ export default function ManageBiometricReRegistration() {
     const [permissions, setPermissions] = useState([]);
     const [courses, setCourses] = useState([]);
     const [students, setStudents] = useState([]);
+    const [studentRequests, setStudentRequests] = useState([]);
+    const [resolvingRoll, setResolvingRoll] = useState(null);
     const [loadingPerms, setLoadingPerms] = useState(true);
     const [granting, setGranting] = useState(false);
     const [revokingId, setRevokingId] = useState(null);
     const [formMsg, setFormMsg] = useState(null); // { type: "success" | "error", text: string }
     const [searchTerm, setSearchTerm] = useState("");
     const [statusFilter, setStatusFilter] = useState("ALL"); // "ALL" | "active" | "exhausted" | "revoked" | "expired"
+
+    // Real-time subscription to pending student re-registration requests
+    useEffect(() => {
+        const unsub = subscribeToPendingReRegistrationRequests((all) => {
+            const pending = (all || []).filter((r) => r.status === "pending");
+            setStudentRequests(pending);
+        });
+        return () => unsub();
+    }, []);
 
     // Load Authorized Courses for Lecturer / Admin
     useEffect(() => {
@@ -187,7 +203,8 @@ export default function ManageBiometricReRegistration() {
                 registrationType: regType,
                 mode: permMode,
                 expiryHours: expVal > 0 ? expVal : undefined,
-                reason: reason.trim() || undefined
+                reason: reason.trim() || undefined,
+                actorName: profile?.name || profile?.email || user?.email || "Faculty/Admin"
             };
 
             const result = await grantBiometricReRegistration(payload);
@@ -282,10 +299,135 @@ export default function ManageBiometricReRegistration() {
                 <div>
                     <h1>Manage Biometric Re-Registration Access</h1>
                     <p>
-                        Authorized portal for Lecturers &amp; Admins to grant and revoke secure student re-registration permissions for Face Biometrics and Device Fingerprints.
+                        Authorized portal for Lecturers &amp; Admins to review student re-registration requests and issue secure re-registration permissions for students who physically report.
                     </p>
                 </div>
             </div>
+
+            {/* In-Person Physical Reporting Quick Assistant Banner */}
+            <div style={{
+                display: "flex",
+                alignItems: "flex-start",
+                gap: "14px",
+                padding: "16px 20px",
+                borderRadius: "16px",
+                background: "linear-gradient(135deg, rgba(99, 102, 241, 0.08) 0%, rgba(139, 92, 246, 0.08) 100%)",
+                border: "1.5px solid rgba(99, 102, 241, 0.25)",
+                marginBottom: "24px"
+            }}>
+                <FaUniversity style={{ color: "#4f46e5", fontSize: "1.5rem", flexShrink: 0, marginTop: "2px" }} />
+                <div style={{ fontSize: "0.88rem", lineHeight: 1.5, color: "#1e1b4b" }}>
+                    <strong style={{ fontSize: "0.95rem", color: "#3730a3" }}>Did a Student Physically Report to You for Re-Registration?</strong>
+                    <p style={{ margin: "4px 0 0", color: "#4338ca", fontSize: "0.85rem" }}>
+                        When a registered student approaches you in person with their college ID card, select <strong>Single Student</strong> below, enter their Roll Number, and click <strong>Issue Re-Registration Pass</strong>. Their student dashboard will instantly unlock for re-enrollment.
+                    </p>
+                </div>
+            </div>
+
+            {/* Incoming Student Requests Panel */}
+            {studentRequests.length > 0 && (
+                <div className="rereg-card requests-card" style={{ marginBottom: "24px" }}>
+                    <div className="rereg-card-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <div>
+                            <h2><FaBell className="text-accent" /> Incoming Student Re-Registration Requests</h2>
+                            <span className="card-subtitle">
+                                Review and approve access requests submitted by students from their app
+                            </span>
+                        </div>
+                        <span className="requests-badge">
+                            {studentRequests.length} Pending
+                        </span>
+                    </div>
+
+                    <div className="requests-list">
+                        {studentRequests.map((req) => (
+                            <div key={req.rollNo || req.id} className="request-item-card">
+                                <div>
+                                    <div className="req-item-header">
+                                        <div>
+                                            <strong>{req.rollNo}</strong>
+                                            {req.studentName && <span className="req-item-name">{req.studentName}</span>}
+                                        </div>
+                                        <span className="req-item-scope">
+                                            {req.requestType === "face" ? "Face Only" : req.requestType === "biometric" ? "Fingerprint" : "Both"}
+                                        </span>
+                                    </div>
+
+                                    <div className="req-item-body" style={{ marginTop: "10px" }}>
+                                        <strong>Reason:</strong> {req.reason || "Student requested access"}
+                                        {req.details && <div style={{ marginTop: "4px", color: "#64748b" }}>Note: {req.details}</div>}
+                                        <div style={{ fontSize: "0.75rem", color: "#94a3b8", marginTop: "6px" }}>
+                                            Requested: {req.createdAt ? new Date(req.createdAt).toLocaleString() : "Recently"}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="req-item-actions">
+                                    <button
+                                        type="button"
+                                        className="req-approve-btn"
+                                        onClick={async () => {
+                                            try {
+                                                setResolvingRoll(req.rollNo);
+                                                const actorName = profile?.name || profile?.email || user?.email || "Faculty";
+                                                await approveReRegistrationRequest(req.rollNo, {
+                                                    requestType: req.requestType || "both",
+                                                    mode: "one_time",
+                                                    expiryHours: 72,
+                                                    reason: `Approved student request: ${req.reason || "Re-registration pass"}`,
+                                                    actorName
+                                                });
+                                                setFormMsg({
+                                                    type: "success",
+                                                    text: `✅ Approved! Re-registration pass granted for ${req.studentName || req.rollNo} (${req.rollNo}).`
+                                                });
+                                            } catch (err) {
+                                                alert("Failed to approve request: " + err.message);
+                                            } finally {
+                                                setResolvingRoll(null);
+                                            }
+                                        }}
+                                        disabled={resolvingRoll === req.rollNo}
+                                    >
+                                        {resolvingRoll === req.rollNo ? <FaSpinner className="fa-spin" /> : <FaCheckCircle />} Approve (72h Pass)
+                                    </button>
+
+                                    <button
+                                        type="button"
+                                        className="req-reject-btn"
+                                        onClick={async () => {
+                                            const note = window.prompt(
+                                                `Enter note for declining ${req.rollNo}'s request (or leave blank to instruct in-person report):`,
+                                                "Please physically report to faculty cabin with your Student ID card."
+                                            );
+                                            if (note === null) return;
+                                            try {
+                                                setResolvingRoll(req.rollNo);
+                                                const actorName = profile?.name || profile?.email || user?.email || "Faculty";
+                                                await rejectReRegistrationRequest(req.rollNo, {
+                                                    reason: note.trim(),
+                                                    actorName
+                                                });
+                                                setFormMsg({
+                                                    type: "success",
+                                                    text: `Request from ${req.rollNo} declined.`
+                                                });
+                                            } catch (err) {
+                                                alert("Failed to decline request: " + err.message);
+                                            } finally {
+                                                setResolvingRoll(null);
+                                            }
+                                        }}
+                                        disabled={resolvingRoll === req.rollNo}
+                                    >
+                                        Decline
+                                    </button>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
 
             {/* Grant Permission Form Card */}
             <div className="rereg-card grant-card">

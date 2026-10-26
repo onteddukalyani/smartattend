@@ -848,3 +848,128 @@
         gap: 10px;
     }
 }
+
+/* ---------------------------------------------------------
+   Incoming Student Requests Card
+   --------------------------------------------------------- */
+.requests-card {
+    border-left: 4px solid #f59e0b;
+}
+
+.requests-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 0.8rem;
+    font-weight: 800;
+    background: #fef3c7;
+    color: #b45309;
+}
+
+.requests-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 14px;
+    margin-top: 14px;
+}
+
+.request-item-card {
+    background: var(--surface-soft, #f8fafc);
+    border: 1.5px solid var(--border, #e2e8f0);
+    border-radius: 14px;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.req-item-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+}
+
+.req-item-header strong {
+    font-size: 1rem;
+    color: var(--text-main, #0f172a);
+}
+
+.req-item-name {
+    display: block;
+    font-size: 0.82rem;
+    color: var(--text-muted, #64748b);
+    margin-top: 2px;
+}
+
+.req-item-scope {
+    font-size: 0.76rem;
+    font-weight: 700;
+    padding: 3px 8px;
+    border-radius: 6px;
+    background: #ede9fe;
+    color: #6d28d9;
+}
+
+.req-item-body {
+    font-size: 0.85rem;
+    color: var(--text-main, #334155);
+    background: var(--surface, #ffffff);
+    padding: 10px 12px;
+    border-radius: 10px;
+    border: 1px solid var(--border, #f1f5f9);
+}
+
+.req-item-body strong {
+    display: block;
+    margin-bottom: 2px;
+}
+
+.req-item-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.req-approve-btn {
+    flex: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 8px 12px;
+    border-radius: 10px;
+    border: none;
+    background: #10b981;
+    color: #ffffff;
+    font-weight: 700;
+    font-size: 0.82rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.req-approve-btn:hover:not(:disabled) {
+    background: #059669;
+}
+
+.req-reject-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 8px 12px;
+    border-radius: 10px;
+    border: 1px solid #fecaca;
+    background: #fff5f5;
+    color: #dc2626;
+    font-weight: 700;
+    font-size: 0.82rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.req-reject-btn:hover:not(:disabled) {
+    background: #fee2e2;
+}
+

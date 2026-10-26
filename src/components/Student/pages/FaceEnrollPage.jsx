@@ -15,7 +15,8 @@ import {
     FaLock,
     FaCog,
     FaKey,
-    FaUserShield
+    FaUserShield,
+    FaUniversity
 } from "react-icons/fa";
 import { doc, onSnapshot } from "firebase/firestore";
 import { Capacitor } from "@capacitor/core";
@@ -34,12 +35,15 @@ import {
 import { isBrowserCameraAllowed } from "../../../utils/deviceDetection";
 import { getApkDownloadUrl } from "../../../utils/apkUrl";
 import { broadcastStudentUpdate, subscribeToStudentUpdates, PROFILE_UPDATED_EVENT } from "../../../utils/studentDataHelper";
+import RequestReRegistrationModal from "../RequestReRegistrationModal";
 import "./FaceEnrollPage.css";
 
 export default function FaceEnrollPage() {
     const navigate = useNavigate();
     const { user, profile } = useAuth();
     const [activeTab, setActiveTab] = useState("face"); // "face" | "fingerprint"
+    const [showReqModal, setShowReqModal] = useState(false);
+    const [reqModalScope, setReqModalScope] = useState("both");
 
     // Real-time Enrollment Status
     const [hasFaceRegistered, setHasFaceRegistered] = useState(() => {
@@ -675,12 +679,42 @@ export default function FaceEnrollPage() {
                                         <button
                                             type="button"
                                             className="bio-locked-disabled-btn"
-                                            onClick={() => alert("🔒 Re-Registration Locked:\n\nInitial face registration is complete. To re-register your face, request an authorized Re-Registration Pass from your course lecturer or administrator.")}
+                                            onClick={() => {
+                                                setReqModalScope("face");
+                                                setShowReqModal(true);
+                                            }}
+                                            style={{
+                                                background: "linear-gradient(135deg, #4f46e5 0%, #6366f1 100%)",
+                                                color: "#ffffff",
+                                                cursor: "pointer"
+                                            }}
                                         >
-                                            <FaLock /> Re-Registration Locked (Requires Faculty Pass)
+                                            <FaKey /> Request Re-Registration Access (Online / In-Person)
                                         </button>
                                     )}
                                 </div>
+
+                                {!canReEnrollFace && (
+                                    <div style={{
+                                        display: "flex",
+                                        alignItems: "flex-start",
+                                        gap: "12px",
+                                        padding: "14px 16px",
+                                        borderRadius: "14px",
+                                        background: "linear-gradient(135deg, rgba(99, 102, 241, 0.08) 0%, rgba(139, 92, 246, 0.08) 100%)",
+                                        border: "1px solid rgba(99, 102, 241, 0.25)",
+                                        margin: "12px 0 16px",
+                                        textAlign: "left"
+                                    }}>
+                                        <FaUniversity style={{ color: "#4f46e5", fontSize: "1.3rem", flexShrink: 0, marginTop: "2px" }} />
+                                        <div style={{ fontSize: "0.85rem", color: "#312e81", lineHeight: 1.5 }}>
+                                            <strong>Physically Report to Lecturer (Immediate Re-Registration)</strong>
+                                            <p style={{ margin: "4px 0 0", color: "#4338ca", fontSize: "0.82rem" }}>
+                                                If you need immediate help, report in person to your <strong>Course Lecturer</strong> with your valid <strong>Student ID Card</strong>. Lecturers can grant instant re-registration access or re-enroll your biometrics on the spot.
+                                            </p>
+                                        </div>
+                                    </div>
+                                )}
 
                                 {/* Live Face Test View */}
                                 {showFaceTest && (
@@ -885,6 +919,46 @@ export default function FaceEnrollPage() {
                                     </div>
                                 )}
 
+                                {!canReEnrollHw && !isStaff && (
+                                    <div style={{ margin: "14px 0", textAlign: "center" }}>
+                                        <button
+                                            type="button"
+                                            className="bio-locked-disabled-btn"
+                                            onClick={() => {
+                                                setReqModalScope("biometric");
+                                                setShowReqModal(true);
+                                            }}
+                                            style={{
+                                                background: "linear-gradient(135deg, #4f46e5 0%, #6366f1 100%)",
+                                                color: "#ffffff",
+                                                cursor: "pointer",
+                                                padding: "10px 18px",
+                                                borderRadius: "10px",
+                                                fontSize: "0.88rem",
+                                                fontWeight: 700
+                                            }}
+                                        >
+                                            <FaKey /> Request Fingerprint Re-Registration Pass
+                                        </button>
+                                        <div style={{
+                                            display: "flex",
+                                            alignItems: "flex-start",
+                                            gap: "10px",
+                                            padding: "10px 14px",
+                                            borderRadius: "12px",
+                                            background: "rgba(99, 102, 241, 0.08)",
+                                            border: "1px solid rgba(99, 102, 241, 0.2)",
+                                            marginTop: "10px",
+                                            textAlign: "left"
+                                        }}>
+                                            <FaUniversity style={{ color: "#4f46e5", fontSize: "1.2rem", flexShrink: 0, marginTop: "2px" }} />
+                                            <span style={{ fontSize: "0.82rem", color: "#3730a3" }}>
+                                                <strong>In-Person Reset Option:</strong> Physically report to your course lecturer with your Student ID card. Lecturers have 1-click authority to reset your device lock.
+                                            </span>
+                                        </div>
+                                    </div>
+                                )}
+
                                 {canReEnrollHw && (
                                     <div style={{ margin: "16px 0" }}>
                                         <button
@@ -1031,6 +1105,21 @@ export default function FaceEnrollPage() {
                     </div>
                 )}
             </div>
+
+            {/* Request Re-Registration Access Modal */}
+            <RequestReRegistrationModal
+                isOpen={showReqModal}
+                onClose={() => setShowReqModal(false)}
+                rollNo={activeRollNo}
+                studentName={studentName}
+                studentEmail={cleanEmail}
+                initialScope={reqModalScope}
+                onProceedEnroll={() => {
+                    if (reqModalScope === "face" || reqModalScope === "both") {
+                        setIsReEnrolling(true);
+                    }
+                }}
+            />
         </div>
     );
 }

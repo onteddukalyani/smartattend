@@ -34,13 +34,16 @@ import {
     FaLock,
     FaUnlock,
     FaFingerprint,
-    FaKey
+    FaKey,
+    FaGlobeAmericas,
+    FaBell
 } from "react-icons/fa";
 import StudentDetailModal from "./StudentDetailModal";
 import { useTableSort, SortIcon } from "./useTableSort";
 import "./StudentsList.css";
 
 import { mergeAllStudentRecords, normalizeDescriptor, deleteStudentRecordCompletely, broadcastStudentUpdate, subscribeToStudentUpdates, resetStudentDeviceLockGlobally } from "../../utils/studentDataHelper";
+import { subscribeToPendingReRegistrationRequests } from "../../services/faceEnrollmentService";
 
 function StudentsList() {
     const { user, profile } = useAuth();
@@ -51,10 +54,24 @@ function StudentsList() {
     const [statusFilter, setStatusFilter] = useState("ALL");
     const [deviceFilter, setDeviceFilter] = useState("ALL"); // 'ALL' | 'ANDROID' | 'IOS' | 'UNLOCKED'
     const [viewMode, setViewMode] = useState("table"); // 'table' | 'cards'
+    const [pendingRequestsRolls, setPendingRequestsRolls] = useState(new Set());
     const [loading, setLoading] = useState(true);
     const [actionLoading, setActionLoading] = useState(null);
     const [selectedStudent, setSelectedStudent] = useState(null);
     const navigate = useNavigate();
+
+    // Subscribe to pending re-registration requests
+    useEffect(() => {
+        const unsub = subscribeToPendingReRegistrationRequests((list) => {
+            const rolls = new Set(
+                (list || [])
+                    .filter((r) => r.status === "pending")
+                    .map((r) => String(r.rollNo || r.id).trim().toUpperCase())
+            );
+            setPendingRequestsRolls(rolls);
+        });
+        return () => unsub();
+    }, []);
 
     const isAdmin = profile?.role === "admin" || profile?.role === "administrator" || profile?.role === "superadmin" || window.location.pathname.startsWith("/admin");
     const basePath = isAdmin ? "/admin" : "/lecturer";
@@ -898,6 +915,28 @@ function StudentsList() {
                                                         <strong className="student-name" title={student.name || "Student"}>{student.name || "Student"}</strong>
                                                         <span className="student-email">{student.email || `${(student.rollNo || "").toLowerCase()}@iiitdwd.ac.in`}</span>
                                                         <div className="student-device-subrow">
+                                                            {(() => {
+                                                                const isRegGlobally = Boolean(student.isRegistered || student.registeredGlobally || hasFace || student.deviceTypeLocked);
+                                                                const hasPendingReq = pendingRequestsRolls.has(String(student.rollNo || student.id || "").trim().toUpperCase());
+                                                                return (
+                                                                    <>
+                                                                        {isRegGlobally ? (
+                                                                            <span className="student-device-pill" style={{ background: "rgba(99, 102, 241, 0.12)", color: "#4f46e5", border: "1px solid rgba(99, 102, 241, 0.25)", fontSize: "0.72rem", fontWeight: 700 }} title="Student is registered globally in SmartAttend">
+                                                                                <FaGlobeAmericas size={10} /> Registered Globally
+                                                                            </span>
+                                                                        ) : (
+                                                                            <span className="student-device-pill" style={{ background: "rgba(245, 158, 11, 0.1)", color: "#b45309", border: "1px solid rgba(245, 158, 11, 0.25)", fontSize: "0.72rem" }} title="Student has not completed initial registration">
+                                                                                Setup Pending
+                                                                            </span>
+                                                                        )}
+                                                                        {hasPendingReq && (
+                                                                            <span className="student-device-pill" style={{ background: "#fef3c7", color: "#b45309", border: "1.5px solid #f59e0b", fontSize: "0.72rem", fontWeight: 800 }} title="Student submitted a biometric re-registration request">
+                                                                                <FaBell size={10} /> Re-Reg Requested
+                                                                            </span>
+                                                                        )}
+                                                                    </>
+                                                                );
+                                                            })()}
                                                             {student.deviceType === "android" ? (
                                                                 <span className="student-device-pill android" title="Registered to Android APK mode (Locked)">
                                                                     <FaAndroid size={11} /> Android APK 🔒
@@ -977,10 +1016,15 @@ function StudentsList() {
                                                         type="button"
                                                         className="row-action-btn"
                                                         onClick={() => navigate(`${basePath}/manage-reregistration?roll=${student.rollNo || student.id}`)}
-                                                        title="Manage Biometric Re-Registration Access for this student"
-                                                        style={{ background: "#ede9fe", color: "#6d28d9", borderColor: "#ddd6fe" }}
+                                                        title={pendingRequestsRolls.has(String(student.rollNo || student.id).trim().toUpperCase()) ? "Review student's re-registration request" : "Manage Biometric Re-Registration Access for this student"}
+                                                        style={{
+                                                            background: pendingRequestsRolls.has(String(student.rollNo || student.id).trim().toUpperCase()) ? "#fef3c7" : "#ede9fe",
+                                                            color: pendingRequestsRolls.has(String(student.rollNo || student.id).trim().toUpperCase()) ? "#b45309" : "#6d28d9",
+                                                            borderColor: pendingRequestsRolls.has(String(student.rollNo || student.id).trim().toUpperCase()) ? "#f59e0b" : "#ddd6fe",
+                                                            fontWeight: pendingRequestsRolls.has(String(student.rollNo || student.id).trim().toUpperCase()) ? 800 : undefined
+                                                        }}
                                                     >
-                                                        <FaKey /> Re-Reg
+                                                        <FaKey /> {pendingRequestsRolls.has(String(student.rollNo || student.id).trim().toUpperCase()) ? "Re-Reg (Req)" : "Re-Reg"}
                                                     </button>
 
                                                     {(student.hardwareBiometricEnrolled || student.deviceFingerprint) && (

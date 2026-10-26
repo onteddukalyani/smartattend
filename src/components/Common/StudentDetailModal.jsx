@@ -25,7 +25,9 @@ import {
   FaApple,
   FaLock,
   FaUnlock,
-  FaFingerprint
+  FaFingerprint,
+  FaUniversity,
+  FaKey
 } from "react-icons/fa";
 import { collection, getDocs, query, where, doc, setDoc, deleteDoc, deleteField, onSnapshot } from "firebase/firestore";
 import { db } from "../../firebase";
@@ -36,7 +38,7 @@ import { LiveFaceEnrollment } from "./LiveFaceEnrollment";
 import FaceEnrollmentReviewPanel from "./FaceEnrollmentReviewPanel";
 import ProfilePhotoModal from "./ProfilePhotoModal";
 import { removeStudentFaceAndBiometrics, removeStudentPhotoOnly } from "../../utils/biometricManager";
-import { registerStudentFace } from "../../services/faceEnrollmentService";
+import { registerStudentFace, grantBiometricReRegistration } from "../../services/faceEnrollmentService";
 import { deleteStudentRecordCompletely, normalizeBranchName, broadcastStudentUpdate, resetStudentDeviceLockGlobally } from "../../utils/studentDataHelper";
 import { sendStudentNotification, sendFacultyNotification } from "../../services/notificationsService";
 import "./StudentDetailModal.css";
@@ -59,6 +61,7 @@ const StudentDetailModal = ({ student, onClose, onUpdate }) => {
   const [resettingDevice, setResettingDevice] = useState(false);
   const [removingFingerprint, setRemovingFingerprint] = useState(false);
   const [deletingStudent, setDeletingStudent] = useState(false);
+  const [grantingPass, setGrantingPass] = useState(false);
   const [faceSuccessMsg, setFaceSuccessMsg] = useState("");
 
   const isCurrentAdminPath = window.location.pathname.startsWith("/admin");
@@ -162,6 +165,35 @@ const StudentDetailModal = ({ student, onClose, onUpdate }) => {
 
     fetchStudentAttendance();
   }, [student]);
+
+  const handleGrantInPersonPass = async () => {
+    const cleanRoll = String(currentStudent?.rollNo || currentStudent?.id || "").trim().toUpperCase();
+    if (!cleanRoll) return;
+
+    const confirmed = window.confirm(
+      `🔑 Issue In-Person Re-Registration Pass?\n\nHas ${currentStudent?.name || cleanRoll} (${cleanRoll}) physically reported with their student ID?\n\nThis will grant an immediate 72-hour pass allowing the student to re-register their biometrics.`
+    );
+    if (!confirmed) return;
+
+    try {
+      setGrantingPass(true);
+      const actorName = profile?.name || profile?.email || user?.email || "Faculty";
+      await grantBiometricReRegistration({
+        targetRolls: [cleanRoll],
+        targetType: "single",
+        registrationType: "both",
+        mode: "one_time",
+        expiryHours: 72,
+        reason: "In-person physical verification by lecturer",
+        actorName
+      });
+      alert(`✅ Re-registration pass granted for ${currentStudent?.name || cleanRoll} (${cleanRoll})! The student can now re-enroll on their device.`);
+    } catch (err) {
+      alert("Failed to grant pass: " + err.message);
+    } finally {
+      setGrantingPass(false);
+    }
+  };
 
   if (!student) return null;
 
@@ -981,6 +1013,103 @@ const StudentDetailModal = ({ student, onClose, onUpdate }) => {
 
               {isStaff && (
                 <FaceEnrollmentReviewPanel rollNo={currentStudent?.rollNo || currentStudent?.id} />
+              )}
+
+              {/* In-Person Re-Registration & Physical Help Section (Staff Only) */}
+              {isStaff && (
+                <div style={{
+                  margin: "18px 0 12px",
+                  padding: "16px",
+                  borderRadius: "14px",
+                  background: "linear-gradient(135deg, rgba(99, 102, 241, 0.06) 0%, rgba(139, 92, 246, 0.06) 100%)",
+                  border: "1.5px solid rgba(99, 102, 241, 0.22)"
+                }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px", flexWrap: "wrap", gap: "8px" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                      <FaUniversity style={{ color: "#4f46e5", fontSize: "1.25rem" }} />
+                      <strong style={{ fontSize: "0.95rem", color: "#1e1b4b" }}>In-Person Physical Assistance &amp; Re-Registration</strong>
+                    </div>
+                    <span style={{
+                      fontSize: "0.76rem",
+                      fontWeight: 800,
+                      padding: "3px 10px",
+                      borderRadius: "999px",
+                      background: (currentStudent?.isRegistered || currentStudent?.faceRegistered) ? "rgba(16, 185, 129, 0.15)" : "rgba(217, 119, 6, 0.15)",
+                      color: (currentStudent?.isRegistered || currentStudent?.faceRegistered) ? "#059669" : "#b45309",
+                      border: `1px solid ${(currentStudent?.isRegistered || currentStudent?.faceRegistered) ? "rgba(16, 185, 129, 0.3)" : "rgba(217, 119, 6, 0.3)"}`
+                    }}>
+                      {(currentStudent?.isRegistered || currentStudent?.faceRegistered) ? "🌐 Registered Globally" : "⏳ Initial Setup Pending"}
+                    </span>
+                  </div>
+
+                  <p style={{ margin: "0 0 12px", fontSize: "0.82rem", color: "#4338ca", lineHeight: 1.45 }}>
+                    If this student has physically reported to you with their college ID card requesting to re-register biometrics or change phones:
+                  </p>
+
+                  <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+                    <button
+                      type="button"
+                      onClick={handleGrantInPersonPass}
+                      disabled={grantingPass}
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "6px",
+                        padding: "8px 14px",
+                        borderRadius: "10px",
+                        background: "linear-gradient(135deg, #4f46e5, #6366f1)",
+                        color: "#ffffff",
+                        border: "none",
+                        fontWeight: 700,
+                        fontSize: "0.82rem",
+                        cursor: grantingPass ? "not-allowed" : "pointer",
+                        boxShadow: "0 3px 10px rgba(79, 70, 229, 0.25)"
+                      }}
+                    >
+                      <FaKey /> {grantingPass ? "Granting..." : "Grant 72h Re-Reg Pass"}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setShowFaceEnroll((prev) => !prev)}
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "6px",
+                        padding: "8px 14px",
+                        borderRadius: "10px",
+                        background: "#ffffff",
+                        color: "#4f46e5",
+                        border: "1.5px solid #c7d2fe",
+                        fontWeight: 700,
+                        fontSize: "0.82rem",
+                        cursor: "pointer"
+                      }}
+                    >
+                      <FaCamera /> {showFaceEnroll ? "Close Webcam" : "Re-Enroll Face on Spot (Staff Webcam)"}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => navigate(`${window.location.pathname.startsWith("/admin") ? "/admin" : "/lecturer"}/manage-reregistration?roll=${currentStudent?.rollNo || currentStudent?.id}`)}
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "6px",
+                        padding: "8px 14px",
+                        borderRadius: "10px",
+                        background: "transparent",
+                        color: "#64748b",
+                        border: "1px solid #cbd5e1",
+                        fontWeight: 600,
+                        fontSize: "0.82rem",
+                        cursor: "pointer"
+                      }}
+                    >
+                      Full Re-Reg Portal →
+                    </button>
+                  </div>
+                </div>
               )}
 
               {/* Live Face Enrollment in Modal */}

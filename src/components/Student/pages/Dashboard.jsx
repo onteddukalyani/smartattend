@@ -33,7 +33,9 @@ import {
     FaCheck,
     FaMobileAlt,
     FaFingerprint,
-    FaShieldAlt
+    FaShieldAlt,
+    FaKey,
+    FaUniversity
 } from "react-icons/fa";
 import { MdQrCodeScanner } from "react-icons/md";
 import { db, functions } from "../../../firebase";
@@ -48,6 +50,7 @@ import { getCandidateRolls, computeStudentMetrics, parseTimestampMillis } from "
 import { isGenericName, normalizeBranchName, subscribeToStudentUpdates, PROFILE_UPDATED_EVENT } from "../../../utils/studentDataHelper";
 import DeviceOnboardingModal from "../DeviceOnboardingModal";
 import StudentReadinessModal from "../StudentReadinessModal";
+import RequestReRegistrationModal from "../RequestReRegistrationModal";
 import { requestAppNotificationPermissions } from "../../../services/nativeNotificationService";
 import { subscribeToStudentNotifications, markNotificationAsRead, sendFacultyNotification, sendStudentNotification, reportUserVerificationComplaint, getTimestampMs } from "../../../services/notificationsService";
 import { detectDeviceType, getClientIpAddress, getDeviceDisplayName, isDeviceMatching, isStaffCameraUser } from "../../../utils/deviceDetection";
@@ -95,6 +98,8 @@ export default function StudentDashboard() {
     // Face Biometric Registration Modal State
     const [showFaceModal, setShowFaceModal] = useState(false);
     const [showLockedFaceModal, setShowLockedFaceModal] = useState(false);
+    const [showReqModal, setShowReqModal] = useState(false);
+    const [reqModalScope, setReqModalScope] = useState("face");
     const [faceSaving, setFaceSaving] = useState(false);
     const [faceSuccessMsg, setFaceSuccessMsg] = useState("");
 
@@ -1867,8 +1872,27 @@ export default function StudentDashboard() {
                             )}
                         </div>
 
+                        {!canReEnrollFace && (
+                            <div style={{
+                                display: "flex",
+                                alignItems: "flex-start",
+                                gap: "12px",
+                                padding: "12px 14px",
+                                borderRadius: "12px",
+                                background: "rgba(99, 102, 241, 0.08)",
+                                border: "1px solid rgba(99, 102, 241, 0.22)",
+                                margin: "12px 0",
+                                textAlign: "left"
+                            }}>
+                                <FaUniversity style={{ color: "#4f46e5", fontSize: "1.25rem", flexShrink: 0, marginTop: "2px" }} />
+                                <div style={{ fontSize: "0.83rem", color: "#312e81", lineHeight: 1.45 }}>
+                                    <strong>In-Person Physical Assistance:</strong> You can physically report to your Course Lecturer in class or office hours with your Student ID card. Lecturers have 1-click authority to grant re-registration passes or re-enroll you on the spot.
+                                </div>
+                            </div>
+                        )}
+
                         <div style={{ display: "flex", gap: "10px", marginTop: "16px", flexWrap: "wrap" }}>
-                            {canReEnrollFace && (
+                            {canReEnrollFace ? (
                                 <button
                                     type="button"
                                     onClick={() => {
@@ -1894,6 +1918,34 @@ export default function StudentDashboard() {
                                     }}
                                 >
                                     <FaCamera /> Re-enroll Face Camera
+                                </button>
+                            ) : (
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setShowLockedFaceModal(false);
+                                        setReqModalScope("face");
+                                        setShowReqModal(true);
+                                    }}
+                                    style={{
+                                        flex: 1,
+                                        minWidth: "160px",
+                                        padding: "11px 16px",
+                                        borderRadius: "12px",
+                                        background: "linear-gradient(135deg, #4f46e5, #6366f1)",
+                                        color: "#ffffff",
+                                        border: "none",
+                                        fontWeight: 700,
+                                        fontSize: "0.88rem",
+                                        cursor: "pointer",
+                                        display: "inline-flex",
+                                        alignItems: "center",
+                                        justifyContent: "center",
+                                        gap: "8px",
+                                        boxShadow: "0 4px 12px rgba(79, 70, 229, 0.25)"
+                                    }}
+                                >
+                                    <FaKey /> Request Re-Registration Access
                                 </button>
                             )}
                             <button
@@ -2410,6 +2462,17 @@ export default function StudentDashboard() {
                     }
                     setShowUpdateModal(false);
                 }}
+            />
+
+            {/* Re-Registration Request Modal */}
+            <RequestReRegistrationModal
+                isOpen={showReqModal}
+                onClose={() => setShowReqModal(false)}
+                rollNo={activeRollNo}
+                studentName={studentName}
+                studentEmail={cleanEmail}
+                initialScope={reqModalScope}
+                onProceedEnroll={() => setShowFaceModal(true)}
             />
         </div>
     );

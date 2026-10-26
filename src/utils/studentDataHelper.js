@@ -326,6 +326,13 @@ export function mergeAllStudentRecords(authDocs = [], studentsDocs = [], usersDo
             (data.hardwareBiometricEnrolled || existing.hardwareBiometricEnrolled)
         );
 
+        const isRegisteredGlobally = Boolean(
+            data.isRegistered || existing.isRegistered ||
+            data.registeredGlobally || existing.registeredGlobally ||
+            data.registrationStatus === "registered" || existing.registrationStatus === "registered" ||
+            faceRegistered || hwBioEnrolled || (deviceType && deviceTypeLocked)
+        );
+
         studentsMap.set(canonicalRoll, {
             ...existing,
             ...data,
@@ -349,6 +356,9 @@ export function mergeAllStudentRecords(authDocs = [], studentsDocs = [], usersDo
             faceRegistered: faceRegistered,
             biometricEnrolled: biometricEnrolled,
             hasFaceRegistered: hasFaceRegistered,
+            isRegistered: isRegisteredGlobally,
+            registeredGlobally: isRegisteredGlobally,
+            registrationStatus: isRegisteredGlobally ? "registered" : "pending",
             faceDescriptor: null,
             photoURL: photoURL,
             enrolledAt: latestEnrolledAt,
