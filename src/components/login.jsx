@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-
 import {
   FaGoogle,
   FaLock,
@@ -9,63 +8,34 @@ import {
   FaUserGraduate,
   FaGraduationCap,
   FaExclamationTriangle,
-  FaExchangeAlt,
-  FaShieldAlt
+  FaShieldAlt,
+  FaCheckCircle
 } from "react-icons/fa";
-
 import { useAuth } from "./authcontext";
-
 import "./login.css";
 
 const Login = () => {
   const navigate = useNavigate();
-
-  const {
-    loginWithGoogle
-  } = useAuth();
+  const { loginWithGoogle } = useAuth();
 
   const [selectedRole, setSelectedRole] = useState("");
   const [error, setError] = useState("");
-  const [roleMismatch, setRoleMismatch] = useState(null);
   const [loading, setLoading] = useState(false);
 
-  // =====================================================
-  // SELECT ROLE
-  // =====================================================
-
   const handleRoleSelect = (role) => {
-    setSelectedRole(role);
+    setSelectedRole((prev) => (prev === role ? "" : role));
     setError("");
-    setRoleMismatch(null);
   };
 
-  // =====================================================
-  // GOOGLE LOGIN
-  // =====================================================
-
   const handleGoogleLogin = async (overrideRole) => {
-    const roleToUse = overrideRole || selectedRole;
+    const roleToUse = overrideRole || selectedRole || "";
     try {
       setError("");
-      setRoleMismatch(null);
-
-      if (!roleToUse) {
-        setError("Please select a role before signing in.");
-        return;
-      }
-
       setLoading(true);
-
-      console.log("LOGIN PAGE ROLE:", roleToUse);
 
       const authorizedUser = await loginWithGoogle(roleToUse);
 
-      console.log(
-        "LOGIN SUCCESS:",
-        authorizedUser
-      );
-
-      const roleTarget = String(authorizedUser?.role || roleToUse || "student").toLowerCase().trim();
+      const roleTarget = String(authorizedUser?.role || "student").toLowerCase().trim();
       const pendingRedirect = sessionStorage.getItem("smartattend_redirect_after_login");
 
       if (roleTarget === "admin" || roleTarget === "administrator" || roleTarget === "superadmin") {
@@ -97,61 +67,32 @@ const Login = () => {
           navigate("/student", { replace: true });
         }
       }
-
     } catch (err) {
-      console.error(
-        "LOGIN ERROR:",
-        err
-      );
-
-      // Detect role mismatch
-      if (err.code === "ROLE_MISMATCH" || (err.message && err.message.toLowerCase().includes("role mismatch"))) {
-        const regRole = err.registeredRole || (err.message.match(/registered as "([^"]+)"/i)?.[1]) || "";
-        const selRole = err.selectedRole || roleToUse;
-        setRoleMismatch({
-          selectedRole: selRole,
-          registeredRole: regRole,
-          message: err.message
-        });
-        setError("");
-      } else {
-        setRoleMismatch(null);
-        setError(err.message || "Login failed.");
-      }
-
+      console.error("LOGIN ERROR:", err);
+      setError(err.message || "Authentication failed. Please verify your institutional account.");
     } finally {
       setLoading(false);
     }
   };
 
-
   return (
-
     <main className="login-page">
-
-      <section
-        className="login-shell"
-        aria-label="SmartAttend sign in"
-      >
-
-
+      <section className="login-shell" aria-label="SmartAttend Institutional Sign In">
         {/* =================================================
-            LEFT SIDE
+            LEFT SIDE: INSTITUTIONAL BRANDING
         ================================================= */}
-
         <div className="login-intro">
-
           <div>
-
-            <div
-              className="login-mark"
-              aria-hidden="true"
-            >
+            <div className="login-mark" aria-hidden="true">
               <FaGraduationCap />
             </div>
 
+            <div style={{ margin: "20px 0 6px", fontSize: "13px", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.08em", color: "#f7c948" }}>
+              IIIT Dharwad
+            </div>
+
             <h1>
-              Attendance, with a clear record.
+              SmartAttend Academic Portal
             </h1>
 
             <p>
@@ -159,7 +100,6 @@ const Login = () => {
             </p>
 
           </div>
-
 
           <div className="login-caption">
 
@@ -170,12 +110,10 @@ const Login = () => {
             </span>
 
           </div>
-
         </div>
 
-
         {/* =================================================
-            RIGHT SIDE
+            RIGHT SIDE: ONE-CLICK SIGN IN & ROLES
         ================================================= */}
 
         <div className="login-form">
@@ -245,8 +183,8 @@ const Login = () => {
             <button
               type="button"
               className={`login-button ${selectedRole === "admin"
-                  ? "selected"
-                  : ""
+                ? "selected"
+                : ""
                 }`}
               onClick={() =>
                 handleRoleSelect("admin")
@@ -268,8 +206,8 @@ const Login = () => {
             <button
               type="button"
               className={`login-button ${selectedRole === "lecturer"
-                  ? "selected"
-                  : ""
+                ? "selected"
+                : ""
                 }`}
               onClick={() =>
                 handleRoleSelect("lecturer")
@@ -291,8 +229,8 @@ const Login = () => {
             <button
               type="button"
               className={`login-button ${selectedRole === "student"
-                  ? "selected"
-                  : ""
+                ? "selected"
+                : ""
                 }`}
               onClick={() =>
                 handleRoleSelect("student")

@@ -185,8 +185,8 @@ const InstitutionSettings = () => {
       );
 
       await sendFacultyNotification(
-        "⚙️ Institutional Settings Updated",
-        `Institution attendance policies (session duration: ${settings.sessionDuration}m, QR refresh: ${settings.qrRefreshInterval}s) were modified by ${user?.email || 'Admin'}.`,
+        "⚙️ Institutional Parameters Updated",
+        `Institutional campus parameters and university identity were updated by ${user?.email || 'Administrator'}.`,
         "SYSTEM_UPDATE",
         "",
         user?.email || "Admin",
@@ -273,94 +273,43 @@ const InstitutionSettings = () => {
         </div>
       </section>
 
-      {/* Attendance Settings */}
+      {/* Attendance Session Policy (Faculty Governed) */}
       <section className="settings-card">
         <div className="settings-card-header">
-          <div className="settings-icon">
+          <div className="settings-icon" style={{ background: "rgba(99, 102, 241, 0.12)", color: "#6366f1" }}>
             <FaClock />
           </div>
           <div>
-            <h2>Attendance Settings</h2>
-            <p>Configure attendance session behavior.</p>
+            <h2>Attendance Session Timings &amp; Rules</h2>
+            <p>Configured directly and manually by Faculty / Lecturers per classroom session.</p>
           </div>
         </div>
 
-        <div className="settings-grid">
-          <div className="settings-field">
-            <label>Session Duration</label>
-            <div className="input-with-unit">
-              <input
-                type="number"
-                min="1"
-                max="180"
-                name="sessionDuration"
-                value={settings.sessionDuration}
-                onChange={handleChange}
-              />
-              <span>minutes</span>
-            </div>
-            <small>How long an attendance session remains active.</small>
+        <div style={{
+          padding: "16px 20px",
+          background: "var(--surface-hover, #f8fafc)",
+          borderRadius: "14px",
+          border: "1px solid var(--border, #e2e8f0)",
+          display: "flex",
+          flexDirection: "column",
+          gap: "10px"
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "8px", fontWeight: "700", color: "var(--text-main, #0f172a)" }}>
+            <FaLock style={{ color: "#6366f1" }} />
+            <span>Faculty-Governed Classroom Timings</span>
           </div>
-
-          <div className="settings-field">
-            <label>QR Refresh Interval</label>
-            <div className="input-with-unit">
-              <input
-                type="number"
-                min="5"
-                max="300"
-                name="qrRefreshInterval"
-                value={settings.qrRefreshInterval}
-                onChange={handleChange}
-              />
-              <span>seconds</span>
-            </div>
-            <small>How frequently the attendance QR code changes.</small>
-          </div>
-
-          <div className="settings-field">
-            <label>Attendance Window</label>
-            <div className="input-with-unit">
-              <input
-                type="number"
-                min="1"
-                max="30"
-                name="attendanceWindow"
-                value={settings.attendanceWindow}
-                onChange={handleChange}
-              />
-              <span>minutes</span>
-            </div>
-            <small>Time allowed for students to submit attendance.</small>
+          <p style={{ margin: 0, fontSize: "14px", lineHeight: "1.6", color: "var(--text-muted, #64748b)" }}>
+            In accordance with institutional academic policy, attendance session durations, dual-QR rotation intervals, and submission windows are set up manually by faculty instructors at the start of each class. Administrators do not alter active session timings.
+          </p>
+          <div style={{ display: "flex", gap: "10px", marginTop: "4px", flexWrap: "wrap" }}>
+            <span style={{ fontSize: "12px", fontWeight: "700", padding: "4px 12px", borderRadius: "16px", background: "rgba(99, 102, 241, 0.12)", color: "#6366f1" }}>
+              Session Duration: Configured by Lecturer
+            </span>
+            <span style={{ fontSize: "12px", fontWeight: "700", padding: "4px 12px", borderRadius: "16px", background: "rgba(16, 185, 129, 0.12)", color: "#10b981" }}>
+              QR Rotation: Dynamic Classroom Screen
+            </span>
           </div>
         </div>
-      </section>
-
-      {/* Attendance Rules */}
-      <section className="settings-card">
-        <div className="settings-card-header">
-          <div className="settings-icon">
-            <FaQrcode />
-          </div>
-          <div>
-            <h2>Attendance Rules</h2>
-            <p>Control how attendance is recorded.</p>
-          </div>
-        </div>
-
-        <label className="toggle-setting">
-          <input
-            type="checkbox"
-            name="allowLateAttendance"
-            checked={settings.allowLateAttendance}
-            onChange={handleChange}
-          />
-          <span className="toggle-slider"></span>
-          <div>
-            <strong>Allow late attendance</strong>
-            <p>Allow students to mark attendance after the normal attendance window.</p>
-          </div>
-        </label>
       </section>
 
       {/* Save Settings Actions */}

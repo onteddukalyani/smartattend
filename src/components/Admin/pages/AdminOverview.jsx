@@ -266,29 +266,10 @@ const AdminOverview = () => {
       {/* Header */}
       <div className="admin-page-header">
         <div>
-          <h1>Admin Dashboard</h1>
-          <p>Manage IIIT Dharwad attendance, users, faculty, and system access.</p>
+          <h1>Administrative Operations Hub</h1>
+          <p>Institutional oversight for IIIT Dharwad attendance, student records, faculty rosters, and system security.</p>
         </div>
-        <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
-          <button
-            onClick={() => navigate("/admin/lecturerpage")}
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: "0.5rem",
-              padding: "0.6rem 1.2rem",
-              borderRadius: "8px",
-              background: "linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)",
-              color: "#ffffff",
-              border: "none",
-              fontWeight: "600",
-              cursor: "pointer",
-              boxShadow: "0 4px 12px rgba(99, 102, 241, 0.3)"
-            }}
-            title="Generate 2-Phase Dynamic Attendance QR Code"
-          >
-            <FaQrcode /> Generate QR
-          </button>
+        <div style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
 
           <span style={{
             display: "inline-flex",

@@ -184,7 +184,7 @@ const SCHEMA_BLUEPRINTS = [
       { name: "domain", type: "string", required: true, desc: "Authorized email domain (e.g. iiitdwd.ac.in)" },
       { name: "defaultGeofenceRadius", type: "number", required: true, desc: "Classroom GPS radius in meters (10m)" },
       { name: "qrRefreshInterval", type: "number", required: true, desc: "Dual QR rotation interval in seconds (10s)" },
-      { name: "sessionDuration", type: "number", required: true, desc: "Standard class duration in minutes (10m)" }
+      { name: "sessionDuration", type: "number", required: true, desc: "Reference default duration (Class session timings are manually set by Lecturers)" }
     ]
   },
   {

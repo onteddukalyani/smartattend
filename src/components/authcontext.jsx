@@ -959,17 +959,7 @@ export const AuthProvider = ({ children }) => {
   // GOOGLE LOGIN (STRICT READ-ONLY: ONLY PRE-REGISTERED USERS ALLOWED, ZERO WRITES)
   // =========================================================
 
-  const loginWithGoogle = async (selectedRole) => {
-    const selected = String(selectedRole || "").trim().toLowerCase();
-
-    if (
-      selected !== "admin" &&
-      selected !== "lecturer" &&
-      selected !== "student"
-    ) {
-      throw new Error("Please select a valid role before signing in.");
-    }
-
+  const loginWithGoogle = async (selectedRole = "") => {
     // Open Google login popup
     const result = await firebaseLoginWithGoogle();
     const currentUser = result.user;
@@ -1022,27 +1012,12 @@ export const AuthProvider = ({ children }) => {
       );
     }
 
-    // Role verification
+    // -------------------------------------------------------
+    // AUTHORITATIVE ROLE: DERIVED DIRECTLY FROM DATABASE
+    // Look up user in database and give access according to their document
+    // -------------------------------------------------------
     const databaseRole = normalizeRole(registeredUser.role);
-    if (databaseRole !== selected) {
-      await reportUserVerificationComplaint(
-        { email: cleanEmail, name: registeredUser.name, rollNo: registeredUser.rollNo },
-        `Role Mismatch: User selected "${selected}" but registered as "${databaseRole}"`,
-        "ROLE_MISMATCH_LOGIN"
-      );
-      await firebaseLogoutUser();
-      const mismatchErr = new Error(
-        `Role Mismatch: You selected "${selected}", but your account is registered as "${databaseRole}". Please select "${databaseRole}" to log in.`
-      );
-      mismatchErr.code = "ROLE_MISMATCH";
-      mismatchErr.selectedRole = selected;
-      mismatchErr.registeredRole = databaseRole;
-      mismatchErr.email = cleanEmail;
-      throw mismatchErr;
-    }
-
-    // Set role & session in local storage
-    localStorage.setItem("smartattend-user-role", selected);
+    localStorage.setItem("smartattend-user-role", databaseRole);
 
     const prefix = cleanEmail.split("@")[0].toLowerCase().trim();
     const cleanRollNo = registeredUser.rollNo || (databaseRole === "student" ? prefix.toUpperCase() : undefined);
