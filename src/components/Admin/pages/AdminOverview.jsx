@@ -13,7 +13,9 @@ import {
   FaAndroid,
   FaDownload,
   FaQrcode,
-  FaMobileAlt
+  FaMobileAlt,
+  FaDatabase,
+  FaTools
 } from "react-icons/fa";
 import { Capacitor } from "@capacitor/core";
 import { collection, getDocs, query, where, onSnapshot } from "firebase/firestore";
@@ -36,7 +38,7 @@ const AdminOverview = () => {
   const [recentSessions, setRecentSessions] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  const computeAdminData = (usersDocs, studentsDocs, sessionsDocs, recordsDocs, authDocs, adminsDocs = []) => {
+  const computeAdminData = (usersDocs, studentsDocs, sessionsDocs, recordsDocs, authDocs, adminsDocs = [], lecturersDocs = []) => {
     try {
       const getCanonicalRoll = (d, id) => {
         if (d?.rollNo && String(d.rollNo).trim()) {
@@ -56,7 +58,15 @@ const AdminOverview = () => {
       const lecturerSet = new Set();
       const adminSet = new Set();
 
-      // 1. Ingest dedicated admins collection
+      // 1. Ingest dedicated lecturers collection
+      lecturersDocs.forEach((docSnap) => {
+        const d = typeof docSnap.data === "function" ? docSnap.data() : docSnap;
+        const email = (d.email || (docSnap.id.includes("@") ? docSnap.id : "")).toLowerCase().trim();
+        const key = email || docSnap.id.toLowerCase().trim();
+        if (key) lecturerSet.add(key);
+      });
+
+      // 2. Ingest dedicated admins collection
       adminsDocs.forEach((docSnap) => {
         const d = typeof docSnap.data === "function" ? docSnap.data() : docSnap;
         const email = (d.email || (docSnap.id.includes("@") ? docSnap.id : "")).toLowerCase().trim();
@@ -64,7 +74,7 @@ const AdminOverview = () => {
         if (key) adminSet.add(key);
       });
 
-      // 2. Process authorizedUsers
+      // 3. Process authorizedUsers
       authDocs.forEach((docSnap) => {
         const d = typeof docSnap.data === "function" ? docSnap.data() : docSnap;
         const role = String(d.role || "").toLowerCase().trim();
@@ -173,15 +183,16 @@ const AdminOverview = () => {
   const fetchOverviewData = async () => {
     try {
       setLoading(true);
-      const [usersSnap, studentsSnap, sessionsSnap, recordsSnap, authUsersSnap, adminsSnap] = await Promise.all([
+      const [usersSnap, studentsSnap, sessionsSnap, recordsSnap, authUsersSnap, adminsSnap, lecturersSnap] = await Promise.all([
         getDocs(collection(db, "users")).catch(() => ({ docs: [] })),
         getDocs(collection(db, "students")).catch(() => ({ docs: [] })),
         getDocs(collection(db, "attendance_sessions")).catch(() => ({ docs: [] })),
         getDocs(collection(db, "attendance_records")).catch(() => ({ docs: [] })),
         getDocs(collection(db, "authorizedUsers")).catch(() => ({ docs: [] })),
-        getDocs(collection(db, "admins")).catch(() => ({ docs: [] }))
+        getDocs(collection(db, "admins")).catch(() => ({ docs: [] })),
+        getDocs(collection(db, "lecturers")).catch(() => ({ docs: [] }))
       ]);
-      computeAdminData(usersSnap.docs, studentsSnap.docs, sessionsSnap.docs, recordsSnap.docs, authUsersSnap.docs, adminsSnap.docs);
+      computeAdminData(usersSnap.docs, studentsSnap.docs, sessionsSnap.docs, recordsSnap.docs, authUsersSnap.docs, adminsSnap.docs, lecturersSnap.docs);
     } catch (err) {
       console.error("Error fetching admin overview data:", err);
     } finally {
@@ -196,9 +207,10 @@ const AdminOverview = () => {
     let recordsDocs = [];
     let authDocs = [];
     let adminsDocs = [];
+    let lecturersDocs = [];
 
     const recompute = () => {
-      computeAdminData(usersDocs, studentsDocs, sessionsDocs, recordsDocs, authDocs, adminsDocs);
+      computeAdminData(usersDocs, studentsDocs, sessionsDocs, recordsDocs, authDocs, adminsDocs, lecturersDocs);
     };
 
     const unsubUsers = onSnapshot(collection(db, "users"), (snap) => {
@@ -231,6 +243,11 @@ const AdminOverview = () => {
       recompute();
     }, (e) => console.warn("admins snapshot error:", e));
 
+    const unsubLecturers = onSnapshot(collection(db, "lecturers"), (snap) => {
+      lecturersDocs = snap.docs;
+      recompute();
+    }, (e) => console.warn("lecturers snapshot error:", e));
+
     return () => {
       unsubUsers();
       unsubStudents();
@@ -238,6 +255,7 @@ const AdminOverview = () => {
       unsubRecords();
       unsubAuth();
       unsubAdmins();
+      unsubLecturers();
     };
   }, []);
 
@@ -306,6 +324,26 @@ const AdminOverview = () => {
           </a>
 
           <button
+            onClick={() => navigate("/admin/database")}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "0.5rem",
+              padding: "0.6rem 1.2rem",
+              borderRadius: "8px",
+              background: "linear-gradient(135deg, #6366f1 0%, #4338ca 100%)",
+              color: "#ffffff",
+              border: "none",
+              fontWeight: "600",
+              cursor: "pointer",
+              boxShadow: "0 4px 12px rgba(99, 102, 241, 0.3)"
+            }}
+            title="Open Database & System Control Hub"
+          >
+            <FaDatabase /> Database Hub
+          </button>
+
+          <button
             onClick={fetchOverviewData}
             disabled={loading}
             style={{
@@ -330,6 +368,21 @@ const AdminOverview = () => {
 
       {/* Statistics */}
       <div className="admin-stats">
+        <div
+          className="admin-stat-card"
+          onClick={() => navigate("/admin/database")}
+          style={{ cursor: "pointer", border: "1px solid rgba(99, 102, 241, 0.35)" }}
+          title="Click to inspect, repair, and manage database records"
+        >
+          <div className="stat-icon" style={{ background: "rgba(99, 102, 241, 0.12)", color: "#6366f1" }}>
+            <FaDatabase />
+          </div>
+          <div>
+            <span>Database Hub</span>
+            <strong style={{ fontSize: "1.05rem", color: "#6366f1" }}>Inspect &amp; Control</strong>
+          </div>
+        </div>
+
         <div
           className="admin-stat-card"
           onClick={() => navigate("/admin/students")}

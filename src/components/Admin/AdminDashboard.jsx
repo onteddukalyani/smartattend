@@ -13,6 +13,7 @@ import StudentsList from "../Common/StudentsList";
 import AddStudent from "./pages/AddStudent";
 import AttendanceOverview from "./pages/AttendanceOverview";
 import InstitutionSettings from "./pages/InstitutionSettings";
+import DatabaseManager from "./pages/DatabaseManager";
 import AdminProfile from "./pages/AdminProfile";
 import ManageCourses from "../Common/CoursesManager";
 import Settings from "../Common/Settings";
@@ -100,6 +101,9 @@ const AdminDashboard = () => {
             <Route path="reregistration" element={<ManageBiometricReRegistration />} />
             <Route path="identify-student" element={<IdentifyStudentByFace />} />
             <Route path="face-identification" element={<IdentifyStudentByFace />} />
+            <Route path="database" element={<DatabaseManager />} />
+            <Route path="database-manager" element={<DatabaseManager />} />
+            <Route path="system-control" element={<DatabaseManager />} />
             <Route path="institution" element={<InstitutionSettings />} />
             <Route path="settings" element={<Settings />} />
             <Route path="device-setup" element={<DeviceSetupPage />} />

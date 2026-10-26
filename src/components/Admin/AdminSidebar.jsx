@@ -16,6 +16,8 @@ import {
   FaGraduationCap,
   FaQrcode,
   FaHeadset,
+  FaDatabase,
+  FaUniversity
 } from "react-icons/fa";
 import { useAuth } from "../authcontext";
 
@@ -34,6 +36,7 @@ const AdminSidebar = ({ isOpen, onClose }) => {
 
   const menuItems = [
     { path: "/admin", label: "Dashboard", icon: FaHome, end: true },
+    { path: "/admin/database", label: "Database Hub", icon: FaDatabase },
     { path: "/admin/lecturerpage", label: "Generate QR", icon: FaQrcode },
     { path: "/admin/admins", label: "Manage Admins", icon: FaUserShield },
     { path: "/admin/lecturers", label: "Manage Lecturers", icon: FaChalkboardTeacher },
@@ -41,6 +44,7 @@ const AdminSidebar = ({ isOpen, onClose }) => {
     { path: "/admin/courses", label: "Courses", icon: FaBookOpen },
     { path: "/admin/attendance", label: "Attendance", icon: FaClipboardCheck },
     { path: "/admin/classes", label: "Classes", icon: FaChalkboard },
+    { path: "/admin/institution", label: "Institution Settings", icon: FaUniversity },
     { path: "/admin/support", label: "Help & Ticket Desk", icon: FaHeadset },
     { path: "/admin/settings", label: "Settings", icon: FaCog }
   ];
