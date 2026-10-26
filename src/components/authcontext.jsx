@@ -514,17 +514,7 @@ export const AuthProvider = ({ children }) => {
           if (isMounted) {
             setUser(currentUser);
             setProfile(enrichedProfile);
-
-            // If user already exists in database, give immediate access without re-storing or re-writing to database
-            if (!enrichedProfile.isDeviceRegistered && !registeredUser.deviceType && !registeredUser.deviceTypeLocked) {
-              registerUserDevice({
-                role: enrichedProfile.role,
-                id: enrichedProfile.id,
-                rollNo: enrichedProfile.rollNo,
-                user: currentUser,
-                profile: enrichedProfile
-              }).catch(() => {});
-            }
+            // Strict read-only on login: Use existing database document only, zero writes to database.
           }
 
         } catch (error) {
@@ -936,24 +926,12 @@ export const AuthProvider = ({ children }) => {
       updatedAt: Date.now()
     };
 
-    const promises = [];
-
+    // Strictly update ONLY the student's existing record in students collection
     if (rollNo) {
-      promises.push(setDoc(doc(db, "students", rollNo), updatePayload, { merge: true }).catch(() => {}));
-      promises.push(setDoc(doc(db, "users", rollNo), updatePayload, { merge: true }).catch(() => {}));
+      await setDoc(doc(db, "students", rollNo), updatePayload, { merge: true }).catch(() => {});
+    } else if (cleanEmail) {
+      await setDoc(doc(db, "students", cleanEmail), updatePayload, { merge: true }).catch(() => {});
     }
-    if (user?.uid) {
-      promises.push(setDoc(doc(db, "users", user.uid), updatePayload, { merge: true }).catch(() => {}));
-    }
-    if (prefix && prefix !== rollNo.toLowerCase()) {
-      promises.push(setDoc(doc(db, "students", prefix), updatePayload, { merge: true }).catch(() => {}));
-      promises.push(setDoc(doc(db, "users", prefix), updatePayload, { merge: true }).catch(() => {}));
-    }
-    if (cleanEmail) {
-      promises.push(setDoc(doc(db, "authorizedUsers", cleanEmail), updatePayload, { merge: true }).catch(() => {}));
-    }
-
-    await Promise.all(promises);
 
     // Update React State immediately across the entire application
     setProfile((prev) => ({

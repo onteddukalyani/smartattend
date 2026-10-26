@@ -685,28 +685,9 @@ export async function resetStudentDeviceLockGlobally(student, actorName = "Facul
         deviceResetBy: actorName
     };
 
-    const targetRefs = [];
     if (cleanRoll) {
-        targetRefs.push(doc(db, "students", cleanRoll));
-        targetRefs.push(doc(db, "users", cleanRoll));
-        targetRefs.push(doc(db, "authorizedUsers", cleanRoll));
-        targetRefs.push(doc(db, "students", cleanRoll.toLowerCase()));
-        targetRefs.push(doc(db, "users", cleanRoll.toLowerCase()));
-        targetRefs.push(doc(db, "authorizedUsers", cleanRoll.toLowerCase()));
+        await setDoc(doc(db, "students", cleanRoll), resetPayload, { merge: true });
     }
-    if (studentUid) {
-        targetRefs.push(doc(db, "users", studentUid));
-        targetRefs.push(doc(db, "students", studentUid));
-    }
-    if (cleanEmail) {
-        targetRefs.push(doc(db, "users", cleanEmail));
-        targetRefs.push(doc(db, "authorizedUsers", cleanEmail));
-    }
-    if (emailPrefix && emailPrefix !== cleanRoll.toLowerCase()) {
-        targetRefs.push(doc(db, "authorizedUsers", emailPrefix));
-    }
-
-    await Promise.allSettled(targetRefs.map((ref) => setDoc(ref, resetPayload, { merge: true })));
 
     // Authorize student to immediately re-select and register new device & biometrics
     const permPayload = {
@@ -724,9 +705,6 @@ export async function resetStudentDeviceLockGlobally(student, actorName = "Facul
 
     if (cleanRoll) {
         await setDoc(doc(db, "biometric_reregistration_permissions", cleanRoll), permPayload, { merge: true }).catch(() => {});
-    }
-    if (studentUid) {
-        await setDoc(doc(db, "biometric_reregistration_permissions", studentUid), permPayload, { merge: true }).catch(() => {});
     }
 
     const updated = {

@@ -66,28 +66,8 @@ export async function registerStudentFace(rollNo, faceDescriptor) {
     enrollPayload.faceDescriptor = rawVector;
   }
 
-  const targets = [
-    doc(db, "students", cleanRoll),
-    doc(db, "users", cleanRoll),
-    doc(db, "authorizedUsers", cleanRoll),
-    doc(db, "students", cleanRoll.toLowerCase()),
-    doc(db, "users", cleanRoll.toLowerCase()),
-    doc(db, "authorizedUsers", cleanRoll.toLowerCase())
-  ];
-  if (auth.currentUser?.uid && auth.currentUser.uid !== cleanRoll) {
-    targets.push(doc(db, "users", auth.currentUser.uid));
-    targets.push(doc(db, "students", auth.currentUser.uid));
-  }
-  if (auth.currentUser?.email) {
-    const cleanEmail = auth.currentUser.email.trim().toLowerCase();
-    targets.push(doc(db, "users", cleanEmail));
-    targets.push(doc(db, "authorizedUsers", cleanEmail));
-  }
-  const institutionalEmail = `${cleanRoll.toLowerCase()}@iiitdwd.ac.in`;
-  targets.push(doc(db, "users", institutionalEmail));
-  targets.push(doc(db, "authorizedUsers", institutionalEmail));
-
-  await Promise.allSettled(targets.map(ref => setDoc(ref, enrollPayload, { merge: true })));
+  // Save face enrollment strictly to the student's canonical document in students collection
+  await setDoc(doc(db, "students", cleanRoll), enrollPayload, { merge: true });
 
   if (typeof window !== "undefined") {
     try {
@@ -206,8 +186,6 @@ export async function removeStudentFaceEnrollment(rollNo, actorName = "Faculty/A
   };
 
   await setDoc(doc(db, "students", cleanRoll), resetPayload, { merge: true });
-  await setDoc(doc(db, "users", cleanRoll), resetPayload, { merge: true }).catch(() => {});
-  await setDoc(doc(db, "authorizedUsers", cleanRoll), resetPayload, { merge: true }).catch(() => {});
 
   // Automatically grant active re-registration permission so the student can immediately re-enroll
   const permPayload = {

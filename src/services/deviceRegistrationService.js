@@ -79,74 +79,33 @@ export async function registerUserDevice({
 
   const writePromises = [];
 
-  // 1. Role-specific collection write
+  // 1. Role-specific collection write (strictly target the existing document only, zero hash/UID docs)
   if (normRole === "lecturer" || normRole === "faculty") {
     const lectPayload = { ...devicePayload, role: "lecturer" };
-    const prefix = cleanEmail ? cleanEmail.split("@")[0].toLowerCase().trim() : null;
-    const targetDocId = cleanEmail || uid || cleanId;
+    const targetDocId = cleanEmail || (cleanId.includes("@") ? cleanId : null);
     if (targetDocId) {
       writePromises.push(
         setDoc(doc(db, "lecturers", targetDocId), lectPayload, { merge: true })
           .catch((err) => console.warn("Lecturer device registration notice:", err.message))
       );
     }
-    if (prefix && prefix !== targetDocId && prefix !== uid) {
-      writePromises.push(
-        setDoc(doc(db, "lecturers", prefix), lectPayload, { merge: true })
-          .catch(() => {})
-      );
-    }
-    if (uid && targetDocId !== uid) {
-      writePromises.push(
-        setDoc(doc(db, "lecturers", uid), lectPayload, { merge: true })
-          .catch(() => {})
-      );
-    }
   } else if (normRole === "admin" || normRole === "superadmin") {
-    const targetDocId = cleanEmail || uid || cleanId;
+    const targetDocId = cleanEmail || (cleanId.includes("@") ? cleanId : null);
     if (targetDocId) {
       writePromises.push(
         setDoc(doc(db, "admins", targetDocId), devicePayload, { merge: true })
           .catch((err) => console.warn("Admin device registration notice:", err.message))
       );
     }
-    if (uid && targetDocId !== uid) {
-      writePromises.push(
-        setDoc(doc(db, "admins", uid), devicePayload, { merge: true })
-          .catch(() => {})
-      );
-    }
   } else {
-    // Student collection write
-    if (cleanId) {
+    // Student collection write (target only canonical student document, e.g. rollNo)
+    const targetDocId = (cleanId && !cleanId.includes("@")) ? cleanId : (rollNo || cleanEmail);
+    if (targetDocId) {
       writePromises.push(
-        setDoc(doc(db, "students", cleanId), devicePayload, { merge: true })
+        setDoc(doc(db, "students", targetDocId), devicePayload, { merge: true })
           .catch((err) => console.warn("Student device registration notice:", err.message))
       );
     }
-    if (uid && cleanId !== uid) {
-      writePromises.push(
-        setDoc(doc(db, "students", uid), devicePayload, { merge: true })
-          .catch(() => {})
-      );
-    }
-  }
-
-  // 2. Generic users collection write for all authenticated accounts
-  if (uid) {
-    const userPayload = { ...devicePayload };
-    if (normRole === "student" && cleanId && !cleanId.includes("@")) {
-      userPayload.rollNo = cleanId;
-    }
-    writePromises.push(
-      setDoc(doc(db, "users", uid), userPayload, { merge: true }).catch(() => {})
-    );
-  }
-
-  if (cleanEmail && cleanEmail !== uid) {
-    writePromises.push(
-      setDoc(doc(db, "users", cleanEmail), devicePayload, { merge: true }).catch(() => {})
-    );
   }
 
   await Promise.allSettled(writePromises);

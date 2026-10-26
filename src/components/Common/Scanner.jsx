@@ -1230,7 +1230,12 @@ function QrScannerApp() {
             requestAutoFailSafeUnlock(activeSessionId, user?.uid, deviceIdentity?.deviceId).catch(() => { });
         }
         setSessionEndedAutoReleased(true);
-        if (reason.toLowerCase().includes('dashboard') || reason.toLowerCase().includes('manual') || reason.toLowerCase().includes('pin')) {
+        if (
+            reason.toLowerCase().includes('dashboard') ||
+            reason.toLowerCase().includes('manual') ||
+            reason.toLowerCase().includes('pin') ||
+            reason.toLowerCase().includes('back')
+        ) {
             navigate('/student', { replace: true });
         }
     }, [activeSessionId, releaseCameraLock, user?.uid, deviceIdentity?.deviceId, navigate]);

@@ -613,9 +613,10 @@ export default function StudentDashboard() {
                 setShowDeviceModal(false);
             } catch (_) { }
 
-            // Authoritatively persist native Android device binding to database
-            if (activeRollNo || user?.uid) {
+            // Only bind native Android device if student has an active roll number and is not already locked
+            if (activeRollNo && !fetchedStudentData?.deviceTypeLocked && !profile?.deviceTypeLocked) {
                 registerStudentDevice({
+                    id: activeRollNo,
                     rollNo: activeRollNo,
                     user,
                     profile,

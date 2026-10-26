@@ -201,7 +201,7 @@ export function DeviceOnboardingModal({ isOpen, onClose }) {
             // Authoritatively persist and link device directly to Firestore database collections
             await registerUserDevice({
                 role: currentRole,
-                id: profile?.id || user?.uid || roll,
+                id: currentRole === 'student' ? roll : (profile?.email || user?.email),
                 rollNo: currentRole === 'student' ? roll : null,
                 user,
                 profile,
