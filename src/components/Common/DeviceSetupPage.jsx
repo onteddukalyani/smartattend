@@ -13,6 +13,7 @@ import {
 import { useAuth } from "../authcontext";
 import { isIOSDevice } from "../../services/guidedAccessService";
 import { getApkDownloadUrl } from "../../utils/apkUrl";
+import IphoneInstructionsModal from "./IphoneInstructionsModal";
 import "./DeviceSetupPage.css";
 
 const ANDROID_APK_URL = getApkDownloadUrl();
@@ -130,6 +131,7 @@ export default function DeviceSetupPage() {
   });
   const roleHome = getRoleHome(location.pathname);
   const roleName = profile?.role === "admin" ? "Administrator" : profile?.role === "lecturer" ? "Lecturer" : "Student";
+  const [showIphoneModal, setShowIphoneModal] = useState(false);
 
   return (
     <main className="device-setup-page">
@@ -274,40 +276,69 @@ export default function DeviceSetupPage() {
           <div className="device-instructions-heading ios">
             <FaApple />
             <div>
-              <h2>iPhone Setup Checklist</h2>
-              <p>Install the Home Screen web app, enable Guided Access, and register both biometrics directly in the app.</p>
+              <h2>iPhone Setup &amp; Usage Guide</h2>
+              <p>Follow these 7 in-app steps for camera permissions, Guided Access setup, attendance, and how to exit.</p>
             </div>
+          </div>
+
+          <div style={{ margin: '16px 0' }}>
+            <button
+              type="button"
+              onClick={() => setShowIphoneModal(true)}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '8px',
+                background: 'linear-gradient(135deg, #1e293b, #0f172a)',
+                color: '#ffffff',
+                border: 'none',
+                padding: '12px 20px',
+                borderRadius: '12px',
+                fontWeight: 700,
+                fontSize: '0.92rem',
+                cursor: 'pointer',
+                boxShadow: '0 4px 12px rgba(15, 23, 42, 0.25)'
+              }}
+            >
+              <FaApple /> 📱 Open Interactive iPhone Guide (Setup, Camera &amp; How to Exit)
+            </button>
           </div>
 
           <ol className="device-instruction-list">
             <li>
-              <strong>Install to Home Screen:</strong> Open the SmartAttend website in Safari. Tap the Share icon, then select <span className="device-step-tag">Add to Home Screen</span> (PWA Mode).
+              <strong>1. Allow Safari Camera Permissions:</strong> In Safari, tap the <span className="device-step-tag">aA</span> icon in the address bar <span className="device-path-arrow">→</span> Website Settings <span className="device-path-arrow">→</span> set Camera to <span className="device-step-tag">Allow</span>. (Or go to iPhone Settings <span className="device-path-arrow">→</span> Safari <span className="device-path-arrow">→</span> Camera <span className="device-path-arrow">→</span> Allow).
             </li>
             <li>
-              <strong>Turn On Guided Access:</strong> Open <span className="device-step-tag">iPhone Settings</span> <span className="device-path-arrow">→</span> <span className="device-step-tag">Accessibility</span> <span className="device-path-arrow">→</span> <span className="device-step-tag">Guided Access</span>. Turn it on and set a passcode.
+              <strong>2. Install to Home Screen (PWA Mode):</strong> Open SmartAttend in Safari, tap the Share icon (square with arrow ⎋) <span className="device-path-arrow">→</span> select <span className="device-step-tag">Add to Home Screen</span> (+) <span className="device-path-arrow">→</span> tap <span className="device-step-tag">Add</span>. Launch from your Home Screen for full-screen mode.
             </li>
             <li>
-              <strong>Register Face Biometrics In-App:</strong> Launch SmartAttend from the Home Screen, sign in, open <span className="device-step-tag">Sidebar</span> <span className="device-path-arrow">→</span> <span className="device-step-tag">Biometric Registration</span>, and complete your live 3D face scan.
+              <strong>3. Turn On Guided Access in iOS:</strong> Open <span className="device-step-tag">iPhone Settings</span> <span className="device-path-arrow">→</span> <span className="device-step-tag">Accessibility</span> <span className="device-path-arrow">→</span> <span className="device-step-tag">Guided Access</span>. Turn it ON, tap Passcode Settings to set a 4 or 6-digit PIN, and toggle Accessibility Shortcut to ON.
             </li>
             <li>
-              <strong>Register Device Biometrics In-App:</strong> Switch to the <span className="device-step-tag">Device Fingerprint</span> tab and tap <span className="device-step-tag">Touch Sensor to Register Fingerprint In-App</span> to authorize Face ID / Touch ID directly within the app.
+              <strong>4. Register Face &amp; Device Biometrics In-App:</strong> Launch SmartAttend, sign in, open <span className="device-step-tag">Biometric Registration</span>, complete your live 3D face scan, and switch to <span className="device-step-tag">Device Fingerprint</span> to authorize Face ID / Touch ID.
             </li>
             <li>
-              <strong>Start Guided Access Before Scanning:</strong> Before scanning attendance QR codes, triple-click the Side button (or Home button) and tap Start.
+              <strong>5. Start Guided Access Before Attendance:</strong> Before opening the scanner or scanning QR codes, <strong>triple-click the Side/Power button</strong> (or Home button) and tap <span className="device-step-tag">Start</span> in the top-right corner.
             </li>
             <li>
-              <strong>Mark Attendance:</strong> Scan the lecturer's QR codes and complete the live face scan. Keep SmartAttend active in the foreground throughout attendance.
+              <strong>6. Mark Attendance (QR 1 → QR 2 → 3D Face):</strong> Scan the lecturer's QR 1, wait for QR 2, then complete the 3D Face scan. Keep SmartAttend active in the foreground throughout attendance.
             </li>
             <li>
-              <strong>Exit After Session:</strong> After the lecturer ends attendance, triple-click again and enter your Guided Access passcode to exit.
+              <strong>7. How to Leave the App / Exit Guided Access:</strong> When attendance shows Submitted (or the lecturer releases devices), <strong>rapidly triple-click the Side button</strong>, enter your passcode, and tap <span className="device-step-tag" style={{ color: '#ef4444' }}>End</span> in the top-left corner. You can now swipe up or tap Return to Dashboard.
             </li>
           </ol>
 
           <div className="device-setup-note">
-            <FaInfoCircle /> Guided Access must be enabled by you and cannot be reliably verified by a web app. iPhone web apps cannot fully lock the device like Android kiosk mode; leaving the attendance screen may invalidate the attempt under the class policy.
+            <FaInfoCircle /> Guided Access locks down iOS swipe gestures during class to prevent proxy attempts. When session concludes or lecturer releases devices, triple-click the Side Button to turn off Guided Access and leave.
           </div>
         </section>
       )}
+
+      {/* Interactive In-App iPhone Guide Modal */}
+      <IphoneInstructionsModal
+        isOpen={showIphoneModal}
+        onClose={() => setShowIphoneModal(false)}
+      />
     </main>
   );
 }

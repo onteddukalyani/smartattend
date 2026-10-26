@@ -228,17 +228,38 @@ export function GuidedAccessRequired({ onEnabled }) {
  * 
  * Shown after student completes attendance on iOS to remind them how to exit Guided Access.
  */
-export function GuidedAccessExitNotice() {
+export function GuidedAccessExitNotice({ onOpenGuide }) {
     return (
         <div className="ga-exit-banner">
             <div className="ga-exit-banner-icon">
                 <FaCheckCircle />
             </div>
-            <div className="ga-exit-banner-content">
-                <h4>Attendance Completed!</h4>
-                <p>
-                    You can now exit Guided Access anytime by <strong>Triple-clicking the Side Button</strong> and entering your iPhone passcode.
+            <div className="ga-exit-banner-content" style={{ textAlign: 'left' }}>
+                <h4 style={{ margin: '0 0 4px 0', fontSize: '0.95rem', fontWeight: 800, color: '#166534' }}>Attendance Completed!</h4>
+                <p style={{ margin: '0 0 8px 0', fontSize: '0.84rem', color: '#334155', lineHeight: 1.45 }}>
+                    You can now exit Guided Access: <strong>Triple-click the Side Button</strong>, enter your passcode, and tap <strong>End</strong>.
                 </p>
+                {onOpenGuide && (
+                    <button
+                        type="button"
+                        onClick={onOpenGuide}
+                        style={{
+                            background: '#dcfce7',
+                            border: '1px solid #86efac',
+                            color: '#15803d',
+                            fontSize: '0.8rem',
+                            fontWeight: 700,
+                            padding: '5px 12px',
+                            borderRadius: '8px',
+                            cursor: 'pointer',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '6px'
+                        }}
+                    >
+                        📱 View iPhone Exit Steps
+                    </button>
+                )}
             </div>
         </div>
     );

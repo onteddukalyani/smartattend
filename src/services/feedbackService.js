@@ -67,6 +67,12 @@ export const SUPPORT_CONTACTS = {
  */
 export const FREQUENT_QUESTIONS = [
   {
+    id: "faq-iphone-instructions",
+    category: "iPhone (iOS)",
+    question: "How do I setup iPhone, enable camera, and exit/leave the app when attendance ends?",
+    answer: "1. Camera: Tap 'aA' in Safari address bar -> Website Settings -> Camera -> Allow. 2. Guided Access: iOS Settings -> Accessibility -> Guided Access -> turn ON and set PIN. 3. Before Scanning: Triple-click Side Button -> tap Start. 4. How to Exit: Triple-click Side Button -> enter PIN -> tap 'End' in top-left -> swipe up to leave."
+  },
+  {
     id: "faq-qr",
     category: "QR & Scanning",
     question: "Why does my camera show a black screen, blocked message, or fail to scan?",

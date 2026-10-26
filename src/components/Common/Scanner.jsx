@@ -24,7 +24,9 @@ import {
     FaMapMarkerAlt,
     FaUnlock,
     FaHourglassHalf,
-    FaBolt
+    FaBolt,
+    FaApple,
+    FaInfoCircle
 } from 'react-icons/fa';
 import { MdQrCodeScanner } from 'react-icons/md';
 import { useAuth } from '../authcontext';
@@ -46,6 +48,7 @@ import FaceScanner, { releaseAllMediaTracks, loadFaceApiModels } from '../Lectur
 import { isIOSDevice, isGuidedAccessEnabled, addAppSwitchListener, addScreenCaptureListener } from '../../services/guidedAccessService';
 import { getApkDownloadUrl } from '../../utils/apkUrl';
 import GuidedAccessRequired, { GuidedAccessExitNotice } from '../GuidedAccessRequired';
+import IphoneInstructionsModal from './IphoneInstructionsModal';
 import { isGenericName, subscribeToStudentUpdates, PROFILE_UPDATED_EVENT } from '../../utils/studentDataHelper';
 import { detectDeviceType, getClientIpAddress, getDeviceDisplayName, isDeviceMatching, isBrowserCameraAllowed, isStaffCameraUser } from '../../utils/deviceDetection';
 import { sendFacultyNotification, sendStudentNotification, reportUserVerificationComplaint } from '../../services/notificationsService';
@@ -136,6 +139,7 @@ function QrScannerApp() {
 
     // iOS Guided Access Lockdown State
     const [showGuidedAccessRequired, setShowGuidedAccessRequired] = useState(false);
+    const [showIosGuideModal, setShowIosGuideModal] = useState(false);
 
     // Web Guardian Supervision & Lifecycle Monitoring State
     const [supervisionViolation, setSupervisionViolation] = useState(false);
@@ -4025,7 +4029,7 @@ function QrScannerApp() {
                 </div>
 
                 {/* On iOS: Guided Access Exit Guidance Notice */}
-                {isIOSDevice() && <GuidedAccessExitNotice />}
+                {isIOSDevice() && <GuidedAccessExitNotice onOpenGuide={() => setShowIosGuideModal(true)} />}
 
                 {/* Details Box */}
                 <div className="st-attendance-details-box">
@@ -4160,6 +4164,12 @@ function QrScannerApp() {
                         <FaUnlock /> Exit SmartAttend App
                     </button>
                 </div>
+
+                {/* In-App Interactive iPhone Guide Modal */}
+                <IphoneInstructionsModal
+                    isOpen={showIosGuideModal}
+                    onClose={() => setShowIosGuideModal(false)}
+                />
             </div>
         );
     }
@@ -4203,6 +4213,13 @@ function QrScannerApp() {
                 <p style={{ color: 'var(--text-muted, #64748b)', fontSize: '0.92rem', margin: '0 0 24px 0', lineHeight: 1.55 }}>
                     The attendance session has officially concluded. All kiosk mode restrictions and camera locks have been automatically cleared.
                 </p>
+
+                {/* On iOS: Guided Access Exit Guidance Notice */}
+                {isIOSDevice() && (
+                    <div style={{ marginBottom: '20px', textAlign: 'left' }}>
+                        <GuidedAccessExitNotice onOpenGuide={() => setShowIosGuideModal(true)} />
+                    </div>
+                )}
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', maxWidth: '320px', margin: '0 auto' }}>
                     <button
@@ -4254,6 +4271,12 @@ function QrScannerApp() {
                         <FaUnlock /> Exit SmartAttend App
                     </button>
                 </div>
+
+                {/* In-App Interactive iPhone Guide Modal */}
+                <IphoneInstructionsModal
+                    isOpen={showIosGuideModal}
+                    onClose={() => setShowIosGuideModal(false)}
+                />
             </div>
         );
     }
@@ -5244,13 +5267,31 @@ function QrScannerApp() {
         <div className="st-scanner-container">
             {/* Header Navigation */}
             <div className="st-scanner-header">
-                <button
-                    type="button"
-                    onClick={() => navigate('/student')}
-                    className="st-scanner-back-btn"
-                >
-                    <FaArrowLeft /> Dashboard
-                </button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <button
+                        type="button"
+                        onClick={() => navigate('/student')}
+                        className="st-scanner-back-btn"
+                    >
+                        <FaArrowLeft /> Dashboard
+                    </button>
+
+                    {isIOSDevice() && (
+                        <button
+                            type="button"
+                            onClick={() => setShowIosGuideModal(true)}
+                            className="st-scanner-back-btn"
+                            style={{
+                                background: '#eff6ff',
+                                color: '#1d4ed8',
+                                border: '1.5px solid #bfdbfe',
+                                fontWeight: 700
+                            }}
+                        >
+                            <FaApple /> iPhone Guide
+                        </button>
+                    )}
+                </div>
 
                 {/* Student Badge */}
                 {user && (
@@ -5277,26 +5318,66 @@ function QrScannerApp() {
 
             {renderAndroidWebBanner()}
 
+            {/* Interactive iPhone Guide Banner */}
             {!isNativeApp && isIOSDevice() && !isStaff && (
                 <div style={{
                     maxWidth: '640px',
                     margin: '0 auto 16px',
-                    padding: '10px 16px',
-                    background: 'rgba(16, 185, 129, 0.08)',
-                    border: '1px solid #a7f3d0',
-                    borderRadius: '12px',
+                    padding: '12px 18px',
+                    background: 'linear-gradient(135deg, rgba(37, 99, 235, 0.08) 0%, rgba(59, 130, 246, 0.12) 100%)',
+                    border: '1.5px solid #bfdbfe',
+                    borderRadius: '16px',
                     display: 'flex',
                     alignItems: 'center',
-                    gap: '10px',
-                    fontSize: '0.82rem',
-                    color: '#065f46',
-                    fontWeight: 700,
+                    justifyContent: 'space-between',
+                    gap: '12px',
                     textAlign: 'left'
                 }}>
-                    <FaCheckCircle style={{ color: '#10b981', flexShrink: 0, fontSize: '1rem' }} />
-                    <span>
-                        iPhone Safari Scanning Active. Ensure camera permissions are allowed in Safari. If prompted during the session, please activate Guided Access (triple-click Side Button).
-                    </span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <div style={{
+                            width: '36px',
+                            height: '36px',
+                            borderRadius: '10px',
+                            background: '#2563eb',
+                            color: '#ffffff',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontSize: '18px',
+                            flexShrink: 0
+                        }}>
+                            <FaApple />
+                        </div>
+                        <div>
+                            <div style={{ fontWeight: 800, fontSize: '0.88rem', color: '#1e3a8a' }}>
+                                iPhone Safari &amp; Guided Access Mode
+                            </div>
+                            <div style={{ fontSize: '0.78rem', color: '#3b82f6', marginTop: '2px' }}>
+                                Camera allowed · Tap for setup &amp; exit instructions
+                            </div>
+                        </div>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={() => setShowIosGuideModal(true)}
+                        style={{
+                            background: '#2563eb',
+                            color: '#ffffff',
+                            border: 'none',
+                            padding: '8px 14px',
+                            borderRadius: '10px',
+                            fontWeight: 800,
+                            fontSize: '0.82rem',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            boxShadow: '0 2px 8px rgba(37, 99, 235, 0.3)',
+                            whiteSpace: 'nowrap'
+                        }}
+                    >
+                        <FaInfoCircle /> Instructions
+                    </button>
                 </div>
             )}
 
@@ -5712,6 +5793,12 @@ function QrScannerApp() {
 
             {renderBiometricsRequiredModal()}
             {renderVpnModal()}
+
+            {/* In-App Interactive iPhone Guide Modal */}
+            <IphoneInstructionsModal
+                isOpen={showIosGuideModal}
+                onClose={() => setShowIosGuideModal(false)}
+            />
         </div>
     );
 }

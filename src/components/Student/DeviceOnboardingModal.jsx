@@ -26,6 +26,7 @@ import { sendFacultyNotification, sendStudentNotification } from '../../services
 import { registerUserDevice, registerStudentDevice } from '../../services/deviceRegistrationService';
 import { getApkDownloadUrl } from '../../utils/apkUrl';
 import { broadcastStudentUpdate } from '../../utils/studentDataHelper';
+import IphoneInstructionsModal from '../Common/IphoneInstructionsModal';
 import './DeviceOnboardingModal.css';
 
 const ANDROID_APK_URL = getApkDownloadUrl();
@@ -66,6 +67,7 @@ export function DeviceOnboardingModal({ isOpen, onClose }) {
     const [gaVerified, setGaVerified] = useState(false);
     const [gaCheckLoading, setGaCheckLoading] = useState(false);
     const [saving, setSaving] = useState(false);
+    const [showIphoneModal, setShowIphoneModal] = useState(false);
     const [mismatchReported, setMismatchReported] = useState(() => {
         try {
             return localStorage.getItem(mismatchReportKey) === 'sent';
@@ -538,7 +540,33 @@ export function DeviceOnboardingModal({ isOpen, onClose }) {
                                     Before scanning QR code, <strong>Triple-Click Side Button</strong> to start Guided Access lockdown.
                                 </div>
                             </div>
+                            <div className="step-card">
+                                <div className="step-num">4</div>
+                                <div className="step-text">
+                                    <strong>How to Leave / Exit:</strong> Rapidly <strong>Triple-Click Side Button</strong>, enter your passcode, and tap <span className="step-highlight" style={{ color: '#ef4444' }}>End</span> in the top-left corner.
+                                </div>
+                            </div>
                         </div>
+
+                        <button
+                            type="button"
+                            className="device-action-btn"
+                            onClick={() => setShowIphoneModal(true)}
+                            style={{
+                                background: '#eff6ff',
+                                border: '1.5px solid #bfdbfe',
+                                color: '#1d4ed8',
+                                marginBottom: '14px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: '8px',
+                                fontWeight: 700,
+                                fontSize: '0.9rem'
+                            }}
+                        >
+                            <FaApple /> 📱 Open Complete iPhone Instructions Guide
+                        </button>
 
                         <button
                             type="button"
@@ -579,6 +607,12 @@ export function DeviceOnboardingModal({ isOpen, onClose }) {
                     </button>
                 )}
             </div>
+
+            {/* In-App Interactive iPhone Guide Modal */}
+            <IphoneInstructionsModal
+                isOpen={showIphoneModal}
+                onClose={() => setShowIphoneModal(false)}
+            />
         </div>
     );
 }
