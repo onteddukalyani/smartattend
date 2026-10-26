@@ -273,8 +273,7 @@ function QrScannerApp() {
             sessionData.phase === '2' ||
             sessionData.qr2Released === true
         )) ||
-        (effectiveQr2TargetMs > 0 && effectiveQr2TargetMs <= nowTick) ||
-        (authQr2StartsAt > 0 && authQr2StartsAt <= nowTick)
+        (effectiveQr2TargetMs > 0 && effectiveQr2TargetMs <= nowTick)
     );
 
     const qr2TargetMs = effectiveQr2TargetMs;
@@ -282,6 +281,13 @@ function QrScannerApp() {
     const secondsUntilQr2 = (effectiveQr2TargetMs > 0 && !isQr2Released)
         ? Math.max(0, Math.ceil((effectiveQr2TargetMs - nowTick) / 1000))
         : null;
+
+    // Authoritative real-time session deadline: dynamically adapts if lecturer increases or decreases time
+    const effectiveKioskEndsAt = (sessionData?.kioskEndsAt
+        ? (typeof sessionData.kioskEndsAt.toMillis === 'function' ? sessionData.kioskEndsAt.toMillis() : Number(sessionData.kioskEndsAt))
+        : (sessionData?.expiresAt
+            ? (typeof sessionData.expiresAt.toMillis === 'function' ? sessionData.expiresAt.toMillis() : Number(sessionData.expiresAt))
+            : kioskEndsAt)) || 0;
 
     // Explicitly manage camera hardware during waiting phase vs QR2 release
     useEffect(() => {
@@ -648,16 +654,12 @@ function QrScannerApp() {
         const uid = user?.uid;
 
         const profileFaceRemoved = Boolean(
-            profile?.faceRemovedAt ||
-            profile?.faceRegistered === false ||
-            profile?.biometricEnrolled === false ||
-            profile?.hasFaceRegistered === false
+            profile?.faceRemovedAt &&
+            (!profile?.faceEnrolledAt || profile.faceRemovedAt > profile.faceEnrolledAt)
         );
         const dbFaceRemoved = Boolean(
-            dbStudent?.faceRemovedAt ||
-            dbStudent?.faceRegistered === false ||
-            dbStudent?.biometricEnrolled === false ||
-            dbStudent?.hasFaceRegistered === false
+            dbStudent?.faceRemovedAt &&
+            (!dbStudent?.faceEnrolledAt || dbStudent.faceRemovedAt > dbStudent.faceEnrolledAt)
         );
         const hasRemoval = profileFaceRemoved || dbFaceRemoved;
 
@@ -794,10 +796,8 @@ function QrScannerApp() {
 
             if (isMatch) {
                 const isFaceReset = Boolean(
-                    updated.faceRemovedAt ||
-                    updated.faceRegistered === false ||
-                    updated.biometricEnrolled === false ||
-                    updated.hasFaceRegistered === false
+                    updated.faceRemovedAt &&
+                    (!updated.faceEnrolledAt || updated.faceRemovedAt > updated.faceEnrolledAt)
                 );
                 const isHwReset = Boolean(
                     updated.deviceResetAt ||
@@ -1207,76 +1207,103 @@ function QrScannerApp() {
         };
     }, [sessionStartAt, kioskEndsAt]);
 
-    // 5-Minute Fail-Safe Countdown Timer after Attendance Submission
+    // Centralized handler: Guaranteed auto-unlock of Kiosk Mode upon session completion, expiry, or lecturer release
+    const [sessionEndedAutoReleased, setSessionEndedAutoReleased] = useState(false);
+    const handleSessionCompletedAutoUnlock = useCallback(async (reason = 'Session Completed') => {
+        console.log(`[Kiosk] handleSessionCompletedAutoUnlock triggered: ${reason}`);
+        try { localStorage.removeItem('smartattend_kiosk_session_state'); } catch (_) { }
+        try { sessionStorage.removeItem(`smartattend_qr1_auth_${activeSessionId}`); } catch (_) { }
+        try { localStorage.removeItem(`smartattend_qr1_auth_${activeSessionId}`); } catch (_) { }
+        try { sessionStorage.removeItem('smartattend_kiosk_session_id'); } catch (_) { }
+        try { localStorage.removeItem('smartattend_kiosk_session_id'); } catch (_) { }
+        releaseCameraLock();
+        releaseAllMediaTracks();
+        try {
+            await Kiosk.stopKioskMode().catch(() => { });
+            await Kiosk.clearAttendanceRestrictions().catch(() => { });
+        } catch (_) { }
+        if (activeSessionId) {
+            requestAutoFailSafeUnlock(activeSessionId, user?.uid, deviceIdentity?.deviceId).catch(() => { });
+        }
+        setSessionEndedAutoReleased(true);
+        navigate('/student', { replace: true });
+    }, [activeSessionId, releaseCameraLock, user?.uid, deviceIdentity?.deviceId, navigate]);
+
+    // 3-Minute Fail-Safe Watchdog Timer across all Kiosk states and after Attendance Submission
+    const kioskEntryTimeRef = useRef(null);
+
     useEffect(() => {
-        if (scanState !== 'ATTENDANCE_SUCCESS' || !autoReleaseAt) return;
+        const inKiosk = scanState === 'KIOSK_WAITING_QR2' ||
+            scanState === 'VALIDATING_QR2' ||
+            scanState === 'BIOMETRIC_SCAN' ||
+            scanState === 'SUBMITTING_ATTENDANCE' ||
+            scanState === 'ATTENDANCE_SUCCESS';
+
+        if (inKiosk && !kioskEntryTimeRef.current) {
+            kioskEntryTimeRef.current = Date.now();
+        } else if (!inKiosk) {
+            kioskEntryTimeRef.current = null;
+        }
+    }, [scanState]);
+
+    useEffect(() => {
+        if (!activeSessionId) return;
 
         const updateFailSafe = async () => {
             const now = Date.now();
-            const remaining = Math.max(0, Math.floor((autoReleaseAt - now) / 1000));
-            setAutoReleaseRemaining(remaining);
 
-            // Fail-safe trigger: 5 minutes elapsed without lecturer release
-            if (remaining <= 0) {
-                console.log('[Kiosk] 5-Minute fail-safe timer expired. Authorizing automatic device release...');
-                try {
-                    await requestAutoFailSafeUnlock(activeSessionId, user?.uid, deviceIdentity?.deviceId);
-                } catch (e) {
-                    console.warn('Fail safe unlock notice:', e);
+            // 1. If in ATTENDANCE_SUCCESS, count down autoReleaseAt (3 minutes = 180s)
+            if (autoReleaseAt && autoReleaseAt > 0) {
+                const remaining = Math.max(0, Math.floor((autoReleaseAt - now) / 1000));
+                setAutoReleaseRemaining(remaining);
+                if (remaining <= 0) {
+                    console.log('[Kiosk] 3-Minute post-attendance auto-release expired. Unlocking device...');
+                    handleSessionCompletedAutoUnlock('3-minute post-attendance auto release');
+                    return;
                 }
-                try { localStorage.removeItem('smartattend_kiosk_session_state'); } catch (_) { }
-                releaseCameraLock();
-                releaseAllMediaTracks();
-                await Kiosk.stopKioskMode().catch(() => { });
-                await Kiosk.clearAttendanceRestrictions().catch(() => { });
-                navigate('/student', { replace: true });
+            }
+
+            // 2. Strict 3-Minute (180s) Fail-Safe Watchdog for ANY error, stall, or delay in kiosk mode
+            if (kioskEntryTimeRef.current) {
+                const elapsedSec = Math.floor((now - kioskEntryTimeRef.current) / 1000);
+                const THREE_MINUTES_SEC = 180;
+                if (elapsedSec >= THREE_MINUTES_SEC) {
+                    console.warn(`[Kiosk] 3-Minute fail-safe watchdog expired (${elapsedSec}s in kiosk mode). Auto-releasing device.`);
+                    handleSessionCompletedAutoUnlock('3-minute kiosk watchdog expired');
+                    return;
+                }
             }
         };
 
         updateFailSafe();
         const interval = setInterval(updateFailSafe, 1000);
-
         return () => clearInterval(interval);
-    }, [scanState, autoReleaseAt, activeSessionId, user?.uid, deviceIdentity?.deviceId, navigate]);
+    }, [activeSessionId, autoReleaseAt, scanState, handleSessionCompletedAutoUnlock]);
 
-    // Automatic Release When Session Ends (Guarantees student device is never stuck, even on errors or disqualifications)
-    const [sessionEndedAutoReleased, setSessionEndedAutoReleased] = useState(false);
-    const hasAutoReleasedRef = useRef(false);
-
+    // Automatic Release When Session Ends or Closes in Real-Time (Guarantees student device is never stuck)
     useEffect(() => {
         if (!activeSessionId) return;
 
         const checkSessionEndingRelease = () => {
             const now = Date.now();
-            const endMs = kioskEndsAt || (sessionData?.kioskEndsAt ? (typeof sessionData.kioskEndsAt.toMillis === 'function' ? sessionData.kioskEndsAt.toMillis() : Number(sessionData.kioskEndsAt)) : 0);
-            const isClosed = sessionData?.status === 'CLOSED' || sessionData?.phase === 'CLOSED' || sessionData?.isClosed === true;
+            const endMs = (sessionData?.kioskEndsAt
+                ? (typeof sessionData.kioskEndsAt.toMillis === 'function' ? sessionData.kioskEndsAt.toMillis() : Number(sessionData.kioskEndsAt))
+                : (sessionData?.expiresAt
+                    ? (typeof sessionData.expiresAt.toMillis === 'function' ? sessionData.expiresAt.toMillis() : Number(sessionData.expiresAt))
+                    : kioskEndsAt)) || 0;
+            const isClosed = sessionData?.status === 'CLOSED' || sessionData?.status === 'COMPLETED' || sessionData?.phase === 'CLOSED' || sessionData?.isClosed === true || sessionData?.active === false;
             const isExpired = endMs > 0 && now >= endMs;
 
-            if ((isClosed || isExpired) && !hasAutoReleasedRef.current) {
-                hasAutoReleasedRef.current = true;
-                console.log('[Kiosk] Session ended/expired. Automatically releasing all device restrictions...');
-                try { localStorage.removeItem('smartattend_kiosk_session_state'); } catch (_) { }
-                try { sessionStorage.removeItem(`smartattend_qr1_auth_${activeSessionId}`); } catch (_) { }
-                try { localStorage.removeItem(`smartattend_qr1_auth_${activeSessionId}`); } catch (_) { }
-                releaseCameraLock();
-                releaseAllMediaTracks();
-                Kiosk.stopKioskMode().catch(() => { });
-                Kiosk.clearAttendanceRestrictions().catch(() => { });
-                setSessionEndedAutoReleased(true);
-
-                // Call backend fail-safe release in background
-                requestAutoFailSafeUnlock(activeSessionId, user?.uid, deviceIdentity?.deviceId).catch(() => { });
-
-                if (scanState === 'ATTENDANCE_SUCCESS') {
-                    navigate('/student', { replace: true });
-                }
+            if (isClosed || isExpired) {
+                console.log('[Kiosk] Attendance session completed/expired. Automatically releasing all device restrictions...');
+                handleSessionCompletedAutoUnlock(isClosed ? 'Session closed/completed' : 'Session duration expired');
             }
         };
 
         checkSessionEndingRelease();
         const interval = setInterval(checkSessionEndingRelease, 1000);
         return () => clearInterval(interval);
-    }, [activeSessionId, kioskEndsAt, sessionData, scanState, user?.uid, deviceIdentity?.deviceId, navigate, releaseCameraLock]);
+    }, [activeSessionId, kioskEndsAt, sessionData, handleSessionCompletedAutoUnlock]);
 
     // Session state persistence across app crash / restarts
     useEffect(() => {
@@ -1285,6 +1312,7 @@ function QrScannerApp() {
             (autoReleaseAt && autoReleaseAt > Date.now()) ||
             scanState === 'KIOSK_WAITING_QR2' ||
             scanState === 'BIOMETRIC_SCAN' ||
+            scanState === 'SUBMITTING_ATTENDANCE' ||
             scanState === 'ATTENDANCE_SUCCESS'
         );
 
@@ -1711,24 +1739,17 @@ function QrScannerApp() {
             const cleanRoll = (loggedInRollNo || '').trim().toUpperCase();
             const studentUid = user?.uid;
             if (
-                data.status === 'CLOSED' || data.phase === 'CLOSED' || data.isClosed === true ||
+                data.status === 'CLOSED' || data.status === 'COMPLETED' || data.phase === 'CLOSED' || data.isClosed === true || data.active === false ||
                 data.released === true || data.allReleased === true || data.releaseAllKiosks === true ||
                 (cleanRoll && data.releasedStudents?.[cleanRoll] === true) ||
                 (studentUid && data.releasedStudents?.[studentUid] === true)
             ) {
                 console.log('[Kiosk] Session closed or student released by Lecturer. Automatically unlocking Kiosk mode...');
-                try { localStorage.removeItem('smartattend_kiosk_session_state'); } catch (_) { }
-                try { sessionStorage.removeItem(`smartattend_qr1_auth_${activeSessionId}`); } catch (_) { }
-                try { localStorage.removeItem(`smartattend_qr1_auth_${activeSessionId}`); } catch (_) { }
-                releaseCameraLock();
-                releaseAllMediaTracks();
-                Kiosk.stopKioskMode().catch(() => { });
-                Kiosk.clearAttendanceRestrictions().catch(() => { });
-                navigate('/student', { replace: true });
+                handleSessionCompletedAutoUnlock('Session closed or student released by Lecturer');
             }
         });
         return () => unsub();
-    }, [activeSessionId, sessionStartAt, kioskEndsAt, loggedInRollNo, user?.uid, navigate]);
+    }, [activeSessionId, sessionStartAt, kioskEndsAt, loggedInRollNo, user?.uid, handleSessionCompletedAutoUnlock]);
 
     // Subscribe to Individual Student Authorization for Remote Release by Lecturer
     useEffect(() => {
@@ -1739,14 +1760,7 @@ function QrScannerApp() {
 
         const handleReleaseTriggered = () => {
             console.log('[Kiosk] Individual device release authorized by Lecturer. Unlocking Kiosk mode...');
-            try { localStorage.removeItem('smartattend_kiosk_session_state'); } catch (_) { }
-            try { sessionStorage.removeItem(`smartattend_qr1_auth_${activeSessionId}`); } catch (_) { }
-            try { localStorage.removeItem(`smartattend_qr1_auth_${activeSessionId}`); } catch (_) { }
-            releaseCameraLock();
-            releaseAllMediaTracks();
-            Kiosk.stopKioskMode().catch(() => { });
-            Kiosk.clearAttendanceRestrictions().catch(() => { });
-            navigate('/student', { replace: true });
+            handleSessionCompletedAutoUnlock('Individual device release authorized by Lecturer');
         };
 
         const handleAuthSnapshot = (authData) => {
@@ -2706,6 +2720,33 @@ function QrScannerApp() {
         if (res && res.verified) {
             lastVerifiedFaceRef.current = res;
             setFaceSubmissionFailed(false);
+            setAutoRetryCount(3);
+
+            // Immediately switch UI to dedicated submission view and release camera feed cleanly
+            setScanState('SUBMITTING_ATTENDANCE');
+            releaseAllMediaTracks();
+
+            // Real-time sync to Lecturer: Face verified, attendance submission in progress
+            try {
+                const targetRoll = (loggedInRollNo || '').trim().toUpperCase();
+                const studentUid = user?.uid;
+                if (activeSessionId) {
+                    const submittingUpdate = {
+                        qr1Verified: true,
+                        qr2Scanned: true,
+                        faceVerified: true,
+                        verificationStage: 'FACE_VERIFIED_SUBMITTING',
+                        status: 'QR2_SCANNED',
+                        lastActiveAt: Date.now()
+                    };
+                    if (targetRoll) {
+                        setDoc(doc(db, 'attendance_sessions', activeSessionId, 'authorizations', targetRoll), submittingUpdate, { merge: true }).catch(() => { });
+                    }
+                    if (studentUid && studentUid !== targetRoll) {
+                        setDoc(doc(db, 'attendance_sessions', activeSessionId, 'authorizations', studentUid), submittingUpdate, { merge: true }).catch(() => { });
+                    }
+                }
+            } catch (_) { }
 
             // Auto-submit verified attendance
             if (!submittingAttendance) {
@@ -2757,7 +2798,6 @@ function QrScannerApp() {
                     }
                 }
 
-                releaseAllMediaTracks();
                 try {
                     const submissionResult = await submitVerifiedAttendance(
                         activeSessionId,
@@ -2777,7 +2817,7 @@ function QrScannerApp() {
                     );
 
                     const submittedMs = submissionResult.submittedAt || submissionResult.attendanceSubmittedAt || Date.now();
-                    const autoReleaseMs = submissionResult.autoReleaseAt || (submittedMs + 5 * 60 * 1000);
+                    const autoReleaseMs = submissionResult.autoReleaseAt || (submittedMs + 3 * 60 * 1000);
 
                     setAttendanceSubmittedAt(submittedMs);
                     setAutoReleaseAt(autoReleaseMs);
@@ -2793,7 +2833,7 @@ function QrScannerApp() {
                         autoReleaseAt: autoReleaseMs
                     });
 
-                    // Keep device in Lock Task Mode
+                    // Keep device in Lock Task Mode until released
                     setFaceSubmissionFailed(false);
                     setScanState('ATTENDANCE_SUCCESS');
                 } catch (subErr) {
@@ -2820,7 +2860,7 @@ function QrScannerApp() {
                 }
             }
         }
-    }, [activeSessionId, activeQr2Token, activeQr2Payload, submittingAttendance, loggedInRollNo, loggedInName, sessionData, hardwareProof]);
+    }, [activeSessionId, activeQr2Token, activeQr2Payload, submittingAttendance, loggedInRollNo, loggedInName, sessionData, hardwareProof, user?.uid, scannedStudentLocation, currentStudentLocation]);
 
     // One-tap attendance retry using cached verified face descriptor
     const handleRetryAttendanceSubmit = useCallback(() => {
@@ -2830,6 +2870,23 @@ function QrScannerApp() {
             handleFaceVerificationChange(lastVerifiedFaceRef.current);
         }
     }, [handleFaceVerificationChange]);
+
+    // Auto-retry countdown for attendance submission if transient error occurs
+    const [autoRetryCount, setAutoRetryCount] = useState(3);
+    useEffect(() => {
+        let timer = null;
+        if (scanState === 'SUBMITTING_ATTENDANCE' && faceSubmissionFailed && !submittingAttendance) {
+            if (autoRetryCount > 0) {
+                timer = setTimeout(() => {
+                    setAutoRetryCount((c) => c - 1);
+                }, 1000);
+            } else if (autoRetryCount === 0) {
+                setAutoRetryCount(3);
+                handleRetryAttendanceSubmit();
+            }
+        }
+        return () => clearTimeout(timer);
+    }, [scanState, faceSubmissionFailed, submittingAttendance, autoRetryCount, handleRetryAttendanceSubmit]);
 
     const formatMmSs = (sec) => {
         const m = Math.floor(sec / 60);
@@ -3696,6 +3753,220 @@ function QrScannerApp() {
                     setScanState('KIOSK_WAITING_QR2');
                 }}
             />
+        );
+    }
+
+    // =========================================================================
+    // UI VIEW 0.5: ATTENDANCE SUBMISSION PROGRESS & RECOVERY (Prevents Freeze)
+    // =========================================================================
+    if (scanState === 'SUBMITTING_ATTENDANCE') {
+        return (
+            <div className="st-submitting-attendance-container" style={{
+                minHeight: '100vh',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: '24px 16px',
+                background: 'linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #0f172a 100%)',
+                color: '#ffffff',
+                fontFamily: 'Inter, system-ui, sans-serif',
+                textAlign: 'center'
+            }}>
+                {renderLecturerPinModal()}
+
+                {/* Main Glassmorphic Card */}
+                <div style={{
+                    width: '100%',
+                    maxWidth: '440px',
+                    background: 'rgba(30, 41, 59, 0.88)',
+                    backdropFilter: 'blur(20px)',
+                    border: '1.5px solid rgba(99, 102, 241, 0.35)',
+                    borderRadius: '24px',
+                    padding: '32px 24px',
+                    boxShadow: '0 20px 50px -10px rgba(0, 0, 0, 0.5), 0 0 40px rgba(99, 102, 241, 0.2)'
+                }}>
+                    {/* Glowing Biometrics Status Badge */}
+                    <div style={{
+                        width: '84px',
+                        height: '84px',
+                        margin: '0 auto 20px auto',
+                        borderRadius: '50%',
+                        background: faceSubmissionFailed
+                            ? 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)'
+                            : 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: '2.5rem',
+                        color: '#ffffff',
+                        boxShadow: faceSubmissionFailed
+                            ? '0 0 30px rgba(239, 68, 68, 0.5)'
+                            : '0 0 30px rgba(16, 185, 129, 0.5)'
+                    }}>
+                        {faceSubmissionFailed ? (
+                            <FaExclamationTriangle />
+                        ) : submittingAttendance ? (
+                            <FaSpinner className="fa-spin" style={{ fontSize: '2.2rem' }} />
+                        ) : (
+                            <FaCheckCircle />
+                        )}
+                    </div>
+
+                    <h2 style={{ fontSize: '1.45rem', fontWeight: 800, margin: '0 0 8px 0', letterSpacing: '-0.02em' }}>
+                        {faceSubmissionFailed ? 'Submission Notice' : 'Biometrics Verified!'}
+                    </h2>
+                    <p style={{ color: '#94a3b8', fontSize: '0.92rem', margin: '0 0 24px 0', lineHeight: 1.5 }}>
+                        {faceSubmissionFailed
+                            ? (errorMessage || 'Connection issue recording your attendance in the server database.')
+                            : 'Your live face verification passed. Saving attendance record to server...'}
+                    </p>
+
+                    {/* Step-by-Step Verification Stepper */}
+                    <div style={{
+                        background: 'rgba(15, 23, 42, 0.6)',
+                        borderRadius: '16px',
+                        padding: '16px 18px',
+                        marginBottom: '24px',
+                        border: '1px solid rgba(255, 255, 255, 0.08)',
+                        textAlign: 'left',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '12px'
+                    }}>
+                        {/* Step 1 */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: '0.88rem' }}>
+                            <FaCheckCircle style={{ color: '#10b981', fontSize: '1.1rem', flexShrink: 0 }} />
+                            <div>
+                                <strong style={{ color: '#f1f5f9', display: 'block' }}>Phase 1: QR 1 Checked In</strong>
+                                <span style={{ color: '#64748b', fontSize: '0.78rem' }}>Classroom presence &amp; device authorized</span>
+                            </div>
+                        </div>
+
+                        {/* Step 2 */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: '0.88rem' }}>
+                            <FaCheckCircle style={{ color: '#10b981', fontSize: '1.1rem', flexShrink: 0 }} />
+                            <div>
+                                <strong style={{ color: '#f1f5f9', display: 'block' }}>Phase 2: QR 2 Scanned</strong>
+                                <span style={{ color: '#64748b', fontSize: '0.78rem' }}>Dynamic cryptographic token validated</span>
+                            </div>
+                        </div>
+
+                        {/* Step 3 */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: '0.88rem' }}>
+                            <FaCheckCircle style={{ color: '#10b981', fontSize: '1.1rem', flexShrink: 0 }} />
+                            <div>
+                                <strong style={{ color: '#f1f5f9', display: 'block' }}>3D Face Biometric &amp; Liveness</strong>
+                                <span style={{ color: '#64748b', fontSize: '0.78rem' }}>Live descriptor verified against registered profile</span>
+                            </div>
+                        </div>
+
+                        {/* Step 4 */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: '0.88rem' }}>
+                            {faceSubmissionFailed ? (
+                                <FaExclamationTriangle style={{ color: '#f59e0b', fontSize: '1.1rem', flexShrink: 0 }} />
+                            ) : submittingAttendance ? (
+                                <FaSpinner className="fa-spin" style={{ color: '#6366f1', fontSize: '1.1rem', flexShrink: 0 }} />
+                            ) : (
+                                <FaCheckCircle style={{ color: '#10b981', fontSize: '1.1rem', flexShrink: 0 }} />
+                            )}
+                            <div>
+                                <strong style={{ color: faceSubmissionFailed ? '#f59e0b' : '#f1f5f9', display: 'block' }}>
+                                    {submittingAttendance ? 'Recording in Server Database...' : (faceSubmissionFailed ? 'Pending Database Record' : 'Attendance Registry Confirmed')}
+                                </strong>
+                                <span style={{ color: '#64748b', fontSize: '0.78rem' }}>
+                                    {faceSubmissionFailed ? 'Retrying server transaction...' : 'Finalizing record registration'}
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Metadata Pill */}
+                    <div style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        padding: '10px 16px',
+                        background: 'rgba(255, 255, 255, 0.04)',
+                        borderRadius: '12px',
+                        fontSize: '0.82rem',
+                        color: '#94a3b8',
+                        marginBottom: '20px'
+                    }}>
+                        <span>Roll: <strong style={{ color: '#e2e8f0' }}>{loggedInRollNo}</strong></span>
+                        <span>Session: <strong style={{ color: '#e2e8f0' }}>{activeSessionId?.split('_')[0] || 'CLASS'}</strong></span>
+                    </div>
+
+                    {/* Action Buttons & Status */}
+                    {faceSubmissionFailed && (
+                        <div>
+                            <p style={{ color: '#f87171', fontSize: '0.85rem', marginBottom: '14px', lineHeight: 1.4 }}>
+                                Your facial biometrics are <strong>verified</strong>! You do not need to scan your face again.
+                                {autoRetryCount > 0 ? ` Auto-retrying in ${autoRetryCount}s...` : ' Retrying now...'}
+                            </p>
+                            <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', flexWrap: 'wrap' }}>
+                                <button
+                                    type="button"
+                                    onClick={handleRetryAttendanceSubmit}
+                                    disabled={submittingAttendance}
+                                    style={{
+                                        padding: '12px 24px',
+                                        borderRadius: '14px',
+                                        background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                                        color: '#ffffff',
+                                        border: 'none',
+                                        fontWeight: 800,
+                                        fontSize: '0.94rem',
+                                        cursor: submittingAttendance ? 'wait' : 'pointer',
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '8px',
+                                        boxShadow: '0 6px 20px rgba(16, 185, 129, 0.35)'
+                                    }}
+                                >
+                                    <FaSyncAlt className={submittingAttendance ? "fa-spin" : ""} />
+                                    <span>{submittingAttendance ? "Submitting..." : "⚡ Submit Attendance Now"}</span>
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setShowPinModal(true)}
+                                    style={{
+                                        padding: '12px 18px',
+                                        borderRadius: '14px',
+                                        background: 'rgba(255, 255, 255, 0.08)',
+                                        color: '#cbd5e1',
+                                        border: '1px solid rgba(255, 255, 255, 0.15)',
+                                        fontWeight: 700,
+                                        fontSize: '0.88rem',
+                                        cursor: 'pointer'
+                                    }}
+                                >
+                                    <FaLock /> Lecturer PIN
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
+                    {!faceSubmissionFailed && submittingAttendance && (
+                        <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '10px',
+                            color: '#818cf8',
+                            fontWeight: 700,
+                            fontSize: '0.92rem'
+                        }}>
+                            <FaSpinner className="fa-spin" />
+                            <span>Synchronizing with attendance registry...</span>
+                        </div>
+                    )}
+                </div>
+
+                {/* Watchdog Note */}
+                <p style={{ marginTop: '20px', fontSize: '0.78rem', color: '#64748b' }}>
+                    🔒 Kiosk Guard Active · Device will auto-release after attendance session completes or after 3 minutes.
+                </p>
+            </div>
         );
     }
 

@@ -139,10 +139,7 @@ export default function FaceEnrollPage() {
         const handleDocUpdate = (data) => {
             if (!data) return;
             const hasFaceRemoval = Boolean(
-                (data.faceRemovedAt && (!data.faceEnrolledAt || data.faceRemovedAt > data.faceEnrolledAt)) ||
-                data.faceRegistered === false ||
-                data.biometricEnrolled === false ||
-                (!data.faceDescriptor && !data.descriptor && data.faceRemovedAt)
+                data.faceRemovedAt && (!data.faceEnrolledAt || data.faceRemovedAt > data.faceEnrolledAt)
             );
             const faceEnrolled = Boolean(
                 !hasFaceRemoval &&
@@ -157,7 +154,7 @@ export default function FaceEnrollPage() {
                     if (user?.uid) localStorage.setItem(`smartattend_face_enrolled_${user.uid}`, "true");
                     localStorage.setItem("smartattend_face_enrolled", "true");
                 } catch (_) {}
-            } else {
+            } else if (hasFaceRemoval) {
                 setHasFaceRegistered(false);
                 try {
                     localStorage.removeItem(`smartattend_face_enrolled_${activeRollNo}`);

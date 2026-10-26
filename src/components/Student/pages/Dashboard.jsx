@@ -274,17 +274,15 @@ export default function StudentDashboard() {
                         : (prev?.semester || "1");
 
                     const docFaceRemoved = Boolean(
-                        (d.faceRemovedAt && (!d.faceEnrolledAt || d.faceRemovedAt > d.faceEnrolledAt)) ||
-                        d.faceRegistered === false ||
-                        d.biometricEnrolled === false ||
-                        d.hasFaceRegistered === false
+                        d.faceRemovedAt && (!d.faceEnrolledAt || d.faceRemovedAt > d.faceEnrolledAt)
                     );
 
                     const hasFace = Boolean(
                         !docFaceRemoved &&
                         (d.faceRegistered === true || d.biometricEnrolled === true || d.hasFaceRegistered === true ||
                             (Array.isArray(d.faceDescriptor) && d.faceDescriptor.length === 128) ||
-                            (Array.isArray(d.descriptor) && d.descriptor.length === 128))
+                            (Array.isArray(d.descriptor) && d.descriptor.length === 128) ||
+                            (prev && (prev.faceRegistered || prev.biometricEnrolled || prev.hasFaceRegistered)))
                     );
 
                     if (hasFace) {
@@ -306,7 +304,6 @@ export default function StudentDashboard() {
                         d.deviceResetAt ||
                         d.deviceFingerprintResetAt ||
                         d.deviceTypeLocked === false ||
-                        d.hardwareBiometricEnrolled === false ||
                         d.isDeviceRegistered === false
                     );
 
@@ -324,7 +321,7 @@ export default function StudentDashboard() {
                         setCurrentDeviceType("");
                     }
 
-                    const hasHw = !isDocHwReset && Boolean(d.hardwareBiometricEnrolled);
+                    const hasHw = !isDocHwReset && Boolean(d.hardwareBiometricEnrolled || prev?.hardwareBiometricEnrolled);
                     if (hasHw) {
                         try {
                             if (activeRollNo) localStorage.setItem(`smartattend_hw_enrolled_${activeRollNo}`, "true");
@@ -391,9 +388,16 @@ export default function StudentDashboard() {
             );
 
             if (isMatch) {
+                const isFaceReset = Boolean(
+                    updated.faceRemovedAt &&
+                    (!updated.faceEnrolledAt || updated.faceRemovedAt > updated.faceEnrolledAt)
+                );
                 setFetchedStudentData((prev) => ({
                     ...(prev || {}),
-                    ...updated
+                    ...updated,
+                    faceRegistered: isFaceReset ? false : (updated.faceRegistered ?? prev?.faceRegistered ?? false),
+                    biometricEnrolled: isFaceReset ? false : (updated.biometricEnrolled ?? prev?.biometricEnrolled ?? false),
+                    hasFaceRegistered: isFaceReset ? false : (updated.hasFaceRegistered ?? prev?.hasFaceRegistered ?? false)
                 }));
                 if (updated.deviceTypeLocked === false || updated.deviceResetAt) {
                     setCurrentDeviceType("");
@@ -428,7 +432,7 @@ export default function StudentDashboard() {
         fetchedStudentData?.faceRemovedAt &&
         (!fetchedStudentData?.faceEnrolledAt || fetchedStudentData.faceRemovedAt > fetchedStudentData.faceEnrolledAt)
     );
-    const hasRemoval = profileFaceRemoved || fetchedFaceRemoved || fetchedStudentData?.faceRegistered === false || profile?.faceRegistered === false;
+    const hasRemoval = profileFaceRemoved || fetchedFaceRemoved;
 
     if (hasRemoval && typeof window !== "undefined") {
         try {

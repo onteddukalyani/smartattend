@@ -2,6 +2,7 @@ import { auth, db, functions } from "../firebase";
 import { httpsCallable } from "firebase/functions";
 import { doc, setDoc, deleteField } from "firebase/firestore";
 import { Capacitor } from "@capacitor/core";
+import { broadcastStudentUpdate } from "../utils/studentDataHelper";
 
 const configuredApiBaseUrl = String(import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
 
@@ -21,13 +22,14 @@ const listReRegCallable = httpsCallable(functions, "listBiometricReRegistrationP
 const checkReRegStatusCallable = httpsCallable(functions, "checkStudentReRegistrationStatus");
 
 export async function registerStudentFace(rollNo, faceDescriptor) {
+  let apiResult = null;
   try {
     const result = await callFaceApi("/api/face/register", { rollNo, faceDescriptor });
     if (result?.status === "REVIEW_REQUIRED") {
       throw new Error(result.message || "Face enrollment requires authorized review.");
     }
     if (result?.success) {
-      return result;
+      apiResult = result;
     }
   } catch (apiErr) {
     if (apiErr.message && (
@@ -41,28 +43,66 @@ export async function registerStudentFace(rollNo, faceDescriptor) {
     console.warn("registerStudentFace API notice (falling back to direct Firestore enrollment):", apiErr.message);
   }
 
-  // Reliable Direct Firestore Fallback
+  // Ensure documents across Firestore & client state are definitively updated and synchronized
   const cleanRoll = String(rollNo || "").trim().toUpperCase();
   if (!cleanRoll) throw new Error("A valid roll number is required.");
-  const rawVector = Array.isArray(faceDescriptor) ? faceDescriptor : Array.from(faceDescriptor);
+  const rawVector = Array.isArray(faceDescriptor) ? faceDescriptor : Array.from(faceDescriptor || []);
   const now = Date.now();
 
   const enrollPayload = {
     faceRegistered: true,
     biometricEnrolled: true,
     hasFaceRegistered: true,
-    faceDescriptor: rawVector,
     faceEnrolledAt: now,
     faceRemovedAt: null,
     updatedAt: now
   };
-
-  await setDoc(doc(db, "students", cleanRoll), enrollPayload, { merge: true });
-  await setDoc(doc(db, "users", cleanRoll), enrollPayload, { merge: true }).catch(() => {});
-  if (auth.currentUser?.uid && auth.currentUser.uid !== cleanRoll) {
-    await setDoc(doc(db, "users", auth.currentUser.uid), enrollPayload, { merge: true }).catch(() => {});
+  if (rawVector.length === 128) {
+    enrollPayload.faceDescriptor = rawVector;
   }
-  return { success: true };
+
+  const targets = [
+    doc(db, "students", cleanRoll),
+    doc(db, "users", cleanRoll),
+    doc(db, "authorizedUsers", cleanRoll),
+    doc(db, "students", cleanRoll.toLowerCase()),
+    doc(db, "users", cleanRoll.toLowerCase()),
+    doc(db, "authorizedUsers", cleanRoll.toLowerCase())
+  ];
+  if (auth.currentUser?.uid && auth.currentUser.uid !== cleanRoll) {
+    targets.push(doc(db, "users", auth.currentUser.uid));
+    targets.push(doc(db, "students", auth.currentUser.uid));
+  }
+  if (auth.currentUser?.email) {
+    const cleanEmail = auth.currentUser.email.trim().toLowerCase();
+    targets.push(doc(db, "users", cleanEmail));
+    targets.push(doc(db, "authorizedUsers", cleanEmail));
+  }
+
+  await Promise.allSettled(targets.map(ref => setDoc(ref, enrollPayload, { merge: true })));
+
+  if (typeof window !== "undefined") {
+    try {
+      localStorage.setItem("smartattend_face_enrolled", "true");
+      localStorage.setItem("smartattend_student_face_enrolled", "true");
+      localStorage.setItem(`smartattend_face_enrolled_${cleanRoll}`, "true");
+      if (auth.currentUser?.uid) {
+        localStorage.setItem(`smartattend_face_enrolled_${auth.currentUser.uid}`, "true");
+      }
+    } catch (_) {}
+  }
+
+  broadcastStudentUpdate({
+    rollNo: cleanRoll,
+    uid: auth.currentUser?.uid,
+    email: auth.currentUser?.email,
+    faceRegistered: true,
+    biometricEnrolled: true,
+    hasFaceRegistered: true,
+    faceRemovedAt: null
+  });
+
+  return apiResult || { success: true };
 }
 
 async function callFaceApi(path, payload) {

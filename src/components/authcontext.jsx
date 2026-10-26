@@ -587,17 +587,23 @@ export const AuthProvider = ({ children }) => {
           setProfile((prev) => {
             if (!prev) return prev;
             const isFaceReset = Boolean(
-              freshData.faceRemovedAt ||
-              freshData.faceRegistered === false ||
-              freshData.biometricEnrolled === false ||
-              (!freshData.faceDescriptor && !freshData.descriptor && (freshData.faceRemovedAt || freshData.faceRegistered === false))
+              freshData.faceRemovedAt &&
+              (!freshData.faceEnrolledAt || freshData.faceRemovedAt > freshData.faceEnrolledAt)
             );
+            const isFaceEnrolled = Boolean(
+              !isFaceReset && (
+                freshData.faceRegistered === true ||
+                freshData.biometricEnrolled === true ||
+                freshData.hasFaceRegistered === true ||
+                (Array.isArray(freshData.faceDescriptor) && freshData.faceDescriptor.length === 128) ||
+                (Array.isArray(freshData.descriptor) && freshData.descriptor.length === 128)
+              )
+            );
+
             const isDeviceReset = Boolean(
               freshData.deviceResetAt ||
-              freshData.deviceTypeLocked === false ||
-              freshData.isDeviceRegistered === false ||
-              freshData.hardwareBiometricEnrolled === false ||
-              (!freshData.deviceType && (freshData.deviceResetAt || freshData.deviceTypeLocked === false))
+              freshData.deviceFingerprintResetAt ||
+              freshData.deviceTypeLocked === false
             );
 
             const merged = { ...prev, ...freshData };
@@ -610,7 +616,12 @@ export const AuthProvider = ({ children }) => {
               merged.photoURL = "";
               merged.photo = "";
               merged.image = "";
+            } else if (isFaceEnrolled || prev.faceRegistered) {
+              merged.faceRegistered = true;
+              merged.biometricEnrolled = true;
+              merged.hasFaceRegistered = true;
             }
+
             if (isDeviceReset) {
               merged.deviceType = null;
               merged.deviceTypeLocked = false;
@@ -619,6 +630,8 @@ export const AuthProvider = ({ children }) => {
               merged.registeredDevice = null;
               merged.registeredPlatform = null;
               merged.deviceFingerprint = null;
+            } else if (freshData.hardwareBiometricEnrolled || prev.hardwareBiometricEnrolled) {
+              merged.hardwareBiometricEnrolled = true;
             }
             const enriched = buildEnrichedProfile(merged, user);
             try {

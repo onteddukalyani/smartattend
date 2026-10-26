@@ -1152,7 +1152,10 @@ function GenerateQR() {
                 st.qr2Scanned === true ||
                 st.status === "QR2_SCANNED" ||
                 st.verificationStage === "BIOMETRIC_VERIFYING" ||
-                st.verificationStage === "BIOMETRICS_IN_PROGRESS"
+                st.verificationStage === "BIOMETRICS_IN_PROGRESS" ||
+                st.verificationStage === "FACE_VERIFIED_SUBMITTING" ||
+                st.verificationStage === "SUBMITTING_ATTENDANCE" ||
+                st.status === "SUBMITTING_ATTENDANCE"
             );
 
             if (!map.has(dedupeKey)) {
@@ -1357,7 +1360,15 @@ function GenerateQR() {
                 (Array.isArray(st.violations) && st.violations.length > 0 ? (st.violations[st.violations.length - 1].reason || st.violations[0].reason) : null) ||
                 (isDisqualified ? "Attendance forfeited: 2 confirmed kiosk exits" : "App switch detected");
 
-            const qr2Scanned = Boolean(st.qr2Scanned === true || st.status === "QR2_SCANNED" || st.verificationStage === "BIOMETRIC_VERIFYING" || st.verificationStage === "BIOMETRICS_IN_PROGRESS");
+            const qr2Scanned = Boolean(
+                st.qr2Scanned === true ||
+                st.status === "QR2_SCANNED" ||
+                st.verificationStage === "BIOMETRIC_VERIFYING" ||
+                st.verificationStage === "BIOMETRICS_IN_PROGRESS" ||
+                st.verificationStage === "FACE_VERIFIED_SUBMITTING" ||
+                st.verificationStage === "SUBMITTING_ATTENDANCE" ||
+                st.status === "SUBMITTING_ATTENDANCE"
+            );
 
             return {
                 ...st,
@@ -2356,6 +2367,10 @@ function GenerateQR() {
                                                         {student.violationReason}
                                                     </span>
                                                 </div>
+                                            ) : student.verificationStage === "FACE_VERIFIED_SUBMITTING" || student.verificationStage === "SUBMITTING_ATTENDANCE" ? (
+                                                <span className="qr-tag-pending" style={{ background: "rgba(59, 130, 246, 0.12)", color: "#2563eb", border: "1px solid rgba(59, 130, 246, 0.3)" }}>
+                                                    <FaSpinner className="fa-spin" /> Face Verified (Submitting...)
+                                                </span>
                                             ) : student.qr2Scanned ? (
                                                 <span className="qr-tag-pending" style={{ background: "rgba(139, 92, 246, 0.12)", color: "#7c3aed", border: "1px solid rgba(139, 92, 246, 0.3)" }}>
                                                     <FaClock /> QR 2 Scanned (Verifying Face...)
