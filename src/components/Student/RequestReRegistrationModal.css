@@ -416,3 +416,129 @@
     color: #b91c1c;
     border: 1px solid #fecaca;
 }
+
+/* =========================================================
+   MIDNIGHT THEME COMPATIBILITY
+   ========================================================= */
+[data-theme="midnight"] .request-rereg-modal {
+    background: #152135;
+    border-color: #34465f;
+    box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.7);
+    color: #f8fafc;
+}
+
+[data-theme="midnight"] .request-rereg-close-btn {
+    background: #101827;
+    border-color: #34465f;
+    color: #94a3b8;
+}
+
+[data-theme="midnight"] .request-rereg-close-btn:hover {
+    background: #27374d;
+    color: #f8fafc;
+}
+
+[data-theme="midnight"] .rereg-form-group label.field-title {
+    color: #f8fafc;
+}
+
+[data-theme="midnight"] .scope-btn {
+    background: #101827;
+    border-color: #34465f;
+    color: #cbd5e1;
+}
+
+[data-theme="midnight"] .scope-btn:hover {
+    background: #1e2d45;
+    border-color: #6366f1;
+}
+
+[data-theme="midnight"] .scope-btn.active {
+    background: rgba(99, 102, 241, 0.2);
+    border-color: #818cf8;
+    color: #a5b4fc;
+}
+
+[data-theme="midnight"] .reason-option-card {
+    background: #101827;
+    border-color: #34465f;
+}
+
+[data-theme="midnight"] .reason-option-card:hover {
+    background: #1e2d45;
+}
+
+[data-theme="midnight"] .reason-option-card.selected {
+    background: rgba(99, 102, 241, 0.15);
+    border-color: #818cf8;
+}
+
+[data-theme="midnight"] .reason-card-content strong {
+    color: #f8fafc;
+}
+
+[data-theme="midnight"] .reason-card-content span {
+    color: #94a3b8;
+}
+
+[data-theme="midnight"] .rereg-textarea {
+    background: #101827;
+    border-color: #34465f;
+    color: #f8fafc;
+}
+
+[data-theme="midnight"] .rereg-textarea:focus {
+    border-color: #818cf8;
+    background: #152135;
+}
+
+[data-theme="midnight"] .pending-details-box {
+    background: #101827;
+    border-color: #34465f;
+}
+
+[data-theme="midnight"] .pending-detail-row {
+    border-bottom-color: #24354e;
+}
+
+[data-theme="midnight"] .pending-detail-row span.val {
+    color: #f8fafc;
+}
+
+/* =========================================================
+   RESPONSIVE MOBILE VIEWPORT STYLES
+   ========================================================= */
+@media (max-width: 520px) {
+    .request-rereg-backdrop {
+        padding: 8px;
+        align-items: flex-end;
+    }
+
+    .request-rereg-modal {
+        padding: 20px 16px;
+        border-radius: 20px 20px 10px 10px;
+        max-height: 94vh;
+    }
+
+    .request-rereg-header h2 {
+        font-size: 1.15rem;
+    }
+
+    .request-rereg-icon-wrap {
+        width: 44px;
+        height: 44px;
+        font-size: 1.2rem;
+    }
+
+    .rereg-scope-selector {
+        grid-template-columns: 1fr;
+        gap: 6px;
+    }
+
+    .scope-btn {
+        flex-direction: row;
+        justify-content: flex-start;
+        padding: 10px 14px;
+    }
+}
+

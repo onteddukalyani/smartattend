@@ -261,7 +261,13 @@ service cloud.firestore {
     // Students collection: records managed by staff.
     // Students can update their own profile, faceDescriptor, and biometric hardware keys, but cannot alter rollNo, status, role, or device lock.
     match /students/{studentId} {
-      allow read: if isStaff() || isOwnStudentRecord(studentId, resource.data);
+      allow get: if isStaff() || isOwnStudentRecord(studentId, resource.data);
+      allow list: if isStaff() || (
+        isSignedIn() && request.auth.token.email != null && (
+          resource.data.email == request.auth.token.email ||
+          resource.data.email == request.auth.token.email.lower()
+        )
+      );
       allow create: if isStaff() || (
         hasNoFaceTemplate(request.resource.data) &&
         (!('faceRegistered' in request.resource.data) || request.resource.data.faceRegistered == false) &&
@@ -299,7 +305,13 @@ service cloud.firestore {
 
     // Users collection: users can create/update own profile, staff can manage
     match /users/{userId} {
-      allow read: if isStaff() || isOwnUserRecord(userId, resource.data);
+      allow get: if isStaff() || isOwnUserRecord(userId, resource.data);
+      allow list: if isStaff() || (
+        isSignedIn() && request.auth.token.email != null && (
+          resource.data.email == request.auth.token.email ||
+          resource.data.email == request.auth.token.email.lower()
+        )
+      );
       allow create: if isStaff() || (
         hasNoFaceTemplate(request.resource.data) &&
         (!('faceRegistered' in request.resource.data) || request.resource.data.faceRegistered == false) &&
@@ -337,7 +349,13 @@ service cloud.firestore {
     }
 
     match /authorizedUsers/{userId} {
-      allow read: if isStaff() || isOwnUserRecord(userId, resource.data);
+      allow get: if isStaff() || isOwnUserRecord(userId, resource.data);
+      allow list: if isStaff() || (
+        isSignedIn() && request.auth.token.email != null && (
+          resource.data.email == request.auth.token.email ||
+          resource.data.email == request.auth.token.email.lower()
+        )
+      );
       allow create, update, delete: if isStaff();
       match /{document=**} {
         allow read: if isSignedIn();
@@ -583,7 +601,7 @@ service cloud.firestore {
             ))
           ) &&
           request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-            'lastHeartbeat', 'clientTimestamp', 'detectedPlatform', 'deviceIp', 'userAgent', 'studentLocation', 'status', 'qr1Verified', 'qr2Verified', 'attendanceSubmittedAt', 'submittedAt', 'biometricVerified', 'deviceAuthMode', 'deviceId', 'isDeviceOwner', 'releaseStatus', 'released', 'authorizedAt', 'verifiedAt', 'kioskEndsAt', 'sessionStartAt', 'qr1ExpiresAt', 'qr2StartsAt', 'qr1DurationSeconds', 'rollNo', 'studentName', 'studentEmail', 'sessionId', 'studentUid'
+            'lastHeartbeat', 'clientTimestamp', 'detectedPlatform', 'deviceIp', 'userAgent', 'studentLocation', 'status', 'qr1Verified', 'qr2Verified', 'qr2Scanned', 'qr2ScannedAt', 'faceVerified', 'verificationStage', 'lastActiveAt', 'distance', 'classroomDistance', 'antiSpoofScore', 'liveness', 'attendanceSubmittedAt', 'submittedAt', 'biometricVerified', 'deviceAuthMode', 'deviceId', 'isDeviceOwner', 'releaseStatus', 'released', 'authorizedAt', 'verifiedAt', 'kioskEndsAt', 'sessionStartAt', 'qr1ExpiresAt', 'qr2StartsAt', 'qr1DurationSeconds', 'rollNo', 'studentName', 'studentEmail', 'sessionId', 'studentUid'
           ]) &&
           (resource.data.hasViolation != true || request.resource.data.hasViolation == true) &&
           (resource.data.disqualified != true || request.resource.data.disqualified == true)
@@ -743,7 +761,11 @@ service cloud.firestore {
       allow create, update: if isStaff() || (
         isSignedIn() && (
           request.resource.data.studentUid == request.auth.uid ||
-          (request.auth.token.email != null && request.resource.data.studentEmail != null && request.resource.data.studentEmail.lower() == request.auth.token.email.lower())
+          (request.auth.token.email != null && request.resource.data.studentEmail != null && request.resource.data.studentEmail.lower() == request.auth.token.email.lower()) ||
+          (request.auth.token.email != null && request.resource.data.rollNo != null && (
+            request.resource.data.rollNo.lower() == request.auth.token.email.split('@')[0].lower() ||
+            request.resource.data.rollNo == request.auth.token.email.split('@')[0].upper()
+          ))
         )
       );
       allow delete: if isStaff();

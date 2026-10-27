@@ -8,11 +8,14 @@ import {
   FaInfoCircle,
   FaShieldAlt,
   FaFingerprint,
-  FaCamera
+  FaCamera,
+  FaCheckCircle,
+  FaSpinner
 } from "react-icons/fa";
 import { useAuth } from "../authcontext";
 import { isIOSDevice } from "../../services/guidedAccessService";
 import { getApkDownloadUrl } from "../../utils/apkUrl";
+import { registerStudentDevice } from "../../services/deviceRegistrationService";
 import IphoneInstructionsModal from "./IphoneInstructionsModal";
 import "./DeviceSetupPage.css";
 
@@ -119,10 +122,26 @@ export function RoleFirstLoginGuide({ role, basePath }) {
 export default function DeviceSetupPage() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { profile } = useAuth();
+  const { user, profile } = useAuth();
+  const [selectedRoleDevice, setSelectedRoleDevice] = useState(() => {
+    try {
+      return (
+        profile?.deviceType ||
+        profile?.registeredDeviceType ||
+        localStorage.getItem("smartattend_student_device_type") ||
+        localStorage.getItem("smartattend_device_type") ||
+        ""
+      );
+    } catch {
+      return "";
+    }
+  });
+  const [bindingDevice, setBindingDevice] = useState(false);
+  const [deviceSaveSuccess, setDeviceSaveSuccess] = useState("");
+
   const [platform, setPlatform] = useState(() => {
     try {
-      const savedDevice = localStorage.getItem("smartattend_student_device_type");
+      const savedDevice = profile?.deviceType || localStorage.getItem("smartattend_student_device_type");
       if (savedDevice === "android" || savedDevice === "ios") return savedDevice;
     } catch {
       // Use platform detection when local storage is unavailable.
@@ -189,6 +208,97 @@ export default function DeviceSetupPage() {
           </div>
         </div>
       </section>
+
+      {/* Interactive Device Model Selector for Students */}
+      {profile?.role === "student" && (
+        <section
+          className={`device-model-card ${selectedRoleDevice ? "configured" : "pending"}`}
+          aria-label="Phone Model Selection"
+        >
+          <div className="device-model-card-inner">
+            <div className="device-model-card-text">
+              <div className={`device-model-kicker ${selectedRoleDevice ? "configured" : "pending"}`}>
+                <FaShieldAlt /> {selectedRoleDevice ? "PHONE MODEL CONFIGURED & LOCKED 🔒" : "ACTION REQUIRED: SELECT PHONE MODEL"}
+              </div>
+              <h3 className="device-model-title">
+                {selectedRoleDevice
+                  ? `Your Account is Configured for: ${selectedRoleDevice === "android" ? "Android Phone" : "iPhone (iOS)"}`
+                  : "Which phone will you use for classroom attendance?"}
+              </h3>
+              <p className="device-model-desc">
+                {selectedRoleDevice
+                  ? "Your attendance scans are cryptographically verified against this phone model. Follow the checklist below to complete your setup."
+                  : "SmartAttend requires selecting whether your phone is an Android or iPhone. Tap one of the buttons to confirm your phone model and load the exact instructions."}
+              </p>
+              {deviceSaveSuccess && (
+                <div className="device-model-success-banner">
+                  <FaCheckCircle /> {deviceSaveSuccess}
+                </div>
+              )}
+            </div>
+
+            <div className="device-model-action-buttons">
+              <button
+                type="button"
+                className={`device-model-action-btn ${selectedRoleDevice === "android" ? "selected" : platform === "android" ? "active-platform" : ""}`}
+                disabled={bindingDevice || selectedRoleDevice === "android"}
+                onClick={async () => {
+                  setBindingDevice(true);
+                  try {
+                    const roll = (profile?.rollNo || user?.email?.split("@")[0] || "").trim().toUpperCase();
+                    await registerStudentDevice({
+                      id: roll,
+                      rollNo: roll,
+                      user,
+                      profile,
+                      platform: "android"
+                    });
+                    setSelectedRoleDevice("android");
+                    setPlatform("android");
+                    setDeviceSaveSuccess("Android Phone model selected and locked successfully! ✓");
+                  } catch (e) {
+                    console.warn(e);
+                  } finally {
+                    setBindingDevice(false);
+                  }
+                }}
+              >
+                {bindingDevice && platform === "android" ? <FaSpinner className="fa-spin" /> : (selectedRoleDevice === "android" ? <FaCheckCircle /> : <FaAndroid />)}
+                <span>{selectedRoleDevice === "android" ? "Android Selected ✓" : "Confirm Android Model"}</span>
+              </button>
+
+              <button
+                type="button"
+                className={`device-model-action-btn ${selectedRoleDevice === "ios" ? "selected" : platform === "ios" ? "active-platform" : ""}`}
+                disabled={bindingDevice || selectedRoleDevice === "ios"}
+                onClick={async () => {
+                  setBindingDevice(true);
+                  try {
+                    const roll = (profile?.rollNo || user?.email?.split("@")[0] || "").trim().toUpperCase();
+                    await registerStudentDevice({
+                      id: roll,
+                      rollNo: roll,
+                      user,
+                      profile,
+                      platform: "ios"
+                    });
+                    setSelectedRoleDevice("ios");
+                    setPlatform("ios");
+                    setDeviceSaveSuccess("iPhone model selected and locked successfully! ✓");
+                  } catch (e) {
+                    console.warn(e);
+                  } finally {
+                    setBindingDevice(false);
+                  }
+                }}
+              >
+                {bindingDevice && platform === "ios" ? <FaSpinner className="fa-spin" /> : (selectedRoleDevice === "ios" ? <FaCheckCircle /> : <FaApple />)}
+                <span>{selectedRoleDevice === "ios" ? "iPhone Selected ✓" : "Confirm iPhone Model"}</span>
+              </button>
+            </div>
+          </div>
+        </section>
+      )}
 
       <div className="device-platform-tabs" role="tablist" aria-label="Phone type">
         <button

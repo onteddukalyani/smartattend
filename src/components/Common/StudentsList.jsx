@@ -147,7 +147,7 @@ function StudentsList() {
                     }
                     return s;
                 });
-                return found ? next : prev;
+                return found ? next : [updated, ...prev];
             });
 
             setSelectedStudent((prev) => {

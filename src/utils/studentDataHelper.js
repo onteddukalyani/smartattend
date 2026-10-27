@@ -1,5 +1,8 @@
 import { doc, deleteDoc, collection, query, where, getDocs, setDoc } from "firebase/firestore";
 import { db } from "../firebase";
+import { setGlobalStudent, getGlobalStudent, setGlobalVariable, getGlobalVariable, subscribeToGlobalState } from "./globalState";
+
+export { setGlobalStudent, getGlobalStudent, setGlobalVariable, getGlobalVariable, subscribeToGlobalState };
 
 /**
  * =========================================================
@@ -534,6 +537,7 @@ export const STUDENT_STORAGE_KEY = "smartattend_last_student_update";
 export function broadcastStudentUpdate(updatedStudent) {
     if (!updatedStudent) return;
     try {
+        setGlobalStudent(updatedStudent);
         const roll = String(updatedStudent.rollNo || updatedStudent.id || "").trim().toUpperCase();
         const uid = String(updatedStudent.uid || updatedStudent.studentUid || "").trim();
         const email = String(updatedStudent.email || "").trim().toLowerCase();

@@ -37,6 +37,20 @@ function StudentDashboard() {
         };
     }, [activeRollNo, cleanEmail]);
 
+    // Auto-prompt device selection if student hasn't chosen Android or iPhone yet
+    useEffect(() => {
+        if (!user) return;
+        const savedDevice = typeof window !== 'undefined'
+            ? (localStorage.getItem('smartattend_student_device_type') || localStorage.getItem('smartattend_device_type'))
+            : null;
+        const registered = profile?.deviceType || profile?.registeredDeviceType || savedDevice;
+        const alreadyPrompted = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('smartattend_device_prompted') : null;
+        if (!registered && !alreadyPrompted) {
+            try { sessionStorage.setItem('smartattend_device_prompted', 'true'); } catch (_) { }
+            setShowDeviceModal(true);
+        }
+    }, [user, profile?.deviceType, profile?.registeredDeviceType]);
+
     const unreadCount = notifications.filter(n => !n.read).length;
 
     if (!user) {

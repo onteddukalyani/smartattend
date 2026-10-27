@@ -14,7 +14,7 @@ import {
 } from "react-icons/fa";
 import { db } from "../../../firebase";
 import { useAuth } from "../../authcontext";
-import { isGenericName, normalizeBranchName } from "../../../utils/studentDataHelper";
+import { isGenericName, normalizeBranchName, broadcastStudentUpdate } from "../../../utils/studentDataHelper";
 import { submitVerifiedAttendance } from "../../../services/sessionAuthService";
 import FaceScanner from "./FaceScanner";
 import './StudentForm.css';
@@ -460,6 +460,12 @@ function StudentForm() {
 
             // Persist the student's active roll number for immediate dashboard recognition
             localStorage.setItem("smartattend_student_roll", cleanRollNo);
+            broadcastStudentUpdate({
+                rollNo: cleanRollNo,
+                fullName: cleanFullName,
+                name: cleanFullName,
+                lastAttendanceMarkedAt: Date.now()
+            });
 
             // Set submission success details to return to student dashboard
             setSubmissionDetails({

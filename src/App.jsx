@@ -1038,21 +1038,6 @@ function App() {
           }
         />
         <Route path="/institution" element={<Navigate to="/admin/institution" replace />} />
-        <Route
-          path="/profile"
-          element={
-            <Navigate
-              to={
-                currentRole === "admin"
-                  ? "/admin/profile"
-                  : currentRole === "lecturer"
-                  ? "/lecturer/settings"
-                  : "/student/settings"
-              }
-              replace
-            />
-          }
-        />
 
         {/* Fallback to user's registered home dashboard */}
         <Route path="/" element={<Navigate to={defaultDashboard} replace />} />

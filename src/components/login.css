@@ -480,6 +480,69 @@
   }
 }
 
+@media (max-width: 400px) {
+  .login-page {
+    padding: 10px 8px;
+  }
+
+  .login-intro {
+    padding: 22px 16px;
+  }
+
+  .login-intro h1 {
+    font-size: 1.65rem;
+  }
+
+  .login-form {
+    padding: 20px 14px 18px;
+  }
+
+  .login-form h2 {
+    font-size: 1.55rem;
+  }
+
+  .role-selection {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .login-button {
+    min-height: 44px;
+    padding: 8px 4px;
+    font-size: 0.76rem;
+    border-radius: 10px;
+    gap: 5px;
+  }
+
+  .login-button svg {
+    font-size: 1.1rem;
+  }
+
+  .mismatch-box-top {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .mismatch-switch-btn {
+    width: 100%;
+    justify-content: center;
+    font-size: 0.82rem;
+  }
+}
+
+@media (max-width: 340px) {
+  .role-selection {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .login-button {
+    flex-direction: row;
+    justify-content: center;
+    padding: 10px 14px;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .login-shell,
   .login-button,

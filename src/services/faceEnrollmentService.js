@@ -1,8 +1,8 @@
 import { auth, db, functions } from "../firebase";
 import { httpsCallable } from "firebase/functions";
-import { doc, setDoc, deleteField, collection, onSnapshot, getDocs, query, where } from "firebase/firestore";
+import { doc, getDoc, setDoc, deleteField, collection, onSnapshot, getDocs, query, where } from "firebase/firestore";
 import { Capacitor } from "@capacitor/core";
-import { broadcastStudentUpdate } from "../utils/studentDataHelper";
+import { broadcastStudentUpdate, setGlobalStudent, getGlobalStudent } from "../utils/studentDataHelper";
 import { sendFacultyNotification, sendStudentNotification } from "./notificationsService";
 
 const configuredApiBaseUrl = String(import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
@@ -10,6 +10,10 @@ const configuredApiBaseUrl = String(import.meta.env.VITE_API_BASE_URL || "").rep
 function getApiBaseUrl() {
   if (configuredApiBaseUrl) return configuredApiBaseUrl;
   if (typeof window !== "undefined" && window.location?.origin && !Capacitor.isNativePlatform()) {
+    const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
+    if (isLocal) {
+      return "https://smartattend-ochre.vercel.app";
+    }
     return ""; // Same-origin relative path in web browser
   }
   return "https://smartattend-ochre.vercel.app";
@@ -23,28 +27,6 @@ const listReRegCallable = httpsCallable(functions, "listBiometricReRegistrationP
 const checkReRegStatusCallable = httpsCallable(functions, "checkStudentReRegistrationStatus");
 
 export async function registerStudentFace(rollNo, faceDescriptor) {
-  let apiResult = null;
-  try {
-    const result = await callFaceApi("/api/face/register", { rollNo, faceDescriptor });
-    if (result?.status === "REVIEW_REQUIRED") {
-      throw new Error(result.message || "Face enrollment requires authorized review.");
-    }
-    if (result?.success) {
-      apiResult = result;
-    }
-  } catch (apiErr) {
-    if (apiErr.message && (
-      apiErr.message.includes("review") ||
-      apiErr.message.includes("Duplicate") ||
-      apiErr.message.includes("already-exists") ||
-      apiErr.message.includes("already enrolled under another")
-    )) {
-      throw apiErr;
-    }
-    console.warn("registerStudentFace API notice (falling back to direct Firestore enrollment):", apiErr.message);
-  }
-
-  // Ensure documents across Firestore & client state are definitively updated and synchronized globally
   const cleanRoll = String(rollNo || "").trim().toUpperCase();
   if (!cleanRoll) throw new Error("A valid roll number is required.");
   const rawVector = Array.isArray(faceDescriptor) ? faceDescriptor : Array.from(faceDescriptor || []);
@@ -66,7 +48,7 @@ export async function registerStudentFace(rollNo, faceDescriptor) {
     enrollPayload.faceDescriptor = rawVector;
   }
 
-  // Save face enrollment strictly to the student's canonical document in students collection
+  // 1. Instantly save face enrollment directly to the student's canonical document in students collection
   await setDoc(doc(db, "students", cleanRoll), enrollPayload, { merge: true });
 
   if (typeof window !== "undefined") {
@@ -84,6 +66,7 @@ export async function registerStudentFace(rollNo, faceDescriptor) {
     } catch (_) {}
   }
 
+  // Synchronize across global state and open pages immediately
   broadcastStudentUpdate({
     rollNo: cleanRoll,
     uid: auth.currentUser?.uid,
@@ -94,8 +77,45 @@ export async function registerStudentFace(rollNo, faceDescriptor) {
     isRegistered: true,
     registeredGlobally: true,
     registrationStatus: "registered",
-    faceRemovedAt: null
+    faceRemovedAt: null,
+    faceDescriptor: rawVector.length === 128 ? rawVector : undefined
   });
+
+  // 2. Perform duplicate verification via API
+  let apiResult = null;
+  try {
+    const result = await callFaceApi("/api/face/register", { rollNo: cleanRoll, faceDescriptor: rawVector });
+    if (result?.status === "REVIEW_REQUIRED") {
+      throw new Error(result.message || "Face enrollment requires authorized review.");
+    }
+    if (result?.success) {
+      apiResult = result;
+    }
+  } catch (apiErr) {
+    if (apiErr.message && (
+      apiErr.message.includes("review") ||
+      apiErr.message.includes("Duplicate") ||
+      apiErr.message.includes("already-exists") ||
+      apiErr.message.includes("already enrolled under another")
+    )) {
+      // Revert if duplicate
+      await setDoc(doc(db, "students", cleanRoll), {
+        faceRegistered: false,
+        biometricEnrolled: false,
+        hasFaceRegistered: false,
+        faceRemovedAt: Date.now()
+      }, { merge: true });
+      broadcastStudentUpdate({
+        rollNo: cleanRoll,
+        faceRegistered: false,
+        biometricEnrolled: false,
+        hasFaceRegistered: false,
+        faceRemovedAt: Date.now()
+      });
+      throw apiErr;
+    }
+    console.warn("registerStudentFace API notice:", apiErr.message);
+  }
 
   return apiResult || { success: true };
 }
@@ -109,7 +129,7 @@ async function callFaceApi(path, payload) {
   const baseUrl = getApiBaseUrl();
   let response;
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 3500);
+  const timeoutId = setTimeout(() => controller.abort(), 2000);
   try {
     response = await fetch(`${baseUrl}${path}`, {
       method: "POST",
@@ -151,7 +171,53 @@ async function callFaceApi(path, payload) {
 }
 
 export async function matchStudentFace(faceDescriptor, rollNo = "") {
-  return callFaceApi("/api/face/match", { faceDescriptor, rollNo });
+  const cleanRoll = String(rollNo || "").trim().toUpperCase();
+  const rawVector = Array.isArray(faceDescriptor) ? faceDescriptor : Array.from(faceDescriptor || []);
+
+  // FAST-PATH: If target roll number is provided, match against in-memory or Firestore descriptor in < 1ms
+  if (cleanRoll && rawVector.length === 128) {
+    try {
+      const cachedStudent = getGlobalStudent(cleanRoll);
+      let enrolledVector = cachedStudent?.faceDescriptor || cachedStudent?.descriptor;
+
+      if (!enrolledVector || enrolledVector.length !== 128) {
+        let snap = await getDoc(doc(db, "students", cleanRoll)).catch(() => null);
+        if (!snap || !snap.exists()) {
+          snap = await getDoc(doc(db, "students", cleanRoll.toLowerCase())).catch(() => null);
+        }
+        if (snap && snap.exists()) {
+          const data = snap.data();
+          enrolledVector = data.faceDescriptor || data.descriptor;
+          if (Array.isArray(enrolledVector) && enrolledVector.length === 128) {
+            setGlobalStudent({ rollNo: cleanRoll, ...data, faceDescriptor: enrolledVector });
+          }
+        }
+      }
+
+      if (Array.isArray(enrolledVector) && enrolledVector.length === 128) {
+        let sum = 0;
+        for (let i = 0; i < 128; i++) {
+          const diff = Number(rawVector[i]) - Number(enrolledVector[i]);
+          sum += diff * diff;
+        }
+        const dist = Math.sqrt(sum);
+        const matched = dist <= 0.52;
+        const confidence = Math.round(Math.max(0, Math.min(100, (1 - (dist / 0.62)) * 100)));
+        return {
+          success: true,
+          matched,
+          distance: dist,
+          confidence,
+          status: matched ? "MATCHED" : "MISMATCH",
+          rollNo: cleanRoll
+        };
+      }
+    } catch (directErr) {
+      console.warn("Direct face match notice:", directErr);
+    }
+  }
+
+  return callFaceApi("/api/face/match", { faceDescriptor: rawVector, rollNo: cleanRoll });
 }
 
 export async function removeStudentFaceEnrollment(rollNo, actorName = "Faculty/Admin") {
@@ -209,6 +275,14 @@ export async function removeStudentFaceEnrollment(rollNo, actorName = "Faculty/A
       localStorage.removeItem(`smartattend_face_enrolled_${cleanRoll}`);
     } catch (_) {}
   }
+
+  broadcastStudentUpdate({
+    rollNo: cleanRoll,
+    faceRegistered: false,
+    biometricEnrolled: false,
+    hasFaceRegistered: false,
+    faceRemovedAt: now
+  });
 
   return { success: true };
 }

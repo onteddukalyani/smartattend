@@ -185,8 +185,64 @@ code {
   .manage-rereg-page,
   .identify-page,
   .face-enroll-page,
-  .matrix-container {
+  .matrix-container,
+  .device-setup-page,
+  .support-feedback-page {
     padding-bottom: calc(88px + env(safe-area-inset-bottom, 0px)) !important;
+  }
+}
+
+/* Universal Mobile Modal & Dialog Containment */
+@media (max-width: 640px) {
+  [role="dialog"],
+  .modal-card,
+  .device-modal-card,
+  .readiness-modal-card,
+  .notif-modal-card,
+  .excuse-modal-card,
+  .st-update-modal-container,
+  .request-rereg-modal,
+  .student-detail-modal-card {
+    max-width: min(96vw, 560px) !important;
+    max-height: min(94vh, 94dvh) !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Safe Area Insets for Modal Overlays */
+  .modal-overlay,
+  .device-modal-overlay,
+  .readiness-modal-overlay,
+  .notif-modal-overlay,
+  .excuse-modal-overlay,
+  .st-update-modal-overlay,
+  .request-rereg-backdrop {
+    padding: max(10px, env(safe-area-inset-top, 0px)) 8px max(12px, env(safe-area-inset-bottom, 0px)) !important;
+  }
+
+  /* Alert Banners Responsive Wrapping */
+  .face-pending-alert-banner,
+  .st-scanner-error-banner,
+  .device-dual-bio-banner,
+  .login-role-mismatch-box {
+    flex-wrap: wrap !important;
+    padding: 12px 14px !important;
+  }
+
+  .face-pending-alert-banner .pending-actions,
+  .st-scanner-error-banner .scanner-banner-actions {
+    width: 100% !important;
+    display: flex !important;
+    flex-wrap: wrap !important;
+    gap: 8px !important;
+    margin-top: 6px !important;
+  }
+
+  .face-pending-alert-banner button,
+  .st-scanner-error-banner button {
+    flex: 1 1 100% !important;
+    min-height: 42px !important;
+    justify-content: center !important;
   }
 }
 
@@ -212,5 +268,18 @@ code {
     max-width: 100%;
   }
 }
+
+/* Ultra-Compact Phone Screens (< 360px) */
+@media (max-width: 360px) {
+  body {
+    font-size: 14px;
+  }
+
+  .card {
+    padding: 14px 12px;
+    border-radius: 14px;
+  }
+}
+
 
 

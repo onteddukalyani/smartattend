@@ -582,6 +582,7 @@ export default function StudentDashboard() {
 
     // Device Resolution & Mismatch Guard
     const registeredDevice = isDeviceReset ? null : (fetchedStudentData?.deviceType || fetchedStudentData?.registeredDeviceType || profile?.deviceType || profile?.registeredDeviceType || currentDeviceType);
+    const isDeviceConfigured = Boolean(registeredDevice || Capacitor.isNativePlatform());
     const detectedPlatform = detectDeviceType();
     const isDeviceMismatch = Boolean(!isDeviceReset && registeredDevice && !isDeviceMatching(registeredDevice, detectedPlatform));
 
@@ -1401,9 +1402,9 @@ export default function StudentDashboard() {
                                     alignItems: "center",
                                     gap: "5px"
                                 }}
-                                title={registeredDevice ? `Locked to ${getDeviceDisplayName(registeredDevice)} (Click to Request Reset)` : "Click to select your device type"}
+                                title={registeredDevice ? `Locked to ${getDeviceDisplayName(registeredDevice)} (Click to Request Reset)` : "Click to select your phone model (Android or iPhone)"}
                             >
-                                <FaMobileAlt size={11} /> Device: {registeredDevice ? `${getDeviceDisplayName(registeredDevice).toUpperCase()}${isDeviceMismatch ? ' ⚠️ (Mismatch)' : ' 🔒'}` : 'Select Device'}
+                                <FaMobileAlt size={11} /> Device: {registeredDevice ? `${getDeviceDisplayName(registeredDevice).toUpperCase()}${isDeviceMismatch ? ' ⚠️ (Mismatch)' : ' 🔒'}` : 'Select Phone Model (Android / iPhone) ⚠️'}
                             </span>
                         </div>
                     </div>
@@ -1535,7 +1536,85 @@ export default function StudentDashboard() {
                 </div>
             )}
 
-
+            {/* Phone Model Setup Pending Banner: Displayed if student has not selected Android or iPhone */}
+            {!isDeviceConfigured && (
+                <div
+                    className="face-pending-alert-banner"
+                    style={{
+                        background: "linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%)",
+                        borderColor: "#f59e0b",
+                        boxShadow: "0 4px 14px rgba(245, 158, 11, 0.12)"
+                    }}
+                >
+                    <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                        <div style={{
+                            width: "42px",
+                            height: "42px",
+                            borderRadius: "12px",
+                            background: "#d97706",
+                            color: "#ffffff",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            fontSize: "1.3rem",
+                            flexShrink: 0
+                        }}>
+                            <FaMobileAlt />
+                        </div>
+                        <div>
+                            <h4 style={{ color: "#92400e", margin: "0 0 4px 0", fontSize: "0.98rem", fontWeight: 800 }}>
+                                📱 Phone Model Setup Required (Android or iPhone)
+                            </h4>
+                            <p style={{ color: "#78350f", margin: 0, fontSize: "0.85rem", lineHeight: 1.4 }}>
+                                You have not selected your phone model yet. Please choose whether you use an <strong>Android</strong> or <strong>iPhone</strong> to receive tailored setup instructions (Android APK Kiosk mode or iOS Guided Access) before scanning attendance.
+                            </p>
+                        </div>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                        <Link
+                            to="/student/device-setup"
+                            style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "6px",
+                                padding: "8px 14px",
+                                borderRadius: "10px",
+                                background: "#ffffff",
+                                border: "1.5px solid #d97706",
+                                color: "#b45309",
+                                fontWeight: 700,
+                                fontSize: "0.82rem",
+                                textDecoration: "none",
+                                cursor: "pointer",
+                                whiteSpace: "nowrap"
+                            }}
+                        >
+                            <FaInfoCircle /> View Instructions
+                        </Link>
+                        <button
+                            type="button"
+                            onClick={() => setShowDeviceModal(true)}
+                            style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "8px",
+                                padding: "9px 18px",
+                                borderRadius: "10px",
+                                background: "linear-gradient(135deg, #d97706, #b45309)",
+                                color: "#ffffff",
+                                border: "none",
+                                fontWeight: 700,
+                                fontSize: "0.88rem",
+                                cursor: "pointer",
+                                boxShadow: "0 4px 12px rgba(217, 119, 6, 0.25)",
+                                whiteSpace: "nowrap"
+                            }}
+                        >
+                            <FaMobileAlt /> Select Android / iPhone Model
+                        </button>
+                    </div>
+                </div>
+            )}
 
             {/* Face Biometrics Pending Banner: Only displayed if student has not enrolled their face yet */}
             {!hasFaceRegistered && !isRegisteredGlobally && (
@@ -2396,6 +2475,8 @@ export default function StudentDashboard() {
                 onClose={() => setShowReadinessModal(false)}
                 hasFaceRegistered={hasFaceRegistered}
                 hasHwRegistered={hasHwRegistered}
+                hasDeviceRegistered={isDeviceConfigured}
+                onOpenDeviceModal={() => setShowDeviceModal(true)}
                 studentName={studentName}
                 activeRollNo={activeRollNo}
             />

@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { db, auth } from '../../firebase';
 import { doc, updateDoc, setDoc, getDoc, arrayUnion, increment, serverTimestamp } from 'firebase/firestore';
-import { FaShieldAlt, FaCheck, FaTimes, FaExclamationTriangle, FaTrashAlt } from 'react-icons/fa';
+import { FaCheck, FaTimes, FaExclamationTriangle, FaTrashAlt } from 'react-icons/fa';
 import { sendStudentNotification } from '../../services/notificationsService';
 import ExcuseFaceVerification from './ExcuseFaceVerification';
 
@@ -253,17 +253,18 @@ export default function ViolationReviewModal({ violation, onClose, onActionCompl
             position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
             backgroundColor: 'rgba(15, 23, 42, 0.72)', backdropFilter: 'blur(6px)',
             display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999,
-            padding: '16px'
+            padding: 'max(10px, env(safe-area-inset-top, 0px)) 10px max(12px, env(safe-area-inset-bottom, 0px))'
         }}>
             <div style={{
-                backgroundColor: 'var(--surface, #ffffff)', borderRadius: '20px', padding: '28px',
-                maxWidth: '520px', width: '100%', boxShadow: '0 20px 40px rgba(0,0,0,0.3)',
+                backgroundColor: 'var(--surface, #ffffff)', borderRadius: '20px', padding: 'clamp(16px, 4vw, 28px)',
+                maxWidth: 'min(96vw, 520px)', width: '100%', maxHeight: 'min(92vh, 92dvh)', overflowY: 'auto',
+                boxShadow: '0 20px 40px rgba(0,0,0,0.3)',
                 border: '1px solid var(--border, #e2e8f0)', animation: 'dashFadeIn 0.25s ease'
             }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px', color: '#ef4444', marginBottom: '18px' }}>
                     <div style={{
                         width: '44px', height: '44px', borderRadius: '12px', background: 'rgba(239, 68, 68, 0.12)',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '20px'
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '20px', flexShrink: 0
                     }}>
                         <FaExclamationTriangle />
                     </div>
@@ -306,7 +307,7 @@ export default function ViolationReviewModal({ violation, onClose, onActionCompl
                         style={{
                             padding: '10px 16px', borderRadius: '12px', border: '1px solid var(--border, #cbd5e1)',
                             backgroundColor: 'var(--surface, #ffffff)', color: 'var(--text-muted, #475569)', fontWeight: '700', cursor: 'pointer',
-                            fontSize: '0.86rem'
+                            fontSize: '0.86rem', flex: '1 1 auto', minHeight: '42px', display: 'flex', alignItems: 'center', justifyContent: 'center'
                         }}>
                         Cancel
                     </button>
@@ -317,7 +318,7 @@ export default function ViolationReviewModal({ violation, onClose, onActionCompl
                         style={{
                             padding: '10px 14px', borderRadius: '12px', border: '1px solid var(--border, #cbd5e1)',
                             backgroundColor: 'var(--surface-soft, #f1f5f9)', color: 'var(--text-main, #475569)', fontWeight: '700', cursor: 'pointer',
-                            display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.86rem'
+                            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', fontSize: '0.86rem', flex: '1 1 auto', minHeight: '42px'
                         }}
                         title="Remove violation from review list without modifying attendance status"
                     >
@@ -330,8 +331,8 @@ export default function ViolationReviewModal({ violation, onClose, onActionCompl
                         style={{
                             padding: '10px 16px', borderRadius: '12px', border: 'none',
                             backgroundColor: '#ef4444', color: '#ffffff', fontWeight: '700', cursor: 'pointer',
-                            display: 'flex', alignItems: 'center', gap: '6px', boxShadow: '0 4px 12px rgba(239,68,68,0.3)',
-                            fontSize: '0.86rem'
+                            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', boxShadow: '0 4px 12px rgba(239,68,68,0.3)',
+                            fontSize: '0.86rem', flex: '1 1 130px', minHeight: '42px'
                         }}>
                         <FaTimes /> Reject (Absent)
                     </button>
@@ -342,8 +343,8 @@ export default function ViolationReviewModal({ violation, onClose, onActionCompl
                         style={{
                             padding: '10px 18px', borderRadius: '12px', border: 'none',
                             backgroundColor: '#10b981', color: '#ffffff', fontWeight: '700', cursor: 'pointer',
-                            display: 'flex', alignItems: 'center', gap: '6px', boxShadow: '0 4px 12px rgba(16,185,129,0.3)',
-                            fontSize: '0.86rem'
+                            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', boxShadow: '0 4px 12px rgba(16,185,129,0.3)',
+                            fontSize: '0.86rem', flex: '1 1 130px', minHeight: '42px'
                         }}>
                         <FaCheck /> Approve (Present)
                     </button>

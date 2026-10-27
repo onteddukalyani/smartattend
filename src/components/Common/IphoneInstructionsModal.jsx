@@ -1,15 +1,11 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import {
     FaApple,
     FaTimes,
     FaCamera,
     FaMobileAlt,
     FaShieldAlt,
-    FaCheckCircle,
-    FaExclamationTriangle,
     FaArrowRight,
-    FaLock,
-    FaKey,
     FaUnlock,
     FaShareAlt
 } from 'react-icons/fa';
@@ -33,14 +29,14 @@ export default function IphoneInstructionsModal({ isOpen, onClose }) {
             alignItems: 'center',
             justifyContent: 'center',
             zIndex: 99999,
-            padding: '16px'
+            padding: 'max(10px, env(safe-area-inset-top, 0px)) 10px max(12px, env(safe-area-inset-bottom, 0px))'
         }} role="dialog" aria-modal="true">
             <div style={{
                 background: 'var(--surface, #ffffff)',
                 borderRadius: '24px',
-                maxWidth: '560px',
+                maxWidth: 'min(96vw, 560px)',
                 width: '100%',
-                maxHeight: '90vh',
+                maxHeight: 'min(92vh, 92dvh)',
                 overflowY: 'auto',
                 boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.35)',
                 border: '1.5px solid var(--border, #e2e8f0)',

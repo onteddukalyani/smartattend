@@ -1025,4 +1025,71 @@
   text-decoration: underline;
 }
 
+/* =========================================================
+   RESPONSIVE MOBILE VIEWPORT STYLES
+   ========================================================= */
+@media (max-width: 480px) {
+  .st-update-modal-overlay {
+    padding: 8px;
+    align-items: flex-end;
+  }
+
+  .st-update-modal-container {
+    max-height: 94vh;
+    border-radius: 20px 20px 10px 10px;
+    width: 100%;
+  }
+
+  .st-update-modal-header {
+    padding: 14px 16px 12px;
+  }
+
+  .st-update-modal-body {
+    padding: 14px 16px 12px;
+    max-height: calc(94vh - 150px);
+    overflow-y: auto;
+  }
+
+  .st-update-title {
+    font-size: 1.15rem;
+  }
+
+  .st-update-hero-icon-wrap {
+    width: 60px;
+    height: 60px;
+  }
+
+  .st-update-android-icon {
+    width: 52px;
+    height: 52px;
+    font-size: 1.6rem;
+  }
+
+  .st-update-modal-footer {
+    padding: 12px 16px calc(14px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .st-update-btn-primary {
+    padding: 12px 16px;
+    font-size: 0.9rem;
+  }
+}
+
+@media (max-width: 360px) {
+  .st-update-tabs-bar {
+    overflow-x: auto;
+  }
+
+  .st-update-tab-btn {
+    padding: 8px 6px;
+    font-size: 0.74rem;
+  }
+
+  .st-ver-pill {
+    padding: 4px 8px;
+    font-size: 0.78rem;
+  }
+}
+
+
 

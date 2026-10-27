@@ -482,3 +482,120 @@
   cursor: not-allowed;
   transform: none;
 }
+
+/* =========================================================
+   MIDNIGHT THEME COMPATIBILITY
+   ========================================================= */
+[data-theme="midnight"] .excuse-modal-card {
+  background: #1b2a40;
+  border-color: #34465f;
+  box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.7);
+}
+
+[data-theme="midnight"] .excuse-modal-title {
+  color: #f8fafc;
+}
+
+[data-theme="midnight"] .excuse-modal-subtitle,
+[data-theme="midnight"] .excuse-label {
+  color: #cbd5e1;
+}
+
+[data-theme="midnight"] .excuse-select,
+[data-theme="midnight"] .excuse-input,
+[data-theme="midnight"] .excuse-textarea {
+  background: #101827;
+  border-color: #34465f;
+  color: #f8fafc;
+}
+
+[data-theme="midnight"] .excuse-select:focus,
+[data-theme="midnight"] .excuse-input:focus,
+[data-theme="midnight"] .excuse-textarea:focus {
+  border-color: #818cf8;
+  background: #152135;
+}
+
+[data-theme="midnight"] .excuse-close-btn {
+  background: #101827;
+  color: #94a3b8;
+}
+
+[data-theme="midnight"] .excuse-close-btn:hover {
+  background: #27374d;
+  color: #f8fafc;
+}
+
+[data-theme="midnight"] .excuse-selected-student-card,
+[data-theme="midnight"] .excuse-alert-notice {
+  background: #101827;
+  border-color: #34465f;
+}
+
+[data-theme="midnight"] .excuse-selected-name {
+  color: #f8fafc;
+}
+
+[data-theme="midnight"] .excuse-selected-sub {
+  color: #94a3b8;
+}
+
+[data-theme="midnight"] .excuse-preset-chip {
+  background: #101827;
+  border-color: #34465f;
+  color: #cbd5e1;
+}
+
+[data-theme="midnight"] .excuse-preset-chip:hover {
+  background: #27374d;
+}
+
+[data-theme="midnight"] .excuse-preset-chip.active {
+  background: rgba(99, 102, 241, 0.25);
+  border-color: #818cf8;
+  color: #a5b4fc;
+}
+
+[data-theme="midnight"] .excuse-btn-cancel {
+  border-color: #34465f;
+  color: #94a3b8;
+}
+
+[data-theme="midnight"] .excuse-btn-cancel:hover {
+  background: #27374d;
+  color: #f8fafc;
+}
+
+/* =========================================================
+   RESPONSIVE MOBILE VIEWPORT STYLES
+   ========================================================= */
+@media (max-width: 540px) {
+  .excuse-modal-overlay {
+    padding: 8px;
+    align-items: flex-end;
+  }
+
+  .excuse-modal-card {
+    padding: 20px 16px;
+    border-radius: 20px 20px 10px 10px;
+    max-height: 94vh;
+  }
+
+  .excuse-modal-title {
+    font-size: 1.2rem;
+  }
+
+  .excuse-modal-actions {
+    flex-direction: column-reverse;
+    gap: 8px;
+  }
+
+  .excuse-modal-actions button {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .excuse-mode-tabs {
+    flex-direction: column;
+  }
+}

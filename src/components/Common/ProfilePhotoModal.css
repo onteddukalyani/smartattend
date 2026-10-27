@@ -305,3 +305,46 @@
     transform: translateY(-2px);
     box-shadow: 0 6px 20px rgba(239, 68, 68, 0.4);
 }
+
+/* =========================================================
+   RESPONSIVE MOBILE VIEWPORT STYLES
+   ========================================================= */
+@media (max-width: 520px) {
+    .wa-dp-backdrop {
+        padding: calc(env(safe-area-inset-top, 12px) + 8px) 12px calc(env(safe-area-inset-bottom, 12px) + 8px);
+    }
+
+    .wa-dp-top-bar {
+        padding: 10px 12px;
+        border-radius: 14px;
+    }
+
+    .wa-dp-mini-avatar {
+        width: 36px;
+        height: 36px;
+        font-size: 15px;
+    }
+
+    .wa-dp-name {
+        font-size: 0.95rem;
+        max-width: 140px;
+    }
+
+    .wa-dp-image-container {
+        width: min(92vw, 360px);
+        height: min(92vw, 360px);
+        border-radius: 20px;
+    }
+
+    .wa-dp-bottom-controls {
+        gap: 8px;
+        width: 100%;
+    }
+
+    .wa-dp-bottom-btn {
+        flex: 1 1 calc(50% - 8px);
+        justify-content: center;
+        padding: 10px 12px;
+        font-size: 0.82rem;
+    }
+}

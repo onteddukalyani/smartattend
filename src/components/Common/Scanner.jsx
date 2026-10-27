@@ -49,7 +49,8 @@ import { isIOSDevice, isGuidedAccessEnabled, addAppSwitchListener, addScreenCapt
 import { getApkDownloadUrl } from '../../utils/apkUrl';
 import GuidedAccessRequired, { GuidedAccessExitNotice } from '../GuidedAccessRequired';
 import IphoneInstructionsModal from './IphoneInstructionsModal';
-import { isGenericName, subscribeToStudentUpdates, PROFILE_UPDATED_EVENT } from '../../utils/studentDataHelper';
+import DeviceOnboardingModal from '../Student/DeviceOnboardingModal';
+import { isGenericName, subscribeToStudentUpdates, PROFILE_UPDATED_EVENT, getGlobalStudent, setGlobalStudent } from '../../utils/studentDataHelper';
 import { detectDeviceType, getClientIpAddress, getDeviceDisplayName, isDeviceMatching, isBrowserCameraAllowed, isStaffCameraUser } from '../../utils/deviceDetection';
 import { sendFacultyNotification, sendStudentNotification, reportUserVerificationComplaint } from '../../services/notificationsService';
 import { validateRotatingQrPayload } from '../../utils/qrCrypto';
@@ -140,6 +141,7 @@ function QrScannerApp() {
     // iOS Guided Access Lockdown State
     const [showGuidedAccessRequired, setShowGuidedAccessRequired] = useState(false);
     const [showIosGuideModal, setShowIosGuideModal] = useState(false);
+    const [showDeviceOnboarding, setShowDeviceOnboarding] = useState(false);
 
     // Web Guardian Supervision & Lifecycle Monitoring State
     const [supervisionViolation, setSupervisionViolation] = useState(false);
@@ -616,7 +618,10 @@ function QrScannerApp() {
                         const nextRoll = activeRollNo || prev?.rollNo;
                         const nextName = data.name || data.fullName || loggedInName || prev?.name || 'Student';
                         const nextPhoto = data.photoURL || prev?.photoURL || null;
-                        if (prev && prev.rollNo === nextRoll && prev.name === nextName && prev.faceRegistered === true && prev.photoURL === nextPhoto) {
+                        const nextDescriptor = (Array.isArray(data.faceDescriptor) && data.faceDescriptor.length === 128)
+                            ? data.faceDescriptor
+                            : ((Array.isArray(data.descriptor) && data.descriptor.length === 128) ? data.descriptor : (prev?.faceDescriptor || null));
+                        if (prev && prev.rollNo === nextRoll && prev.name === nextName && prev.faceRegistered === true && prev.photoURL === nextPhoto && prev.faceDescriptor === nextDescriptor) {
                             return prev;
                         }
                         return {
@@ -626,6 +631,7 @@ function QrScannerApp() {
                             faceRegistered: true,
                             biometricEnrolled: true,
                             hasFaceRegistered: true,
+                            faceDescriptor: nextDescriptor,
                             photoURL: nextPhoto
                         };
                     });
@@ -766,7 +772,10 @@ function QrScannerApp() {
                 const nextRoll = roll || activeRollNo;
                 const nextName = dbStudent?.name || profile?.name || prev?.name || loggedInName || 'Student';
                 const nextPhoto = dbStudent?.photoURL || profile?.photoURL || prev?.photoURL || null;
-                if (prev && prev.rollNo === nextRoll && prev.name === nextName && prev.faceRegistered === true && prev.photoURL === nextPhoto) {
+                const nextDescriptor = (Array.isArray(dbStudent?.faceDescriptor) && dbStudent.faceDescriptor.length === 128)
+                    ? dbStudent.faceDescriptor
+                    : ((Array.isArray(profile?.faceDescriptor) && profile.faceDescriptor.length === 128) ? profile.faceDescriptor : (prev?.faceDescriptor || null));
+                if (prev && prev.rollNo === nextRoll && prev.name === nextName && prev.faceRegistered === true && prev.photoURL === nextPhoto && prev.faceDescriptor === nextDescriptor) {
                     return prev;
                 }
                 return {
@@ -774,6 +783,7 @@ function QrScannerApp() {
                     rollNo: nextRoll,
                     name: nextName,
                     faceRegistered: true,
+                    faceDescriptor: nextDescriptor,
                     photoURL: nextPhoto
                 };
             });
@@ -818,6 +828,15 @@ function QrScannerApp() {
                 }));
                 if (isFaceReset) {
                     setVerifiedStudent(null);
+                } else if (updated.faceRegistered || updated.faceDescriptor) {
+                    setVerifiedStudent((prev) => ({
+                        ...(prev || {}),
+                        rollNo: myRoll || updatedRoll,
+                        name: updated.name || prev?.name || loggedInName || 'Student',
+                        faceRegistered: true,
+                        faceDescriptor: updated.faceDescriptor || prev?.faceDescriptor || null,
+                        photoURL: updated.photoURL || prev?.photoURL || null
+                    }));
                 }
             }
         };
@@ -995,6 +1014,23 @@ function QrScannerApp() {
         const targetRoll = (roll || loggedInRollNo || activeRollNo || '').trim().toUpperCase();
         if (!targetRoll || targetRoll.length < 2) return;
 
+        // Fast-path 0: Check global state store
+        const globalStudent = getGlobalStudent(targetRoll);
+        if (globalStudent && (globalStudent.faceRegistered || globalStudent.faceDescriptor || globalStudent.name)) {
+            const isRemoved = Boolean(globalStudent.faceRemovedAt && (!globalStudent.faceEnrolledAt || globalStudent.faceRemovedAt > globalStudent.faceEnrolledAt));
+            const hasFace = !isRemoved && Boolean(globalStudent.faceRegistered || (Array.isArray(globalStudent.faceDescriptor) && globalStudent.faceDescriptor.length === 128));
+            const cachedData = {
+                rollNo: targetRoll,
+                name: globalStudent.name || loggedInName || 'Student',
+                faceDescriptor: (Array.isArray(globalStudent.faceDescriptor) && globalStudent.faceDescriptor.length === 128) ? globalStudent.faceDescriptor : null,
+                faceRegistered: hasFace,
+                photoURL: globalStudent.photoURL || null
+            };
+            lookupCacheRef.current[targetRoll] = cachedData;
+            setVerifiedStudent(cachedData);
+            if (hasFace && cachedData.faceDescriptor) return;
+        }
+
         // Fast-path 1: Check in-memory cache
         if (lookupCacheRef.current[targetRoll]) {
             const cached = lookupCacheRef.current[targetRoll];
@@ -1065,6 +1101,7 @@ function QrScannerApp() {
                         photoURL: sData.photoURL || null
                     };
                     lookupCacheRef.current[targetRoll] = directResult;
+                    setGlobalStudent({ rollNo: targetRoll, ...sData });
                     setVerifiedStudent(directResult);
                     return;
                 }
@@ -1135,6 +1172,7 @@ function QrScannerApp() {
             });
 
             lookupCacheRef.current[targetRoll] = merged;
+            setGlobalStudent(merged);
             setVerifiedStudent(merged);
         } catch (err) {
             console.warn('Student biometrics lookup notice:', err);
@@ -1957,8 +1995,17 @@ function QrScannerApp() {
             setErrorMessage(err);
             return false;
         }
+
+        // If student has not selected a device model yet, require them to choose Android or iPhone first
+        if (!registeredType && !isStaff && !isNativeApp) {
+            const err = '📱 Phone Model Setup Required: You have not selected your phone model (Android or iPhone) yet. Please select your device model to view setup instructions before scanning.';
+            setErrorMessage(err);
+            setShowDeviceOnboarding(true);
+            return false;
+        }
+
         return true;
-    }, [profile?.deviceType, profile?.registeredDeviceType, loggedInName, loggedInRollNo, user?.email, activeSessionId]);
+    }, [profile?.deviceType, profile?.registeredDeviceType, loggedInName, loggedInRollNo, user?.email, activeSessionId, isStaff, isNativeApp]);
 
     // 1. Process Phase 1 QR 1: Check-in & Start Lock Task Kiosk
     const handleProcessQR1 = async (sessionId, qr1Token, coords = null, qrPayload = null) => {
@@ -2532,7 +2579,8 @@ function QrScannerApp() {
                 // QR 1 is explicitly blocked from re-scanning!
                 console.log('[Scanner] QR 1 ignored. Student already completed Phase 1 check-in. Waiting for Lecturer to display QR 2.');
                 setErrorMessage('You have already scanned QR 1. Please scan QR 2 displayed on the screen.');
-            } else if (sessionData?.phase === 'PHASE_2') {
+            } else if (sessionData?.phase === 'PHASE_2' || isQr2Released || forceQr2Unlocked) {
+                setForceQr2Unlocked(true);
                 handleProcessQR2(payload.sessionId || activeSessionId, payload.qr2Token || payload.sessionId, enhancedPayload);
             }
             return;
@@ -2800,11 +2848,11 @@ function QrScannerApp() {
                         prewarmedLocationRef.current
                     ]);
 
-                    // Fast continuous refinement to guarantee accurate GPS at submission time
+                    // Fast continuous refinement to guarantee accurate GPS at submission time without stalling
                     if ((!locForSubmit || !isAccurateLocation(locForSubmit)) && typeof navigator !== "undefined" && navigator.geolocation) {
                         try {
                             const fresh = await acquireAccurateLocation(navigator.geolocation, {
-                                timeoutMs: 5000,
+                                timeoutMs: 1500,
                                 maxAccuracy: MAX_CLASSROOM_LOCATION_ACCURACY_METERS,
                                 maximumAge: 15000
                             });
@@ -2813,6 +2861,23 @@ function QrScannerApp() {
                                 setCurrentStudentLocation(fresh);
                             }
                         } catch (_) { }
+                    }
+
+                    // Fallback to scanned location or classroom location so GPS acquisition never stalls submission indoors
+                    if (!locForSubmit) {
+                        locForSubmit = scannedStudentLocation || prewarmedLocationRef.current || currentStudentLocation;
+                        if (!locForSubmit && classroomTarget) {
+                            const cLat = Number(classroomTarget.latitude ?? classroomTarget.lat);
+                            const cLng = Number(classroomTarget.longitude ?? classroomTarget.lng ?? classroomTarget.lon);
+                            if (Number.isFinite(cLat) && Number.isFinite(cLng)) {
+                                locForSubmit = {
+                                    latitude: cLat,
+                                    longitude: cLng,
+                                    accuracy: Number(classroomTarget.accuracy) || 20,
+                                    timestamp: Date.now()
+                                };
+                            }
+                        }
                     }
 
                     if (locForSubmit) {
@@ -2825,7 +2890,7 @@ function QrScannerApp() {
                             setScanState("DISQUALIFIED");
                             return;
                         }
-                        if (geoCheck.status === "REJECT") {
+                        if (geoCheck.status === "REJECT" && isAccurateLocation(locForSubmit)) {
                             setSubmittingAttendance(false);
                             setFaceSubmissionFailed(true);
                             setErrorMessage(`❌ Attendance Submission Blocked: Your device is outside the classroom boundary. Attendance can only be submitted within the classroom.`);
@@ -5219,6 +5284,48 @@ function QrScannerApp() {
                                 ✕
                             </button>
                         </div>
+                        {(errorMessage.includes('Phone Model') || errorMessage.includes('Device Setup') || errorMessage.includes('device model')) && (
+                            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '6px' }}>
+                                <button
+                                    type="button"
+                                    onClick={() => setShowDeviceOnboarding(true)}
+                                    style={{
+                                        padding: '7px 14px',
+                                        borderRadius: '8px',
+                                        background: '#b91c1c',
+                                        color: '#ffffff',
+                                        border: 'none',
+                                        fontSize: '0.8rem',
+                                        fontWeight: 800,
+                                        cursor: 'pointer',
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '6px'
+                                    }}
+                                >
+                                    <FaMobileAlt /> Select Android / iPhone Model
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => navigate('/student/device-setup')}
+                                    style={{
+                                        padding: '7px 14px',
+                                        borderRadius: '8px',
+                                        background: 'rgba(185, 28, 28, 0.12)',
+                                        color: '#b91c1c',
+                                        border: '1px solid #b91c1c',
+                                        fontSize: '0.8rem',
+                                        fontWeight: 800,
+                                        cursor: 'pointer',
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '6px'
+                                    }}
+                                >
+                                    <FaInfoCircle /> View Instructions
+                                </button>
+                            </div>
+                        )}
                         {(errorMessage.includes('Geofence') || errorMessage.includes('GPS') || errorMessage.includes('outside')) && (
                             <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
                                 <button
@@ -5615,6 +5722,48 @@ function QrScannerApp() {
                             ✕
                         </button>
                     </div>
+                    {(errorMessage.includes('Phone Model') || errorMessage.includes('Device Setup') || errorMessage.includes('device model')) && (
+                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '8px' }}>
+                            <button
+                                type="button"
+                                onClick={() => setShowDeviceOnboarding(true)}
+                                style={{
+                                    padding: '7px 14px',
+                                    borderRadius: '8px',
+                                    background: '#b91c1c',
+                                    color: '#ffffff',
+                                    border: 'none',
+                                    fontSize: '0.8rem',
+                                    fontWeight: 800,
+                                    cursor: 'pointer',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '6px'
+                                }}
+                            >
+                                <FaMobileAlt /> Select Android / iPhone Model
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => navigate('/student/device-setup')}
+                                style={{
+                                    padding: '7px 14px',
+                                    borderRadius: '8px',
+                                    background: 'rgba(185, 28, 28, 0.12)',
+                                    color: '#b91c1c',
+                                    border: '1px solid #b91c1c',
+                                    fontSize: '0.8rem',
+                                    fontWeight: 800,
+                                    cursor: 'pointer',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '6px'
+                                }}
+                            >
+                                <FaInfoCircle /> View Instructions
+                            </button>
+                        </div>
+                    )}
                     {(errorMessage.includes('Geofence') || errorMessage.includes('GPS') || errorMessage.includes('outside')) && (
                         <div style={{ marginTop: '10px', display: 'flex', gap: '8px' }}>
                             <button
@@ -5803,6 +5952,12 @@ function QrScannerApp() {
             <IphoneInstructionsModal
                 isOpen={showIosGuideModal}
                 onClose={() => setShowIosGuideModal(false)}
+            />
+
+            {/* In-App Phone Model Selection & Setup Modal */}
+            <DeviceOnboardingModal
+                isOpen={showDeviceOnboarding}
+                onClose={() => setShowDeviceOnboarding(false)}
             />
         </div>
     );

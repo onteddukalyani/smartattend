@@ -29,7 +29,7 @@ import { useAuth } from "../../authcontext";
 import { useTableSort, SortIcon } from "../../Common/useTableSort";
 import { LiveFaceEnrollment } from "../../Common/LiveFaceEnrollment";
 import { registerStudentFace } from "../../../services/faceEnrollmentService";
-import { normalizeBranchName } from "../../../utils/studentDataHelper";
+import { normalizeBranchName, broadcastStudentUpdate } from "../../../utils/studentDataHelper";
 import "./AddStudent.css";
 
 const AddStudent = () => {
@@ -216,6 +216,7 @@ const AddStudent = () => {
 
       // 4. Save strictly under a single master student document in Firestore
       await setDoc(doc(db, "students", cleanRollNo), studentPayload, { merge: true });
+      await setDoc(doc(db, "users", cleanEmail), { ...studentPayload, id: cleanEmail }, { merge: true }).catch(() => {});
       if (enrolledBiometric?.faceDescriptor) {
         try {
           await registerStudentFace(cleanRollNo, enrolledBiometric.faceDescriptor);
@@ -225,6 +226,7 @@ const AddStudent = () => {
         }
       }
 
+      broadcastStudentUpdate(studentPayload);
       alert(`✅ Student "${form.name.trim()}" (${cleanRollNo}) registered successfully!`);
       navigate(studentsPath);
     } catch (err) {
@@ -293,6 +295,7 @@ const AddStudent = () => {
         await registerStudentFace(cleanRollNo, enrolledBiometric.faceDescriptor);
       }
 
+      broadcastStudentUpdate(studentPayload);
       alert(`✅ Successfully converted ${cleanEmail} to a registered student (Roll No: ${cleanRollNo})!`);
       navigate(studentsPath);
     } catch (err) {
@@ -531,9 +534,22 @@ const AddStudent = () => {
 
           // Write strictly to master canonical students collection
           batch.set(doc(db, "students", cleanRoll), studentPayload, { merge: true });
+          batch.set(doc(db, "users", cleanEmail), { ...studentPayload, id: cleanEmail }, { merge: true });
         }
 
         await batch.commit();
+        for (const student of chunk) {
+          broadcastStudentUpdate({
+            rollNo: student.rollNo.toUpperCase().trim(),
+            email: student.email.toLowerCase().trim(),
+            name: student.name.trim(),
+            branch: normalizeBranchName(student.branch),
+            semester: student.semester || "1",
+            role: "student",
+            status: "active",
+            approved: true
+          });
+        }
         addedCount += chunk.length;
       }
 

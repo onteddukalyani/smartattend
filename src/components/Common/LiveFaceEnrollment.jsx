@@ -492,7 +492,7 @@ export function LiveFaceEnrollment({
             let detection = null;
             try {
                 detection = await faceapi
-                    .detectSingleFace(videoRef.current, new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.30 }))
+                    .detectSingleFace(videoRef.current, new faceapi.TinyFaceDetectorOptions({ inputSize: 160, scoreThreshold: 0.28 }))
                     .withFaceLandmarks()
                     .withFaceDescriptor();
             } catch (_) { }
@@ -501,16 +501,7 @@ export function LiveFaceEnrollment({
             if (!detection || !detection.descriptor) {
                 try {
                     detection = await faceapi
-                        .detectSingleFace(videoRef.current, new faceapi.TinyFaceDetectorOptions({ inputSize: 160, scoreThreshold: 0.25 }))
-                        .withFaceLandmarks()
-                        .withFaceDescriptor();
-                } catch (_) { }
-            }
-
-            if (!detection || !detection.descriptor) {
-                try {
-                    detection = await faceapi
-                        .detectSingleFace(canvas, new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.25 }))
+                        .detectSingleFace(canvas, new faceapi.TinyFaceDetectorOptions({ inputSize: 160, scoreThreshold: 0.22 }))
                         .withFaceLandmarks()
                         .withFaceDescriptor();
                 } catch (_) { }

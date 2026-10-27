@@ -1,7 +1,10 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import * as faceapi from "@vladmandic/face-api";
+import { doc, getDoc } from "firebase/firestore";
+import { db } from "../../../firebase";
 import { useAuth } from "../../authcontext";
 import { isStaffCameraUser } from "../../../utils/deviceDetection";
+import { getGlobalStudent, setGlobalStudent } from "../../../utils/studentDataHelper";
 import {
   FaCamera,
   FaCheckCircle,
@@ -412,13 +415,27 @@ function FaceScanner({
     verifiedStudentRef.current = verifiedStudent;
   }, [verifiedStudent]);
 
-  // Reset state when target roll number changes
+  // Reset state when target roll number changes & pre-fetch biometric descriptor for instant response
   useEffect(() => {
     resetLivenessState();
     serverMatchRef.current = null;
     lastServerMatchAtRef.current = 0;
     matchRequestTokenRef.current += 1;
     matchInFlightRef.current = false;
+
+    if (verifiedRoll) {
+      const globalCached = getGlobalStudent(verifiedRoll);
+      if (!globalCached?.faceDescriptor) {
+        getDoc(doc(db, "students", verifiedRoll)).then((snap) => {
+          if (snap.exists()) {
+            const data = snap.data();
+            if (data.faceDescriptor) {
+              setGlobalStudent({ rollNo: verifiedRoll, ...data });
+            }
+          }
+        }).catch(() => {});
+      }
+    }
   }, [verifiedRoll, resetLivenessState]);
 
   // 3. Real-time Face Detection, Biometric Matching, Liveness & Anti-Spoofing Loop
@@ -432,12 +449,15 @@ function FaceScanner({
     }
 
     const targetRoll = (verifiedStudent?.rollNo || rollNo || profile?.rollNo || "").trim().toUpperCase();
+    const globalTarget = getGlobalStudent(targetRoll);
     const hasEnrolledFace = Boolean(
       verifiedStudent?.faceRegistered ||
       verifiedStudent?.faceDescriptor ||
       verifiedStudent?.descriptor ||
       verifiedStudent?.biometricEnrolled ||
       verifiedStudent?.hasFaceRegistered ||
+      globalTarget?.faceRegistered ||
+      globalTarget?.faceDescriptor ||
       (targetRoll && localStorage.getItem(`smartattend_face_enrolled_${targetRoll}`) === "true") ||
       (profile?.rollNo && localStorage.getItem(`smartattend_face_enrolled_${profile.rollNo}`) === "true") ||
       (user?.uid && localStorage.getItem(`smartattend_face_enrolled_${user.uid}`) === "true") ||
@@ -582,9 +602,12 @@ function FaceScanner({
             }
 
             // Server face matching only needed if no local enrolled descriptor is loaded
+            const globalStudent = getGlobalStudent(verifiedRoll || rollNo || profile?.rollNo);
             const hasLocalEnrolled = Boolean(
               verifiedStudent?.faceDescriptor?.length === 128 ||
               verifiedStudent?.descriptor?.length === 128 ||
+              globalStudent?.faceDescriptor?.length === 128 ||
+              globalStudent?.descriptor?.length === 128 ||
               (Array.isArray(profile?.faceDescriptor) && profile.faceDescriptor.length === 128)
             );
 
@@ -631,7 +654,8 @@ function FaceScanner({
             // -------------------------------------------------------------
             // SCENARIO 1: Targeted student verification (Form mode / Attendance)
             if (verifiedStudent) {
-              const enrolledDescriptor = verifiedStudent.faceDescriptor || verifiedStudent.descriptor || (Array.isArray(profile?.faceDescriptor) ? profile.faceDescriptor : null);
+              const globalStudent = getGlobalStudent(verifiedRoll || rollNo || profile?.rollNo);
+              const enrolledDescriptor = verifiedStudent.faceDescriptor || verifiedStudent.descriptor || globalStudent?.faceDescriptor || globalStudent?.descriptor || (Array.isArray(profile?.faceDescriptor) ? profile.faceDescriptor : null);
               
               let localDist = null;
               if (liveDescriptor && enrolledDescriptor && enrolledDescriptor.length === 128) {
