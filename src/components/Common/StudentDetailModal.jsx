@@ -201,18 +201,22 @@ const StudentDetailModal = ({ student, onClose, onUpdate }) => {
   const totalAttended = attendanceRecords.length;
   const uniqueCourses = new Set(attendanceRecords.map(r => r.session?.courseId || r.courseId).filter(Boolean)).size;
 
-  const hasFaceRemoval = Boolean(
-    currentStudent?.faceRemovedAt &&
-    (!currentStudent?.faceEnrolledAt || currentStudent.faceRemovedAt > currentStudent.faceEnrolledAt)
+  const isDirectlyRegistered = Boolean(
+    currentStudent?.faceRegistered === true ||
+    currentStudent?.biometricEnrolled === true ||
+    currentStudent?.hasFaceRegistered === true ||
+    currentStudent?.isRegistered === true ||
+    currentStudent?.registeredGlobally === true ||
+    currentStudent?.registrationStatus === "registered" ||
+    (Array.isArray(currentStudent?.faceDescriptor) && currentStudent.faceDescriptor.length === 128) ||
+    (Array.isArray(currentStudent?.descriptor) && currentStudent.descriptor.length === 128)
   );
-  const isFaceEnrolled = Boolean(
-    !hasFaceRemoval &&
-    (currentStudent?.faceRegistered ||
-     currentStudent?.biometricEnrolled ||
-     currentStudent?.hasFaceRegistered ||
-     (Array.isArray(currentStudent?.faceDescriptor) && currentStudent.faceDescriptor.length === 128) ||
-     (Array.isArray(currentStudent?.descriptor) && currentStudent.descriptor.length === 128))
-  );
+
+  const enrolledTime = currentStudent?.faceEnrolledAt?.toMillis?.() ?? (typeof currentStudent?.faceEnrolledAt === "number" ? currentStudent.faceEnrolledAt : 0);
+  const removedTime = currentStudent?.faceRemovedAt?.toMillis?.() ?? (typeof currentStudent?.faceRemovedAt === "number" ? currentStudent.faceRemovedAt : 0);
+  const hasFaceRemoval = Boolean(!isDirectlyRegistered && removedTime > enrolledTime);
+
+  const isFaceEnrolled = Boolean(isDirectlyRegistered && !hasFaceRemoval);
 
   const handleExportAttendance = () => {
     if (!attendanceRecords.length) {
@@ -739,7 +743,7 @@ const StudentDetailModal = ({ student, onClose, onUpdate }) => {
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "8px" }}>
                     <span>{isFaceEnrolled ? "Registered & Active ✅" : "Not Registered ⏳"}</span>
                     <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
-                      {isStaff && isFaceEnrolled && (
+                      {isStaff && (
                         <button
                           type="button"
                           onClick={handleRemoveFaceBiometrics}

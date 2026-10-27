@@ -4458,24 +4458,17 @@ exports.registerStudentFace = onCall(async (request) => {
       };
     }
 
-    const publicFaceFields = {
-      faceDescriptor: FieldValue.delete(),
-      faceDescriptors: FieldValue.delete(),
-      descriptor: FieldValue.delete(),
-      descriptors: FieldValue.delete(),
-      faceVector: FieldValue.delete(),
-      faceVectors: FieldValue.delete(),
-      embedding: FieldValue.delete(),
-      embeddings: FieldValue.delete()
-    };
     const metadata = {
       rollNo: cleanRollNo,
       faceRegistered: true,
       biometricEnrolled: true,
       hasFaceRegistered: true,
+      isRegistered: true,
+      faceDescriptor: cleanVector,
+      descriptor: cleanVector,
       faceEnrolledAt: FieldValue.serverTimestamp(),
       faceRemovedAt: FieldValue.delete(),
-      ...publicFaceFields
+      updatedAt: FieldValue.serverTimestamp()
     };
     if (targetIdentity.studentUid) metadata.studentUid = targetIdentity.studentUid;
 
@@ -4504,10 +4497,12 @@ exports.registerStudentFace = onCall(async (request) => {
         if (!cleanedRefs.has(path) && path !== studentDocRef.path) {
           cleanedRefs.add(path);
           transaction.update(legacyDoc.ref, {
-            ...publicFaceFields,
             faceRegistered: true,
             biometricEnrolled: true,
             hasFaceRegistered: true,
+            isRegistered: true,
+            faceDescriptor: cleanVector,
+            descriptor: cleanVector,
             faceEnrolledAt: FieldValue.serverTimestamp(),
             faceRemovedAt: FieldValue.delete()
           });

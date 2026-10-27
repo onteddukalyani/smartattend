@@ -166,19 +166,20 @@ function StudentsList() {
     // Face descriptors are server-only; use enrollment flags for the client-visible status.
     const checkHasFace = (student) => {
         if (!student) return false;
-        const hasFaceRemoval = Boolean(
-            student.faceRemovedAt &&
-            (!student.faceEnrolledAt || student.faceRemovedAt > student.faceEnrolledAt)
+        const isDirect = Boolean(
+            student.faceRegistered === true ||
+            student.biometricEnrolled === true ||
+            student.hasFaceRegistered === true ||
+            student.isRegistered === true ||
+            student.registeredGlobally === true ||
+            student.registrationStatus === "registered" ||
+            (Array.isArray(student.faceDescriptor) && student.faceDescriptor.length === 128) ||
+            (Array.isArray(student.descriptor) && student.descriptor.length === 128)
         );
-        if (hasFaceRemoval) return false;
-        const fd = student.faceDescriptor || student.descriptor;
-        return Boolean(
-            student.faceRegistered ||
-            student.biometricEnrolled ||
-            student.hasFaceRegistered ||
-            (Array.isArray(fd) && fd.length === 128) ||
-            (fd instanceof Float32Array && fd.length === 128)
-        );
+        const enrolledTime = student.faceEnrolledAt?.toMillis?.() ?? (typeof student.faceEnrolledAt === "number" ? student.faceEnrolledAt : 0);
+        const removedTime = student.faceRemovedAt?.toMillis?.() ?? (typeof student.faceRemovedAt === "number" ? student.faceRemovedAt : 0);
+        const hasFaceRemoval = Boolean(!isDirect && removedTime > enrolledTime);
+        return Boolean(isDirect && !hasFaceRemoval);
     };
 
 
@@ -1040,7 +1041,7 @@ function StudentsList() {
                                                         </button>
                                                     )}
 
-                                                    {hasFace && (
+                                                    {(hasFace || student.faceRegistered || student.hasFaceRegistered || student.photoURL || student.faceRemovedAt) && (
                                                         <button
                                                             type="button"
                                                             className="row-action-btn remove-face-btn"
@@ -1203,7 +1204,7 @@ function StudentsList() {
                                         </button>
                                     )}
 
-                                    {hasFace && (
+                                    {(hasFace || student.faceRegistered || student.hasFaceRegistered || student.photoURL || student.faceRemovedAt) && (
                                         <button
                                             type="button"
                                             className="card-icon-btn remove-face-btn"

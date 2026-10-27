@@ -141,29 +141,43 @@ function createAuthSystem(initialDatabase = {}) {
           (data.email && data.email.toLowerCase().trim() === cleanEmail);
         if (match) {
           const term = isAccountTerminated(data);
-          studentCandidate = { id, ...data, email: data.email || cleanEmail, role: normalizeRole(data.role || "student"), rollNo: data.rollNo || rollFromEmail, isTerminated: term };
+          const r = normalizeRole(data.role || "student");
+          const cand = { id, ...data, email: data.email || cleanEmail, role: r, rollNo: data.rollNo || rollFromEmail, isTerminated: term };
+          if (r === "admin" && !adminCandidate) adminCandidate = cand;
+          else if (r === "lecturer" && !lecturerCandidate) lecturerCandidate = cand;
+          else if (r === "student") studentCandidate = cand;
           break;
         }
       }
     }
 
     // 4. Consistency Checks: Check if multiple distinct active roles exist
-    const activeMatches = [];
-    if (adminCandidate && !adminCandidate.isTerminated) activeMatches.push({ role: "admin", user: adminCandidate });
-    if (lecturerCandidate && !lecturerCandidate.isTerminated) activeMatches.push({ role: "lecturer", user: lecturerCandidate });
-    if (studentCandidate && !studentCandidate.isTerminated) activeMatches.push({ role: "student", user: studentCandidate });
+    const roleMap = new Map();
+    if (adminCandidate && !adminCandidate.isTerminated) {
+      const norm = normalizeRole(adminCandidate.role || "admin");
+      if (norm === "admin") roleMap.set("admin", adminCandidate);
+    }
+    if (lecturerCandidate && !lecturerCandidate.isTerminated) {
+      const norm = normalizeRole(lecturerCandidate.role || "lecturer");
+      if (norm === "lecturer") roleMap.set("lecturer", lecturerCandidate);
+    }
+    if (studentCandidate && !studentCandidate.isTerminated) {
+      const norm = normalizeRole(studentCandidate.role || "student");
+      if (norm === "student") roleMap.set("student", studentCandidate);
+    }
 
+    const activeRoles = Array.from(roleMap.keys());
     // Scenario 13: The same email appears in multiple role collections
-    if (activeMatches.length > 1) {
+    if (activeRoles.length > 1) {
       return {
         isAmbiguous: true,
-        foundRoles: activeMatches.map((m) => m.role),
+        foundRoles: activeRoles,
         email: cleanEmail
       };
     }
 
-    if (activeMatches.length === 1) {
-      const chosen = activeMatches[0].user;
+    if (activeRoles.length === 1) {
+      const chosen = roleMap.get(activeRoles[0]);
       const recordUid = String(chosen.uid || chosen.studentUid || "").trim();
       // Scenario 12: User record exists, but the Firebase UID does not match
       if (recordUid && cleanUid && recordUid !== cleanUid) {

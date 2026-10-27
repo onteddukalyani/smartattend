@@ -134,7 +134,9 @@ service cloud.firestore {
         data.studentUid == request.auth.uid ||
         data.uid == request.auth.uid ||
         (request.auth.token.email != null && (
+          data.email == request.auth.token.email ||
           (data.email != null && data.email.lower() == request.auth.token.email.lower()) ||
+          studentId == request.auth.token.email.split('@')[0] ||
           studentId.lower() == request.auth.token.email.split('@')[0].lower()
         ))
       );
@@ -146,6 +148,7 @@ service cloud.firestore {
         data.studentUid == request.auth.uid ||
         data.uid == request.auth.uid ||
         (request.auth.token.email != null && (
+          data.email == request.auth.token.email ||
           (data.email != null && data.email.lower() == request.auth.token.email.lower()) ||
           (userId.lower() == request.auth.token.email.split('@')[0].lower() &&
             (!('studentUid' in data) || data.studentUid == null || data.studentUid == request.auth.uid))

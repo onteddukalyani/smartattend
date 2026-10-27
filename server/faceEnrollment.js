@@ -501,18 +501,17 @@ export async function registerFaceEnrollment(db, admin, caller, input) {
     }
 
     const fieldValue = admin.firestore.FieldValue;
-    const publicFaceFields = Object.fromEntries([
-      "faceDescriptor", "faceDescriptors", "descriptor", "descriptors",
-      "faceVector", "faceVectors", "embedding", "embeddings"
-    ].map((field) => [field, fieldValue.delete()]));
     const metadata = {
       rollNo,
       faceRegistered: true,
       biometricEnrolled: true,
       hasFaceRegistered: true,
+      isRegistered: true,
+      faceDescriptor: vector,
+      descriptor: vector,
       faceEnrolledAt: fieldValue.serverTimestamp(),
       faceRemovedAt: fieldValue.delete(),
-      ...publicFaceFields,
+      updatedAt: fieldValue.serverTimestamp(),
       ...(targetIdentity.studentUid ? { studentUid: targetIdentity.studentUid } : {})
     };
 
@@ -554,12 +553,15 @@ export async function registerFaceEnrollment(db, admin, caller, input) {
         snapshot.ref.path !== studentRef.path &&
         snapshot.ref.path !== staffSelfUserPath) {
         transaction.update(snapshot.ref, {
-          ...publicFaceFields,
           faceRegistered: true,
           biometricEnrolled: true,
           hasFaceRegistered: true,
+          isRegistered: true,
+          faceDescriptor: vector,
+          descriptor: vector,
           faceEnrolledAt: fieldValue.serverTimestamp(),
-          faceRemovedAt: fieldValue.delete()
+          faceRemovedAt: fieldValue.delete(),
+          updatedAt: fieldValue.serverTimestamp()
         });
       }
     }

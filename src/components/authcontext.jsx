@@ -144,20 +144,24 @@ export const AuthProvider = ({ children }) => {
       if (adminPrefixSnap.exists()) {
         const d = adminPrefixSnap.data();
         const term = isAccountTerminated(d);
-        adminCandidate = { id: adminPrefixSnap.id, ...d, email: d.email || cleanEmail, role: "admin", isTerminated: term, status: term ? "disabled" : (d.status || "active"), approved: !term && d.approved !== false };
-      } else if (adminEmailSnap.exists()) {
+        const matchesAdminEmail = !d.email || d.email.toLowerCase().trim() === cleanEmail;
+        if (matchesAdminEmail) {
+          adminCandidate = { id: adminPrefixSnap.id, ...d, email: d.email || cleanEmail, role: "admin", isTerminated: term, status: term ? "disabled" : (d.status || "active"), approved: !term && d.approved !== false };
+        }
+      }
+      if (!adminCandidate && adminEmailSnap.exists()) {
         const d = adminEmailSnap.data();
         const term = isAccountTerminated(d);
         adminCandidate = { id: adminEmailSnap.id, ...d, email: cleanEmail, role: "admin", isTerminated: term, status: term ? "disabled" : (d.status || "active"), approved: !term && d.approved !== false };
-      } else if (adminUidSnap?.exists()) {
+      } else if (!adminCandidate && adminUidSnap?.exists()) {
         const d = adminUidSnap.data();
         const term = isAccountTerminated(d);
         adminCandidate = { id: adminUidSnap.id, ...d, email: d.email || cleanEmail, role: "admin", isTerminated: term, status: term ? "disabled" : (d.status || "active"), approved: !term && d.approved !== false };
-      } else if (!adminQuerySnap.empty && adminQuerySnap.docs?.[0]) {
+      } else if (!adminCandidate && !adminQuerySnap.empty && adminQuerySnap.docs?.[0]) {
         const d = adminQuerySnap.docs[0].data();
         const term = isAccountTerminated(d);
         adminCandidate = { id: adminQuerySnap.docs[0].id, ...d, email: cleanEmail, role: "admin", isTerminated: term, status: term ? "disabled" : (d.status || "active"), approved: !term && d.approved !== false };
-      } else if (cleanEmail === "onteddukalyani@gmail.com" || prefix === "onteddukalyani") {
+      } else if (!adminCandidate && (cleanEmail === "onteddukalyani@gmail.com" || prefix === "onteddukalyani")) {
         adminCandidate = {
           id: prefix || cleanEmail,
           name: "Kalyani Onteddu",
@@ -176,16 +180,20 @@ export const AuthProvider = ({ children }) => {
       if (lectPrefixSnap.exists()) {
         const d = lectPrefixSnap.data();
         const term = isAccountTerminated(d);
-        lecturerCandidate = { id: lectPrefixSnap.id, ...d, email: d.email || cleanEmail, role: "lecturer", isTerminated: term, status: term ? "disabled" : (d.status || "active"), approved: !term && d.approved !== false };
-      } else if (lectEmailSnap.exists()) {
+        const matchesLectEmail = !d.email || d.email.toLowerCase().trim() === cleanEmail;
+        if (matchesLectEmail) {
+          lecturerCandidate = { id: lectPrefixSnap.id, ...d, email: d.email || cleanEmail, role: "lecturer", isTerminated: term, status: term ? "disabled" : (d.status || "active"), approved: !term && d.approved !== false };
+        }
+      }
+      if (!lecturerCandidate && lectEmailSnap.exists()) {
         const d = lectEmailSnap.data();
         const term = isAccountTerminated(d);
         lecturerCandidate = { id: lectEmailSnap.id, ...d, email: cleanEmail, role: "lecturer", isTerminated: term, status: term ? "disabled" : (d.status || "active"), approved: !term && d.approved !== false };
-      } else if (lectUidSnap?.exists()) {
+      } else if (!lecturerCandidate && lectUidSnap?.exists()) {
         const d = lectUidSnap.data();
         const term = isAccountTerminated(d);
         lecturerCandidate = { id: lectUidSnap.id, ...d, email: d.email || cleanEmail, role: "lecturer", isTerminated: term, status: term ? "disabled" : (d.status || "active"), approved: !term && d.approved !== false };
-      } else if (!lectQuerySnap.empty && lectQuerySnap.docs?.[0]) {
+      } else if (!lecturerCandidate && !lectQuerySnap.empty && lectQuerySnap.docs?.[0]) {
         const d = lectQuerySnap.docs[0].data();
         const term = isAccountTerminated(d);
         lecturerCandidate = { id: lectQuerySnap.docs[0].id, ...d, email: cleanEmail, role: "lecturer", isTerminated: term, status: term ? "disabled" : (d.status || "active"), approved: !term && d.approved !== false };
@@ -409,44 +417,57 @@ export const AuthProvider = ({ children }) => {
           const isFallbackTerminated = candidateDocs.some((c) => isAccountTerminated(c));
           const finalRollNo = authoritativeRollNo || (!isInternalSecretOrUid(merged.rollNo) ? merged.rollNo : "") || rollFromEmail || prefix.toUpperCase();
           const finalName = authoritativeName || merged.name || merged.fullName || finalRollNo || "";
-          studentCandidate = {
+          const candidateNormRole = normalizeRole(merged.role || "student");
+          const finalCandidate = {
             id: finalRollNo || cleanEmail,
             ...merged,
             name: finalName,
             fullName: finalName,
             email: merged.email || cleanEmail,
             rollNo: finalRollNo,
-            role: String(merged.role || "student").trim().toLowerCase(),
+            role: candidateNormRole,
             isTerminated: isFallbackTerminated,
             status: isFallbackTerminated ? "disabled" : (merged.status || "active"),
             approved: !isFallbackTerminated && merged.approved !== false
           };
+
+          if (candidateNormRole === "admin" && !adminCandidate) {
+            adminCandidate = finalCandidate;
+          } else if (candidateNormRole === "lecturer" && !lecturerCandidate) {
+            lecturerCandidate = finalCandidate;
+          } else if (candidateNormRole === "student") {
+            studentCandidate = finalCandidate;
+          }
         }
       }
 
       // 4. Evaluate Active Candidates & Authoritative Consistency Checks
-      const activeMatches = [];
+      const roleMap = new Map();
       if (adminCandidate && !adminCandidate.isTerminated) {
-        activeMatches.push({ role: "admin", user: adminCandidate });
+        const norm = normalizeRole(adminCandidate.role || "admin");
+        if (norm === "admin") roleMap.set("admin", adminCandidate);
       }
       if (lecturerCandidate && !lecturerCandidate.isTerminated) {
-        activeMatches.push({ role: "lecturer", user: lecturerCandidate });
+        const norm = normalizeRole(lecturerCandidate.role || "lecturer");
+        if (norm === "lecturer") roleMap.set("lecturer", lecturerCandidate);
       }
       if (studentCandidate && !studentCandidate.isTerminated) {
-        activeMatches.push({ role: "student", user: studentCandidate });
+        const norm = normalizeRole(studentCandidate.role || "student");
+        if (norm === "student") roleMap.set("student", studentCandidate);
       }
 
-      // Scenario 13: The same email appears in multiple role collections
-      if (activeMatches.length > 1) {
+      const activeRoles = Array.from(roleMap.keys());
+      // Scenario 13: The same email appears in multiple distinct role collections
+      if (activeRoles.length > 1) {
         return {
           isAmbiguous: true,
-          foundRoles: activeMatches.map((m) => m.role),
+          foundRoles: activeRoles,
           email: cleanEmail
         };
       }
 
-      if (activeMatches.length === 1) {
-        const chosen = activeMatches[0].user;
+      if (activeRoles.length === 1) {
+        const chosen = roleMap.get(activeRoles[0]);
         const recordUid = String(chosen.uid || chosen.studentUid || "").trim();
         // Scenario 12: User record exists, but the Firebase UID does not match
         if (recordUid && cleanUid && recordUid !== cleanUid) {
