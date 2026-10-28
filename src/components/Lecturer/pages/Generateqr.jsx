@@ -526,10 +526,13 @@ function GenerateQR() {
 
             if (geofenceRadius > 0 && !isAccurateLocation(hostCoords, Date.now(), maxHostAccuracy)) {
                 if (!isMobileDevice) {
-                    // On laptop/desktop, if location fix is unavailable or too coarse, automatically proceed with geofence disabled (0m)
-                    // so the lecturer is NEVER blocked from launching their session on their laptop!
-                    console.warn("[Generateqr] Laptop location unavailable or coarse. Launching session with Geofence 0m (Off).");
-                    hostCoords = null;
+                    if (hostCoords && Number.isFinite(hostCoords.latitude) && Number.isFinite(hostCoords.longitude)) {
+                        console.info("[Generateqr] Laptop Wi-Fi location used as initial anchor. Lecturer can anchor phone GPS anytime.");
+                        hostCoords = { ...hostCoords, source: "LAPTOP" };
+                    } else {
+                        console.warn("[Generateqr] Laptop location completely unavailable. Launching session with Geofence 0m (Off) until anchored by phone.");
+                        hostCoords = null;
+                    }
                 } else {
                     setClassroomGpsStatus("UNAVAILABLE");
                     const accuracy = Number(hostCoords?.accuracy);
@@ -542,7 +545,12 @@ function GenerateQR() {
 
             const effectiveGeofenceRadius = hostCoords ? geofenceRadius : 0;
             const activeClassroomCoords = effectiveGeofenceRadius > 0
-                ? { ...hostCoords, radius: effectiveGeofenceRadius, accuracy: hostCoords.accuracy || 35 }
+                ? {
+                    ...hostCoords,
+                    radius: effectiveGeofenceRadius,
+                    accuracy: hostCoords.accuracy || 35,
+                    source: hostCoords.source || (isMobileDevice ? "MOBILE_HOST" : "LAPTOP")
+                  }
                 : null;
 
             const result = await createAttendanceSession(
@@ -2646,7 +2654,11 @@ function GenerateQR() {
                     }}>
                         <span>
                             {geofenceRadius > 0
-                                ? `📍 Geofence: ${classroomCoords?.radius || geofenceRadius}m Active${classroomCoords?.latitude ? ` (${classroomCoords.latitude.toFixed(4)}, ${classroomCoords.longitude.toFixed(4)})` : ""}`
+                                ? (classroomCoords?.source === "PHONE_ANCHOR"
+                                    ? `📱 Phone Anchored: ${classroomCoords?.radius || geofenceRadius}m Active (±${Math.round(classroomCoords?.accuracy || 10)}m)`
+                                    : (classroomCoords?.source === "LAPTOP" || !isMobileDevice)
+                                        ? `💻 Laptop Geofence: ${classroomCoords?.radius || geofenceRadius}m Active (±${Math.round(classroomCoords?.accuracy || 35)}m)`
+                                        : `📍 Geofence: ${classroomCoords?.radius || geofenceRadius}m Active`)
                                 : "📍 Geofence: Disabled"}
                         </span>
                         <div style={{ display: "inline-flex", gap: "4px", alignItems: "center" }}>

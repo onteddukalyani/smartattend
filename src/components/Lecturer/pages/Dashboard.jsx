@@ -1,6 +1,6 @@
 import "./Dashboard.css";
 import { useEffect, useState } from "react";
-import { FaUser, FaCamera, FaTrashAlt, FaSpinner, FaCheck, FaTimes, FaChalkboardTeacher, FaUniversity, FaEnvelope, FaExclamationTriangle, FaShieldAlt, FaAndroid, FaDownload, FaMobileAlt } from "react-icons/fa";
+import { FaUser, FaCamera, FaTrashAlt, FaSpinner, FaCheck, FaTimes, FaChalkboardTeacher, FaUniversity, FaEnvelope, FaExclamationTriangle, FaShieldAlt, FaAndroid, FaDownload, FaMobileAlt, FaMapMarkerAlt, FaQrcode } from "react-icons/fa";
 import { Capacitor } from "@capacitor/core";
 import { SiGoogleclassroom } from "react-icons/si";
 import { IoQrCodeOutline, IoAddCircleOutline } from "react-icons/io5";
@@ -8,7 +8,7 @@ import { GoPeople } from "react-icons/go";
 import { LuClipboardList } from "react-icons/lu";
 import { SlCalender } from "react-icons/sl";
 import { Link } from "react-router-dom";
-import { collection, getDocs, onSnapshot } from "firebase/firestore";
+import { collection, getDocs, onSnapshot, doc, updateDoc } from "firebase/firestore";
 import { db } from "../../../firebase";
 import { useAuth } from "../../authcontext";
 import ProfilePhotoModal from "../../Common/ProfilePhotoModal";
@@ -35,6 +35,54 @@ function Dashboard() {
     const [photoDeleting, setPhotoDeleting] = useState(false);
     const [photoMsg, setPhotoMsg] = useState("");
     const [photoError, setPhotoError] = useState("");
+    const [liveSessions, setLiveSessions] = useState([]);
+    const [anchoringSessionId, setAnchoringSessionId] = useState(null);
+    const [anchorToast, setAnchorToast] = useState("");
+
+    const handleAnchorPhoneGps = (sessionId, currentRadius) => {
+        if (typeof navigator === "undefined" || !navigator.geolocation) {
+            alert("Geolocation is not supported by your browser/device.");
+            return;
+        }
+        setAnchoringSessionId(sessionId);
+        navigator.geolocation.getCurrentPosition(
+            async (pos) => {
+                try {
+                    const lat = pos.coords.latitude;
+                    const lng = pos.coords.longitude;
+                    const acc = Math.round(pos.coords.accuracy);
+                    const radius = Number(currentRadius) > 0 ? Number(currentRadius) : 10;
+                    const coords = {
+                        latitude: lat,
+                        longitude: lng,
+                        lat: lat,
+                        lng: lng,
+                        accuracy: acc,
+                        radius: radius,
+                        timestamp: Date.now(),
+                        source: "PHONE_ANCHOR",
+                        anchoredBy: user?.email || "Lecturer Phone"
+                    };
+                    await updateDoc(doc(db, "attendance_sessions", sessionId), {
+                        classroomLocation: coords,
+                        geofenceRadius: radius,
+                        updatedAt: Date.now()
+                    });
+                    setAnchorToast(`✅ Phone GPS Anchored (±${acc}m)! The laptop projector screen updated in real time.`);
+                    setTimeout(() => setAnchorToast(""), 5000);
+                } catch (err) {
+                    alert("Failed to update session location: " + err.message);
+                } finally {
+                    setAnchoringSessionId(null);
+                }
+            },
+            (err) => {
+                setAnchoringSessionId(null);
+                alert(`Could not acquire phone GPS: ${err.message}. Please allow location access.`);
+            },
+            { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }
+        );
+    };
 
     const lecturerName = profile?.name || user?.displayName || (user?.email ? user.email.split("@")[0] : "Faculty Member");
     const avatarSrc = profile?.photoURL || profile?.image || profile?.photo || user?.photoURL || user?.photoUrl || user?.providerData?.[0]?.photoURL;
@@ -205,9 +253,11 @@ function Dashboard() {
                 });
 
                 setFlaggedViolations(violationsList);
+                const liveList = mySessions.filter((s) => s.active !== false && (s.expiresAt || 0) > now);
+                setLiveSessions(liveList);
                 setCounts({
                     sessions: mySessions.length,
-                    activeSessions: mySessions.filter((s) => s.active !== false && (s.expiresAt || 0) > now).length,
+                    activeSessions: liveList.length,
                     students: registeredStudentsCount,
                     attendanceToday,
                     violations: violationsCount
@@ -407,6 +457,94 @@ function Dashboard() {
                     </div>
                 </div>
             </div>
+
+            {/* Live Session Phone Companion Anchor Banner */}
+            {liveSessions.length > 0 && (
+                <div style={{
+                    margin: "0 0 24px 0",
+                    padding: "16px 20px",
+                    borderRadius: "14px",
+                    background: "linear-gradient(135deg, rgba(99, 102, 241, 0.09), rgba(16, 185, 129, 0.09))",
+                    border: "1px solid rgba(99, 102, 241, 0.3)",
+                    boxShadow: "0 4px 16px rgba(99, 102, 241, 0.08)"
+                }}>
+                    {liveSessions.map((sess) => (
+                        <div key={sess.id} style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: "14px" }}>
+                            <div>
+                                <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
+                                    <span style={{ display: "inline-block", width: "10px", height: "10px", borderRadius: "50%", background: "#ef4444" }} />
+                                    <strong style={{ fontSize: "1rem", color: "#1e293b" }}>
+                                        Live Projector Session: {sess.courseCode || sess.classCode} ({sess.roomNo || "Room"})
+                                    </strong>
+                                    <span style={{ fontSize: "0.72rem", background: "rgba(239, 68, 68, 0.12)", color: "#dc2626", padding: "2px 8px", borderRadius: "10px", fontWeight: 800 }}>
+                                        ● LIVE ON PROJECTOR
+                                    </span>
+                                </div>
+                                <p style={{ margin: 0, fontSize: "0.82rem", color: "#64748b" }}>
+                                    {sess.classroomLocation?.source === "PHONE_ANCHOR"
+                                        ? `📱 Anchored by Phone GPS (±${sess.classroomLocation.accuracy}m). Student distance is measured against your phone.`
+                                        : sess.classroomLocation?.latitude
+                                            ? `💻 Running with Laptop Wi-Fi Geofence (±${Math.round(sess.classroomLocation.accuracy || 35)}m). Tap button to anchor your phone's satellite GPS.`
+                                            : `🌐 Projector geofence disabled. Tap button to anchor high-precision satellite GPS from this phone.`}
+                                </p>
+                                {anchorToast && (
+                                    <p style={{ margin: "6px 0 0 0", fontSize: "0.8rem", fontWeight: 750, color: "#059669" }}>
+                                        {anchorToast}
+                                    </p>
+                                )}
+                            </div>
+                            <div style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
+                                <button
+                                    type="button"
+                                    onClick={() => handleAnchorPhoneGps(sess.id, sess.geofenceRadius)}
+                                    disabled={anchoringSessionId === sess.id}
+                                    style={{
+                                        padding: "9px 18px",
+                                        borderRadius: "10px",
+                                        background: sess.classroomLocation?.source === "PHONE_ANCHOR"
+                                            ? "linear-gradient(135deg, #10b981, #059669)"
+                                            : "linear-gradient(135deg, #6366f1, #4f46e5)",
+                                        color: "#ffffff",
+                                        border: "none",
+                                        fontWeight: 750,
+                                        fontSize: "0.84rem",
+                                        cursor: "pointer",
+                                        display: "inline-flex",
+                                        alignItems: "center",
+                                        gap: "8px",
+                                        boxShadow: "0 4px 12px rgba(99, 102, 241, 0.25)"
+                                    }}
+                                >
+                                    <FaMapMarkerAlt />
+                                    {anchoringSessionId === sess.id
+                                        ? "Acquiring Satellite GPS..."
+                                        : sess.classroomLocation?.source === "PHONE_ANCHOR"
+                                            ? "🔄 Re-Anchor Phone GPS"
+                                            : "📍 Anchor My Phone's GPS to Session"}
+                                </button>
+                                <Link
+                                    to={`/lecturer/lecturerpage?session=${sess.id}`}
+                                    style={{
+                                        padding: "9px 16px",
+                                        borderRadius: "10px",
+                                        background: "var(--surface, #ffffff)",
+                                        border: "1px solid #cbd5e1",
+                                        color: "#475569",
+                                        fontWeight: 750,
+                                        fontSize: "0.84rem",
+                                        display: "inline-flex",
+                                        alignItems: "center",
+                                        gap: "6px",
+                                        textDecoration: "none"
+                                    }}
+                                >
+                                    <FaQrcode /> View Live QR
+                                </Link>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            )}
 
             {/* 2. KPI Cards Grid */}
             <div className="dash-cards">

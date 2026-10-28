@@ -266,10 +266,10 @@ export function mergeAllStudentRecords(authDocs = [], studentsDocs = [], usersDo
         if (isGenericName(name, canonicalRoll, cleanEmail) && !isGenericName(data.displayName, canonicalRoll, cleanEmail)) name = String(data.displayName).trim();
         if (!name || isGenericName(name, canonicalRoll, cleanEmail)) {
             name = (!isGenericName(data.name, canonicalRoll, cleanEmail) ? data.name : null) ||
-                   (!isGenericName(data.fullName, canonicalRoll, cleanEmail) ? data.fullName : null) ||
-                   (!isGenericName(data.displayName, canonicalRoll, cleanEmail) ? data.displayName : null) ||
-                   existing.name ||
-                   canonicalRoll;
+                (!isGenericName(data.fullName, canonicalRoll, cleanEmail) ? data.fullName : null) ||
+                (!isGenericName(data.displayName, canonicalRoll, cleanEmail) ? data.displayName : null) ||
+                existing.name ||
+                canonicalRoll;
         }
 
         const hasStoredFace = Boolean(
@@ -419,7 +419,7 @@ export async function deleteStudentRecordCompletely(student) {
     // 1. Delete all direct keys across all primary collections
     for (const coll of collections) {
         for (const key of candidateKeys) {
-            deletePromises.push(deleteDoc(doc(db, coll, key)).catch(() => {}));
+            deletePromises.push(deleteDoc(doc(db, coll, key)).catch(() => { }));
         }
     }
 
@@ -446,7 +446,7 @@ export async function deleteStudentRecordCompletely(student) {
         if (snap && snap.docs) {
             for (const d of snap.docs) {
                 for (const coll of collections) {
-                    deletePromises.push(deleteDoc(doc(db, coll, d.id)).catch(() => {}));
+                    deletePromises.push(deleteDoc(doc(db, coll, d.id)).catch(() => { }));
                 }
             }
         }
@@ -458,7 +458,7 @@ export async function deleteStudentRecordCompletely(student) {
         coursesSnap.docs.forEach((courseDoc) => {
             const data = courseDoc.data();
             const enrolled = Array.isArray(data.students) ? data.students : (Array.isArray(data.enrolledStudents) ? data.enrolledStudents : []);
-            
+
             const updatedEnrolled = enrolled.filter((s) => {
                 const sRoll = typeof s === "string" ? s.toUpperCase().trim() : (s.rollNo || s.rollNumber || "").toUpperCase().trim();
                 return !candidateKeys.has(sRoll);
@@ -472,7 +472,7 @@ export async function deleteStudentRecordCompletely(student) {
                 }, { merge: true }));
             }
         });
-    } catch (_) {}
+    } catch (_) { }
 
     await Promise.all(deletePromises);
 }
@@ -502,13 +502,13 @@ export async function purgeOrphanedStudentDocuments() {
             usersSnap.docs.forEach((docSnap) => {
                 const data = docSnap.data();
                 if (data.role === "student" || (data.rollNo && isStudentDocument(data, docSnap.id))) {
-                    deletePromises.push(deleteDoc(doc(db, "users", docSnap.id)).catch(() => {}));
+                    deletePromises.push(deleteDoc(doc(db, "users", docSnap.id)).catch(() => { }));
                 }
             });
             authSnap.docs.forEach((docSnap) => {
                 const data = docSnap.data();
                 if (data.role === "student" || (data.rollNo && isStudentDocument(data, docSnap.id))) {
-                    deletePromises.push(deleteDoc(doc(db, "authorizedUsers", docSnap.id)).catch(() => {}));
+                    deletePromises.push(deleteDoc(doc(db, "authorizedUsers", docSnap.id)).catch(() => { }));
                 }
             });
             await Promise.all(deletePromises);
@@ -565,7 +565,7 @@ export function broadcastStudentUpdate(updatedStudent) {
                     if (roll) localStorage.removeItem(`smartattend_hw_enrolled_${roll}`);
                     if (emailRoll) localStorage.removeItem(`smartattend_hw_enrolled_${emailRoll}`);
                     if (uid) localStorage.removeItem(`smartattend_hw_enrolled_${uid}`);
-                } catch (_) {}
+                } catch (_) { }
             } else if (updatedStudent.hardwareBiometricEnrolled) {
                 try {
                     if (roll) localStorage.setItem(`smartattend_hw_enrolled_${roll}`, "true");
@@ -577,7 +577,7 @@ export function broadcastStudentUpdate(updatedStudent) {
                     }
                     localStorage.setItem("smartattend_student_device_locked", "true");
                     localStorage.setItem("smartattend_device_registered", "true");
-                } catch (_) {}
+                } catch (_) { }
             }
 
             const isFaceReset = Boolean(
@@ -594,7 +594,7 @@ export function broadcastStudentUpdate(updatedStudent) {
                     if (roll) localStorage.removeItem(`smartattend_face_enrolled_${roll}`);
                     if (emailRoll) localStorage.removeItem(`smartattend_face_enrolled_${emailRoll}`);
                     if (uid) localStorage.removeItem(`smartattend_face_enrolled_${uid}`);
-                } catch (_) {}
+                } catch (_) { }
             } else if (updatedStudent.faceRegistered || updatedStudent.biometricEnrolled || updatedStudent.hasFaceRegistered) {
                 try {
                     if (roll) localStorage.setItem(`smartattend_face_enrolled_${roll}`, "true");
@@ -602,7 +602,7 @@ export function broadcastStudentUpdate(updatedStudent) {
                     if (uid) localStorage.setItem(`smartattend_face_enrolled_${uid}`, "true");
                     localStorage.setItem("smartattend_face_enrolled", "true");
                     localStorage.setItem("smartattend_student_face_enrolled", "true");
-                } catch (_) {}
+                } catch (_) { }
             }
 
             // 1. Dispatch custom event in current window
@@ -614,7 +614,7 @@ export function broadcastStudentUpdate(updatedStudent) {
                     student: updatedStudent,
                     timestamp: Date.now()
                 }));
-            } catch (_) {}
+            } catch (_) { }
         }
     } catch (err) {
         console.warn("Failed to broadcast student update:", err);
@@ -627,7 +627,7 @@ export function broadcastStudentUpdate(updatedStudent) {
  */
 export function subscribeToStudentUpdates(callback) {
     if (typeof window === "undefined" || typeof callback !== "function") {
-        return () => {};
+        return () => { };
     }
 
     const handleCustomEvent = (event) => {
@@ -643,7 +643,7 @@ export function subscribeToStudentUpdates(callback) {
                 if (data && data.student) {
                     callback(data.student);
                 }
-            } catch (_) {}
+            } catch (_) { }
         }
     };
 
@@ -708,7 +708,7 @@ export async function resetStudentDeviceLockGlobally(student, actorName = "Facul
     };
 
     if (cleanRoll) {
-        await setDoc(doc(db, "biometric_reregistration_permissions", cleanRoll), permPayload, { merge: true }).catch(() => {});
+        await setDoc(doc(db, "biometric_reregistration_permissions", cleanRoll), permPayload, { merge: true }).catch(() => { });
     }
 
     const updated = {
