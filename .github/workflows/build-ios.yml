@@ -1,14 +1,6 @@
 name: Build SmartAttend iOS (IPA)
 
 on:
-  push:
-    branches:
-      - main
-      - testing-branch
-  pull_request:
-    branches:
-      - main
-      - testing-branch
   workflow_dispatch:
 
 jobs:
