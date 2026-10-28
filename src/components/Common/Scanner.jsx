@@ -55,6 +55,7 @@ import { detectDeviceType, getClientIpAddress, getDeviceDisplayName, isDeviceMat
 import { sendFacultyNotification, sendStudentNotification, reportUserVerificationComplaint } from '../../services/notificationsService';
 import { validateRotatingQrPayload } from '../../utils/qrCrypto';
 import { evaluateGeofence, calculateHaversineDistance, DEFAULT_GEOFENCE_RADIUS_METRES } from '../../utils/geofence';
+import { getGlobalVariable } from '../../utils/globalState';
 import {
     isFreshLocation,
     isAccurateLocation,
@@ -2017,8 +2018,18 @@ function QrScannerApp() {
             return false;
         }
 
+        const isDeviceLocked = Boolean(
+            getGlobalVariable('isDeviceLocked') === true ||
+            profile?.deviceTypeLocked === true ||
+            profile?.isDeviceRegistered === true ||
+            localStorage.getItem('smartattend_student_device_locked') === 'true' ||
+            localStorage.getItem('smartattend_device_locked') === 'true' ||
+            registeredType ||
+            isNativeApp
+        );
+
         // If student has not selected a device model yet, require them to choose Android or iPhone first
-        if (!registeredType && !isStaff && !isNativeApp) {
+        if (!isDeviceLocked && !isStaff && !isNativeApp) {
             const err = '📱 Phone Model Setup Required: You have not selected your phone model (Android or iPhone) yet. Please select your device model to view setup instructions before scanning.';
             setErrorMessage(err);
             setShowDeviceOnboarding(true);

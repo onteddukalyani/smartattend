@@ -9,6 +9,7 @@ import NotificationHistoryModal from './NotificationHistoryModal';
 import DeviceOnboardingModal from './DeviceOnboardingModal';
 import HelpSupportWidget from '../Common/HelpSupportWidget';
 import { subscribeToStudentNotifications } from '../../services/notificationsService';
+import { setGlobalVariable, getGlobalVariable } from '../../utils/globalState';
 
 function StudentDashboard() {
     const [sidebarHidden, setSidebarHidden] = useState(window.innerWidth <= 800);
@@ -93,19 +94,33 @@ function StudentDashboard() {
         };
     }, [activeRollNo, cleanEmail]);
 
-    // Auto-prompt device selection if student hasn't chosen Android or iPhone yet
+    // Auto-prompt device selection if student hasn't chosen Android or iPhone yet (skip entirely if already locked)
     useEffect(() => {
         if (!user) return;
-        const savedDevice = typeof window !== 'undefined'
-            ? (localStorage.getItem('smartattend_student_device_type') || localStorage.getItem('smartattend_device_type'))
-            : null;
-        const registered = profile?.deviceType || profile?.registeredDeviceType || savedDevice;
+        const isDeviceLocked = Boolean(
+            getGlobalVariable('isDeviceLocked') === true ||
+            profile?.deviceTypeLocked === true ||
+            profile?.isDeviceRegistered === true ||
+            localStorage.getItem('smartattend_student_device_locked') === 'true' ||
+            localStorage.getItem('smartattend_device_locked') === 'true' ||
+            profile?.deviceType ||
+            profile?.registeredDeviceType ||
+            localStorage.getItem('smartattend_student_device_type') ||
+            localStorage.getItem('smartattend_device_type')
+        );
+
+        if (isDeviceLocked) {
+            setGlobalVariable('isDeviceLocked', true);
+            setShowDeviceModal(false);
+            return;
+        }
+
         const alreadyPrompted = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('smartattend_device_prompted') : null;
-        if (!registered && !alreadyPrompted) {
+        if (!alreadyPrompted) {
             try { sessionStorage.setItem('smartattend_device_prompted', 'true'); } catch (_) { }
             setShowDeviceModal(true);
         }
-    }, [user, profile?.deviceType, profile?.registeredDeviceType]);
+    }, [user, profile?.deviceType, profile?.registeredDeviceType, profile?.deviceTypeLocked, profile?.isDeviceRegistered]);
 
     const unreadCount = notifications.filter(n => !n.read).length;
 

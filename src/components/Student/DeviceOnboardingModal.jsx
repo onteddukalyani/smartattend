@@ -26,6 +26,7 @@ import { sendFacultyNotification, sendStudentNotification } from '../../services
 import { registerUserDevice, registerStudentDevice } from '../../services/deviceRegistrationService';
 import { getApkDownloadUrl } from '../../utils/apkUrl';
 import { broadcastStudentUpdate } from '../../utils/studentDataHelper';
+import { setGlobalVariable, getGlobalVariable } from '../../utils/globalState';
 import IphoneInstructionsModal from '../Common/IphoneInstructionsModal';
 import './DeviceOnboardingModal.css';
 
@@ -126,6 +127,7 @@ export function DeviceOnboardingModal({ isOpen, onClose }) {
         profile?.role === 'student' &&
         (
             profile?.deviceTypeLocked === true ||
+            getGlobalVariable('isDeviceLocked') === true ||
             (!isReset && (
                 localStorage.getItem('smartattend_student_device_locked') === 'true' ||
                 localStorage.getItem('smartattend_device_locked') === 'true' ||
@@ -134,14 +136,20 @@ export function DeviceOnboardingModal({ isOpen, onClose }) {
         )
     );
 
-    // Auto-close if device is already locked so the dialogue is never shown again and again
+    // Auto-close and persist global variable so dialogue is never shown again once device is locked
     useEffect(() => {
-        if (isLocked && isOpen && onClose) {
-            onClose();
+        if (isLocked) {
+            setGlobalVariable('isDeviceLocked', true);
+            if (profile?.deviceType) {
+                setGlobalVariable('lockedDeviceType', profile.deviceType);
+            }
+            if (isOpen && onClose) {
+                onClose();
+            }
         }
-    }, [isLocked, isOpen, onClose]);
+    }, [isLocked, isOpen, onClose, profile?.deviceType]);
 
-    if (!isOpen || isNativeApp || isLocked) return null;
+    if (!isOpen || isNativeApp || isLocked || getGlobalVariable('isDeviceLocked') === true) return null;
 
     const handleSelectDevice = async (deviceType) => {
         if (isLocked) {
@@ -197,6 +205,18 @@ export function DeviceOnboardingModal({ isOpen, onClose }) {
                 await handleReportDeviceMismatch();
             }
             const ip = currentIp && currentIp !== "Detecting IP..." ? currentIp : await getClientIpAddress();
+
+            // Persist as global variable immediately so no confusion across any component
+            setGlobalVariable('isDeviceLocked', true);
+            setGlobalVariable('lockedDeviceType', selectedDevice);
+            setGlobalVariable('deviceType', selectedDevice);
+            try {
+                localStorage.setItem('smartattend_student_device_locked', 'true');
+                localStorage.setItem('smartattend_device_locked', 'true');
+                localStorage.setItem('smartattend_student_device_type', selectedDevice);
+                localStorage.setItem('smartattend_device_type', selectedDevice);
+                sessionStorage.setItem('smartattend_device_prompted', 'true');
+            } catch (_) {}
 
             // Authoritatively persist and link device directly to Firestore database collections
             await registerUserDevice({

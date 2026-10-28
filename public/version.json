@@ -1,26 +1,31 @@
 {
-  "version": "1.0.4",
-  "versionCode": 6,
-  "releaseDate": "2026-10-23",
-  "minRequiredVersion": "1.0.1",
+  "version": "1.0.1",
+  "versionCode": 1,
+  "build": 1,
+  "releaseDate": "2026-10-28",
+  "minRequiredVersion": "1.0.0",
   "apkUrl": "https://raw.githubusercontent.com/onteddukalyani/smartattend/main/SmartAttend-release.apk",
   "sha256Checksum": "8afe7f2f1614cce4eae87f0f4d970fe3be789f7961c5ad837afe7fad964490bc",
-  "fileSizeBytes": 15578324,
-  "title": "SmartAttend Release (v1.0.4)",
+  "fileSizeBytes": 16600000,
+  "platform": "android",
+  "isMandatory": false,
+  "mandatoryReason": "",
+  "title": "SmartAttend Official Release (v1.0.1 build 1)",
   "releaseNotes": [
-    "Classroom attendance waits up to 15 seconds for an accurate live GPS fix.",
-    "The lecturer GPS display shows when device accuracy is outside the 45m requirement.",
-    "GPS recalibration and geofence updates require a fresh accurate location.",
-    "Update reminders stay dismissed after refreshing or reopening the app.",
-    "Fingerprint enrollment now reports when its Firebase backend is unavailable.",
-    "Android and iOS face API origins are explicitly allowed.",
-    "New attendance sessions default to 45 seconds plus 75 seconds.",
-    "Quick attendance preset is now 30 seconds plus 30 seconds.",
-    "Official Version 1 Release of SmartAttend",
-    "Modern glassmorphism UI & responsive dark mode styling",
-    "Real-time notifications, attendance management, and analytics",
-    "Multi-role security (Admin, Faculty, Student) with device verification",
-    "Integrated In-App Update system for seamless APK upgrades"
+    "v1.0.1 build 1 official release",
+    "Dynamic Lecturer Phone GPS anchor with real-time projector update",
+    "Persistent device lock (Android & iPhone) with global variable synchronization",
+    "Enhanced indoor classroom GPS tolerance model",
+    "Strict roll number canonicalization and duplicate prevention"
   ],
-  "isMandatory": false
+  "history": [
+    {
+      "version": "1.0.0",
+      "releaseDate": "2026-10-01",
+      "title": "SmartAttend Initial Release",
+      "releaseNotes": [
+        "Initial release of SmartAttend Attendance Management System."
+      ]
+    }
+  ]
 }

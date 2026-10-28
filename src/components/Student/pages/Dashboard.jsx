@@ -48,7 +48,7 @@ import ProfilePhotoModal from "../../Common/ProfilePhotoModal";
 import { removeStudentPhotoOnly } from "../../../utils/biometricManager";
 import { registerStudentFace } from "../../../services/faceEnrollmentService";
 import { getCandidateRolls, computeStudentMetrics, parseTimestampMillis } from "../studentAttendanceHelper";
-import { isGenericName, normalizeBranchName, subscribeToStudentUpdates, PROFILE_UPDATED_EVENT } from "../../../utils/studentDataHelper";
+import { isGenericName, normalizeBranchName, subscribeToStudentUpdates, PROFILE_UPDATED_EVENT, setGlobalVariable, getGlobalVariable } from "../../../utils/studentDataHelper";
 import DeviceOnboardingModal from "../DeviceOnboardingModal";
 import StudentReadinessModal from "../StudentReadinessModal";
 import RequestReRegistrationModal from "../RequestReRegistrationModal";
@@ -614,6 +614,8 @@ export default function StudentDashboard() {
             try {
                 localStorage.setItem('smartattend_student_device_type', 'android');
                 localStorage.setItem('smartattend_student_device_locked', 'true');
+                setGlobalVariable('isDeviceLocked', true);
+                setGlobalVariable('lockedDeviceType', 'android');
                 setCurrentDeviceType('android');
                 setShowDeviceModal(false);
             } catch (_) { }
