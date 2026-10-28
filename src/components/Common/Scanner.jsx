@@ -2719,6 +2719,23 @@ function QrScannerApp() {
                 } else {
                     console.warn(`[Geofence] Attempt ${currentAttempts}/3 rejected. Distance: ${displayDist}m > ${selectedGeofence}m.`);
                     setErrorMessage(`❌ Geofence Rejection: You are ${displayDist}m away from the classroom (allowed radius: ≤ ${selectedGeofence}m). Attempt ${currentAttempts}/3. Please be physically inside the classroom and scan again.`);
+                    // Real-time sync to Lecturer: student is outside geofence (warning, not yet disqualified)
+                    try {
+                        const targetRoll = (loggedInRollNo || '').trim().toUpperCase();
+                        const targetSid = activeSessionId || payload.sessionId;
+                        if (targetSid && (targetRoll || user?.uid)) {
+                            const geoWarnPayload = {
+                                geofenceWarning: true,
+                                geofenceAttempts: currentAttempts,
+                                geofenceDistance: displayDist,
+                                geofenceRadius: selectedGeofence,
+                                lastGeofenceWarningAt: Date.now(),
+                                lastActiveAt: Date.now()
+                            };
+                            if (targetRoll) setDoc(doc(db, 'attendance_sessions', targetSid, 'authorizations', targetRoll), geoWarnPayload, { merge: true }).catch(() => { });
+                            if (user?.uid && user.uid !== targetRoll) setDoc(doc(db, 'attendance_sessions', targetSid, 'authorizations', user.uid), geoWarnPayload, { merge: true }).catch(() => { });
+                        }
+                    } catch (_) { }
                     return;
                 }
             }
@@ -2817,16 +2834,35 @@ function QrScannerApp() {
         processSessionStringRef.current = processSessionString;
     }, [processSessionString]);
 
+    const lastScannedRawRef = useRef('');
+    const lastScannedTimeRef = useRef(0);
+
     const handleCameraScan = useCallback((result) => {
         if (!result) return;
         const raw = result[0]?.rawValue || (typeof result === 'string' ? result : '');
-        if (!raw || scanProcessingRef.current || !processSessionStringRef.current) return;
+        if (!raw) return;
 
+        // Debounce: prevent reading identical raw QR string within 4 seconds
+        const now = Date.now();
+        if (raw === lastScannedRawRef.current && (now - lastScannedTimeRef.current < 4000)) {
+            return;
+        }
+
+        if (scanProcessingRef.current || !processSessionStringRef.current) return;
+
+        lastScannedRawRef.current = raw;
+        lastScannedTimeRef.current = now;
         scanProcessingRef.current = true;
+
+        // Immediately pause camera frames to prevent scanning loop
+        setScannerActive(false);
+
         Promise.resolve(processSessionStringRef.current(raw))
             .catch((err) => {
                 console.error('[Scanner] QR processing failed:', err);
                 setErrorMessage(err.message || 'Unable to process this QR code. Please try again.');
+                // Re-enable camera on failure so student can try again
+                setScannerActive(true);
             })
             .finally(() => {
                 scanProcessingRef.current = false;
@@ -2982,11 +3018,9 @@ function QrScannerApp() {
                         setErrorMessage(`❌ Attendance Submission Blocked: Your device is ${geoCheck.distance}m away (outside classroom limit of ≤ ${selectedGeofence}m). Attendance can only be submitted within the classroom.`);
                         return;
                     }
+                    // For INCONCLUSIVE_RETRY during final face submit: if the student already proved geofence presence during QR1 and QR2, allow completion rather than blocking
                     if (geoCheck.status === "INCONCLUSIVE_RETRY") {
-                        setSubmittingAttendance(false);
-                        setFaceSubmissionFailed(true);
-                        setErrorMessage(geoCheck.message || "📍 Inconclusive Location: GPS accuracy is too low to confirm classroom presence. Please wait for an accurate fix and try again.");
-                        return;
+                        console.warn("[Scanner] GPS fix inconclusive during face submit, but student already cleared QR1 and QR2 geofence verification.");
                     }
                 }
 

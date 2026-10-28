@@ -14,7 +14,7 @@ on:
 jobs:
   build-ios:
     name: 🍎 Build iOS IPA & Simulator App
-    runs-on: macos-15
+    runs-on: macos-14
 
     steps:
       - name: ⬇️ Checkout Repository

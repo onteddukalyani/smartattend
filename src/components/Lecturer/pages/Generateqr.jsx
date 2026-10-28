@@ -2391,9 +2391,9 @@ function GenerateQR() {
                                             ) : student.hasViolation ? (
                                                 <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
                                                     <span style={{
-                                                        background: "#fee2e2",
-                                                        color: "#b91c1c",
-                                                        border: "1px solid #fca5a5",
+                                                        background: student.isDisqualified ? "#fee2e2" : "#fef3c7",
+                                                        color: student.isDisqualified ? "#b91c1c" : "#92400e",
+                                                        border: `1px solid ${student.isDisqualified ? "#fca5a5" : "#fde68a"}`,
                                                         padding: "3px 8px",
                                                         borderRadius: "6px",
                                                         fontWeight: 750,
@@ -2402,10 +2402,44 @@ function GenerateQR() {
                                                         alignItems: "center",
                                                         gap: "4px"
                                                     }}>
-                                                        <FaExclamationTriangle /> {student.isDisqualified ? "Disqualified (App Switch)" : "Flagged Warning"}
+                                                        <FaExclamationTriangle /> {
+                                                            student.isDisqualified
+                                                                ? (
+                                                                    (student.violationReason || "").toLowerCase().includes("vpn") ? "Disqualified (VPN Detected)" :
+                                                                    (student.violationReason || "").toLowerCase().includes("mock") || (student.violationReason || "").toLowerCase().includes("fake") ? "Disqualified (Fake GPS)" :
+                                                                    (student.violationReason || "").toLowerCase().includes("geofence") ? "Disqualified (Out of Geofence)" :
+                                                                    (student.violationReason || "").toLowerCase().includes("screen") ? "Disqualified (Screen Capture)" :
+                                                                    "Disqualified (App Switch)"
+                                                                )
+                                                                : (
+                                                                    (student.violationReason || "").toLowerCase().includes("vpn") ? "⚠️ VPN Detected" :
+                                                                    (student.violationReason || "").toLowerCase().includes("geofence") ? "⚠️ Out of Geofence" :
+                                                                    "⚠️ Flagged Warning"
+                                                                )
+                                                        }
                                                     </span>
-                                                    <span style={{ fontSize: "0.72rem", color: "#9f1239" }}>
+                                                    <span style={{ fontSize: "0.72rem", color: student.isDisqualified ? "#9f1239" : "#78350f" }}>
                                                         {student.violationReason}
+                                                    </span>
+                                                </div>
+                                            ) : student.geofenceWarning && !student.hasViolation && !student.qr2Scanned ? (
+                                                <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                                                    <span style={{
+                                                        background: "#fff7ed",
+                                                        color: "#c2410c",
+                                                        border: "1px solid #fed7aa",
+                                                        padding: "3px 8px",
+                                                        borderRadius: "6px",
+                                                        fontWeight: 750,
+                                                        fontSize: "0.78rem",
+                                                        display: "inline-flex",
+                                                        alignItems: "center",
+                                                        gap: "4px"
+                                                    }}>
+                                                        <FaExclamationTriangle /> Out of Geofence ({student.geofenceAttempts || 1}/3)
+                                                    </span>
+                                                    <span style={{ fontSize: "0.72rem", color: "#9a3412" }}>
+                                                        {student.geofenceDistance !== undefined ? `${student.geofenceDistance}m away · Limit: ≤${student.geofenceRadius}m` : "Outside classroom boundary"}
                                                     </span>
                                                 </div>
                                             ) : student.verificationStage === "FACE_VERIFIED_SUBMITTING" || student.verificationStage === "SUBMITTING_ATTENDANCE" ? (
