@@ -1,3 +1,5 @@
+import { checkVpnAndNetworkSecurity } from "./vpnDetection.js";
+
 export const MAX_LOCATION_AGE_MS = 60000;
 export const MAX_CLASSROOM_LOCATION_ACCURACY_METERS = 45;
 export const CLASSROOM_LOCATION_ACQUISITION_TIMEOUT_MS = 15000;
@@ -205,4 +207,19 @@ export function acquireAccurateLocation(
       }
     }
   });
+}
+
+/**
+ * Concurrently acquire GPS location and verify that client is not behind a VPN/proxy.
+ */
+export async function acquireLocationWithVpnCheck(geolocation, options = {}) {
+  const [locResult, vpnResult] = await Promise.all([
+    acquireAccurateLocation(geolocation, options).catch(() => null),
+    checkVpnAndNetworkSecurity(options?.forceRefreshVpn ?? false).catch(() => ({ isVpn: false }))
+  ]);
+
+  return {
+    location: locResult,
+    vpn: vpnResult
+  };
 }

@@ -63,7 +63,7 @@ import {
     pickBestStudentLocation,
     MAX_CLASSROOM_LOCATION_ACCURACY_METERS
 } from '../../utils/location';
-import { checkVpnAndNetworkSecurity } from '../../utils/vpnDetection';
+import { checkVpnAndNetworkSecurity, clearVpnStatusCache } from '../../utils/vpnDetection';
 import { verifyHardwareBiometric, prefetchBiometricChallenge } from '../../services/biometricService';
 import { checkForAppUpdate, CURRENT_APP_VERSION, compareVersions } from '../../services/appUpdateService';
 import AppUpdateModal from './AppUpdateModal';
@@ -364,6 +364,15 @@ function QrScannerApp() {
                             localStorage.setItem('smartattend_student_location', JSON.stringify(locObj));
                         } catch (_) { }
                     }
+
+                    // Check VPN along with location updates
+                    checkVpnAndNetworkSecurity().then((vpnRes) => {
+                        if (vpnRes && vpnRes.isVpn) {
+                            setVpnDetails(vpnRes.reason || 'Active VPN tunnel or proxy detected');
+                            setShowVpnModal(true);
+                            setErrorMessage('⚠️ Active VPN Detected: Please turn off your VPN in phone settings to allow physical classroom location verification.');
+                        }
+                    }).catch(() => { });
                 }
             };
 
@@ -399,8 +408,15 @@ function QrScannerApp() {
 
         // Pre-warm neural network models in background for instantaneous Phase 2 biometric startup
         loadFaceApiModels().catch(() => { });
-        // Pre-warm VPN security status and IP address in background for 0ms QR verification
-        checkVpnAndNetworkSecurity().catch(() => { });
+        // Check VPN security status alongside location acquisition on mount
+        checkVpnAndNetworkSecurity(true).then((vpn) => {
+            if (vpn && vpn.isVpn) {
+                console.warn('[Scanner] Active VPN detected on initialization:', vpn.reason);
+                setVpnDetails(vpn.reason || 'Active VPN tunnel or proxy detected');
+                setShowVpnModal(true);
+                setErrorMessage('⚠️ Active VPN Detected: Please turn off your VPN in phone settings to proceed with classroom attendance.');
+            }
+        }).catch(() => { });
         getClientIpAddress().catch(() => { });
 
         return () => {
@@ -1844,7 +1860,7 @@ function QrScannerApp() {
 
         const handleAuthSnapshot = (authData) => {
             if (!authData) return;
-            if (authData.released === true || authData.status === 'RELEASED') {
+            if (authData.released === true || authData.status === 'RELEASED' || authData.releaseStatus === 'RELEASED') {
                 handleReleaseTriggered();
                 return;
             }
@@ -2019,7 +2035,7 @@ function QrScannerApp() {
         }
 
         // Strictly verify VPN is disabled immediately on QR 1 authorization
-        const vpnCheck = await checkVpnAndNetworkSecurity();
+        const vpnCheck = await checkVpnAndNetworkSecurity(true);
         if (vpnCheck && vpnCheck.isVpn) {
             alert('🚨 VPN / Proxy Detected!\n\nVPNs and network proxies are strictly prohibited during attendance.\nPlease disconnect your VPN and try again.');
             setVpnDetails(vpnCheck.reason || 'Active VPN tunnel or proxy detected');
@@ -2078,7 +2094,25 @@ function QrScannerApp() {
 
         try {
             if (typeof sessionStorage !== 'undefined') sessionStorage.setItem('smartattend_kiosk_session_id', sessionId);
-            if (typeof localStorage !== 'undefined') localStorage.setItem('smartattend_kiosk_session_id', sessionId);
+            if (typeof localStorage !== 'undefined') {
+                localStorage.setItem('smartattend_kiosk_session_id', sessionId);
+                localStorage.setItem('smartattend_kiosk_session_state', JSON.stringify({
+                    sessionId,
+                    lecturerUid: qrPayload?.lecturerUid || sessionData?.lecturerUid || null,
+                    lecturerName: qrPayload?.lecturerName || sessionData?.lecturerName || 'Faculty In-Charge',
+                    courseCode: qrPayload?.courseCode || sessionData?.courseCode || 'Classroom Attendance',
+                    roomNo: qrPayload?.roomNo || sessionData?.roomNo || '',
+                    sessionStartAt: startAt,
+                    kioskEndsAt: kioskEnd,
+                    authQr2StartsAt: targetQr2,
+                    authQr1DurationSec: durationSec,
+                    scanState: 'KIOSK_WAITING_QR2',
+                    rollNo: loggedInRollNo
+                }));
+            }
+            if (typeof window !== 'undefined') {
+                window.dispatchEvent(new Event('smartattend_kiosk_state_change'));
+            }
         } catch (_) { }
 
         // Start Android Lock Task Mode, Web Supervision & Device Policy Restrictions in background
@@ -2415,9 +2449,25 @@ function QrScannerApp() {
         }
 
         // =========================================================================
+        // STRICT LECTURER BINDING & CONTROL:
+        // A student who scanned QR 1 is completely locked under that lecturer's session.
+        // They CANNOT scan any other QR code from another session or lecturer!
+        // =========================================================================
+        if (activeSessionId && payload.sessionId !== activeSessionId) {
+            const isBoundToSession = scanState === 'KIOSK_WAITING_QR2' || scanState === 'VALIDATING_QR2' || scanState === 'BIOMETRIC_SCAN' || scanState === 'SUBMITTING_ATTENDANCE';
+            if (isBoundToSession) {
+                const lecturer = sessionData?.lecturerName || 'your current lecturer';
+                const course = sessionData?.courseCode || 'active class';
+                alert(`🔒 Device Under Lecturer Control!\n\nYou have checked in to Lecturer ${lecturer}'s session (${course}).\n\nYou are strictly under this lecturer's supervision and cannot join a different session until you are released or this session concludes.`);
+                setErrorMessage(`🔒 Device Locked: You are under the supervision of Lecturer ${lecturer} (${course}). You cannot join another session.`);
+                return;
+            }
+        }
+
+        // =========================================================================
         // IMMEDIATE SECURITY CHECK: VPN & Proxy Detection (Alert Student Directly)
         // =========================================================================
-        const vpnStatus = await checkVpnAndNetworkSecurity();
+        const vpnStatus = await checkVpnAndNetworkSecurity(true);
         if (vpnStatus && vpnStatus.isVpn) {
             console.warn('[Scanner] Active VPN detected immediately on QR scan:', vpnStatus.reason);
             alert('🚨 VPN / Proxy Detected!\n\nVPNs and network proxies are strictly prohibited during attendance.\nPlease disconnect your VPN and try again.');
@@ -2502,18 +2552,21 @@ function QrScannerApp() {
             } catch (_) { }
         }
 
-        // Ensure location coordinates are never null when scanning in classroom
-        if (!studentCoords && classroomTarget) {
-            const cLat = Number(classroomTarget.latitude ?? classroomTarget.lat);
-            const cLng = Number(classroomTarget.longitude ?? classroomTarget.lng ?? classroomTarget.lon);
-            if (Number.isFinite(cLat) && Number.isFinite(cLng)) {
-                studentCoords = {
-                    latitude: cLat,
-                    longitude: cLng,
-                    accuracy: Number(classroomTarget.accuracy) || 25,
-                    timestamp: Date.now()
-                };
+        // Ensure genuine device location is present when geofence is active
+        if (!studentCoords && !isGeofenceDisabled && classroomTarget) {
+            console.warn('[Scanner] Scan blocked: Device location not acquired.');
+            setErrorMessage('📍 Device Location Required: Classroom geofencing is active. Please ensure GPS / Location permissions are enabled on your device and wait for a location fix before scanning.');
+            if (typeof navigator !== "undefined" && navigator.geolocation) {
+                acquireAccurateLocation(navigator.geolocation, { timeoutMs: 3500, maxAccuracy: MAX_CLASSROOM_LOCATION_ACCURACY_METERS })
+                    .then((fresh) => {
+                        if (fresh) {
+                            prewarmedLocationRef.current = fresh;
+                            setCurrentStudentLocation(fresh);
+                            setScannedStudentLocation(fresh);
+                        }
+                    }).catch(() => { });
             }
+            return;
         }
 
         // Continuous dual-lock GPS refinement runs concurrently with the flow without blocking
@@ -2626,37 +2679,37 @@ function QrScannerApp() {
             return;
         }
 
-        // 4B. Geofence Telemetry: Calculate distance and update live radar without halting the flow
-        if (!isGeofenceDisabled && classroomTarget && calculatedDistance !== null) {
+        // 4B. Geofence Telemetry & Verification: Enforce physical presence within classroom boundary
+        if (!isGeofenceDisabled && classroomTarget) {
             let geoEval = evaluateGeofence(studentCoords, classroomTarget, geofenceAttemptsRef.current);
             setGpsTelemetry(geoEval);
 
-            // If precision is still settling, refine in parallel without blocking check-in
-            if (geoEval.status === "INCONCLUSIVE_RETRY" && typeof navigator !== "undefined" && navigator.geolocation) {
-                acquireAccurateLocation(navigator.geolocation, {
-                    timeoutMs: 6000,
-                    maxAccuracy: MAX_CLASSROOM_LOCATION_ACCURACY_METERS,
-                    maximumAge: 0
-                }).then((refinedFix) => {
-                    if (refinedFix && isFreshLocation(refinedFix)) {
-                        prewarmedLocationRef.current = refinedFix;
-                        setCurrentStudentLocation(refinedFix);
-                        setScannedStudentLocation(refinedFix);
+            if (geoEval.status === "MOCK_DETECTED") {
+                geofenceAttemptsRef.current += 1;
+                const currentAttempts = geofenceAttemptsRef.current;
+                setGeofenceAttempts(currentAttempts);
+                if (currentAttempts >= 3) {
+                    setErrorMessage('❌ Attendance Rejected: Maximum attempts (3/3) exceeded. Mock GPS / Fake location detected. Attendance forfeited.');
+                    setScanState('DISQUALIFIED');
+                    setSupervisionViolation(true);
+                    if (activeSessionId || payload.sessionId) {
+                        recordSessionViolation(activeSessionId || payload.sessionId, user?.uid, loggedInRollNo, 'MOCK_LOCATION_DETECTED');
                     }
-                }).catch(() => { });
+                } else {
+                    setErrorMessage(`🚨 Mock GPS Detected: Spoofed location detected. Please disable mock location apps (Attempt ${currentAttempts}/3).`);
+                }
+                return;
             }
 
-            const isWithinGeofence = geoEval.status === "PASS" || geoEval.status === "INCONCLUSIVE_RETRY";
-
-            if (!isWithinGeofence && isAccurateLocation(studentCoords)) {
+            if (geoEval.status === "REJECT") {
                 geofenceAttemptsRef.current += 1;
                 const currentAttempts = geofenceAttemptsRef.current;
                 setGeofenceAttempts(currentAttempts);
 
-                const displayDist = geoEval?.effectiveDistance !== undefined ? geoEval.effectiveDistance : calculatedDistance;
+                const displayDist = geoEval?.distance !== undefined ? geoEval.distance : (calculatedDistance ?? 'unknown');
                 if (currentAttempts >= 3) {
                     console.error(`[Geofence] Max attempts (3/3) exceeded. Distance: ${displayDist}m > ${selectedGeofence}m.`);
-                    setErrorMessage(`❌ Attendance Rejected: Maximum attempts (3/3) exceeded. You are ${displayDist}m away from the lecturer (allowed: ≤ ${selectedGeofence}m). Attendance forfeited.`);
+                    setErrorMessage(`❌ Attendance Rejected: Maximum attempts (3/3) exceeded. You are ${displayDist}m away from the classroom (allowed radius: ≤ ${selectedGeofence}m). Attendance forfeited.`);
                     setScanState('DISQUALIFIED');
                     setSupervisionViolation(true);
                     if (activeSessionId || payload.sessionId) {
@@ -2665,9 +2718,28 @@ function QrScannerApp() {
                     return;
                 } else {
                     console.warn(`[Geofence] Attempt ${currentAttempts}/3 rejected. Distance: ${displayDist}m > ${selectedGeofence}m.`);
-                    setErrorMessage(`❌ Geofence Rejection: You are ${displayDist}m away from the lecturer (allowed: ≤ ${selectedGeofence}m). Attempt ${currentAttempts}/3. Please move closer to the lecturer and scan again.`);
+                    setErrorMessage(`❌ Geofence Rejection: You are ${displayDist}m away from the classroom (allowed radius: ≤ ${selectedGeofence}m). Attempt ${currentAttempts}/3. Please be physically inside the classroom and scan again.`);
                     return;
                 }
+            }
+
+            if (geoEval.status === "INCONCLUSIVE_RETRY") {
+                const acc = studentCoords?.accuracy ? Math.round(studentCoords.accuracy) : null;
+                setErrorMessage(geoEval.message || `📍 Acquiring precise GPS location${acc ? ` (current accuracy: ±${acc}m)` : ''}. Please wait for a better GPS fix and scan again.`);
+                if (typeof navigator !== "undefined" && navigator.geolocation) {
+                    acquireAccurateLocation(navigator.geolocation, {
+                        timeoutMs: 4000,
+                        maxAccuracy: MAX_CLASSROOM_LOCATION_ACCURACY_METERS,
+                        maximumAge: 0
+                    }).then((refinedFix) => {
+                        if (refinedFix && isFreshLocation(refinedFix)) {
+                            prewarmedLocationRef.current = refinedFix;
+                            setCurrentStudentLocation(refinedFix);
+                            setScannedStudentLocation(refinedFix);
+                        }
+                    }).catch(() => { });
+                }
+                return;
             }
         }
 
@@ -2884,39 +2956,37 @@ function QrScannerApp() {
                         } catch (_) { }
                     }
 
-                    // Fallback to scanned location or classroom location so GPS acquisition never stalls submission indoors
                     if (!locForSubmit) {
                         locForSubmit = scannedStudentLocation || prewarmedLocationRef.current || currentStudentLocation;
-                        if (!locForSubmit && classroomTarget) {
-                            const cLat = Number(classroomTarget.latitude ?? classroomTarget.lat);
-                            const cLng = Number(classroomTarget.longitude ?? classroomTarget.lng ?? classroomTarget.lon);
-                            if (Number.isFinite(cLat) && Number.isFinite(cLng)) {
-                                locForSubmit = {
-                                    latitude: cLat,
-                                    longitude: cLng,
-                                    accuracy: Number(classroomTarget.accuracy) || 20,
-                                    timestamp: Date.now()
-                                };
-                            }
-                        }
                     }
 
-                    if (locForSubmit) {
-                        const geoCheck = evaluateGeofence(locForSubmit, classroomTarget, 0);
-                        setGpsTelemetry(geoCheck);
-                        if (geoCheck.status === "MOCK_DETECTED") {
-                            setSubmittingAttendance(false);
-                            setFaceSubmissionFailed(true);
-                            setErrorMessage("🚨 Mock / Fake GPS detected. Attendance submission blocked.");
-                            setScanState("DISQUALIFIED");
-                            return;
-                        }
-                        if (geoCheck.status === "REJECT" && isAccurateLocation(locForSubmit)) {
-                            setSubmittingAttendance(false);
-                            setFaceSubmissionFailed(true);
-                            setErrorMessage(`❌ Attendance Submission Blocked: Your device is outside the classroom boundary. Attendance can only be submitted within the classroom.`);
-                            return;
-                        }
+                    if (!locForSubmit) {
+                        setSubmittingAttendance(false);
+                        setFaceSubmissionFailed(true);
+                        setErrorMessage("📍 Location Verification Required: Could not acquire your device GPS coordinates to verify classroom presence. Please enable GPS and try again.");
+                        return;
+                    }
+
+                    const geoCheck = evaluateGeofence(locForSubmit, classroomTarget, 0);
+                    setGpsTelemetry(geoCheck);
+                    if (geoCheck.status === "MOCK_DETECTED") {
+                        setSubmittingAttendance(false);
+                        setFaceSubmissionFailed(true);
+                        setErrorMessage("🚨 Mock / Fake GPS detected. Attendance submission blocked.");
+                        setScanState("DISQUALIFIED");
+                        return;
+                    }
+                    if (geoCheck.status === "REJECT") {
+                        setSubmittingAttendance(false);
+                        setFaceSubmissionFailed(true);
+                        setErrorMessage(`❌ Attendance Submission Blocked: Your device is ${geoCheck.distance}m away (outside classroom limit of ≤ ${selectedGeofence}m). Attendance can only be submitted within the classroom.`);
+                        return;
+                    }
+                    if (geoCheck.status === "INCONCLUSIVE_RETRY") {
+                        setSubmittingAttendance(false);
+                        setFaceSubmissionFailed(true);
+                        setErrorMessage(geoCheck.message || "📍 Inconclusive Location: GPS accuracy is too low to confirm classroom presence. Please wait for an accurate fix and try again.");
+                        return;
                     }
                 }
 
@@ -3336,12 +3406,25 @@ function QrScannerApp() {
                     <button
                         type="button"
                         onClick={async () => {
-                            setShowVpnModal(false);
-                            setErrorMessage('');
-                            const recheck = await checkVpnAndNetworkSecurity();
+                            clearVpnStatusCache();
+                            const recheck = await checkVpnAndNetworkSecurity(true);
                             if (recheck?.isVpn) {
-                                alert('🚨 VPN Still Detected!\nPlease turn off your VPN in phone Settings before retrying.');
+                                alert('🚨 VPN Still Detected!\n\nSmartAttend detected that your VPN or proxy is still turned ON.\nPlease open your phone Settings or VPN app, turn off VPN completely, and try again.');
+                                setVpnDetails(recheck.reason || 'Active VPN tunnel or proxy detected');
                                 setShowVpnModal(true);
+                            } else {
+                                setShowVpnModal(false);
+                                setErrorMessage('');
+                                if (typeof navigator !== "undefined" && navigator.geolocation) {
+                                    acquireAccurateLocation(navigator.geolocation, { timeoutMs: 3000, maxAccuracy: MAX_CLASSROOM_LOCATION_ACCURACY_METERS })
+                                        .then((fresh) => {
+                                            if (fresh) {
+                                                prewarmedLocationRef.current = fresh;
+                                                setCurrentStudentLocation(fresh);
+                                                setScannedStudentLocation(fresh);
+                                            }
+                                        }).catch(() => { });
+                                }
                             }
                         }}
                         style={{
@@ -3357,7 +3440,7 @@ function QrScannerApp() {
                             boxShadow: '0 4px 14px rgba(220, 38, 38, 0.35)'
                         }}
                     >
-                        I Disconnected VPN — Retry Scan
+                        I Disconnected VPN — Re-verify & Continue
                     </button>
                 </div>
             </div>
@@ -5119,7 +5202,7 @@ function QrScannerApp() {
                 {/* Supervised Bar with Dynamic Session Timer */}
                 <div className="st-supervised-bar">
                     <div className="st-supervised-bar-left">
-                        <FaLock /> Entered Kiosk Mode ({loggedInRollNo})
+                        <FaLock /> Under Control of Lecturer: {sessionData?.lecturerName || 'Faculty In-Charge'}
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         {kioskEndsAt && kioskEndsAt > nowTick && (
@@ -5150,12 +5233,12 @@ function QrScannerApp() {
                                     {sessionData?.courseCode || 'Classroom Attendance'}
                                 </div>
                                 <div style={{ fontSize: '0.78rem', color: '#94a3b8', fontWeight: 600 }}>
-                                    {sessionData?.roomNo ? `Room ${sessionData.roomNo}` : loggedInRollNo} · {sessionData?.lecturerName || 'Live Session'}
+                                    {sessionData?.roomNo ? `Room ${sessionData.roomNo}` : loggedInRollNo} · Lecturer: {sessionData?.lecturerName || 'Faculty In-Charge'}
                                 </div>
                             </div>
                             <div className="st-phase1-success-badge" style={{ margin: 0, padding: '4px 12px', fontSize: '0.76rem' }}>
                                 <FaCheckCircle className="st-success-check-icon" style={{ fontSize: '0.82rem' }} />
-                                <span>Entered Kiosk Mode · Phase 1 Done</span>
+                                <span>Phase 1 Scanned · Device Under Lecturer Supervision</span>
                             </div>
                         </div>
 
@@ -5188,7 +5271,7 @@ function QrScannerApp() {
                                     {secondsUntilQr2 !== null && secondsUntilQr2 > 0 ? (
                                         <>
                                             {String(Math.floor(secondsUntilQr2 / 60)).padStart(2, '0')}:
-                                            {String(secondsUntilQr2 % 60).padStart(2, '0')}
+                                             {String(secondsUntilQr2 % 60).padStart(2, '0')}
                                         </>
                                     ) : (
                                         '00:00'
@@ -5203,19 +5286,32 @@ function QrScannerApp() {
                         {/* Real-time Lecturer Sync Status */}
                         <div className="st-turning-loader-badge" style={{ margin: '0 auto 10px auto', padding: '5px 14px', fontSize: '0.75rem' }}>
                             <span className="st-turning-dot-pulse" />
-                            <span>⚡ Live-synced with Lecturer · Waiting for QR 2</span>
+                            <span>⚡ Live-synced with Lecturer {sessionData?.lecturerName ? `(${sessionData.lecturerName})` : ''} · Awaiting QR 2 Release</span>
                         </div>
 
                         {/* Interactive Instant Switcher for Early Phase 2 Release */}
                         <button
                             type="button"
-                            onClick={() => {
-                                setForceQr2Unlocked(true);
-                                setScannerActive(true);
+                            onClick={async () => {
                                 if (activeSessionId) {
-                                    getDoc(doc(db, "attendance_sessions", activeSessionId)).then((snap) => {
-                                        if (snap.exists()) setSessionData(snap.data());
-                                    }).catch(() => { });
+                                    try {
+                                        const snap = await getDoc(doc(db, "attendance_sessions", activeSessionId));
+                                        if (snap && snap.exists()) {
+                                            const fresh = snap.data();
+                                            setSessionData(fresh);
+                                            if (fresh.phase === 'PHASE_2' || fresh.phase === '2' || fresh.qr2Released === true) {
+                                                setForceQr2Unlocked(true);
+                                                setScannerActive(true);
+                                                return;
+                                            }
+                                        }
+                                    } catch (_) { }
+                                }
+                                if (sessionData?.phase === 'PHASE_2' || sessionData?.qr2Released === true) {
+                                    setForceQr2Unlocked(true);
+                                    setScannerActive(true);
+                                } else {
+                                    alert(`⏳ Under Lecturer Supervision\n\nLecturer ${sessionData?.lecturerName || 'Faculty'} has not presented QR 2 yet. Please wait for the lecturer to switch to Phase 2 on the screen.`);
                                 }
                             }}
                             className="st-early-switch-btn"

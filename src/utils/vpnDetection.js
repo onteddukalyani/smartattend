@@ -1,5 +1,5 @@
 import { Capacitor } from '@capacitor/core';
-import { Kiosk } from '../plugins/kiosk';
+import { Kiosk } from '../plugins/kiosk/index.js';
 
 /**
  * SmartAttend VPN & Network Security Detection
@@ -10,16 +10,23 @@ import { Kiosk } from '../plugins/kiosk';
  * Multi-layer detection:
  * 1. Native Mobile Platform Check (authoritative via OS ConnectivityManager & interface scan)
  * 2. WebRTC Virtual Interface / Local Candidate Subnet Analysis
- * 3. Network Interface Pattern Matching (tun*, tap*, ppp*, vpn*, ipsec*)
+ * 3. Network Interface Pattern Matching (tun*, tap*, ppp*, vpn*, ipsec*, wireguard*, etc.)
  */
-// In-memory VPN check cache (15 seconds TTL) to avoid repeating STUN/OS checks on each scan frame
 let cachedVpnStatus = null;
 let cachedVpnTimestamp = 0;
-const VPN_CACHE_TTL_MS = 15000;
+const VPN_CACHE_TTL_MS = 10000;
 
-export async function checkVpnAndNetworkSecurity() {
+/**
+ * Clear any cached VPN status to force a fresh verification.
+ */
+export function clearVpnStatusCache() {
+  cachedVpnStatus = null;
+  cachedVpnTimestamp = 0;
+}
+
+export async function checkVpnAndNetworkSecurity(forceRefresh = false) {
   const now = Date.now();
-  if (cachedVpnStatus && (now - cachedVpnTimestamp) < VPN_CACHE_TTL_MS) {
+  if (!forceRefresh && cachedVpnStatus && (now - cachedVpnTimestamp) < VPN_CACHE_TTL_MS) {
     return cachedVpnStatus;
   }
 
@@ -31,7 +38,8 @@ export async function checkVpnAndNetworkSecurity() {
         const res = {
           isVpn: true,
           reason: `Active VPN tunnel detected on device (${nativeRes.details || 'OS_TRANSPORT_VPN'})`,
-          details: nativeRes.details || 'NATIVE_VPN'
+          details: nativeRes.details || 'NATIVE_VPN',
+          checkedAt: Date.now()
         };
         cachedVpnStatus = res;
         cachedVpnTimestamp = Date.now();
@@ -57,7 +65,8 @@ export async function checkVpnAndNetworkSecurity() {
   const cleanResult = {
     isVpn: false,
     reason: 'No active VPN detected',
-    details: 'CLEAN'
+    details: 'CLEAN',
+    checkedAt: Date.now()
   };
   cachedVpnStatus = cleanResult;
   cachedVpnTimestamp = Date.now();
@@ -83,7 +92,7 @@ function checkWebRtcVpnInterface() {
 
     const cleanup = () => {
       if (pc) {
-        try { pc.close(); } catch (_) {}
+        try { pc.close(); } catch (_) { }
         pc = null;
       }
     };
@@ -94,7 +103,7 @@ function checkWebRtcVpnInterface() {
         cleanup();
         resolve({ isVpn: false, details: 'CLEAN_TIMEOUT' });
       }
-    }, 450);
+    }, 550);
 
     try {
       pc = new RTCPeerConnection({
@@ -105,7 +114,7 @@ function checkWebRtcVpnInterface() {
         if (!event || !event.candidate) return;
         const candidateStr = (event.candidate.candidate || '').toLowerCase();
 
-        // Check for virtual network adapter names or well-known VPN IP ranges
+        // Check for virtual network adapter names, tunneling protocols or well-known VPN IP ranges
         const isVpnCandidate =
           candidateStr.includes('tun') ||
           candidateStr.includes('tap') ||
@@ -114,8 +123,15 @@ function checkWebRtcVpnInterface() {
           candidateStr.includes('ipsec') ||
           candidateStr.includes('wireguard') ||
           candidateStr.includes('openvpn') ||
+          candidateStr.includes('tailscale') ||
+          candidateStr.includes('zerotier') ||
+          candidateStr.includes('nord') ||
+          candidateStr.includes('surfshark') ||
+          candidateStr.includes('expressvpn') ||
+          candidateStr.includes('proton') ||
           candidateStr.includes('10.8.') || // Default OpenVPN server subnet
-          candidateStr.includes('10.9.');   // Default Wireguard server subnet
+          candidateStr.includes('10.9.') || // Default Wireguard server subnet
+          candidateStr.includes('10.6.');
 
         if (isVpnCandidate && !resolved) {
           resolved = true;
@@ -123,8 +139,9 @@ function checkWebRtcVpnInterface() {
           cleanup();
           resolve({
             isVpn: true,
-            reason: 'Virtual VPN network adapter detected via WebRTC',
-            details: 'WEBRTC_VPN_ADAPTER'
+            reason: 'Virtual VPN network adapter detected via WebRTC ICE check',
+            details: 'WEBRTC_VPN_ADAPTER',
+            checkedAt: Date.now()
           });
         }
       };

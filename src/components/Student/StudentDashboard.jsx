@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Outlet } from "react-router-dom";
+import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from '../authcontext';
 import Navbar from './Navbar';
 import Sidebar from './Sidebar';
@@ -13,9 +13,56 @@ import { subscribeToStudentNotifications } from '../../services/notificationsSer
 function StudentDashboard() {
     const [sidebarHidden, setSidebarHidden] = useState(window.innerWidth <= 800);
     const { user, profile } = useAuth();
+    const location = useLocation();
+    const navigate = useNavigate();
     const [notifications, setNotifications] = useState([]);
     const [showNotifModal, setShowNotifModal] = useState(false);
     const [showDeviceModal, setShowDeviceModal] = useState(false);
+
+    // Kiosk Supervision State: When student scanned QR 1, they are locked under the lecturer's session
+    const [isKioskActive, setIsKioskActive] = useState(() => {
+        try {
+            const raw = localStorage.getItem('smartattend_kiosk_session_state');
+            if (!raw) return false;
+            const parsed = JSON.parse(raw);
+            return Boolean(parsed?.sessionId && (parsed?.kioskEndsAt > Date.now() || parsed?.autoReleaseAt > Date.now()) && parsed?.scanState !== 'IDLE');
+        } catch (_) {
+            return false;
+        }
+    });
+
+    useEffect(() => {
+        const checkKiosk = () => {
+            try {
+                const raw = localStorage.getItem('smartattend_kiosk_session_state');
+                if (!raw) {
+                    setIsKioskActive(false);
+                    return;
+                }
+                const parsed = JSON.parse(raw);
+                const active = Boolean(parsed?.sessionId && (parsed?.kioskEndsAt > Date.now() || parsed?.autoReleaseAt > Date.now()) && parsed?.scanState !== 'IDLE');
+                setIsKioskActive(active);
+
+                if (active) {
+                    const currentPath = (location.pathname || '').toLowerCase();
+                    if (!currentPath.includes('mark-attendance') && !currentPath.includes('scanqr')) {
+                        console.log('[StudentDashboard] Student is locked under lecturer session. Redirecting to mark-attendance.');
+                        navigate('/student/mark-attendance', { replace: true });
+                    }
+                }
+            } catch (_) {
+                setIsKioskActive(false);
+            }
+        };
+
+        checkKiosk();
+        const interval = setInterval(checkKiosk, 1200);
+        window.addEventListener('storage', checkKiosk);
+        return () => {
+            clearInterval(interval);
+            window.removeEventListener('storage', checkKiosk);
+        };
+    }, [location.pathname, navigate]);
 
     const emailRoll = (user?.email || "").split("@")[0].trim().toUpperCase();
     const activeRollNo = (profile?.rollNo || emailRoll || "").trim().toUpperCase();
@@ -55,6 +102,15 @@ function StudentDashboard() {
 
     if (!user) {
         return <Login />;
+    }
+
+    // When student is in an active session under the lecturer's supervision, render strictly full-screen Kiosk view
+    if (isKioskActive) {
+        return (
+            <div className='app kiosk-supervised-fullscreen' style={{ minHeight: '100vh', width: '100vw', margin: 0, padding: 0 }}>
+                <Outlet />
+            </div>
+        );
     }
 
     return (
