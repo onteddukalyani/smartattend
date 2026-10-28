@@ -664,22 +664,20 @@ export async function submitVerifiedAttendance(sessionId, qr2Token, biometricDat
     const fn = httpsCallable(functions, "submitAttendance");
     const cloudCall = fn(payload);
     const timeoutPromise = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error("Cloud function submitAttendance timed out after 7000ms")), 7000)
+      setTimeout(() => reject(new Error("Cloud function submitAttendance timed out after 1400ms")), 1400)
     );
     const result = await Promise.race([cloudCall, timeoutPromise]);
 
     if (result && result.data && result.data.success) {
       const cleanRoll = result.data.rollNo;
       if (cleanRoll) {
-        try {
-          await sendStudentNotification(
-            cleanRoll,
-            "Attendance Recorded ✅",
-            `Your attendance for session ${sessionId} has been submitted successfully (${deviceAuthMode}).`,
-            "ATTENDANCE_SUCCESS",
-            "SmartAttend Guard"
-          );
-        } catch (_) { }
+        sendStudentNotification(
+          cleanRoll,
+          "Attendance Recorded ✅",
+          `Your attendance for session ${sessionId} has been submitted successfully (${deviceAuthMode}).`,
+          "ATTENDANCE_SUCCESS",
+          "SmartAttend Guard"
+        ).catch(() => {});
       }
       return result.data;
     }

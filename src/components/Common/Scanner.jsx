@@ -50,7 +50,7 @@ import { getApkDownloadUrl } from '../../utils/apkUrl';
 import GuidedAccessRequired, { GuidedAccessExitNotice } from '../GuidedAccessRequired';
 import IphoneInstructionsModal from './IphoneInstructionsModal';
 import DeviceOnboardingModal from '../Student/DeviceOnboardingModal';
-import { isGenericName, subscribeToStudentUpdates, PROFILE_UPDATED_EVENT, getGlobalStudent, setGlobalStudent } from '../../utils/studentDataHelper';
+import { isGenericName, subscribeToStudentUpdates, PROFILE_UPDATED_EVENT, getGlobalStudent, setGlobalStudent, normalizeDescriptor } from '../../utils/studentDataHelper';
 import { detectDeviceType, getClientIpAddress, getDeviceDisplayName, isDeviceMatching, isBrowserCameraAllowed, isStaffCameraUser } from '../../utils/deviceDetection';
 import { sendFacultyNotification, sendStudentNotification, reportUserVerificationComplaint } from '../../services/notificationsService';
 import { validateRotatingQrPayload } from '../../utils/qrCrypto';
@@ -554,11 +554,10 @@ function QrScannerApp() {
                     data.faceRemovedAt &&
                     (!data.faceEnrolledAt || data.faceRemovedAt > data.faceEnrolledAt)
                 );
+                const normFace = normalizeDescriptor(data.faceDescriptor) || normalizeDescriptor(data.descriptor);
                 const hasFace = Boolean(
                     !hasRemoval &&
-                    (data.faceRegistered || data.biometricEnrolled || data.hasFaceRegistered ||
-                        (Array.isArray(data.faceDescriptor) && data.faceDescriptor.length === 128) ||
-                        (Array.isArray(data.descriptor) && data.descriptor.length === 128))
+                    (data.faceRegistered || data.biometricEnrolled || data.hasFaceRegistered || (normFace && normFace.length === 128))
                 );
                 const isHwReset = Boolean(
                     data.deviceResetAt ||
@@ -618,9 +617,7 @@ function QrScannerApp() {
                         const nextRoll = activeRollNo || prev?.rollNo;
                         const nextName = data.name || data.fullName || loggedInName || prev?.name || 'Student';
                         const nextPhoto = data.photoURL || prev?.photoURL || null;
-                        const nextDescriptor = (Array.isArray(data.faceDescriptor) && data.faceDescriptor.length === 128)
-                            ? data.faceDescriptor
-                            : ((Array.isArray(data.descriptor) && data.descriptor.length === 128) ? data.descriptor : (prev?.faceDescriptor || null));
+                        const nextDescriptor = normFace || prev?.faceDescriptor || null;
                         if (prev && prev.rollNo === nextRoll && prev.name === nextName && prev.faceRegistered === true && prev.photoURL === nextPhoto && prev.faceDescriptor === nextDescriptor) {
                             return prev;
                         }
@@ -1018,11 +1015,12 @@ function QrScannerApp() {
         const globalStudent = getGlobalStudent(targetRoll);
         if (globalStudent && (globalStudent.faceRegistered || globalStudent.faceDescriptor || globalStudent.name)) {
             const isRemoved = Boolean(globalStudent.faceRemovedAt && (!globalStudent.faceEnrolledAt || globalStudent.faceRemovedAt > globalStudent.faceEnrolledAt));
-            const hasFace = !isRemoved && Boolean(globalStudent.faceRegistered || (Array.isArray(globalStudent.faceDescriptor) && globalStudent.faceDescriptor.length === 128));
+            const globalDesc = normalizeDescriptor(globalStudent.faceDescriptor) || normalizeDescriptor(globalStudent.descriptor);
+            const hasFace = !isRemoved && Boolean(globalStudent.faceRegistered || globalDesc);
             const cachedData = {
                 rollNo: targetRoll,
                 name: globalStudent.name || loggedInName || 'Student',
-                faceDescriptor: (Array.isArray(globalStudent.faceDescriptor) && globalStudent.faceDescriptor.length === 128) ? globalStudent.faceDescriptor : null,
+                faceDescriptor: globalDesc,
                 faceRegistered: hasFace,
                 photoURL: globalStudent.photoURL || null
             };
@@ -1046,18 +1044,28 @@ function QrScannerApp() {
             (profile?.faceRemovedAt && (!profile?.faceEnrolledAt || profile.faceRemovedAt > profile.faceEnrolledAt)) ||
             (dbStudent?.faceRemovedAt && (!dbStudent?.faceEnrolledAt || dbStudent.faceRemovedAt > dbStudent.faceEnrolledAt))
         );
+        let localStoredDesc = null;
+        if (typeof window !== "undefined") {
+            try {
+                const raw = localStorage.getItem(`smartattend_face_descriptor_${targetRoll}`) || localStorage.getItem('smartattend_face_descriptor');
+                if (raw) localStoredDesc = normalizeDescriptor(JSON.parse(raw));
+            } catch (_) { }
+        }
+        const globalTarget = getGlobalStudent(targetRoll);
+        const cachedDescriptor = normalizeDescriptor(dbStudent?.faceDescriptor) ||
+            normalizeDescriptor(profile?.faceDescriptor) ||
+            normalizeDescriptor(globalTarget?.faceDescriptor) ||
+            localStoredDesc;
+
         const cachedFaceRegistered = Boolean(
             !cachedFaceRemoved &&
             (profile?.faceRegistered || profile?.biometricEnrolled || profile?.hasFaceRegistered ||
                 dbStudent?.faceRegistered || dbStudent?.biometricEnrolled || dbStudent?.hasFaceRegistered ||
-                (Array.isArray(dbStudent?.faceDescriptor) && dbStudent.faceDescriptor.length === 128) ||
+                cachedDescriptor ||
                 (targetRoll && localStorage.getItem(`smartattend_face_enrolled_${targetRoll}`) === 'true') ||
                 localStorage.getItem('smartattend_face_enrolled') === 'true')
         );
-        if (cachedFaceRegistered) {
-            const cachedDescriptor = (Array.isArray(dbStudent?.faceDescriptor) && dbStudent.faceDescriptor.length === 128)
-                ? dbStudent.faceDescriptor
-                : ((Array.isArray(profile?.faceDescriptor) && profile.faceDescriptor.length === 128) ? profile.faceDescriptor : null);
+        if (cachedFaceRegistered && cachedDescriptor) {
             const cachedData = {
                 rollNo: targetRoll,
                 name: loggedInName || dbStudent?.name || profile?.name || 'Student',
@@ -1085,9 +1093,7 @@ function QrScannerApp() {
                     sData.faceRemovedAt &&
                     (!sData.faceEnrolledAt || sData.faceRemovedAt > sData.faceEnrolledAt)
                 );
-                const directDescriptor = (Array.isArray(sData.faceDescriptor) && sData.faceDescriptor.length === 128)
-                    ? sData.faceDescriptor
-                    : ((Array.isArray(sData.descriptor) && sData.descriptor.length === 128) ? sData.descriptor : null);
+                const directDescriptor = normalizeDescriptor(sData.faceDescriptor) || normalizeDescriptor(sData.descriptor);
                 const faceRegistered = Boolean(
                     !sDocRemoved &&
                     (sData.faceRegistered || sData.biometricEnrolled || sData.hasFaceRegistered || Boolean(directDescriptor))
@@ -1153,9 +1159,7 @@ function QrScannerApp() {
                 if (docFaceRemoved) {
                     faceRemoved = true;
                 }
-                const foundDesc = (Array.isArray(docData.faceDescriptor) && docData.faceDescriptor.length === 128)
-                    ? docData.faceDescriptor
-                    : ((Array.isArray(docData.descriptor) && docData.descriptor.length === 128) ? docData.descriptor : null);
+                const foundDesc = normalizeDescriptor(docData.faceDescriptor) || normalizeDescriptor(docData.descriptor);
                 if (foundDesc) {
                     merged.faceDescriptor = foundDesc;
                 }
@@ -2151,11 +2155,27 @@ function QrScannerApp() {
     const handleTriggerFingerprint = useCallback(async () => {
         setFingerprintVerifying(true);
         setFingerprintError('');
+
+        // 8-second watchdog timer to guarantee spinner never hangs indefinitely
+        const watchdog = setTimeout(() => {
+            setFingerprintVerifying((verifying) => {
+                if (verifying) {
+                    setFingerprintError("⏱️ Biometric response timed out. Please touch sensor again or tap 'Verify with 3D Face'.");
+                    return false;
+                }
+                return false;
+            });
+        }, 8000);
+
         try {
             const currentSession = activeSessionId || sessionData?.sessionId || sessionData?.id || (typeof window !== 'undefined' ? (localStorage.getItem('smartattend_kiosk_session_id') || sessionStorage.getItem('smartattend_kiosk_session_id')) : '');
-            const hardwareBio = await verifyHardwareBiometric(user?.uid, "SmartAttend Classroom Verification", currentSession);
+            const hardwareBio = await Promise.race([
+                verifyHardwareBiometric(user?.uid, "SmartAttend Classroom Verification", currentSession),
+                new Promise((_, reject) => setTimeout(() => reject(new Error("Biometric sensor response timed out.")), 10000))
+            ]);
+            clearTimeout(watchdog);
             if (!hardwareBio.success) {
-                setFingerprintError(hardwareBio.message || "❌ Hardware fingerprint authentication failed. Please touch the sensor again.");
+                setFingerprintError(hardwareBio.message || "❌ Hardware fingerprint authentication failed. Please touch the sensor again or verify with 3D Face.");
                 setFingerprintVerifying(false);
                 return;
             }
@@ -2166,8 +2186,9 @@ function QrScannerApp() {
                 setBiometricComboStep('FACE');
             }, 350);
         } catch (bioErr) {
+            clearTimeout(watchdog);
             console.warn("[Scanner] Hardware biometric notice:", bioErr);
-            setFingerprintError(bioErr.message || "Fingerprint authentication error.");
+            setFingerprintError(bioErr.message || "Fingerprint authentication error. You can retry or verify with 3D Face.");
             setFingerprintVerifying(false);
         }
     }, [user?.uid, activeSessionId, sessionData?.sessionId, sessionData?.id]);

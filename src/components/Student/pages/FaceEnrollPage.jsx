@@ -436,12 +436,23 @@ export default function FaceEnrollPage() {
             return;
         }
 
+        let enrollTimer = null;
         try {
             setHwEnrolling(true);
             setHwEnrollError("");
             setHwEnrollMsg("");
 
-            const res = await enrollHardwareBiometric(user?.uid || activeRollNo);
+            enrollTimer = setTimeout(() => {
+                setHwEnrolling(false);
+                setHwEnrollError("Registration timed out. Please touch sensor again to retry.");
+            }, 12000);
+
+            const res = await Promise.race([
+                enrollHardwareBiometric(user?.uid || activeRollNo),
+                new Promise((resolve) => setTimeout(() => resolve({ success: false, message: "Biometric sensor prompt timed out." }), 11000))
+            ]);
+            clearTimeout(enrollTimer);
+
             if (res.success) {
                 // Persist locally for immediate offline client responsiveness
                 const regPlatform = res.platform || platform || (isNative ? "android" : "web");
@@ -480,16 +491,29 @@ export default function FaceEnrollPage() {
             console.error("Fingerprint enrollment error:", err);
             setHwEnrollError(err.message || "Failed to register fingerprint.");
         } finally {
+            if (enrollTimer) clearTimeout(enrollTimer);
             setHwEnrolling(false);
         }
     };
 
     // Test Biometric Verification Handler
     const handleTestFingerprint = async () => {
+        let testTimer = null;
         try {
             setHwTesting(true);
             setHwTestResult("");
-            const res = await verifyHardwareBiometric(user?.uid, "SmartAttend In-App Biometric Test");
+
+            testTimer = setTimeout(() => {
+                setHwTesting(false);
+                setHwTestResult("⚠️ Biometric prompt timed out. Tap 'Test Fingerprint' to retry.");
+            }, 12000);
+
+            const res = await Promise.race([
+                verifyHardwareBiometric(user?.uid, "SmartAttend In-App Biometric Test"),
+                new Promise((resolve) => setTimeout(() => resolve({ success: false, message: "Biometric prompt timed out." }), 11000))
+            ]);
+            clearTimeout(testTimer);
+
             if (res.success) {
                 setHwTestResult("✅ Fingerprint Verified 100%! Device hardware is authenticated and ready for attendance.");
             } else {
@@ -498,6 +522,7 @@ export default function FaceEnrollPage() {
         } catch (err) {
             setHwTestResult("❌ Test error: " + err.message);
         } finally {
+            if (testTimer) clearTimeout(testTimer);
             setHwTesting(false);
         }
     };

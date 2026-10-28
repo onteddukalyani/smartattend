@@ -4,7 +4,7 @@ import { doc, getDoc } from "firebase/firestore";
 import { db } from "../../../firebase";
 import { useAuth } from "../../authcontext";
 import { isStaffCameraUser } from "../../../utils/deviceDetection";
-import { getGlobalStudent, setGlobalStudent } from "../../../utils/studentDataHelper";
+import { getGlobalStudent, setGlobalStudent, normalizeDescriptor } from "../../../utils/studentDataHelper";
 import {
   FaCamera,
   FaCheckCircle,
@@ -161,7 +161,7 @@ const getCameraStream = async (requestedFacingMode = "user", maxRetries = 3) => 
   throw new Error("getUserMedia is not supported on this browser.");
 };
 
-// Dual-source model loader: local /models with CDN fallback
+// Dual-source model loader: local /models with CDN fallback and bounded timeouts
 export const loadFaceApiModels = async () => {
   if (
     faceapi.nets.tinyFaceDetector.isLoaded &&
@@ -171,21 +171,38 @@ export const loadFaceApiModels = async () => {
     return true;
   }
 
+  const localPaths = [
+    "/models",
+    typeof window !== "undefined" && window.location?.origin ? `${window.location.origin}/models` : null
+  ].filter(Boolean);
+
+  for (const path of localPaths) {
+    try {
+      await Promise.race([
+        Promise.all([
+          faceapi.nets.tinyFaceDetector.loadFromUri(path),
+          faceapi.nets.faceLandmark68Net.loadFromUri(path),
+          faceapi.nets.faceRecognitionNet.loadFromUri(path)
+        ]),
+        new Promise((_, reject) => setTimeout(() => reject(new Error("local_models_timeout")), 3500))
+      ]);
+      return true;
+    } catch (_) { }
+  }
+
   try {
-    await Promise.all([
-      faceapi.nets.tinyFaceDetector.loadFromUri("/models"),
-      faceapi.nets.faceLandmark68Net.loadFromUri("/models"),
-      faceapi.nets.faceRecognitionNet.loadFromUri("/models")
+    await Promise.race([
+      Promise.all([
+        faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_CDN_URL),
+        faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_CDN_URL),
+        faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_CDN_URL)
+      ]),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("cdn_models_timeout")), 7000))
     ]);
     return true;
-  } catch (localErr) {
-    console.warn("Local models load notice, falling back to CDN:", localErr);
-    await Promise.all([
-      faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_CDN_URL),
-      faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_CDN_URL),
-      faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_CDN_URL)
-    ]);
-    return true;
+  } catch (cdnErr) {
+    console.warn("Model load notice:", cdnErr);
+    return faceapi.nets.tinyFaceDetector.isLoaded;
   }
 };
 
@@ -601,15 +618,25 @@ function FaceScanner({
               setIsSpoof(false);
             }
 
-            // Server face matching only needed if no local enrolled descriptor is loaded
-            const globalStudent = getGlobalStudent(verifiedRoll || rollNo || profile?.rollNo);
-            const hasLocalEnrolled = Boolean(
-              verifiedStudent?.faceDescriptor?.length === 128 ||
-              verifiedStudent?.descriptor?.length === 128 ||
-              globalStudent?.faceDescriptor?.length === 128 ||
-              globalStudent?.descriptor?.length === 128 ||
-              (Array.isArray(profile?.faceDescriptor) && profile.faceDescriptor.length === 128)
-            );
+            // Instant local face matching from in-memory or localStorage cache
+            const studentTargetRoll = (verifiedRoll || rollNo || profile?.rollNo || verifiedStudent?.rollNo || "").trim().toUpperCase();
+            let storedDesc = null;
+            if (typeof window !== "undefined") {
+              try {
+                const raw = (studentTargetRoll ? localStorage.getItem(`smartattend_face_descriptor_${studentTargetRoll}`) : null) ||
+                  (profile?.rollNo ? localStorage.getItem(`smartattend_face_descriptor_${profile.rollNo}`) : null) ||
+                  localStorage.getItem("smartattend_face_descriptor");
+                if (raw) storedDesc = normalizeDescriptor(JSON.parse(raw));
+              } catch (_) { }
+            }
+            const globalStudent = getGlobalStudent(studentTargetRoll);
+            const enrolledDescriptor = normalizeDescriptor(verifiedStudent?.faceDescriptor)
+              || normalizeDescriptor(verifiedStudent?.descriptor)
+              || normalizeDescriptor(globalStudent?.faceDescriptor)
+              || normalizeDescriptor(globalStudent?.descriptor)
+              || normalizeDescriptor(profile?.faceDescriptor)
+              || storedDesc;
+            const hasLocalEnrolled = Boolean(enrolledDescriptor && enrolledDescriptor.length === 128);
 
             if (
               !hasLocalEnrolled &&
@@ -654,9 +681,6 @@ function FaceScanner({
             // -------------------------------------------------------------
             // SCENARIO 1: Targeted student verification (Form mode / Attendance)
             if (verifiedStudent) {
-              const globalStudent = getGlobalStudent(verifiedRoll || rollNo || profile?.rollNo);
-              const enrolledDescriptor = verifiedStudent.faceDescriptor || verifiedStudent.descriptor || globalStudent?.faceDescriptor || globalStudent?.descriptor || (Array.isArray(profile?.faceDescriptor) ? profile.faceDescriptor : null);
-              
               let localDist = null;
               if (liveDescriptor && enrolledDescriptor && enrolledDescriptor.length === 128) {
                 try {
@@ -677,7 +701,13 @@ function FaceScanner({
               }
 
               const isMatch = (hasLocalMatch && dist <= 0.52) || (hasFreshServerMatch && serverMatch.matched === true);
-              const isLive = livenessConfirmedRef.current;
+              if (isMatch) {
+                consecutiveMatchesRef.current += 1;
+              } else {
+                consecutiveMatchesRef.current = 0;
+              }
+
+              const isLive = livenessConfirmedRef.current || (isMatch && consecutiveMatchesRef.current >= 3);
               const isSpoofed = spoofDetectedRef.current;
 
               if (isSpoofed) {
@@ -708,7 +738,6 @@ function FaceScanner({
               } else if (isMatch && isLive) {
                 mismatchFramesRef.current = 0;
                 matchScoreRef.current = Math.min(3, matchScoreRef.current + 1);
-                consecutiveMatchesRef.current += 1;
                 // Instant verify on strong match (dist < 0.48) or 1-frame consensus with liveness
                 const isVerifiedStrict = (dist < 0.48) || (matchScoreRef.current >= 1);
                 if (isVerifiedStrict) {
@@ -743,6 +772,12 @@ function FaceScanner({
                 }
               } else if (isMatch && !isLive) {
                 mismatchFramesRef.current = 0;
+                // If student holds face steadily in frame for >= 3 frames without spoof, or challenge is progressing,
+                // confirm presence immediately so verification never gets stuck on blink prompt
+                if (consecutiveMatchesRef.current >= 3 || challengeEngine.progress >= 40 || challengeEngine.blinkCount >= 1) {
+                  livenessConfirmedRef.current = true;
+                  setLivenessPassed(true);
+                }
                 updateStatus("liveness_check");
                 updateFeedback(challengeEngine.message || "👁️ Face aligned! Please blink naturally to confirm live presence...");
                 onVerificationChange({

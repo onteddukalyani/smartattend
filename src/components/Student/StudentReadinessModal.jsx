@@ -2,19 +2,14 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
     FaMapMarkerAlt,
-    FaBell,
     FaFingerprint,
     FaCheckCircle,
-    FaExclamationTriangle,
     FaTimes,
     FaShieldAlt,
     FaArrowRight,
     FaSpinner,
-    FaBolt,
-    FaMobileAlt,
-    FaInfoCircle
+    FaBolt
 } from 'react-icons/fa';
-import { requestAppNotificationPermissions } from '../../services/nativeNotificationService';
 import { locationFromPosition, isAccurateLocation } from '../../utils/location';
 import './StudentReadinessModal.css';
 
@@ -22,19 +17,13 @@ import './StudentReadinessModal.css';
  * StudentReadinessModal
  * Prompts student for:
  * 1. Location Access (required for classroom geofence attendance verification)
- * 2. Notification Access (required for session start alerts and confirmations)
- * 3. Biometric Registration (prompts them to register 3D Face & Fingerprint if not enrolled)
- * 4. Device Model Setup (prompts them to select Android vs iPhone and view setup instructions)
+ * 2. Biometric Registration (prompts them to register 3D Face & Fingerprint if not enrolled)
  */
 export function StudentReadinessModal({
     isOpen,
     onClose,
     hasFaceRegistered = false,
-    hasHwRegistered = false,
-    hasDeviceRegistered = false,
-    onOpenDeviceModal = null,
-    studentName = 'Student',
-    activeRollNo = ''
+    studentName = 'Student'
 }) {
     const navigate = useNavigate();
 
@@ -42,13 +31,9 @@ export function StudentReadinessModal({
     const [locationStatus, setLocationStatus] = useState('checking');
     const [requestingLocation, setRequestingLocation] = useState(false);
 
-    // Notification Permission State: 'checking' | 'granted' | 'default' | 'denied'
-    const [notifStatus, setNotifStatus] = useState('checking');
-    const [requestingNotif, setRequestingNotif] = useState(false);
-
     // Inspect current permission states
     const checkPermissions = useCallback(async () => {
-        // 1. Check Geolocation Permission
+        // Check Geolocation Permission
         if (typeof navigator !== 'undefined' && navigator.permissions && navigator.permissions.query) {
             try {
                 const geoPermission = await navigator.permissions.query({ name: 'geolocation' });
@@ -63,13 +48,6 @@ export function StudentReadinessModal({
             setLocationStatus('prompt');
         } else {
             setLocationStatus('denied');
-        }
-
-        // 2. Check Notification Permission
-        if (typeof window !== 'undefined' && 'Notification' in window) {
-            setNotifStatus(Notification.permission);
-        } else {
-            setNotifStatus('granted'); // Fallback if unsupported platform
         }
     }, []);
 
@@ -117,7 +95,7 @@ export function StudentReadinessModal({
                         },
                         () => {
                             setRequestingLocation(false);
-                            setLocationStatus('granted'); // System permission was granted, satellite signal just settling
+                            setLocationStatus('granted'); // System permission was granted
                         },
                         { enableHighAccuracy: false, timeout: 6000, maximumAge: 30000 }
                     );
@@ -127,48 +105,9 @@ export function StudentReadinessModal({
         );
     };
 
-    // Request Notification Permission Handler
-    const handleRequestNotification = async () => {
-        setRequestingNotif(true);
-        try {
-            await requestAppNotificationPermissions();
-            if (typeof window !== 'undefined' && 'Notification' in window) {
-                setNotifStatus(Notification.permission);
-            } else {
-                setNotifStatus('granted');
-            }
-        } catch (err) {
-            console.warn('[ReadinessModal] Notification request error:', err);
-        } finally {
-            setRequestingNotif(false);
-        }
-    };
-
-    // One-click Grant All Permissions
-    const [grantingAll, setGrantingAll] = useState(false);
-    const handleGrantAll = async () => {
-        setGrantingAll(true);
-        if (notifStatus !== 'granted') {
-            await handleRequestNotification();
-        }
-        if (locationStatus !== 'granted') {
-            await handleRequestLocation();
-        }
-        setGrantingAll(false);
-    };
-
     const isBiometricEnrolled = Boolean(hasFaceRegistered);
     const isLocationGranted = locationStatus === 'granted';
-    const isNotifGranted = notifStatus === 'granted';
-    const isDeviceConfigured = Boolean(
-        hasDeviceRegistered ||
-        (typeof window !== 'undefined' && (
-            window.Capacitor?.isNativePlatform?.() ||
-            localStorage.getItem('smartattend_student_device_type') ||
-            localStorage.getItem('smartattend_device_type')
-        ))
-    );
-    const allCompleted = isLocationGranted && isNotifGranted && isBiometricEnrolled && isDeviceConfigured;
+    const allCompleted = isLocationGranted && isBiometricEnrolled;
 
     if (!isOpen) return null;
 
@@ -196,8 +135,8 @@ export function StudentReadinessModal({
                     </h2>
                     <p className="readiness-subtitle">
                         {allCompleted
-                            ? "All required classroom permissions, device configuration, and biometric credentials are fully configured."
-                            : "Please enable location & notification access, select your phone model, and ensure your biometrics are enrolled before attending class."}
+                            ? "All required classroom permissions and biometric credentials are fully configured."
+                            : "Please enable location access and ensure your biometrics are enrolled before attending class."}
                     </p>
                 </div>
 
@@ -232,87 +171,7 @@ export function StudentReadinessModal({
                         </div>
                     </div>
 
-                    {/* Item 2: Notifications */}
-                    <div className={`readiness-item-card ${isNotifGranted ? 'granted' : notifStatus === 'denied' ? 'denied' : 'action-needed'}`}>
-                        <div className={`readiness-item-icon ${isNotifGranted ? 'success' : 'notification'}`}>
-                            {isNotifGranted ? <FaCheckCircle /> : <FaBell />}
-                        </div>
-                        <div className="readiness-item-info">
-                            <div className="readiness-item-top">
-                                <h3 className="readiness-item-title">Real-Time Notifications</h3>
-                                <span className={`readiness-status-badge ${isNotifGranted ? 'badge-success' : notifStatus === 'denied' ? 'badge-denied' : 'badge-pending'}`}>
-                                    {isNotifGranted ? 'Allowed ✓' : notifStatus === 'denied' ? 'Blocked ✕' : 'Required'}
-                                </span>
-                            </div>
-                            <p className="readiness-item-desc">
-                                Receive instant alerts when live attendance sessions open, plus audit confirmations.
-                            </p>
-                            {!isNotifGranted && (
-                                <button
-                                    type="button"
-                                    onClick={handleRequestNotification}
-                                    disabled={requestingNotif}
-                                    className="readiness-action-btn btn-notif"
-                                >
-                                    {requestingNotif ? <FaSpinner className="fa-spin" /> : <FaBell />}
-                                    <span>{requestingNotif ? 'Requesting...' : 'Enable Notifications'}</span>
-                                </button>
-                            )}
-                        </div>
-                    </div>
-
-                    {/* Item 3: Phone Model Setup (Android / iPhone) */}
-                    <div className={`readiness-item-card ${isDeviceConfigured ? 'granted' : 'action-needed'}`}>
-                        <div className={`readiness-item-icon ${isDeviceConfigured ? 'success' : 'device'}`}>
-                            {isDeviceConfigured ? <FaCheckCircle /> : <FaMobileAlt />}
-                        </div>
-                        <div className="readiness-item-info">
-                            <div className="readiness-item-top">
-                                <h3 className="readiness-item-title">Phone Model Setup (Android / iPhone)</h3>
-                                <span className={`readiness-status-badge ${isDeviceConfigured ? 'badge-success' : 'badge-pending'}`}>
-                                    {isDeviceConfigured ? 'Configured & Locked ✓' : 'Action Required'}
-                                </span>
-                            </div>
-                            <p className="readiness-item-desc">
-                                {isDeviceConfigured
-                                    ? "Your phone model is verified for attendance anti-proxy protection."
-                                    : "Choose whether you use an Android or iPhone to receive customized APK or Guided Access instructions."}
-                            </p>
-                            {!isDeviceConfigured && (
-                                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '6px' }}>
-                                    <button
-                                        type="button"
-                                        onClick={() => {
-                                            onClose();
-                                            if (onOpenDeviceModal) {
-                                                onOpenDeviceModal();
-                                            } else {
-                                                navigate('/student/device-setup');
-                                            }
-                                        }}
-                                        className="readiness-action-btn btn-primary"
-                                    >
-                                        <FaMobileAlt />
-                                        <span>Select Android / iPhone</span>
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => {
-                                            onClose();
-                                            navigate('/student/device-setup');
-                                        }}
-                                        className="readiness-action-btn btn-location"
-                                        style={{ background: 'rgba(99, 102, 241, 0.08)', color: '#4f46e5', border: '1px solid rgba(99, 102, 241, 0.3)' }}
-                                    >
-                                        <FaInfoCircle />
-                                        <span>View Instructions</span>
-                                    </button>
-                                </div>
-                            )}
-                        </div>
-                    </div>
-
-                    {/* Item 4: Biometrics Registration */}
+                    {/* Item 2: Biometrics Registration */}
                     <div className={`readiness-item-card ${isBiometricEnrolled ? 'granted' : 'action-needed'}`}>
                         <div className={`readiness-item-icon ${isBiometricEnrolled ? 'success' : 'biometric'}`}>
                             {isBiometricEnrolled ? <FaCheckCircle /> : <FaFingerprint />}
@@ -349,32 +208,15 @@ export function StudentReadinessModal({
 
                 {/* Footer CTAs */}
                 <div className="readiness-footer">
-                    {!isLocationGranted || !isNotifGranted ? (
+                    {!isLocationGranted ? (
                         <button
                             type="button"
-                            onClick={handleGrantAll}
-                            disabled={grantingAll}
+                            onClick={handleRequestLocation}
+                            disabled={requestingLocation}
                             className="readiness-main-btn"
                         >
-                            {grantingAll ? <FaSpinner className="fa-spin" /> : <FaBolt />}
-                            <span>{grantingAll ? 'Enabling Permissions...' : 'Grant All Required Permissions'}</span>
-                        </button>
-                    ) : !isDeviceConfigured ? (
-                        <button
-                            type="button"
-                            onClick={() => {
-                                onClose();
-                                if (onOpenDeviceModal) {
-                                    onOpenDeviceModal();
-                                } else {
-                                    navigate('/student/device-setup');
-                                }
-                            }}
-                            className="readiness-main-btn"
-                        >
-                            <FaMobileAlt />
-                            <span>Select Phone Model (Android / iPhone)</span>
-                            <FaArrowRight />
+                            {requestingLocation ? <FaSpinner className="fa-spin" /> : <FaBolt />}
+                            <span>{requestingLocation ? 'Enabling Location...' : 'Allow Classroom Location Access'}</span>
                         </button>
                     ) : !isBiometricEnrolled ? (
                         <button

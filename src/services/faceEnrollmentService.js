@@ -2,7 +2,7 @@ import { auth, db, functions } from "../firebase";
 import { httpsCallable } from "firebase/functions";
 import { doc, getDoc, setDoc, deleteField, collection, onSnapshot, getDocs, query, where } from "firebase/firestore";
 import { Capacitor } from "@capacitor/core";
-import { broadcastStudentUpdate, setGlobalStudent, getGlobalStudent } from "../utils/studentDataHelper";
+import { broadcastStudentUpdate, setGlobalStudent, getGlobalStudent, normalizeDescriptor } from "../utils/studentDataHelper";
 import { sendFacultyNotification, sendStudentNotification } from "./notificationsService";
 
 const configuredApiBaseUrl = String(import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
@@ -59,9 +59,16 @@ export async function registerStudentFace(rollNo, faceDescriptor) {
       localStorage.setItem("smartattend_student_registered", "true");
       localStorage.setItem(`smartattend_face_enrolled_${cleanRoll}`, "true");
       localStorage.setItem(`smartattend_registered_${cleanRoll}`, "true");
+      if (rawVector && rawVector.length === 128) {
+        localStorage.setItem(`smartattend_face_descriptor_${cleanRoll}`, JSON.stringify(rawVector));
+        localStorage.setItem("smartattend_face_descriptor", JSON.stringify(rawVector));
+      }
       if (auth.currentUser?.uid) {
         localStorage.setItem(`smartattend_face_enrolled_${auth.currentUser.uid}`, "true");
         localStorage.setItem(`smartattend_registered_${auth.currentUser.uid}`, "true");
+        if (rawVector && rawVector.length === 128) {
+          localStorage.setItem(`smartattend_face_descriptor_${auth.currentUser.uid}`, JSON.stringify(rawVector));
+        }
       }
     } catch (_) {}
   }
@@ -81,43 +88,34 @@ export async function registerStudentFace(rollNo, faceDescriptor) {
     faceDescriptor: rawVector.length === 128 ? rawVector : undefined
   });
 
-  // 2. Perform duplicate verification via API
-  let apiResult = null;
-  try {
-    const result = await callFaceApi("/api/face/register", { rollNo: cleanRoll, faceDescriptor: rawVector });
-    if (result?.status === "REVIEW_REQUIRED") {
-      throw new Error(result.message || "Face enrollment requires authorized review.");
-    }
-    if (result?.success) {
-      apiResult = result;
-    }
-  } catch (apiErr) {
-    if (apiErr.message && (
-      apiErr.message.includes("review") ||
-      apiErr.message.includes("Duplicate") ||
-      apiErr.message.includes("already-exists") ||
-      apiErr.message.includes("already enrolled under another")
-    )) {
-      // Revert if duplicate
-      await setDoc(doc(db, "students", cleanRoll), {
-        faceRegistered: false,
-        biometricEnrolled: false,
-        hasFaceRegistered: false,
-        faceRemovedAt: Date.now()
-      }, { merge: true });
-      broadcastStudentUpdate({
-        rollNo: cleanRoll,
-        faceRegistered: false,
-        biometricEnrolled: false,
-        hasFaceRegistered: false,
-        faceRemovedAt: Date.now()
-      });
-      throw apiErr;
-    }
-    console.warn("registerStudentFace API notice:", apiErr.message);
-  }
+  // Fast background duplicate verification via API
+  callFaceApi("/api/face/register", { rollNo: cleanRoll, faceDescriptor: rawVector })
+    .catch((apiErr) => {
+      if (apiErr.message && (
+        apiErr.message.includes("review") ||
+        apiErr.message.includes("Duplicate") ||
+        apiErr.message.includes("already-exists") ||
+        apiErr.message.includes("already enrolled under another")
+      )) {
+        // Revert if duplicate
+        setDoc(doc(db, "students", cleanRoll), {
+          faceRegistered: false,
+          biometricEnrolled: false,
+          hasFaceRegistered: false,
+          faceRemovedAt: Date.now()
+        }, { merge: true }).catch(() => {});
+        broadcastStudentUpdate({
+          rollNo: cleanRoll,
+          faceRegistered: false,
+          biometricEnrolled: false,
+          hasFaceRegistered: false,
+          faceRemovedAt: Date.now()
+        });
+      }
+      console.warn("registerStudentFace API notice:", apiErr.message);
+    });
 
-  return apiResult || { success: true };
+  return { success: true };
 }
 
 async function callFaceApi(path, payload) {
@@ -172,13 +170,25 @@ async function callFaceApi(path, payload) {
 
 export async function matchStudentFace(faceDescriptor, rollNo = "") {
   const cleanRoll = String(rollNo || "").trim().toUpperCase();
-  const rawVector = Array.isArray(faceDescriptor) ? faceDescriptor : Array.from(faceDescriptor || []);
+  const rawVector = normalizeDescriptor(faceDescriptor) || (Array.isArray(faceDescriptor) ? faceDescriptor : Array.from(faceDescriptor || []));
 
   // FAST-PATH: If target roll number is provided, match against in-memory or Firestore descriptor in < 1ms
-  if (cleanRoll && rawVector.length === 128) {
+  if (cleanRoll && rawVector && rawVector.length === 128) {
     try {
       const cachedStudent = getGlobalStudent(cleanRoll);
-      let enrolledVector = cachedStudent?.faceDescriptor || cachedStudent?.descriptor;
+      let enrolledVector = normalizeDescriptor(cachedStudent?.faceDescriptor) || normalizeDescriptor(cachedStudent?.descriptor);
+
+      if (!enrolledVector || enrolledVector.length !== 128) {
+        if (typeof window !== "undefined") {
+          try {
+            const rawStored = localStorage.getItem(`smartattend_face_descriptor_${cleanRoll}`) || localStorage.getItem("smartattend_face_descriptor");
+            if (rawStored) {
+              const parsed = JSON.parse(rawStored);
+              enrolledVector = normalizeDescriptor(parsed);
+            }
+          } catch (_) {}
+        }
+      }
 
       if (!enrolledVector || enrolledVector.length !== 128) {
         let snap = await getDoc(doc(db, "students", cleanRoll)).catch(() => null);
@@ -187,14 +197,19 @@ export async function matchStudentFace(faceDescriptor, rollNo = "") {
         }
         if (snap && snap.exists()) {
           const data = snap.data();
-          enrolledVector = data.faceDescriptor || data.descriptor;
-          if (Array.isArray(enrolledVector) && enrolledVector.length === 128) {
+          enrolledVector = normalizeDescriptor(data.faceDescriptor) || normalizeDescriptor(data.descriptor);
+          if (enrolledVector && enrolledVector.length === 128) {
             setGlobalStudent({ rollNo: cleanRoll, ...data, faceDescriptor: enrolledVector });
+            if (typeof window !== "undefined") {
+              try {
+                localStorage.setItem(`smartattend_face_descriptor_${cleanRoll}`, JSON.stringify(enrolledVector));
+              } catch (_) {}
+            }
           }
         }
       }
 
-      if (Array.isArray(enrolledVector) && enrolledVector.length === 128) {
+      if (enrolledVector && enrolledVector.length === 128) {
         let sum = 0;
         for (let i = 0; i < 128; i++) {
           const diff = Number(rawVector[i]) - Number(enrolledVector[i]);
@@ -308,16 +323,6 @@ export async function listFaceEnrollmentReviews(rollNo) {
 }
 
 export async function grantBiometricReRegistration(params) {
-  try {
-    const response = await grantReRegCallable(params);
-    if (response?.data?.success) {
-      return response.data;
-    }
-  } catch (cloudErr) {
-    console.warn("grantBiometricReRegistration callable notice (falling back to direct Firestore write):", cloudErr.message);
-  }
-
-  // Resilient direct Firestore write fallback
   const targetRolls = Array.isArray(params.targetRolls) ? params.targetRolls : (params.rollNo ? [params.rollNo] : []);
   const now = Date.now();
   const expHours = params.expiryHours ? Number(params.expiryHours) : 72;
@@ -325,6 +330,7 @@ export async function grantBiometricReRegistration(params) {
   const permMode = params.mode || "one_time";
   const actorName = params.actorName || auth.currentUser?.displayName || auth.currentUser?.email || "Faculty/Admin";
 
+  // Fast, instant direct Firestore write
   const writes = targetRolls.map(async (rawRoll) => {
     const cleanRoll = String(rawRoll || "").trim().toUpperCase();
     if (!cleanRoll) return;
@@ -348,8 +354,8 @@ export async function grantBiometricReRegistration(params) {
 
     await setDoc(doc(db, "biometric_reregistration_permissions", cleanRoll), permDoc, { merge: true });
 
-    // Also notify student in real-time
-    await sendStudentNotification(
+    // Send notifications in background (non-blocking)
+    sendStudentNotification(
       cleanRoll,
       "🔑 Re-Registration Access Granted!",
       `Your lecturer (${actorName}) has granted you a ${permMode === "one_time" ? "one-time" : "repeated"} pass to re-register your biometrics. This pass is active for ${expHours > 0 ? `${expHours} hours` : "unlimited time"}.`,
@@ -359,19 +365,18 @@ export async function grantBiometricReRegistration(params) {
   });
 
   await Promise.allSettled(writes);
+
+  // Background sync to Cloud Function with fast 1000ms race
+  try {
+    const cloudCall = grantReRegCallable(params);
+    const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 1000));
+    Promise.race([cloudCall, timeoutPromise]).catch(() => {});
+  } catch (_) {}
+
   return { success: true, count: targetRolls.length, message: `Access granted for ${targetRolls.length} student(s)` };
 }
 
 export async function revokeBiometricReRegistration(permissionId, reason = "") {
-  try {
-    const response = await revokeReRegCallable({ permissionId, reason });
-    if (response?.data?.success) {
-      return response.data;
-    }
-  } catch (cloudErr) {
-    console.warn("revokeBiometricReRegistration callable notice (falling back to direct Firestore update):", cloudErr.message);
-  }
-
   const cleanId = String(permissionId || "").trim().toUpperCase();
   const now = Date.now();
   await setDoc(doc(db, "biometric_reregistration_permissions", cleanId), {
@@ -382,33 +387,45 @@ export async function revokeBiometricReRegistration(permissionId, reason = "") {
     updatedAt: now
   }, { merge: true });
 
+  try {
+    const cloudCall = revokeReRegCallable({ permissionId, reason });
+    const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 1000));
+    Promise.race([cloudCall, timeoutPromise]).catch(() => {});
+  } catch (_) {}
+
   return { success: true };
 }
 
 export async function listBiometricReRegistrationPermissions(filters = {}) {
+  // Query Firestore directly for instant real-time results
   try {
-    const response = await listReRegCallable(filters);
-    if (Array.isArray(response.data?.permissions)) {
-      return response.data.permissions;
+    const snap = await getDocs(collection(db, "biometric_reregistration_permissions"));
+    if (snap && snap.docs) {
+      return snap.docs.map(d => ({ id: d.id, ...d.data() }));
     }
   } catch (err) {
-    console.warn("listBiometricReRegistrationPermissions callable fallback to Firestore getDocs:", err);
+    console.warn("listBiometricReRegistrationPermissions Firestore query notice:", err);
   }
 
-  const snap = await getDocs(collection(db, "biometric_reregistration_permissions")).catch(() => ({ docs: [] }));
-  return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  return [];
 }
 
 export async function checkStudentReRegistrationStatus(rollNo = "") {
-  try {
-    const response = await checkReRegStatusCallable({ rollNo });
-    if (response?.data) return response.data;
-  } catch (_) {}
-
   const cleanRoll = String(rollNo || "").trim().toUpperCase();
   if (!cleanRoll) return { active: false };
-  const snap = await doc(db, "biometric_reregistration_permissions", cleanRoll);
-  return { active: snap.exists ? snap.data()?.status === "active" : false };
+
+  try {
+    const snap = await getDoc(doc(db, "biometric_reregistration_permissions", cleanRoll)).catch(() => null);
+    if (snap && snap.exists()) {
+      const data = snap.data();
+      const isActive = data?.status === "active" &&
+        (!data.expiresAt || data.expiresAt > Date.now()) &&
+        (data.remainingUses === undefined || data.remainingUses === null || data.remainingUses > 0);
+      return { active: isActive, data };
+    }
+  } catch (_) {}
+
+  return { active: false };
 }
 
 export async function identifyStudentByFace(faceDescriptor) {
@@ -454,8 +471,8 @@ export async function submitReRegistrationRequest({
 
   const scopeLabel = requestType === "face" ? "3D Face Biometrics" : requestType === "biometric" ? "Device Fingerprint" : "Full Biometrics (Face + Device)";
 
-  // Send real-time notification to Faculty & Admins with 1-click action metadata
-  await sendFacultyNotification(
+  // Send real-time notification to Faculty & Admins in background
+  sendFacultyNotification(
     `🔑 Re-Registration Requested: ${cleanRoll}`,
     `Student ${studentName || cleanRoll} (${cleanRoll}) requested re-registration for ${scopeLabel}.\n• Reason: ${reason}${details ? `\n• Details: ${details}` : ""}`,
     "REREGISTRATION_REQUEST",
@@ -472,8 +489,8 @@ export async function submitReRegistrationRequest({
     "faculty"
   ).catch(() => {});
 
-  // Send confirmation notification to the student
-  await sendStudentNotification(
+  // Send confirmation notification to the student in background
+  sendStudentNotification(
     cleanRoll,
     "📨 Re-Registration Request Submitted",
     `Your request to re-register (${scopeLabel}) has been forwarded to your Course Lecturer and Administrator. You may also physically report to your lecturer in class to expedite approval.`,

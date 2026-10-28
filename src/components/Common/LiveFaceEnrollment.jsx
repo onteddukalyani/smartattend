@@ -152,19 +152,32 @@ export function LiveFaceEnrollment({
                 return true;
             }
 
+            const originBase = typeof window !== "undefined" && window.location?.origin ? window.location.origin : "";
+            const modelLocalPath = originBase ? `${originBase}/models` : "/models";
+
             try {
-                await Promise.all([
-                    faceapi.nets.tinyFaceDetector.loadFromUri("/models"),
-                    faceapi.nets.faceLandmark68Net.loadFromUri("/models"),
-                    faceapi.nets.faceRecognitionNet.loadFromUri("/models")
+                await Promise.race([
+                    Promise.all([
+                        faceapi.nets.tinyFaceDetector.loadFromUri(modelLocalPath),
+                        faceapi.nets.faceLandmark68Net.loadFromUri(modelLocalPath),
+                        faceapi.nets.faceRecognitionNet.loadFromUri(modelLocalPath)
+                    ]),
+                    new Promise((_, reject) => setTimeout(() => reject(new Error("Local models timeout")), 3500))
                 ]);
             } catch (localErr) {
-                console.warn("Local models load failed, loading from CDN:", localErr);
-                await Promise.all([
-                    faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_CDN_URL),
-                    faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_CDN_URL),
-                    faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_CDN_URL)
-                ]);
+                console.warn("Local models load notice, falling back to CDN:", localErr?.message || localErr);
+                try {
+                    await Promise.race([
+                        Promise.all([
+                            faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_CDN_URL),
+                            faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_CDN_URL),
+                            faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_CDN_URL)
+                        ]),
+                        new Promise((_, reject) => setTimeout(() => reject(new Error("CDN models timeout")), 7000))
+                    ]);
+                } catch (cdnErr) {
+                    console.warn("CDN models load notice:", cdnErr?.message || cdnErr);
+                }
             }
             setModelsLoaded(true);
             return true;

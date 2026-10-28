@@ -174,8 +174,6 @@ export default function StudentDashboard() {
             // Open the readiness setup modal
             setShowReadinessModal(true);
 
-            // Auto-trigger native / browser permission requests
-            requestAppNotificationPermissions().catch(() => { });
             if (typeof navigator !== "undefined" && navigator.geolocation) {
                 navigator.geolocation.getCurrentPosition(
                     (pos) => {
@@ -2474,11 +2472,7 @@ export default function StudentDashboard() {
                 isOpen={showReadinessModal}
                 onClose={() => setShowReadinessModal(false)}
                 hasFaceRegistered={hasFaceRegistered}
-                hasHwRegistered={hasHwRegistered}
-                hasDeviceRegistered={isDeviceConfigured}
-                onOpenDeviceModal={() => setShowDeviceModal(true)}
                 studentName={studentName}
-                activeRollNo={activeRollNo}
             />
 
             {/* Complete Android Permissions & Setup Instructions Modal */}

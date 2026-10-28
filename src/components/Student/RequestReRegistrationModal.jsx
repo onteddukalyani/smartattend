@@ -110,6 +110,14 @@ export default function RequestReRegistrationModal({
                 type: "success",
                 message: "✅ Re-registration request sent to your Course Lecturer and Administrator!"
             });
+            setExistingRequest({
+                id: cleanRoll,
+                rollNo: cleanRoll,
+                status: "pending",
+                createdAt: Date.now(),
+                reason: mainReason,
+                requestType: requestScope
+            });
         } catch (err) {
             setFeedback({
                 type: "error",
