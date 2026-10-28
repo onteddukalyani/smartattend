@@ -273,7 +273,7 @@ function NativeQrScanner({
                             const barcodes = await barcodeDetector.detect(video);
                             if (barcodes && barcodes.length > 0 && barcodes[0].rawValue) {
                                 detected = true;
-                                scanCooldownUntil = Date.now() + 1500;
+                                scanCooldownUntil = Date.now() + 3000;
                                 if (onScanRef.current) onScanRef.current(barcodes[0].rawValue);
                                 if (isScanningRef.current) {
                                     animRef.current = requestAnimationFrame(scanFrame);
@@ -329,7 +329,7 @@ function NativeQrScanner({
 
                                 if (code && code.data) {
                                     detected = true;
-                                    scanCooldownUntil = Date.now() + 1500;
+                                    scanCooldownUntil = Date.now() + 3000;
                                     if (onScanRef.current) onScanRef.current(code.data);
                                     if (isScanningRef.current) {
                                         animRef.current = requestAnimationFrame(scanFrame);

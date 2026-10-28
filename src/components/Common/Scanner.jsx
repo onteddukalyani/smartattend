@@ -1396,13 +1396,14 @@ function QrScannerApp() {
 
     // Session state persistence across app crash / restarts
     useEffect(() => {
-        const isSessionOngoing = activeSessionId && (
-            (kioskEndsAt && kioskEndsAt > Date.now()) ||
-            (autoReleaseAt && autoReleaseAt > Date.now()) ||
-            scanState === 'KIOSK_WAITING_QR2' ||
-            scanState === 'BIOMETRIC_SCAN' ||
-            scanState === 'SUBMITTING_ATTENDANCE' ||
-            scanState === 'ATTENDANCE_SUCCESS'
+        const isSessionOngoing = Boolean(
+            activeSessionId &&
+            ((kioskEndsAt && kioskEndsAt > Date.now()) || (autoReleaseAt && autoReleaseAt > Date.now())) &&
+            (
+                scanState === 'KIOSK_WAITING_QR2' ||
+                scanState === 'BIOMETRIC_SCAN' ||
+                scanState === 'SUBMITTING_ATTENDANCE'
+            )
         );
 
         if (isSessionOngoing) {
@@ -1423,7 +1424,7 @@ function QrScannerApp() {
             } catch (e) {
                 console.warn('LocalStorage save notice:', e);
             }
-        } else if (scanState === 'IDLE' || (autoReleaseAt && Date.now() >= autoReleaseAt)) {
+        } else if (scanState === 'IDLE' || scanState === 'ATTENDANCE_SUCCESS' || scanState === 'DISQUALIFIED' || (autoReleaseAt && Date.now() >= autoReleaseAt)) {
             try {
                 localStorage.removeItem('smartattend_kiosk_session_state');
             } catch (_) { }
@@ -2854,15 +2855,10 @@ function QrScannerApp() {
         lastScannedTimeRef.current = now;
         scanProcessingRef.current = true;
 
-        // Immediately pause camera frames to prevent scanning loop
-        setScannerActive(false);
-
         Promise.resolve(processSessionStringRef.current(raw))
             .catch((err) => {
                 console.error('[Scanner] QR processing failed:', err);
                 setErrorMessage(err.message || 'Unable to process this QR code. Please try again.');
-                // Re-enable camera on failure so student can try again
-                setScannerActive(true);
             })
             .finally(() => {
                 scanProcessingRef.current = false;

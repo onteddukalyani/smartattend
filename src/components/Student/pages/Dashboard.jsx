@@ -35,7 +35,8 @@ import {
     FaFingerprint,
     FaShieldAlt,
     FaKey,
-    FaUniversity
+    FaUniversity,
+    FaInfoCircle
 } from "react-icons/fa";
 import { MdQrCodeScanner } from "react-icons/md";
 import { db, functions } from "../../../firebase";

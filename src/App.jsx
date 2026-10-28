@@ -110,7 +110,7 @@ function App() {
             url: "/help",
             timestamp: now
           });
-        } catch (_) {}
+        } catch (_) { }
       }
     };
 
@@ -156,7 +156,7 @@ function App() {
   // Request native Android 13+ and Web Notification permissions when user is authenticated
   useEffect(() => {
     if (user) {
-      requestAppNotificationPermissions().catch(() => {});
+      requestAppNotificationPermissions().catch(() => { });
     }
   }, [user]);
 
@@ -299,14 +299,19 @@ function App() {
           const isOngoing = parsed?.sessionId && (
             (parsed?.kioskEndsAt && parsed.kioskEndsAt > Date.now()) ||
             (parsed?.autoReleaseAt && parsed.autoReleaseAt > Date.now())
-          ) && parsed?.scanState !== "IDLE";
+          ) && (
+              parsed?.scanState === "KIOSK_WAITING_QR2" ||
+              parsed?.scanState === "VALIDATING_QR2" ||
+              parsed?.scanState === "BIOMETRIC_SCAN" ||
+              parsed?.scanState === "SUBMITTING_ATTENDANCE"
+            );
           const path = (window.location.pathname || "").toLowerCase();
           if (isOngoing && !path.includes("mark-attendance") && !path.includes("scanqr")) {
             console.log("[App] Active supervised session detected with lecturer. Directing to attendance screen.");
             navigate("/student/mark-attendance", { replace: true });
           }
         }
-      } catch (_) {}
+      } catch (_) { }
     }
   }, [loading, user, navigate]);
 
@@ -420,8 +425,8 @@ function App() {
     currentRole === "admin"
       ? "/admin"
       : currentRole === "lecturer"
-      ? "/lecturer"
-      : "/student";
+        ? "/lecturer"
+        : "/student";
 
   return (
     <>
@@ -443,649 +448,649 @@ function App() {
             }
           />
 
-        {/* ==========================================
+          {/* ==========================================
             1. ADMIN PORTAL (Strictly for Admin role)
            ========================================== */}
-        <Route
-          path="/admin/*"
-          element={
-            <ProtectedRoute allowedRole="admin">
-              <AdminDashboard />
-            </ProtectedRoute>
-          }
-        />
+          <Route
+            path="/admin/*"
+            element={
+              <ProtectedRoute allowedRole="admin">
+                <AdminDashboard />
+              </ProtectedRoute>
+            }
+          />
 
-        {/* ==========================================
+          {/* ==========================================
             2. LECTURER PORTAL (Strictly for Lecturer role)
            ========================================== */}
-        <Route
-          path="/lecturer"
-          element={
-            <ProtectedRoute allowedRole="lecturer">
-              <LecturerDashboard />
-            </ProtectedRoute>
-          }
-        >
-          <Route index element={<LecturerDashboardView />} />
-          <Route path="lecturerpage" element={<LecturerPage />} />
-          <Route path="student-form" element={<StudentForm />} />
-          <Route path="settings" element={<Settings />} />
-          <Route path="profile" element={<Settings />} />
-          <Route path="attendance-data" element={<AttendanceData />} />
-          <Route path="violations" element={<AttendanceData />} />
-          <Route path="facedetection" element={<FaceScanner />} />
-          <Route path="attendance-sessions" element={<ClassesData />} />
-          <Route path="attendance-sessions/:sessionId" element={<SessionAttendanceData />} />
-          <Route path="attendance-sessions/*" element={<SessionAttendanceData />} />
-          <Route path="classes" element={<ClassesData />} />
-          <Route path="classes/:sessionId" element={<SessionAttendanceData />} />
-          <Route path="classes/*" element={<SessionAttendanceData />} />
-          <Route path="active-sessions" element={<ActiveSessions />} />
-          <Route path="students" element={<StudentsList />} />
-          <Route path="device-setup" element={<DeviceSetupPage />} />
-          <Route path="students/add" element={<AddStudent />} />
-          <Route path="students/bulk" element={<AddStudent />} />
-          <Route path="add-student" element={<AddStudent />} />
-          <Route path="courses" element={<LecturerCourses />} />
-          <Route path="admins" element={<ReadOnlyAdminList readOnly />} />
-          <Route path="lecturers" element={<ReadOnlyLecturerList readOnly />} />
-          <Route path="scanqr" element={<QrScannerApp />} />
-          <Route path="face-enroll" element={<FaceEnrollPage />} />
-          <Route path="register-face" element={<FaceEnrollPage />} />
-          <Route path="manage-reregistration" element={<ManageBiometricReRegistration />} />
-          <Route path="reregistration" element={<ManageBiometricReRegistration />} />
-          <Route path="identify-student" element={<IdentifyStudentByFace />} />
-          <Route path="face-identification" element={<IdentifyStudentByFace />} />
-          <Route path="support" element={<SupportFeedbackPage />} />
-          <Route path="feedback" element={<SupportFeedbackPage />} />
-          <Route path="contact" element={<SupportFeedbackPage />} />
-          <Route path="help" element={<SupportFeedbackPage />} />
-        </Route>
+          <Route
+            path="/lecturer"
+            element={
+              <ProtectedRoute allowedRole="lecturer">
+                <LecturerDashboard />
+              </ProtectedRoute>
+            }
+          >
+            <Route index element={<LecturerDashboardView />} />
+            <Route path="lecturerpage" element={<LecturerPage />} />
+            <Route path="student-form" element={<StudentForm />} />
+            <Route path="settings" element={<Settings />} />
+            <Route path="profile" element={<Settings />} />
+            <Route path="attendance-data" element={<AttendanceData />} />
+            <Route path="violations" element={<AttendanceData />} />
+            <Route path="facedetection" element={<FaceScanner />} />
+            <Route path="attendance-sessions" element={<ClassesData />} />
+            <Route path="attendance-sessions/:sessionId" element={<SessionAttendanceData />} />
+            <Route path="attendance-sessions/*" element={<SessionAttendanceData />} />
+            <Route path="classes" element={<ClassesData />} />
+            <Route path="classes/:sessionId" element={<SessionAttendanceData />} />
+            <Route path="classes/*" element={<SessionAttendanceData />} />
+            <Route path="active-sessions" element={<ActiveSessions />} />
+            <Route path="students" element={<StudentsList />} />
+            <Route path="device-setup" element={<DeviceSetupPage />} />
+            <Route path="students/add" element={<AddStudent />} />
+            <Route path="students/bulk" element={<AddStudent />} />
+            <Route path="add-student" element={<AddStudent />} />
+            <Route path="courses" element={<LecturerCourses />} />
+            <Route path="admins" element={<ReadOnlyAdminList readOnly />} />
+            <Route path="lecturers" element={<ReadOnlyLecturerList readOnly />} />
+            <Route path="scanqr" element={<QrScannerApp />} />
+            <Route path="face-enroll" element={<FaceEnrollPage />} />
+            <Route path="register-face" element={<FaceEnrollPage />} />
+            <Route path="manage-reregistration" element={<ManageBiometricReRegistration />} />
+            <Route path="reregistration" element={<ManageBiometricReRegistration />} />
+            <Route path="identify-student" element={<IdentifyStudentByFace />} />
+            <Route path="face-identification" element={<IdentifyStudentByFace />} />
+            <Route path="support" element={<SupportFeedbackPage />} />
+            <Route path="feedback" element={<SupportFeedbackPage />} />
+            <Route path="contact" element={<SupportFeedbackPage />} />
+            <Route path="help" element={<SupportFeedbackPage />} />
+          </Route>
 
-        {/* Nested Wildcard for /lecturer/* so role mismatch screen renders on deep URL access */}
-        <Route
-          path="/lecturer/*"
-          element={
-            <ProtectedRoute allowedRole="lecturer">
-              <Navigate to="/lecturer" replace />
-            </ProtectedRoute>
-          }
-        />
+          {/* Nested Wildcard for /lecturer/* so role mismatch screen renders on deep URL access */}
+          <Route
+            path="/lecturer/*"
+            element={
+              <ProtectedRoute allowedRole="lecturer">
+                <Navigate to="/lecturer" replace />
+              </ProtectedRoute>
+            }
+          />
 
-        {/* ==========================================
+          {/* ==========================================
             3. STUDENT PORTAL (Strictly for Student role)
            ========================================== */}
-        <Route
-          path="/student"
-          element={
-            <ProtectedRoute allowedRole="student">
-              <StudentDashboard />
-            </ProtectedRoute>
-          }
-        >
-          <Route index element={<StudentDashboardView />} />
-          <Route path="courses" element={<StudentCourses />} />
-          <Route path="mark-attendance" element={<QrScannerApp />} />
-          <Route path="scanqr" element={<QrScannerApp />} />
-          <Route path="statistics" element={<Statistics />} />
-          <Route path="settings" element={<Settings />} />
-          <Route path="profile" element={<Settings />} />
-          <Route path="device-setup" element={<DeviceSetupPage />} />
-          <Route path="face-enroll" element={<FaceEnrollPage />} />
-          <Route path="register-face" element={<FaceEnrollPage />} />
-          <Route path="live-face-enroll" element={<FaceEnrollPage />} />
-          <Route path="biometrics" element={<FaceEnrollPage />} />
-          <Route path="fingerprint" element={<FaceEnrollPage />} />
-          <Route path="fingerprint-enroll" element={<FaceEnrollPage />} />
-          <Route path="support" element={<SupportFeedbackPage />} />
-          <Route path="feedback" element={<SupportFeedbackPage />} />
-          <Route path="contact" element={<SupportFeedbackPage />} />
-          <Route path="help" element={<SupportFeedbackPage />} />
-        </Route>
+          <Route
+            path="/student"
+            element={
+              <ProtectedRoute allowedRole="student">
+                <StudentDashboard />
+              </ProtectedRoute>
+            }
+          >
+            <Route index element={<StudentDashboardView />} />
+            <Route path="courses" element={<StudentCourses />} />
+            <Route path="mark-attendance" element={<QrScannerApp />} />
+            <Route path="scanqr" element={<QrScannerApp />} />
+            <Route path="statistics" element={<Statistics />} />
+            <Route path="settings" element={<Settings />} />
+            <Route path="profile" element={<Settings />} />
+            <Route path="device-setup" element={<DeviceSetupPage />} />
+            <Route path="face-enroll" element={<FaceEnrollPage />} />
+            <Route path="register-face" element={<FaceEnrollPage />} />
+            <Route path="live-face-enroll" element={<FaceEnrollPage />} />
+            <Route path="biometrics" element={<FaceEnrollPage />} />
+            <Route path="fingerprint" element={<FaceEnrollPage />} />
+            <Route path="fingerprint-enroll" element={<FaceEnrollPage />} />
+            <Route path="support" element={<SupportFeedbackPage />} />
+            <Route path="feedback" element={<SupportFeedbackPage />} />
+            <Route path="contact" element={<SupportFeedbackPage />} />
+            <Route path="help" element={<SupportFeedbackPage />} />
+          </Route>
 
-        {/* Nested Wildcard for /student/* so role mismatch screen renders on deep URL access */}
-        <Route
-          path="/student/*"
-          element={
-            <ProtectedRoute allowedRole="student">
-              <Navigate to="/student" replace />
-            </ProtectedRoute>
-          }
-        />
+          {/* Nested Wildcard for /student/* so role mismatch screen renders on deep URL access */}
+          <Route
+            path="/student/*"
+            element={
+              <ProtectedRoute allowedRole="student">
+                <Navigate to="/student" replace />
+              </ProtectedRoute>
+            }
+          />
 
-        {/* ==========================================
+          {/* ==========================================
             4. TOP-LEVEL SHORTCUT ALIASES (Role-Aware)
            ========================================== */}
-        <Route
-          path="/courses"
-          element={
-            <Navigate
-              to={
-                currentRole === "admin"
-                  ? "/admin/courses"
-                  : currentRole === "lecturer"
-                  ? "/lecturer/courses"
-                  : "/student/courses"
-              }
-              replace
-            />
-          }
-        />
-        <Route
-          path="/classes"
-          element={
-            <Navigate
-              to={
-                currentRole === "admin"
-                  ? "/admin/classes"
-                  : currentRole === "lecturer"
-                  ? "/lecturer/attendance-sessions"
-                  : "/student/courses"
-              }
-              replace
-            />
-          }
-        />
-        <Route
-          path="/classes/:sessionId"
-          element={
-            <Navigate
-              to={
-                currentRole === "admin"
-                  ? "/admin/classes"
-                  : currentRole === "lecturer"
-                  ? "/lecturer/attendance-sessions"
-                  : "/student/courses"
-              }
-              replace
-            />
-          }
-        />
-        <Route
-          path="/attendance-sessions"
-          element={
-            <Navigate
-              to={
-                currentRole === "admin"
-                  ? "/admin/attendance-sessions"
-                  : currentRole === "lecturer"
-                  ? "/lecturer/attendance-sessions"
-                  : "/student/statistics"
-              }
-              replace
-            />
-          }
-        />
-        <Route
-          path="/attendance-sessions/:sessionId"
-          element={
-            <Navigate
-              to={
-                currentRole === "admin"
-                  ? "/admin/attendance-sessions"
-                  : currentRole === "lecturer"
-                  ? "/lecturer/attendance-sessions"
-                  : "/student/statistics"
-              }
-              replace
-            />
-          }
-        />
-        <Route
-          path="/attendance"
-          element={
-            <Navigate
-              to={
-                currentRole === "admin"
-                  ? "/admin/attendance"
-                  : currentRole === "lecturer"
-                  ? "/lecturer/attendance-data"
-                  : "/student/statistics"
-              }
-              replace
-            />
-          }
-        />
-        <Route
-          path="/attendance-data"
-          element={
-            <Navigate
-              to={
-                currentRole === "admin"
-                  ? "/admin/attendance"
-                  : currentRole === "lecturer"
-                  ? "/lecturer/attendance-data"
-                  : "/student/statistics"
-              }
-              replace
-            />
-          }
-        />
-        <Route
-          path="/violations"
-          element={
-            <Navigate
-              to={
-                currentRole === "admin"
-                  ? "/admin/violations"
-                  : currentRole === "lecturer"
-                  ? "/lecturer/violations"
-                  : "/student/statistics"
-              }
-              replace
-            />
-          }
-        />
-        <Route
-          path="/scanqr"
-          element={
-            <Navigate
-              to={
-                currentRole === "student"
-                  ? "/student/mark-attendance"
-                  : currentRole === "lecturer"
-                  ? "/lecturer/scanqr"
-                  : "/admin/classes"
-              }
-              replace
-            />
-          }
-        />
-        <Route
-          path="/mark-attendance"
-          element={
-            <Navigate
-              to={
-                currentRole === "student"
-                  ? "/student/mark-attendance"
-                  : currentRole === "lecturer"
-                  ? "/lecturer/scanqr"
-                  : "/admin/classes"
-              }
-              replace
-            />
-          }
-        />
-        <Route
-          path="/face-enroll"
-          element={
-            <Navigate
-              to={
-                currentRole === "student"
-                  ? "/student/face-enroll"
-                  : currentRole === "lecturer"
-                  ? "/lecturer/face-enroll"
-                  : "/admin/face-enroll"
-              }
-              replace
-            />
-          }
-        />
-        <Route
-          path="/register-face"
-          element={
-            <Navigate
-              to={
-                currentRole === "student"
-                  ? "/student/face-enroll"
-                  : currentRole === "lecturer"
-                  ? "/lecturer/face-enroll"
-                  : "/admin/face-enroll"
-              }
-              replace
-            />
-          }
-        />
-        <Route
-          path="/live-face-enroll"
-          element={
-            <Navigate
-              to={
-                currentRole === "student"
-                  ? "/student/face-enroll"
-                  : currentRole === "lecturer"
-                  ? "/lecturer/face-enroll"
-                  : "/admin/face-enroll"
-              }
-              replace
-            />
-          }
-        />
-        <Route
-          path="/biometrics"
-          element={
-            <Navigate
-              to={
-                currentRole === "student"
-                  ? "/student/face-enroll"
-                  : currentRole === "lecturer"
-                  ? "/lecturer/face-enroll"
-                  : "/admin/face-enroll"
-              }
-              replace
-            />
-          }
-        />
-        <Route
-          path="/fingerprint"
-          element={
-            <Navigate
-              to={
-                currentRole === "student"
-                  ? "/student/face-enroll"
-                  : currentRole === "lecturer"
-                  ? "/lecturer/face-enroll"
-                  : "/admin/face-enroll"
-              }
-              replace
-            />
-          }
-        />
-        <Route
-          path="/biometric-enroll"
-          element={
-            <Navigate
-              to={
-                currentRole === "student"
-                  ? "/student/face-enroll"
-                  : currentRole === "lecturer"
-                  ? "/lecturer/face-enroll"
-                  : "/admin/face-enroll"
-              }
-              replace
-            />
-          }
-        />
-        <Route
-          path="/manage-reregistration"
-          element={
-            <Navigate
-              to={
-                currentRole === "admin"
-                  ? "/admin/manage-reregistration"
-                  : "/lecturer/manage-reregistration"
-              }
-              replace
-            />
-          }
-        />
-        <Route
-          path="/reregistration"
-          element={
-            <Navigate
-              to={
-                currentRole === "admin"
-                  ? "/admin/manage-reregistration"
-                  : "/lecturer/manage-reregistration"
-              }
-              replace
-            />
-          }
-        />
-        <Route
-          path="/identify-student"
-          element={
-            <Navigate
-              to={
-                currentRole === "admin"
-                  ? "/admin/identify-student"
-                  : "/lecturer/identify-student"
-              }
-              replace
-            />
-          }
-        />
-        <Route
-          path="/face-identification"
-          element={
-            <Navigate
-              to={
-                currentRole === "admin"
-                  ? "/admin/identify-student"
-                  : "/lecturer/identify-student"
-              }
-              replace
-            />
-          }
-        />
-        <Route
-          path="/statistics"
-          element={
-            <Navigate
-              to={
-                currentRole === "student"
-                  ? "/student/statistics"
-                  : currentRole === "lecturer"
-                  ? "/lecturer/attendance-data"
-                  : "/admin/attendance"
-              }
-              replace
-            />
-          }
-        />
-        <Route
-          path="/students"
-          element={
-            <Navigate
-              to={
-                currentRole === "admin"
-                  ? "/admin/students"
-                  : currentRole === "lecturer"
-                  ? "/lecturer/students"
-                  : "/student"
-              }
-              replace
-            />
-          }
-        />
-        <Route
-          path="/students/add"
-          element={
-            <Navigate
-              to={
-                currentRole === "admin"
-                  ? "/admin/students/add"
-                  : currentRole === "lecturer"
-                  ? "/lecturer/students/add"
-                  : "/student"
-              }
-              replace
-            />
-          }
-        />
-        <Route
-          path="/lecturers"
-          element={
-            <Navigate
-              to={
-                currentRole === "admin"
-                  ? "/admin/lecturers"
-                  : currentRole === "lecturer"
-                  ? "/lecturer/lecturers"
-                  : "/student"
-              }
-              replace
-            />
-          }
-        />
-        <Route
-          path="/admins"
-          element={
-            <Navigate
-              to={
-                currentRole === "admin"
-                  ? "/admin/admins"
-                  : currentRole === "lecturer"
-                  ? "/lecturer/admins"
-                  : "/student"
-              }
-              replace
-            />
-          }
-        />
-        <Route
-          path="/active-sessions"
-          element={
-            <Navigate
-              to={
-                currentRole === "admin"
-                  ? "/admin/active-sessions"
-                  : currentRole === "lecturer"
-                  ? "/lecturer/active-sessions"
-                  : "/student"
-              }
-              replace
-            />
-          }
-        />
-        <Route
-          path="/settings"
-          element={
-            <Navigate
-              to={
-                currentRole === "admin"
-                  ? "/admin/settings"
-                  : currentRole === "lecturer"
-                  ? "/lecturer/settings"
-                  : "/student/settings"
-              }
-              replace
-            />
-          }
-        />
-        <Route
-          path="/profile"
-          element={
-            <Navigate
-              to={
-                currentRole === "admin"
-                  ? "/admin/profile"
-                  : currentRole === "lecturer"
-                  ? "/lecturer/profile"
-                  : "/student/profile"
-              }
-              replace
-            />
-          }
-        />
-        <Route
-          path="/device-setup"
-          element={
-            <Navigate
-              to={
-                currentRole === "admin"
-                  ? "/admin/device-setup"
-                  : currentRole === "lecturer"
-                  ? "/lecturer/device-setup"
-                  : "/student/device-setup"
-              }
-              replace
-            />
-          }
-        />
-        <Route
-          path="/support"
-          element={
-            <Navigate
-              to={
-                currentRole === "admin"
-                  ? "/admin/support"
-                  : currentRole === "lecturer"
-                  ? "/lecturer/support"
-                  : "/student/support"
-              }
-              replace
-            />
-          }
-        />
-        <Route
-          path="/feedback"
-          element={
-            <Navigate
-              to={
-                currentRole === "admin"
-                  ? "/admin/support"
-                  : currentRole === "lecturer"
-                  ? "/lecturer/support"
-                  : "/student/support"
-              }
-              replace
-            />
-          }
-        />
-        <Route
-          path="/contact"
-          element={
-            <Navigate
-              to={
-                currentRole === "admin"
-                  ? "/admin/support"
-                  : currentRole === "lecturer"
-                  ? "/lecturer/support"
-                  : "/student/support"
-              }
-              replace
-            />
-          }
-        />
-        <Route
-          path="/contact-us"
-          element={
-            <Navigate
-              to={
-                currentRole === "admin"
-                  ? "/admin/support"
-                  : currentRole === "lecturer"
-                  ? "/lecturer/support"
-                  : "/student/support"
-              }
-              replace
-            />
-          }
-        />
-        <Route
-          path="/help"
-          element={
-            <Navigate
-              to={
-                currentRole === "admin"
-                  ? "/admin/support"
-                  : currentRole === "lecturer"
-                  ? "/lecturer/support"
-                  : "/student/support"
-              }
-              replace
-            />
-          }
-        />
-        <Route path="/institution" element={<Navigate to="/admin/institution" replace />} />
+          <Route
+            path="/courses"
+            element={
+              <Navigate
+                to={
+                  currentRole === "admin"
+                    ? "/admin/courses"
+                    : currentRole === "lecturer"
+                      ? "/lecturer/courses"
+                      : "/student/courses"
+                }
+                replace
+              />
+            }
+          />
+          <Route
+            path="/classes"
+            element={
+              <Navigate
+                to={
+                  currentRole === "admin"
+                    ? "/admin/classes"
+                    : currentRole === "lecturer"
+                      ? "/lecturer/attendance-sessions"
+                      : "/student/courses"
+                }
+                replace
+              />
+            }
+          />
+          <Route
+            path="/classes/:sessionId"
+            element={
+              <Navigate
+                to={
+                  currentRole === "admin"
+                    ? "/admin/classes"
+                    : currentRole === "lecturer"
+                      ? "/lecturer/attendance-sessions"
+                      : "/student/courses"
+                }
+                replace
+              />
+            }
+          />
+          <Route
+            path="/attendance-sessions"
+            element={
+              <Navigate
+                to={
+                  currentRole === "admin"
+                    ? "/admin/attendance-sessions"
+                    : currentRole === "lecturer"
+                      ? "/lecturer/attendance-sessions"
+                      : "/student/statistics"
+                }
+                replace
+              />
+            }
+          />
+          <Route
+            path="/attendance-sessions/:sessionId"
+            element={
+              <Navigate
+                to={
+                  currentRole === "admin"
+                    ? "/admin/attendance-sessions"
+                    : currentRole === "lecturer"
+                      ? "/lecturer/attendance-sessions"
+                      : "/student/statistics"
+                }
+                replace
+              />
+            }
+          />
+          <Route
+            path="/attendance"
+            element={
+              <Navigate
+                to={
+                  currentRole === "admin"
+                    ? "/admin/attendance"
+                    : currentRole === "lecturer"
+                      ? "/lecturer/attendance-data"
+                      : "/student/statistics"
+                }
+                replace
+              />
+            }
+          />
+          <Route
+            path="/attendance-data"
+            element={
+              <Navigate
+                to={
+                  currentRole === "admin"
+                    ? "/admin/attendance"
+                    : currentRole === "lecturer"
+                      ? "/lecturer/attendance-data"
+                      : "/student/statistics"
+                }
+                replace
+              />
+            }
+          />
+          <Route
+            path="/violations"
+            element={
+              <Navigate
+                to={
+                  currentRole === "admin"
+                    ? "/admin/violations"
+                    : currentRole === "lecturer"
+                      ? "/lecturer/violations"
+                      : "/student/statistics"
+                }
+                replace
+              />
+            }
+          />
+          <Route
+            path="/scanqr"
+            element={
+              <Navigate
+                to={
+                  currentRole === "student"
+                    ? "/student/mark-attendance"
+                    : currentRole === "lecturer"
+                      ? "/lecturer/scanqr"
+                      : "/admin/classes"
+                }
+                replace
+              />
+            }
+          />
+          <Route
+            path="/mark-attendance"
+            element={
+              <Navigate
+                to={
+                  currentRole === "student"
+                    ? "/student/mark-attendance"
+                    : currentRole === "lecturer"
+                      ? "/lecturer/scanqr"
+                      : "/admin/classes"
+                }
+                replace
+              />
+            }
+          />
+          <Route
+            path="/face-enroll"
+            element={
+              <Navigate
+                to={
+                  currentRole === "student"
+                    ? "/student/face-enroll"
+                    : currentRole === "lecturer"
+                      ? "/lecturer/face-enroll"
+                      : "/admin/face-enroll"
+                }
+                replace
+              />
+            }
+          />
+          <Route
+            path="/register-face"
+            element={
+              <Navigate
+                to={
+                  currentRole === "student"
+                    ? "/student/face-enroll"
+                    : currentRole === "lecturer"
+                      ? "/lecturer/face-enroll"
+                      : "/admin/face-enroll"
+                }
+                replace
+              />
+            }
+          />
+          <Route
+            path="/live-face-enroll"
+            element={
+              <Navigate
+                to={
+                  currentRole === "student"
+                    ? "/student/face-enroll"
+                    : currentRole === "lecturer"
+                      ? "/lecturer/face-enroll"
+                      : "/admin/face-enroll"
+                }
+                replace
+              />
+            }
+          />
+          <Route
+            path="/biometrics"
+            element={
+              <Navigate
+                to={
+                  currentRole === "student"
+                    ? "/student/face-enroll"
+                    : currentRole === "lecturer"
+                      ? "/lecturer/face-enroll"
+                      : "/admin/face-enroll"
+                }
+                replace
+              />
+            }
+          />
+          <Route
+            path="/fingerprint"
+            element={
+              <Navigate
+                to={
+                  currentRole === "student"
+                    ? "/student/face-enroll"
+                    : currentRole === "lecturer"
+                      ? "/lecturer/face-enroll"
+                      : "/admin/face-enroll"
+                }
+                replace
+              />
+            }
+          />
+          <Route
+            path="/biometric-enroll"
+            element={
+              <Navigate
+                to={
+                  currentRole === "student"
+                    ? "/student/face-enroll"
+                    : currentRole === "lecturer"
+                      ? "/lecturer/face-enroll"
+                      : "/admin/face-enroll"
+                }
+                replace
+              />
+            }
+          />
+          <Route
+            path="/manage-reregistration"
+            element={
+              <Navigate
+                to={
+                  currentRole === "admin"
+                    ? "/admin/manage-reregistration"
+                    : "/lecturer/manage-reregistration"
+                }
+                replace
+              />
+            }
+          />
+          <Route
+            path="/reregistration"
+            element={
+              <Navigate
+                to={
+                  currentRole === "admin"
+                    ? "/admin/manage-reregistration"
+                    : "/lecturer/manage-reregistration"
+                }
+                replace
+              />
+            }
+          />
+          <Route
+            path="/identify-student"
+            element={
+              <Navigate
+                to={
+                  currentRole === "admin"
+                    ? "/admin/identify-student"
+                    : "/lecturer/identify-student"
+                }
+                replace
+              />
+            }
+          />
+          <Route
+            path="/face-identification"
+            element={
+              <Navigate
+                to={
+                  currentRole === "admin"
+                    ? "/admin/identify-student"
+                    : "/lecturer/identify-student"
+                }
+                replace
+              />
+            }
+          />
+          <Route
+            path="/statistics"
+            element={
+              <Navigate
+                to={
+                  currentRole === "student"
+                    ? "/student/statistics"
+                    : currentRole === "lecturer"
+                      ? "/lecturer/attendance-data"
+                      : "/admin/attendance"
+                }
+                replace
+              />
+            }
+          />
+          <Route
+            path="/students"
+            element={
+              <Navigate
+                to={
+                  currentRole === "admin"
+                    ? "/admin/students"
+                    : currentRole === "lecturer"
+                      ? "/lecturer/students"
+                      : "/student"
+                }
+                replace
+              />
+            }
+          />
+          <Route
+            path="/students/add"
+            element={
+              <Navigate
+                to={
+                  currentRole === "admin"
+                    ? "/admin/students/add"
+                    : currentRole === "lecturer"
+                      ? "/lecturer/students/add"
+                      : "/student"
+                }
+                replace
+              />
+            }
+          />
+          <Route
+            path="/lecturers"
+            element={
+              <Navigate
+                to={
+                  currentRole === "admin"
+                    ? "/admin/lecturers"
+                    : currentRole === "lecturer"
+                      ? "/lecturer/lecturers"
+                      : "/student"
+                }
+                replace
+              />
+            }
+          />
+          <Route
+            path="/admins"
+            element={
+              <Navigate
+                to={
+                  currentRole === "admin"
+                    ? "/admin/admins"
+                    : currentRole === "lecturer"
+                      ? "/lecturer/admins"
+                      : "/student"
+                }
+                replace
+              />
+            }
+          />
+          <Route
+            path="/active-sessions"
+            element={
+              <Navigate
+                to={
+                  currentRole === "admin"
+                    ? "/admin/active-sessions"
+                    : currentRole === "lecturer"
+                      ? "/lecturer/active-sessions"
+                      : "/student"
+                }
+                replace
+              />
+            }
+          />
+          <Route
+            path="/settings"
+            element={
+              <Navigate
+                to={
+                  currentRole === "admin"
+                    ? "/admin/settings"
+                    : currentRole === "lecturer"
+                      ? "/lecturer/settings"
+                      : "/student/settings"
+                }
+                replace
+              />
+            }
+          />
+          <Route
+            path="/profile"
+            element={
+              <Navigate
+                to={
+                  currentRole === "admin"
+                    ? "/admin/profile"
+                    : currentRole === "lecturer"
+                      ? "/lecturer/profile"
+                      : "/student/profile"
+                }
+                replace
+              />
+            }
+          />
+          <Route
+            path="/device-setup"
+            element={
+              <Navigate
+                to={
+                  currentRole === "admin"
+                    ? "/admin/device-setup"
+                    : currentRole === "lecturer"
+                      ? "/lecturer/device-setup"
+                      : "/student/device-setup"
+                }
+                replace
+              />
+            }
+          />
+          <Route
+            path="/support"
+            element={
+              <Navigate
+                to={
+                  currentRole === "admin"
+                    ? "/admin/support"
+                    : currentRole === "lecturer"
+                      ? "/lecturer/support"
+                      : "/student/support"
+                }
+                replace
+              />
+            }
+          />
+          <Route
+            path="/feedback"
+            element={
+              <Navigate
+                to={
+                  currentRole === "admin"
+                    ? "/admin/support"
+                    : currentRole === "lecturer"
+                      ? "/lecturer/support"
+                      : "/student/support"
+                }
+                replace
+              />
+            }
+          />
+          <Route
+            path="/contact"
+            element={
+              <Navigate
+                to={
+                  currentRole === "admin"
+                    ? "/admin/support"
+                    : currentRole === "lecturer"
+                      ? "/lecturer/support"
+                      : "/student/support"
+                }
+                replace
+              />
+            }
+          />
+          <Route
+            path="/contact-us"
+            element={
+              <Navigate
+                to={
+                  currentRole === "admin"
+                    ? "/admin/support"
+                    : currentRole === "lecturer"
+                      ? "/lecturer/support"
+                      : "/student/support"
+                }
+                replace
+              />
+            }
+          />
+          <Route
+            path="/help"
+            element={
+              <Navigate
+                to={
+                  currentRole === "admin"
+                    ? "/admin/support"
+                    : currentRole === "lecturer"
+                      ? "/lecturer/support"
+                      : "/student/support"
+                }
+                replace
+              />
+            }
+          />
+          <Route path="/institution" element={<Navigate to="/admin/institution" replace />} />
 
-        {/* Fallback to user's registered home dashboard */}
-        <Route path="/" element={<Navigate to={defaultDashboard} replace />} />
-        <Route path="*" element={<Navigate to={defaultDashboard} replace />} />
-      </Routes>
-    </Suspense>
-    <AppUpdateBanner
-      updateInfo={updateInfo}
-      onOpenModal={() => setIsUpdateModalOpen(true)}
-      onDismiss={() => {
-        dismissAppUpdate(updateInfo?.latestVersion);
-        setUpdateInfo(null);
-        setIsUpdateModalOpen(false);
-      }}
-    />
-    <HeadsUpNotification />
-    <AppUpdateModal
-      updateInfo={isUpdateModalOpen ? updateInfo : null}
-      onClose={() => {
-        if (!updateInfo?.isMandatory) {
+          {/* Fallback to user's registered home dashboard */}
+          <Route path="/" element={<Navigate to={defaultDashboard} replace />} />
+          <Route path="*" element={<Navigate to={defaultDashboard} replace />} />
+        </Routes>
+      </Suspense>
+      <AppUpdateBanner
+        updateInfo={updateInfo}
+        onOpenModal={() => setIsUpdateModalOpen(true)}
+        onDismiss={() => {
           dismissAppUpdate(updateInfo?.latestVersion);
           setUpdateInfo(null);
-        }
-        setIsUpdateModalOpen(false);
-      }}
-    />
-    <AndroidOverlayPermissionModal />
+          setIsUpdateModalOpen(false);
+        }}
+      />
+      <HeadsUpNotification />
+      <AppUpdateModal
+        updateInfo={isUpdateModalOpen ? updateInfo : null}
+        onClose={() => {
+          if (!updateInfo?.isMandatory) {
+            dismissAppUpdate(updateInfo?.latestVersion);
+            setUpdateInfo(null);
+          }
+          setIsUpdateModalOpen(false);
+        }}
+      />
+      <AndroidOverlayPermissionModal />
     </>
   );
 }

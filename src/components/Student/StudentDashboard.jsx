@@ -40,7 +40,16 @@ function StudentDashboard() {
                     return;
                 }
                 const parsed = JSON.parse(raw);
-                const active = Boolean(parsed?.sessionId && (parsed?.kioskEndsAt > Date.now() || parsed?.autoReleaseAt > Date.now()) && parsed?.scanState !== 'IDLE');
+                const active = Boolean(
+                    parsed?.sessionId &&
+                    (parsed?.kioskEndsAt > Date.now() || parsed?.autoReleaseAt > Date.now()) &&
+                    (
+                        parsed?.scanState === 'KIOSK_WAITING_QR2' ||
+                        parsed?.scanState === 'VALIDATING_QR2' ||
+                        parsed?.scanState === 'BIOMETRIC_SCAN' ||
+                        parsed?.scanState === 'SUBMITTING_ATTENDANCE'
+                    )
+                );
                 setIsKioskActive(active);
 
                 if (active) {
