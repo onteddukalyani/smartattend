@@ -61,7 +61,7 @@ export function normalizeBranchName(branch) {
     return "CSE";
 }
 
-const GENERIC_IDENTIFIERS = new Set([
+export const GENERIC_IDENTIFIERS = new Set([
     "student",
     "user",
     "admin",

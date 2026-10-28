@@ -46,7 +46,14 @@ import {
 import { db } from "../../firebase";
 import { useAuth } from "../authcontext";
 import { downloadExcel } from "../../DownloadExcel";
-import { mergeAllStudentRecords, subscribeToStudentUpdates } from "../../utils/studentDataHelper";
+import {
+  mergeAllStudentRecords,
+  subscribeToStudentUpdates,
+  extractCanonicalRoll,
+  isGenericName,
+  normalizeBranchName,
+  GENERIC_IDENTIFIERS
+} from "../../utils/studentDataHelper";
 import StudentDetailModal from "./StudentDetailModal";
 import CourseDetailModal from "./CourseDetailModal";
 import { useTableSort, SortIcon } from "./useTableSort";
@@ -272,10 +279,44 @@ export default function CoursesManager() {
     };
     loadLecturersData();
 
-    // Students listener
+    // Students listener — strictly deduplicate and canonicalize to prevent duplicate or hash/salt student records
     const unsubStudents = onSnapshot(collection(db, "students"), (snapshot) => {
-      const studs = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
-      setAllStudents(studs);
+      const studentMap = new Map();
+      snapshot.docs.forEach((d) => {
+        const data = d.data() || {};
+        if (d.id.length > 20 && !/^\d{2}[A-Za-z]{3}\d+/i.test(d.id)) {
+          // Stray UID document in students collection (hashes/salt) - purge permanently from Firestore
+          deleteDoc(doc(db, "students", d.id)).catch(() => {});
+        }
+        if (/^[a-z0-9_-]+$/.test(d.id) && /[a-z]/.test(d.id) && /^\d{2}[a-z]{3}\d+/i.test(d.id)) {
+          // Stray lowercase document in students (e.g. 25bcs108) - purge so only canonical 25BCS108 exists
+          deleteDoc(doc(db, "students", d.id)).catch(() => {});
+        }
+        const canonical = extractCanonicalRoll(data, d.id);
+        if (!canonical || GENERIC_IDENTIFIERS.has(canonical.toLowerCase()) || (canonical.length > 20 && !/^\d{2}[A-Za-z]{3}\d+/i.test(canonical))) {
+          return;
+        }
+        const existing = studentMap.get(canonical) || {};
+        const email = String(data.email || existing.email || (canonical.toLowerCase() + "@iiitdwd.ac.in")).trim().toLowerCase();
+        let name = existing.name || "";
+        if (!name || isGenericName(name, canonical, email)) {
+          if (!isGenericName(data.name, canonical, email)) name = String(data.name).trim();
+          else if (!isGenericName(data.fullName, canonical, email)) name = String(data.fullName).trim();
+          else if (!isGenericName(data.displayName, canonical, email)) name = String(data.displayName).trim();
+        }
+        const branch = normalizeBranchName(data.branch || existing.branch || "CSE");
+        studentMap.set(canonical, {
+          ...existing,
+          ...data,
+          id: canonical,
+          rollNo: canonical,
+          name: name || canonical,
+          fullName: name || canonical,
+          email,
+          branch
+        });
+      });
+      setAllStudents(Array.from(studentMap.values()));
     }, () => { });
     unsubs.push(unsubStudents);
 
@@ -573,7 +614,7 @@ export default function CoursesManager() {
           `You have been removed from class ${selectedCourseForRoster.code || selectedCourseForRoster.courseCode} by ${actorName}.`,
           "COURSE_UPDATE",
           actorName
-        ).catch(() => {});
+        ).catch(() => { });
       }
     } catch (err) {
       alert("Failed to remove student: " + err.message);
@@ -610,7 +651,7 @@ export default function CoursesManager() {
             `You have been enrolled in class ${selectedCourseForRoster.code || selectedCourseForRoster.courseCode} by ${actorName}.`,
             "COURSE_ENROLLMENT",
             actorName
-          ).catch(() => {});
+          ).catch(() => { });
         }
       }
     } catch (err) {
@@ -661,12 +702,21 @@ export default function CoursesManager() {
     downloadExcel(exportData, `SmartAttend_Courses_Faculty_Directory_${new Date().toISOString().slice(0, 10)}`);
   };
 
-  const enrolledRollSet = new Set((selectedCourseForRoster?.enrolledStudents || []).map((student) =>
-    String(typeof student === "string" ? student : student?.rollNo || student?.rollNumber || "").trim().toUpperCase()
-  ));
+  const enrolledRollSet = new Set((selectedCourseForRoster?.enrolledStudents || []).map((student) => {
+    const raw = typeof student === "string" ? student : student?.rollNo || student?.rollNumber || student?.id || "";
+    return extractCanonicalRoll(typeof student === "object" ? student : null, raw) || String(raw).trim().toUpperCase();
+  }));
+  const enrolledEmailSet = new Set((selectedCourseForRoster?.enrolledStudents || []).map((student) => {
+    if (typeof student === "object" && student?.email) return student.email.trim().toLowerCase();
+    if (typeof student === "string" && student.includes("@")) return student.trim().toLowerCase();
+    return "";
+  }).filter(Boolean));
+
   const availableStudents = allStudents.filter((student) => {
-    const roll = String(student.rollNo || student.rollNumber || student.id || "").trim();
-    if (!roll || enrolledRollSet.has(roll.toUpperCase())) return false;
+    const roll = String(student.rollNo || student.rollNumber || (student.id && student.id.length <= 15 ? student.id : "") || "").trim().toUpperCase();
+    const email = String(student.email || "").trim().toLowerCase();
+    // Exclude if already enrolled by roll number OR by student email
+    if (!roll || enrolledRollSet.has(roll) || (email && enrolledEmailSet.has(email))) return false;
     if (!availableStudentSearch.trim()) return true;
     const query = availableStudentSearch.toLowerCase().trim();
     return [roll, student.name, student.fullName, student.email, student.branch, student.department]
@@ -1526,7 +1576,7 @@ export default function CoursesManager() {
                     {availableStudents.length === 0 ? (
                       <p className="cm-available-empty">No un-enrolled registered students match this search.</p>
                     ) : availableStudents.map((student) => {
-                      const roll = String(student.rollNo || student.rollNumber || student.id || "").trim();
+                      const roll = String(student.rollNo || student.rollNumber || (student.id && student.id.length <= 15 ? student.id : "") || (student.email ? student.email.split("@")[0] : "")).trim().toUpperCase();
                       const checked = selectedStudentsToAdd.includes(roll);
                       return (
                         <label className="cm-available-student" key={roll}>

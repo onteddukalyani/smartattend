@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useSearchParams, Link, useNavigate } from "react-router-dom";
 import { QRCodeCanvas } from "qrcode.react";
-import { collection, getDocs, onSnapshot, doc, updateDoc, getDoc } from "firebase/firestore";
+import { collection, getDocs, onSnapshot, doc, updateDoc, getDoc, deleteDoc } from "firebase/firestore";
 import { db } from "../../../firebase";
 import { createAttendanceSession } from "./CreateSession";
 import {
@@ -19,7 +19,7 @@ import {
 import { sendFacultyNotification, sendBroadcastNotification, sendStudentNotification } from "../../../services/notificationsService";
 import { useAuth } from "../../authcontext";
 import { isCourseAssignedToLecturer } from "../../Common/CoursesManager";
-import { normalizeBranchName, isGenericName } from "../../../utils/studentDataHelper";
+import { normalizeBranchName, isGenericName, extractCanonicalRoll } from "../../../utils/studentDataHelper";
 import ExcuseFaceVerification from "../../Common/ExcuseFaceVerification";
 import { generateRotatingQrPayload, DEFAULT_ROTATION_INTERVAL, ROTATION_INTERVALS } from "../../../utils/qrCrypto";
 import {
@@ -146,23 +146,32 @@ function GenerateQR() {
         const unsub = onSnapshot(collection(db, "students"), (snap) => {
             const m = new Map();
             snap.docs.forEach((d) => {
-                const data = d.data();
-                const cleanRoll = String(data.rollNo || (!d.id.includes("@") ? d.id : "")).trim().toUpperCase();
-                const cleanEmail = String(data.email || "").trim().toLowerCase();
-                const cleanName = String(data.name || data.fullName || "").trim();
+                const data = d.data() || {};
+                if (d.id.length > 20 && !/^\d{2}[A-Za-z]{3}\d+/i.test(d.id)) {
+                    // Clean up stray UID doc if found in students collection
+                    deleteDoc(doc(db, "students", d.id)).catch(() => {});
+                }
+                if (/^[a-z0-9_-]+$/.test(d.id) && /[a-z]/.test(d.id) && /^\d{2}[a-z]{3}\d+/i.test(d.id)) {
+                    deleteDoc(doc(db, "students", d.id)).catch(() => {});
+                }
+                const cleanRoll = extractCanonicalRoll(data, d.id);
+                if (!cleanRoll || (cleanRoll.length > 20 && !/^\d{2}[A-Za-z]{3}\d+/i.test(cleanRoll))) return;
+                const cleanEmail = String(data.email || (cleanRoll ? cleanRoll.toLowerCase() + "@iiitdwd.ac.in" : "")).trim().toLowerCase();
+                const rawName = String(data.name || data.fullName || data.displayName || "").trim();
+                const cleanName = !isGenericName(rawName, cleanRoll, cleanEmail) ? rawName : cleanRoll;
                 const studentInfo = {
-                    id: d.id,
+                    id: cleanRoll,
                     rollNo: cleanRoll,
-                    name: cleanName || cleanRoll,
-                    fullName: cleanName || cleanRoll,
+                    name: cleanName,
+                    fullName: cleanName,
                     email: cleanEmail,
-                    branch: data.branch || "",
+                    branch: normalizeBranchName(data.branch || "CSE"),
                     semester: data.semester || "",
                     uid: data.uid || ""
                 };
                 if (cleanRoll) m.set(cleanRoll, studentInfo);
                 if (cleanEmail) m.set(cleanEmail, studentInfo);
-                if (d.id) m.set(d.id.toUpperCase(), studentInfo);
+                if (d.id && d.id.length <= 15) m.set(d.id.toUpperCase(), studentInfo);
                 if (data.uid) m.set(data.uid, studentInfo);
             });
             setDbStudentsMap(m);
@@ -543,7 +552,7 @@ function GenerateQR() {
                 finalBatch,
                 lecturerInfo,
                 parsedHours,
-                geofenceRadius,
+                effectiveGeofenceRadius,
                 {
                     qr1DurationSeconds: effectiveQr1Sec,
                     qr2DurationSeconds: effectiveQr2Sec,

@@ -1,4 +1,4 @@
-import { doc, setDoc } from "firebase/firestore";
+import { doc, setDoc, deleteDoc } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
 import { db, functions } from "../firebase";
 import { Capacitor } from "@capacitor/core";
@@ -98,13 +98,22 @@ export async function registerUserDevice({
       );
     }
   } else {
-    // Student collection write (target only canonical student document, e.g. rollNo)
-    const targetDocId = (cleanId && !cleanId.includes("@")) ? cleanId : (rollNo || cleanEmail);
+    // Student collection write (strictly target canonical uppercase roll number, never raw UID/hash)
+    const emailPrefix = cleanEmail && cleanEmail.includes("@") ? cleanEmail.split("@")[0].trim().toUpperCase() : "";
+    const cleanRoll = String(rollNo || profile?.rollNo || "").trim().toUpperCase();
+    const isIdAStudentRoll = cleanId && !cleanId.includes("@") && cleanId.length <= 15;
+    const targetDocId = cleanRoll || (isIdAStudentRoll ? cleanId : emailPrefix);
+
     if (targetDocId) {
       writePromises.push(
         setDoc(doc(db, "students", targetDocId), devicePayload, { merge: true })
           .catch((err) => console.warn("Student device registration notice:", err.message))
       );
+      // Clean up any stray student document previously created under raw user.uid (hash/salt)
+      const strayUid = user?.uid || profile?.uid || (cleanId && cleanId.length > 20 ? cleanId : null);
+      if (strayUid && strayUid !== targetDocId) {
+        deleteDoc(doc(db, "students", strayUid)).catch(() => { });
+      }
     }
   }
 

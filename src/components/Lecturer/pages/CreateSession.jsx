@@ -32,14 +32,19 @@ export async function createAttendanceSession(
         ? Number(timetableOptions.qr2DurationSeconds)
         : 75;
 
+    const hasValidCoords = timetableOptions?.classroomLocation &&
+        Number.isFinite(Number(timetableOptions.classroomLocation.latitude ?? timetableOptions.classroomLocation.lat)) &&
+        Number.isFinite(Number(timetableOptions.classroomLocation.longitude ?? timetableOptions.classroomLocation.lng ?? timetableOptions.classroomLocation.lon));
+    const effectiveRadius = hasValidCoords ? parsedRadius : 0;
+
     const sessionParams = {
         classCode: finalClassCode,
         courseCode: courseCode,
         roomNo: roomNo,
         batch: finalBatch,
         lectureHours: parsedHours,
-        geofenceRadius: parsedRadius,
-        classroomLocation: timetableOptions?.classroomLocation || null,
+        geofenceRadius: effectiveRadius,
+        classroomLocation: hasValidCoords ? timetableOptions.classroomLocation : null,
         rotationIntervalSec: typeof timetableOptions?.rotationIntervalSec === 'number' ? timetableOptions.rotationIntervalSec : 15,
         durationMinutes: Math.round(((qr1Sec + qr2Sec) / 60) * 10) / 10,
         qr1DurationSeconds: qr1Sec,

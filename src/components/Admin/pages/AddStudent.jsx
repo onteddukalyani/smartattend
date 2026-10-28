@@ -136,28 +136,36 @@ const AddStudent = () => {
     try {
       setSaving(true);
 
-      // 1. Check duplicate roll number across collections
-      const [rollSnapUsers, rollSnapStudents, rollDocUser, rollDocStudent] = await Promise.all([
+      // 1. Check duplicate roll number across collections (strictly case-insensitive: small or capital)
+      const [rollSnapUsers, rollSnapStudents, rollSnapUsersLower, rollSnapStudentsLower, rollDocUser, rollDocStudent, rollDocUserLower, rollDocStudentLower] = await Promise.all([
         getDocs(query(collection(db, "users"), where("rollNo", "==", cleanRollNo))).catch(() => ({ empty: true, docs: [] })),
         getDocs(query(collection(db, "students"), where("rollNo", "==", cleanRollNo))).catch(() => ({ empty: true, docs: [] })),
+        getDocs(query(collection(db, "users"), where("rollNo", "==", rollLower))).catch(() => ({ empty: true, docs: [] })),
+        getDocs(query(collection(db, "students"), where("rollNo", "==", rollLower))).catch(() => ({ empty: true, docs: [] })),
         getDoc(doc(db, "users", cleanRollNo)).catch(() => ({ exists: () => false })),
-        getDoc(doc(db, "students", cleanRollNo)).catch(() => ({ exists: () => false }))
+        getDoc(doc(db, "students", cleanRollNo)).catch(() => ({ exists: () => false })),
+        getDoc(doc(db, "users", rollLower)).catch(() => ({ exists: () => false })),
+        getDoc(doc(db, "students", rollLower)).catch(() => ({ exists: () => false }))
       ]);
 
       const existingRollDocs = [
         ...rollSnapUsers.docs,
         ...rollSnapStudents.docs,
+        ...rollSnapUsersLower.docs,
+        ...rollSnapStudentsLower.docs,
         ...(rollDocUser.exists() ? [rollDocUser] : []),
-        ...(rollDocStudent.exists() ? [rollDocStudent] : [])
+        ...(rollDocStudent.exists() ? [rollDocStudent] : []),
+        ...(rollDocUserLower.exists() ? [rollDocUserLower] : []),
+        ...(rollDocStudentLower.exists() ? [rollDocStudentLower] : [])
       ];
 
       for (const d of existingRollDocs) {
-        const data = d.data();
+        const data = d.data() || {};
         const existingEmail = (data.email || "").toLowerCase().trim();
-        const existingRole = (data.role || "").toLowerCase().trim();
-        // If it's a different student email already attached to this roll number
-        if (existingEmail && existingEmail !== cleanEmail && existingRole === "student") {
-          setError(`Roll number ${cleanRollNo} is already assigned to "${data.name || "Student"}" (${existingEmail}).`);
+        const existingRoll = String(data.rollNo || d.id || "").trim().toUpperCase();
+        // Disallow duplicate roll numbers across any case
+        if (existingRoll === cleanRollNo && existingEmail && existingEmail !== cleanEmail) {
+          setError(`Roll number ${cleanRollNo} is already assigned to "${data.name || "Student"}" (${existingEmail}). Duplicate roll numbers are not permitted.`);
           setSaving(false);
           return;
         }
@@ -283,8 +291,8 @@ const AddStudent = () => {
       ];
 
       if (rollLower !== cleanRollNo) {
-        promises.push(setDoc(doc(db, "students", rollLower), studentPayload, { merge: true }).catch(() => { }));
-        promises.push(setDoc(doc(db, "users", rollLower), studentPayload, { merge: true }).catch(() => { }));
+        // Clean up legacy lowercase document so only one canonical uppercase record exists
+        promises.push(deleteDoc(doc(db, "students", rollLower)).catch(() => { }));
       }
       if (prefix && prefix !== cleanEmail) {
         promises.push(setDoc(doc(db, "authorizedUsers", prefix), { ...studentPayload, createdAt: Date.now() }, { merge: true }).catch(() => { }));

@@ -107,8 +107,12 @@ export async function initiateSession(sessionParams) {
     courseCode: courseCode,
     roomNo: roomNo,
     batch: batch || "2025",
-    geofenceRadius: typeof sessionParams.geofenceRadius === "number" ? sessionParams.geofenceRadius : 10,
-    classroomLocation: sessionParams.classroomLocation || null,
+    geofenceRadius: (sessionParams.classroomLocation && Number.isFinite(Number(sessionParams.classroomLocation.latitude ?? sessionParams.classroomLocation.lat)))
+      ? (typeof sessionParams.geofenceRadius === "number" ? sessionParams.geofenceRadius : 10)
+      : 0,
+    classroomLocation: (sessionParams.classroomLocation && Number.isFinite(Number(sessionParams.classroomLocation.latitude ?? sessionParams.classroomLocation.lat)))
+      ? sessionParams.classroomLocation
+      : null,
     rotationIntervalSec: rotationIntervalSec,
     lectureHours: Number(sessionParams.lectureHours) > 0 ? Number(sessionParams.lectureHours) : 1.0,
     durationHours: Number(sessionParams.lectureHours) > 0 ? Number(sessionParams.lectureHours) : 1.0,

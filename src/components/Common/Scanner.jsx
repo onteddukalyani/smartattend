@@ -2496,8 +2496,13 @@ function QrScannerApp() {
             lecturerLocationRef.current = classroomTarget;
             setLecturerLocation(classroomTarget);
         }
-        const selectedGeofence = Number(classroomTarget?.radius ?? classroomTarget?.r ?? sessionData?.geofenceRadius ?? DEFAULT_GEOFENCE_RADIUS_METRES);
-        const isGeofenceDisabled = selectedGeofence === 0 || classroomTarget?.enabled === false || sessionData?.geofenceRadius === 0;
+        const hasTargetCoords = classroomTarget &&
+            Number.isFinite(Number(classroomTarget.latitude ?? classroomTarget.lat)) &&
+            Number.isFinite(Number(classroomTarget.longitude ?? classroomTarget.lng ?? classroomTarget.lon));
+        const selectedGeofence = hasTargetCoords
+            ? Number(classroomTarget?.radius ?? classroomTarget?.r ?? sessionData?.geofenceRadius ?? DEFAULT_GEOFENCE_RADIUS_METRES)
+            : 0;
+        const isGeofenceDisabled = selectedGeofence === 0 || classroomTarget?.enabled === false || sessionData?.geofenceRadius === 0 || !hasTargetCoords;
 
         // Retrieve student's device location (instant pre-warmer, recent cache, or fast fix)
         // Fast, accurate candidate selection: gather all candidates across memory & local storage
@@ -2963,8 +2968,13 @@ function QrScannerApp() {
 
                 // Enforce that attendance can only be submitted if device is confirmed within geofence
                 const classroomTarget = activeQr2Payload?.geo || sessionData?.classroomLocation || lecturerLocationRef.current;
-                const selectedGeofence = Number(classroomTarget?.radius ?? classroomTarget?.r ?? sessionData?.geofenceRadius ?? DEFAULT_GEOFENCE_RADIUS_METRES);
-                const isGeofenceDisabled = selectedGeofence === 0 || classroomTarget?.enabled === false || sessionData?.geofenceRadius === 0;
+                const hasTargetCoords = classroomTarget &&
+                    Number.isFinite(Number(classroomTarget.latitude ?? classroomTarget.lat)) &&
+                    Number.isFinite(Number(classroomTarget.longitude ?? classroomTarget.lng ?? classroomTarget.lon));
+                const selectedGeofence = hasTargetCoords
+                    ? Number(classroomTarget?.radius ?? classroomTarget?.r ?? sessionData?.geofenceRadius ?? DEFAULT_GEOFENCE_RADIUS_METRES)
+                    : 0;
+                const isGeofenceDisabled = selectedGeofence === 0 || classroomTarget?.enabled === false || sessionData?.geofenceRadius === 0 || !hasTargetCoords;
 
                 if (!isGeofenceDisabled && classroomTarget) {
                     let locForSubmit = pickBestStudentLocation([
