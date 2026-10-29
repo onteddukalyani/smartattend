@@ -290,10 +290,11 @@ function QrScannerApp() {
             ? (typeof sessionData.expiresAt.toMillis === 'function' ? sessionData.expiresAt.toMillis() : Number(sessionData.expiresAt))
             : kioskEndsAt)) || 0;
 
-    // Camera is allowed only before QR2 has been accepted. Once locked, it stays
-    // off during fingerprint, face verification, submission, retries and errors.
+    // QR-scanner camera is allowed for QR1 and QR2 only. After QR2 is accepted,
+    // keep the QR-scanning page/camera closed until the session ends. The separate
+    // face-verification component may still open its own camera for live face capture.
     useEffect(() => {
-        const shouldCameraBeActive = !cameraLockedForSessionRef.current && !sessionEndedAutoReleased &&
+        const shouldCameraBeActive = !cameraLockedForSessionRef.current &&
             (scanState === 'IDLE' || (scanState === 'KIOSK_WAITING_QR2' && isQr2Released));
         if (shouldCameraBeActive) {
             setScannerActive(true);
@@ -1305,6 +1306,8 @@ function QrScannerApp() {
         if (activeSessionId) {
             requestAutoFailSafeUnlock(activeSessionId, user?.uid, deviceIdentity?.deviceId).catch(() => { });
         }
+        // The session is over: release the QR-scanner lock so a fresh session can start.
+        cameraLockedForSessionRef.current = false;
         setSessionEndedAutoReleased(true);
         if (
             reason.toLowerCase().includes('dashboard') ||
