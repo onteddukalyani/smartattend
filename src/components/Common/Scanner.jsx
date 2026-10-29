@@ -1738,18 +1738,8 @@ function QrScannerApp() {
                         console.warn('[Kiosk Guardian] Backend event report notice:', err);
                     }
 
-                    try {
-                        await recordSessionViolation(
-                            activeSessionId,
-                            user?.uid,
-                            loggedInRollNo,
-                            `CONFIRMED_KIOSK_ESCAPE: ${source}`,
-                            nextCount,
-                            true
-                        );
-                    } catch (vErr) {
-                        console.warn('[Kiosk Guardian] Direct violation record notice:', vErr);
-                    }
+                    // No direct Firestore fallback: lifecycle records are server-authoritative.
+                    // A failed callable remains unconfirmed and is logged above.
                 })();
             }, 0);
         };
