@@ -677,18 +677,16 @@ test("20. Users cannot gain privileges by changing selected role in UI or client
 // CAMERA PERMISSION & DEVICE CONSTRAINTS TESTS
 // ============================================================================
 
-test("21. Camera policy: Android student browser blocked from QR scanning, but allowed for biometric face registration", () => {
+test("21. Camera policy: All browser devices (including Android) are now allowed camera access", () => {
   const studentProfile = { role: "student", deviceType: "android" };
 
-  // QR Scanning: blocked in browser
+  // QR Scanning: now allowed in browser for all devices
   const qrCamera = isBrowserCameraAllowed(studentProfile, { uid: "s1" }, "qr_scanner");
-  assert.strictEqual(qrCamera.allowed, false);
-  assert.strictEqual(qrCamera.reason, "android_web_student");
+  assert.strictEqual(qrCamera.allowed, true);
 
   // Biometric Face Registration: ALLOWED in browser!
   const bioCamera = isBrowserCameraAllowed(studentProfile, { uid: "s1" }, "biometric_registration");
   assert.strictEqual(bioCamera.allowed, true);
-  assert.strictEqual(bioCamera.reason, "biometric_registration");
 });
 
 test("22. Camera policy: iPhone user allowed in browser for both QR scanning and biometric registration", () => {

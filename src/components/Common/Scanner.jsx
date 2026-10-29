@@ -96,21 +96,13 @@ function QrScannerApp() {
         (typeof window !== "undefined" && (window.location.pathname.includes("/lecturer") || window.location.pathname.includes("/admin")));
     const isAndroidWebStudent = !isNativeApp && isAndroidDevice && !isStaff;
     const browserCameraAuth = isBrowserCameraAllowed(profile, user);
-    const isCameraAllowed = isStaff ? true : (isNativeApp || (!isAndroidDevice && browserCameraAuth.allowed));
+    const isCameraAllowed = true; // Camera allowed in browser for all devices
     const [showAppBanner, setShowAppBanner] = useState(false);
     const [dismissedAppBanner, setDismissedAppBanner] = useState(false);
     const [deviceOwnerStatus, setDeviceOwnerStatus] = useState({ checked: false, isDeviceOwner: true, isWeb: false });
     const [deviceIdentity, setDeviceIdentity] = useState(null);
 
-    // Automatically attempt to launch the native SmartAttend Android app when on Android web browser
-    useEffect(() => {
-        if (isAndroidWebStudent) {
-            const timer = setTimeout(() => {
-                handleOpenInSmartAttendApp();
-            }, 600);
-            return () => clearTimeout(timer);
-        }
-    }, [isAndroidWebStudent]);
+    // Auto-redirect removed: camera access is now allowed for all browser devices
 
     // App Update Gate & Reminder
     const [versionBlock, setVersionBlock] = useState(null);

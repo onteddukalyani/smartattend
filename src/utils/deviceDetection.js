@@ -237,10 +237,6 @@ export function isBrowserCameraAllowed(profile = {}, user = {}, context = "qr_sc
     return { allowed: true, reason: "biometric_registration" };
   }
 
-  // Android web browser or desktop student: Camera is NOT available in browser for QR scanning
-  return {
-    allowed: false,
-    reason: "android_web_student",
-    message: "Camera in browser is only available for Lecturers, Admins, and iPhone users. Android students must use the official SmartAttend Android App (.apk) with Lock Task Kiosk mode."
-  };
+  // Camera is allowed in browser for all devices and users
+  return { allowed: true, reason: "browser_allowed" };
 }

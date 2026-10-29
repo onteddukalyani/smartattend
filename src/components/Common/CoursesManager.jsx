@@ -715,8 +715,13 @@ export default function CoursesManager() {
   const availableStudents = allStudents.filter((student) => {
     const roll = String(student.rollNo || student.rollNumber || (student.id && student.id.length <= 15 ? student.id : "") || "").trim().toUpperCase();
     const email = String(student.email || "").trim().toLowerCase();
+    // Exclude UID-based / hash documents that have no proper roll number pattern (e.g. Firebase UIDs)
+    if (!roll || roll.length > 15 || !/^\d{2}[A-Z]{2,4}\d+$/i.test(roll)) return false;
     // Exclude if already enrolled by roll number OR by student email
-    if (!roll || enrolledRollSet.has(roll) || (email && enrolledEmailSet.has(email))) return false;
+    if (enrolledRollSet.has(roll) || (email && enrolledEmailSet.has(email))) return false;
+    // Exclude students with no real name to avoid showing "Unnamed student" entries
+    const realName = (student.name || student.fullName || "").trim();
+    if (!realName || realName === roll || realName.length < 2) return false;
     if (!availableStudentSearch.trim()) return true;
     const query = availableStudentSearch.toLowerCase().trim();
     return [roll, student.name, student.fullName, student.email, student.branch, student.department]
@@ -1588,7 +1593,7 @@ export default function CoursesManager() {
                             )}
                           />
                           <span className="cm-available-student-info">
-                            <strong>{student.name || student.fullName || "Unnamed student"}</strong>
+                            <strong>{student.name || student.fullName || student.rollNo || student.id}</strong>
                             <span>{roll}{student.email ? ` · ${student.email}` : ""}</span>
                           </span>
                           <span className="cm-available-student-dept">{student.branch || student.department || "—"}</span>
