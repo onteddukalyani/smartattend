@@ -289,16 +289,20 @@ function QrScannerApp() {
             ? (typeof sessionData.expiresAt.toMillis === 'function' ? sessionData.expiresAt.toMillis() : Number(sessionData.expiresAt))
             : kioskEndsAt)) || 0;
 
-    // Explicitly manage camera hardware during waiting phase vs QR2 release
+    // Single source of truth for camera ownership.
+    // Only QR1 scanning (IDLE) and the released QR2 waiting screen may own the camera.
+    // Every biometric, authorization, submission, success, or error screen must release it.
     useEffect(() => {
-        if (scanState === 'KIOSK_WAITING_QR2') {
-            if (!isQr2Released) {
-                releaseAllMediaTracks();
-                releaseCameraLock();
-                setScannerActive(false);
-            } else {
-                setScannerActive(true);
-            }
+        const shouldCameraBeActive =
+            scanState === 'IDLE' ||
+            (scanState === 'KIOSK_WAITING_QR2' && isQr2Released);
+
+        if (shouldCameraBeActive) {
+            setScannerActive(true);
+        } else {
+            setScannerActive(false);
+            releaseAllMediaTracks();
+            releaseCameraLock();
         }
     }, [scanState, isQr2Released]);
 
