@@ -645,7 +645,7 @@ service cloud.firestore {
         allow read: if isStaff();
         allow write: if false;
         match /{document=**} {
-          allow read: if isSignedIn();
+          allow read: if isStaff();
           allow write: if false;
         }
       }
@@ -655,7 +655,7 @@ service cloud.firestore {
         allow read: if isStaff();
         allow write: if false;
         match /{document=**} {
-          allow read: if isSignedIn();
+          allow read: if isStaff();
           allow write: if false;
         }
       }
