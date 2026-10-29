@@ -250,12 +250,13 @@ function QrScannerApp() {
             const ends = typeof sessionData.kioskEndsAt.toMillis === 'function' ? sessionData.kioskEndsAt.toMillis() : Number(sessionData.kioskEndsAt);
             if (ends > 0) setKioskEndsAt(ends);
         }
-        // If lecturer transitions early or releases QR 2, immediately unlock and activate camera
+        // Session updates may unlock QR2, but must never reactivate the camera after
+        // the student has scanned QR2 and moved into biometric verification/submission.
         if (sessionData.phase === 'PHASE_2' || sessionData.phase === '2' || sessionData.qr2Released === true) {
             setForceQr2Unlocked(true);
-            setScannerActive(true);
+            if (scanState === 'KIOSK_WAITING_QR2') setScannerActive(true);
         }
-    }, [sessionData]);
+    }, [sessionData, scanState]);
 
     // Authoritative target time for Phase 2 QR unlock (immediate from auth response + real-time Firestore sync)
     const effectiveQr2TargetMs = (sessionData?.qr2StartsAt
@@ -1844,7 +1845,8 @@ function QrScannerApp() {
             }
             if (data.phase === 'PHASE_2' || data.phase === '2' || data.qr2Released === true) {
                 setForceQr2Unlocked(true);
-                setScannerActive(true);
+                // Keep camera activation tied to the QR2 waiting screen only.
+                if (scanState === 'KIOSK_WAITING_QR2') setScannerActive(true);
             }
             // If lecturer ends the session in real-time or releases student
             const cleanRoll = (loggedInRollNo || '').trim().toUpperCase();
@@ -1860,7 +1862,7 @@ function QrScannerApp() {
             }
         });
         return () => unsub();
-    }, [activeSessionId, sessionStartAt, kioskEndsAt, loggedInRollNo, user?.uid, handleSessionCompletedAutoUnlock]);
+    }, [activeSessionId, sessionStartAt, kioskEndsAt, loggedInRollNo, user?.uid, scanState, handleSessionCompletedAutoUnlock]);
 
     // Subscribe to Individual Student Authorization for Remote Release by Lecturer
     useEffect(() => {
@@ -5234,7 +5236,7 @@ function QrScannerApp() {
                                             setSessionData(fresh);
                                             if (fresh.phase === 'PHASE_2' || fresh.phase === '2' || fresh.qr2Released === true) {
                                                 setForceQr2Unlocked(true);
-                                                setScannerActive(true);
+                                                if (scanState === 'KIOSK_WAITING_QR2') setScannerActive(true);
                                                 return;
                                             }
                                         }
@@ -5242,7 +5244,7 @@ function QrScannerApp() {
                                 }
                                 if (sessionData?.phase === 'PHASE_2' || sessionData?.qr2Released === true) {
                                     setForceQr2Unlocked(true);
-                                    setScannerActive(true);
+                                    if (scanState === 'KIOSK_WAITING_QR2') setScannerActive(true);
                                 } else {
                                     alert(`⏳ Under Lecturer Supervision\n\nLecturer ${sessionData?.lecturerName || 'Faculty'} has not presented QR 2 yet. Please wait for the lecturer to switch to Phase 2 on the screen.`);
                                 }
