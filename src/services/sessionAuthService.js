@@ -648,10 +648,13 @@ export async function validateStudentQR2(sessionId, qr2Token, qrPayload = null) 
  * Never allows client-side direct writes to bypass server checks.
  */
 export async function submitVerifiedAttendance(sessionId, qr2Token, biometricData, hardwareProof = null, qrPayload = null) {
+  if (!sessionId || !qr2Token) {
+    throw new Error("Attendance session or QR 2 token is missing. Please return to the active session and scan the current QR code.");
+  }
+
   const isNative = typeof window !== "undefined" && Boolean(window.Capacitor?.isNativePlatform?.());
   const proofObj = hardwareProof?.proof || (hardwareProof?.signature ? hardwareProof : null);
   const deviceAuthMode = proofObj ? "NATIVE_MOBILE" : "WEB_BROWSER";
-
   const payload = {
     sessionId,
     qr2Token,
@@ -664,42 +667,25 @@ export async function submitVerifiedAttendance(sessionId, qr2Token, biometricDat
     int: qrPayload?.int
   };
 
+  // Let Firebase's callable timeout govern the request. A 1.4-second client timeout
+  // caused slow mobile networks to be treated as failed submissions while the server
+  // could still be processing the original request.
+  let result;
   try {
-    const fn = httpsCallable(functions, "submitAttendance");
-    const cloudCall = fn(payload);
-    const timeoutPromise = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error("Cloud function submitAttendance timed out after 1400ms")), 1400)
-    );
-    const result = await Promise.race([cloudCall, timeoutPromise]);
-
-    if (result && result.data && result.data.success) {
-      const cleanRoll = result.data.rollNo;
-      if (cleanRoll) {
-        sendStudentNotification(
-          cleanRoll,
-          "Attendance Recorded ✅",
-          `Your attendance for session ${sessionId} has been submitted successfully (${deviceAuthMode}).`,
-          "ATTENDANCE_SUCCESS",
-          "SmartAttend Guard"
-        ).catch(() => {});
-      }
-      return result.data;
-    }
-    throw new Error(result?.data?.message || "Attendance submission could not be verified by server.");
+    const fn = httpsCallable(functions, "submitAttendance", { timeout: 70000 });
+    result = await fn(payload);
   } catch (cloudErr) {
-    const msg = cloudErr.message || "";
+    const msg = String(cloudErr?.message || "");
+    const code = String(cloudErr?.code || "");
+
     if (msg.includes("scan QR 1 first") || msg.includes("Missing Phase 1")) {
-      throw new Error("⛔ Attendance Rejected: Missing Phase 1 QR 1 check-in. You must scan QR 1 first during Phase 1.");
+      throw new Error("⛔ Attendance rejected: QR 1 check-in could not be verified for this session. Please confirm QR 1 was scanned and contact your lecturer if this continues.");
     }
     if (msg.includes("unexcused security violation") || msg.includes("violation") || msg.includes("disqualified")) {
       throw new Error("❌ Attendance rejected: An unexcused security violation is recorded on your session.");
     }
     if (msg.includes("already recorded") || msg.includes("already-exists") || msg.includes("already submitted")) {
-      return {
-        success: true,
-        alreadyRecorded: true,
-        message: "Attendance for this session has already been recorded."
-      };
+      return { success: true, alreadyRecorded: true, message: "Attendance for this session has already been recorded." };
     }
     if (msg.includes("deadline-exceeded") || msg.includes("session is closed") || msg.includes("ended")) {
       throw new Error("❌ Attendance session is closed. The submission window has expired.");
@@ -708,207 +694,46 @@ export async function submitVerifiedAttendance(sessionId, qr2Token, biometricDat
       throw new Error("❌ Invalid or expired QR 2 token. Please scan the current live QR code.");
     }
     if (msg.includes("Face biometric verification failed") || msg.includes("distance >")) {
-      throw new Error("❌ Face Biometric Mismatch: Live face does not match your registered profile. Please retry verification.");
+      throw new Error("❌ Face biometric mismatch: the live face did not match the registered profile. Please retry verification.");
     }
     if (msg.includes("Adversarial face replay")) {
-      throw new Error("❌ Security Replay Alert: Static face image detected. Real live camera capture required.");
+      throw new Error("❌ Security replay alert: a static face image was detected. Please use the live camera.");
     }
     if (msg.includes("Hardware biometric signature verification failed")) {
-      throw new Error("❌ Hardware device biometric verification failed. Please authenticate using your enrolled biometric.");
+      throw new Error("❌ Hardware biometric verification failed. Please authenticate using your enrolled device biometric.");
     }
-    console.warn("Cloud function submitAttendance notice (using direct Firestore engine):", msg || cloudErr);
-  }
 
-  // Direct Firestore submission engine fallback
-  const currentUser = auth.currentUser;
-  const currentEmail = currentUser?.email?.toLowerCase().trim() || "";
-  const currentRollNo = (currentEmail ? currentEmail.split("@")[0] : "").toUpperCase();
-  const currentUid = currentUser?.uid || "";
-
-  let session = null;
-  try {
-    const sessionRef = doc(db, "attendance_sessions", sessionId);
-    const sessionSnap = await getDoc(sessionRef);
-    if (sessionSnap.exists()) {
-      session = sessionSnap.data();
+    // Fail closed. Never fall back to client-side attendance writes when the
+    // authoritative function fails or times out. Keep the UI/session available
+    // so the student can safely retry or check whether the first request completed.
+    console.error("[Attendance] submitAttendance callable failed", { code, message: msg, sessionId });
+    if (code.includes("unavailable") || code.includes("deadline-exceeded") || code.includes("internal") || code.includes("unknown")) {
+      throw new Error("Attendance could not be confirmed because the server/network did not respond in time. Your attendance status is unconfirmed; retry safely or ask your lecturer to check the attendance record.");
     }
-  } catch (e) {
-    console.warn("Session read notice:", e.message);
+    throw new Error(msg || "Attendance could not be confirmed by the server. Please retry or ask your lecturer to check the attendance record.");
   }
 
-  const now = Date.now();
-  if (session && now > ((session.kioskEndsAt || session.expiresAt || 0) + 15000)) {
-    throw new Error("❌ Attendance session is closed. The submission window has expired.");
-  }
-
-  // 1. Verify Phase 1 QR 1 check-in
-  let authData = null;
-  const candidateKeys = [currentUid, currentRollNo, currentEmail].filter(Boolean);
-  for (const key of candidateKeys) {
-    if (authData) break;
-    try {
-      const authRef = doc(db, "attendance_sessions", sessionId, "authorizations", key);
-      const authSnap = await getDoc(authRef);
-      if (authSnap.exists()) {
-        const d = authSnap.data();
-        if (d.qr1Verified === true || d.status === "QR1_VERIFIED" || d.status === "SESSION_AUTHORIZED" || d.status === "PRESENT" || d.status === "QR2_SCANNED" || d.qr2Scanned === true) {
-          authData = d;
-        }
-      }
-    } catch (_) { }
-  }
-
-  if (!authData) {
-    try {
-      const stored = sessionStorage.getItem(`smartattend_qr1_auth_${sessionId}`) || localStorage.getItem(`smartattend_qr1_auth_${sessionId}`);
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        if (parsed.sessionId === sessionId || parsed.qr1Verified === true || parsed.qr2Scanned === true) {
-          authData = parsed;
-        }
-      }
-    } catch (_) { }
-  }
-
-  if (!authData) {
-    // If student has active session ID and is submitting, construct authorized fallback
-    authData = {
-      sessionId,
-      rollNo: currentRollNo,
-      studentName: currentUser?.displayName || currentRollNo,
-      qr1Verified: true,
-      qr2Scanned: true
-    };
-  }
-
-  // 2. Security violation & disqualification check
-  const hasAuthViolation =
-    authData.disqualified === true ||
-    (authData.hasViolation === true && !authData.excused) ||
-    (authData.violation === 1 && !authData.excused) ||
-    (Number(authData.confirmedKioskViolations || authData.violationCount || 0) >= 1 && !authData.excused);
-
-  let hasFlaggedViolation = false;
-  if (session && Array.isArray(session.flaggedViolations)) {
-    const flagEntry = session.flaggedViolations.find((f) => {
-      const fRoll = (f.rollNo || "").toUpperCase().trim();
-      const fUid = (f.studentUid || "").toUpperCase().trim();
-      return (currentRollNo && fRoll === currentRollNo) || (currentUid && fUid === currentUid.toUpperCase().trim());
-    });
-    if (flagEntry && !flagEntry.excused && !flagEntry.resolved && (flagEntry.disqualified === true || flagEntry.status === "FLAGGED_DISQUALIFIED" || Number(flagEntry.count || flagEntry.violationCount || 0) >= 1)) {
-      hasFlaggedViolation = true;
+  if (result?.data?.success) {
+    const cleanRoll = result.data.rollNo;
+    if (cleanRoll) {
+      sendStudentNotification(
+        cleanRoll,
+        "Attendance Recorded ✅",
+        `Your attendance for session ${sessionId} has been submitted successfully (${deviceAuthMode}).`,
+        "ATTENDANCE_SUCCESS",
+        "SmartAttend Guard"
+      ).catch(() => {});
     }
+    return result.data;
   }
 
-  if (hasAuthViolation || hasFlaggedViolation) {
-    throw new Error("❌ Attendance rejected: An unexcused security violation is recorded on your session.");
+  const message = result?.data?.message || "Attendance submission could not be verified by the server.";
+  if (message.toLowerCase().includes("already recorded") || message.toLowerCase().includes("already submitted")) {
+    return { success: true, alreadyRecorded: true, message: "Attendance for this session has already been recorded." };
   }
-
-  const targetRoll = (authData.rollNo || currentRollNo || "STUDENT").toUpperCase();
-  const studentName = authData.studentName || currentUser?.displayName || targetRoll;
-
-  // 3. Duplicate check in attendance_records
-  const recordId = `${sessionId}_${targetRoll}`;
-  try {
-    const recordRef = doc(db, "attendance_records", recordId);
-    const recordSnap = await getDoc(recordRef);
-    if (recordSnap.exists()) {
-      return {
-        success: true,
-        alreadyRecorded: true,
-        rollNo: targetRoll,
-        studentName,
-        submittedAt: recordSnap.data()?.submittedAt || now,
-        autoReleaseAt: now + 300000,
-        message: "Attendance for this session has already been recorded."
-      };
-    }
-  } catch (_) { }
-
-  // 4. Update authorization subcollection to PRESENT
-  const canonicalAuthId = currentUid || targetRoll;
-  try {
-    const authRef = doc(db, "attendance_sessions", sessionId, "authorizations", canonicalAuthId);
-    await updateDoc(authRef, {
-      status: "PRESENT",
-      qr2Verified: true,
-      attendanceSubmittedAt: now,
-      submittedAt: now,
-      biometricVerified: true,
-      deviceAuthMode: deviceAuthMode
-    });
-  } catch (_) { }
-
-  // 5. Create master attendance_record
-  const attendancePayload = {
-    sessionId,
-    session_id: sessionId,
-    rollNo: targetRoll,
-    rollNumber: targetRoll,
-    studentName,
-    fullName: studentName,
-    studentEmail: currentEmail,
-    studentUid: currentUid,
-    courseCode: session?.courseCode || "CLASS",
-    classCode: session?.classCode || "",
-    roomNo: session?.roomNo || "",
-    batch: session?.batch || "2025",
-    status: "PRESENT",
-    submittedAt: now,
-    timestamp: now,
-    deviceAuthMode: deviceAuthMode,
-    isNative: Boolean(isNative),
-    studentLocation: qrPayload?.studentLocation || authData?.studentLocation || null,
-    classroomDistance: (qrPayload?.distance !== undefined && qrPayload?.distance !== null) ? qrPayload.distance : (authData?.distance !== undefined ? authData.distance : null),
-    biometricVerification: {
-      verified: true,
-      confidence: biometricData?.confidence || 100,
-      distance: biometricData?.distance || 0.35,
-      liveness: biometricData?.liveness !== false
-    }
-  };
-
-  try {
-    const recordRef = doc(db, "attendance_records", recordId);
-    await setDoc(recordRef, attendancePayload, { merge: true });
-  } catch (recErr) {
-    console.error("Direct attendance_records write failed:", recErr.message);
-    throw new Error(`❌ Attendance submission could not be recorded in database (${recErr.code || recErr.message}). Please retry with an active internet connection.`);
-  }
-
-  // Also update session attendee counter if permitted
-  try {
-    const sessionRef = doc(db, "attendance_sessions", sessionId);
-    await updateDoc(sessionRef, {
-      attendedCount: increment(1)
-    });
-  } catch (_) { }
-
-  // Send real-time notification
-  try {
-    await sendStudentNotification(
-      targetRoll,
-      "Attendance Recorded ✅",
-      `Your attendance for session ${sessionId} has been submitted successfully (${deviceAuthMode}).`,
-      "ATTENDANCE_SUCCESS",
-      "SmartAttend Guard"
-    );
-  } catch (_) { }
-
-  return {
-    success: true,
-    rollNo: targetRoll,
-    studentName,
-    submittedAt: now,
-    autoReleaseAt: now + 300000,
-    attendanceSubmittedAt: now,
-    deviceAuthMode
-  };
+  throw new Error(message);
 }
 
-/**
- * Real-time listener for Attendance Session document
- */
 export function subscribeToSession(sessionId, onUpdate, onError) {
   if (!sessionId) return () => { };
   const docRef = doc(db, "attendance_sessions", sessionId);
