@@ -2097,8 +2097,11 @@ exports.validateQR2 = onCall(async (request) => {
     return (rollNo && fRoll === rollNo) || (studentUid && fUid === studentUid.toUpperCase().trim());
   });
 
-  const isAndroidClient = request.data?.platform === "android" || request.data?.isAndroid === true;
-  const violationThreshold = isAndroidClient ? 2 : 1;
+  const lifecycleStudentSnap = rollNo ? await db.collection("students").doc(rollNo).get() : null;
+  const lifecycleStudent = lifecycleStudentSnap?.exists ? lifecycleStudentSnap.data() : {};
+  const requestUserAgent = String(request.rawRequest?.headers?.["user-agent"] || "").toLowerCase();
+  const isAndroidClient = lifecycleStudent?.registeredPlatform === "android" || requestUserAgent.includes("android");
+  const violationThreshold = isAndroidClient ? 2 : Number.MAX_SAFE_INTEGER;
 
   const authViolations = Math.max(
     Number(authData.confirmedKioskViolations || authData.violationCount || 0),
@@ -2289,8 +2292,8 @@ exports.submitAttendance = onCall(async (request) => {
       rollAuthData.disqualified === true ||
       (sessionFlagged && !sessionFlagged.excused && !sessionFlagged.resolved && (sessionFlagged.disqualified === true || sessionFlagged.status === "FLAGGED_DISQUALIFIED"));
 
-    const isAndroidDevice = request.data?.platform === "android" || request.data?.isAndroid === true;
-    const violationThreshold = isAndroidDevice ? 2 : 1;
+    const isAndroidDevice = boundPlatform === "android";
+    const violationThreshold = isAndroidDevice ? 2 : Number.MAX_SAFE_INTEGER;
 
     const authViolations = Math.max(
       Number(authData.confirmedKioskViolations || authData.violationCount || 0),
@@ -3602,7 +3605,9 @@ exports.recordAttendanceLifecycleEvent = onCall(async (request) => {
   const nextCount = isConfirmedViolation ? prevCount + 1 : prevCount;
   // Derive platform from the user-agent instead of trusting the supplied platform field.
   const userAgent = String(request.rawRequest?.headers?.["user-agent"] || "").toLowerCase();
-  const isAndroidClient = userAgent.includes("android");
+  const lifecycleStudentSnap = rollNo ? await db.collection("students").doc(rollNo).get() : null;
+  const lifecycleStudent = lifecycleStudentSnap?.exists ? lifecycleStudentSnap.data() : {};
+  const isAndroidClient = lifecycleStudent?.registeredPlatform === "android" || userAgent.includes("android");
   const violationThreshold = isAndroidClient ? 2 : Number.MAX_SAFE_INTEGER;
   const isDisqualified = isConfirmedViolation && isAndroidClient && nextCount >= violationThreshold;
 
