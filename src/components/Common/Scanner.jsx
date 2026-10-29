@@ -167,6 +167,26 @@ function QrScannerApp() {
     // Keep the QR1 lock in memory for this component instance. It is cleared only
     // by the explicit session-end/logout flow, not by camera errors or UI resets.
 
+    // Keep persisted state in sync with every active phase. Without this, a remount
+    // during biometrics/submission can restore the older QR2-waiting state and
+    // accidentally reopen the QR camera while the student is verifying their face.
+    useEffect(() => {
+        if (!qr1AcceptedForSessionRef.current || typeof localStorage === 'undefined') return;
+        try {
+            const sessionId = (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('smartattend_kiosk_session_id'))
+                || localStorage.getItem('smartattend_kiosk_session_id');
+            if (!sessionId) return;
+            const saved = JSON.parse(localStorage.getItem('smartattend_kiosk_session_state') || 'null');
+            if (!saved || saved.sessionId !== sessionId) return;
+            localStorage.setItem('smartattend_kiosk_session_state', JSON.stringify({
+                ...saved,
+                scanState
+            }));
+        } catch (error) {
+            console.warn('[Scanner] Could not persist active attendance phase:', error);
+        }
+    }, [scanState]);
+
     // iOS Guided Access Lockdown State
     const [showGuidedAccessRequired, setShowGuidedAccessRequired] = useState(false);
     const [showIosGuideModal, setShowIosGuideModal] = useState(false);
