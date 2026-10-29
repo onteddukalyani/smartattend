@@ -295,52 +295,17 @@ export function subscribeToAuthorizations(sessionId, onUpdate) {
  * - iPhone & Web: records suspicious interruption for audit review without automatic disqualification.
  */
 export async function reportAttendanceLifecycleEvent(sessionId, eventData) {
-  let cloudSuccess = false;
-  let cloudResult = null;
+  if (!sessionId) throw new Error("Attendance session ID is required to report a lifecycle event.");
   try {
-    const fn = httpsCallable(functions, "recordAttendanceLifecycleEvent");
+    const fn = httpsCallable(functions, "recordAttendanceLifecycleEvent", { timeout: 15000 });
     const result = await fn({ sessionId, ...eventData });
-    if (result && result.data && result.data.success) {
-      cloudSuccess = true;
-      cloudResult = result.data;
-    }
+    if (result?.data?.success === true) return result.data;
+    throw new Error("The attendance server did not confirm that the lifecycle event was recorded.");
   } catch (err) {
-    console.warn("Cloud function recordAttendanceLifecycleEvent notice (falling back to direct Firestore update):", err.message || err);
+    // Never claim a violation was recorded when the authoritative server did not confirm it.
+    console.warn("Cloud function recordAttendanceLifecycleEvent failed:", err?.message || err);
+    throw new Error("The attendance server could not record this lifecycle event. It has not been confirmed; please retry when connected.");
   }
-
-  // If cloud function ran successfully, return its result
-  if (cloudSuccess && cloudResult) {
-    return cloudResult;
-  }
-
-  // Fallback to client-side Firestore recording so lecturer dashboard always receives violations in real-time
-  const currentUser = auth.currentUser;
-  const studentUid = currentUser?.uid || "";
-  const rollNo = (currentUser?.email ? currentUser.email.split("@")[0] : "").toUpperCase().trim();
-  const nextCount = Number(eventData?.count || 1);
-  const isDisqualified = eventData?.eventType === "CONFIRMED_KIOSK_ESCAPE" ? (nextCount >= 1) : false;
-
-  if (sessionId) {
-    try {
-      await recordSessionViolation(
-        sessionId,
-        studentUid,
-        rollNo,
-        eventData?.source || eventData?.eventType || "KIOSK_ESCAPE",
-        nextCount,
-        isDisqualified
-      );
-    } catch (fbErr) {
-      console.warn("Notice updating session violation directly in Firestore:", fbErr);
-    }
-  }
-
-  return {
-    success: true,
-    status: isDisqualified ? "DISQUALIFIED" : "WARNING",
-    violationCount: nextCount,
-    disqualified: isDisqualified
-  };
 }
 
 /**
@@ -348,124 +313,28 @@ export async function reportAttendanceLifecycleEvent(sessionId, eventData) {
  * Zero-tolerance policy: count >= 1 or isDisqualified flags as FLAGGED_DISQUALIFIED.
  */
 export async function recordSessionViolation(sessionId, studentUid, rollNo, reason = "APP_SWITCH_DETECTED", violationCount = 1, isDisqualified = false) {
-  if (!sessionId) return;
-  try {
-    const cleanRoll = (rollNo || studentUid || "").trim().toUpperCase();
-    const count = Number(violationCount) || 1;
-    const disqualified = isDisqualified || count >= 1;
-    const status = disqualified ? "FLAGGED_DISQUALIFIED" : "FLAGGED_WARNING";
+  if (!sessionId) throw new Error("Attendance session ID is required to record a violation.");
 
-    const violationPayload = {
-      rollNo: cleanRoll,
-      studentUid: studentUid || cleanRoll,
-      reason: reason,
-      timestamp: Date.now(),
-      status: status,
-      violationCount: count,
-      flagged: true,
-      disqualified: disqualified
-    };
+  // Violation counts, identity, and disqualification are derived by the server.
+  // The client-supplied UID, roll number, count, and boolean are intentionally not trusted.
+  const normalizedReason = String(reason || "ATTENDANCE_SECURITY_EVENT").toUpperCase();
+  let eventType = "LIFECYCLE_REVIEW";
+  if (normalizedReason.includes("SCREEN_CAPTURE")) eventType = "SCREEN_CAPTURE_DETECTED";
+  else if (normalizedReason.includes("VPN")) eventType = "VPN_DETECTED";
+  else if (normalizedReason.includes("MOCK_LOCATION")) eventType = "MOCK_LOCATION_DETECTED";
+  else if (normalizedReason.includes("GEOFENCE")) eventType = "GEOFENCE_EXCEEDED_MAX_ATTEMPTS";
+  else if (normalizedReason.includes("KIOSK") || normalizedReason.includes("APP_SWITCH") || normalizedReason.includes("APP_LEAVE") || normalizedReason.includes("BACKGROUNDED")) eventType = "APP_SWITCH";
 
-    // 1. Update session authorizations subcollection (Write to both studentUid and rollNo if available)
-    const targetIds = Array.from(new Set([studentUid, cleanRoll].filter(Boolean)));
-    for (const tid of targetIds) {
-      const authRef = doc(db, "attendance_sessions", sessionId, "authorizations", tid);
-      await setDoc(authRef, {
-        studentUid: studentUid || cleanRoll,
-        rollNo: cleanRoll || studentUid,
-        status: status,
-        violations: arrayUnion(violationPayload),
-        violationCount: count,
-        confirmedKioskViolations: count,
-        hasViolation: true,
-        violation: 1,
-        disqualified: disqualified
-      }, { merge: true }).catch(() => { });
-    }
-
-    // 2. Append to top-level session document flaggedViolations array (for Lecturer & Admin real-time dashboard audit)
-    const sessionRef = doc(db, "attendance_sessions", sessionId);
-    await setDoc(sessionRef, {
-      flaggedViolations: arrayUnion({
-        rollNo: cleanRoll,
-        studentUid: studentUid || cleanRoll,
-        violationType: reason,
-        violationReason: disqualified ? `Security violation limit reached (${count}/2): ${reason}` : `Security warning (${count}/2): ${reason}`,
-        timestamp: Date.now(),
-        status: status,
-        violationCount: count,
-        disqualified: disqualified
-      })
-    }, { merge: true }).catch(() => { });
-
-    // 3. Write record into attendance_records collection
-    if (cleanRoll) {
-      const recordDocId = `${sessionId}_${cleanRoll}`;
-      const recordRef = doc(db, "attendance_records", recordDocId);
-
-      if (disqualified) {
-        await setDoc(recordRef, {
-          sessionId: sessionId,
-          rollNo: cleanRoll,
-          studentUid: studentUid || cleanRoll,
-          status: "FLAGGED_DISQUALIFIED",
-          verificationStatus: "FLAGGED",
-          flagged: true,
-          disqualified: true,
-          violationCount: count,
-          violationType: reason,
-          violationReason: `Security violation limit reached (${count}/2): ${reason}`,
-          timestamp: Date.now()
-        }, { merge: true }).catch(() => { });
-
-        // Real-time Faculty Audit Alert
-        await sendFacultyNotification(
-          "🚨 Anti-Proxy Violation Limit Reached",
-          `Security violation limit reached for ${cleanRoll}: ${reason} (Violation ${count}/2). Attempt flagged and disqualified.`,
-          "ANTI_PROXY_VIOLATION",
-          cleanRoll,
-          "Anti-Proxy Guard"
-        );
-
-        // Real-time Student Notification
-        await sendStudentNotification(
-          cleanRoll,
-          "⚠️ Attendance Disqualified",
-          `Your attendance was disqualified because security violations reached the limit (2/2). Please speak with your teacher if you need help.`,
-          "ANTI_PROXY_VIOLATION",
-          "Attendance Security"
-        );
-      } else {
-        // Warning (count 1): Log warning in attendance record without disqualifying yet
-        await setDoc(recordRef, {
-          sessionId: sessionId,
-          rollNo: cleanRoll,
-          studentUid: studentUid || cleanRoll,
-          status: "FLAGGED_WARNING",
-          verificationStatus: "WARNING",
-          flagged: true,
-          disqualified: false,
-          violationCount: count,
-          violationType: reason,
-          violationReason: `Security warning (${count}/2): ${reason}`,
-          timestamp: Date.now()
-        }, { merge: true }).catch(() => { });
-
-        // Real-time Student Warning Notification
-        await sendStudentNotification(
-          cleanRoll,
-          "⚠️ Security Warning (1 of 2)",
-          `App switch/backgrounding detected during active attendance session (Warning 1/2). One more violation will forfeit your attendance.`,
-          "ANTI_PROXY_WARNING",
-          "Attendance Security"
-        );
-      }
-    }
-  } catch (err) {
-    console.warn("Notice recording session violation:", err);
+  const platform = typeof navigator !== "undefined" && /Android/i.test(navigator.userAgent || "")
+    ? "android"
+    : (typeof navigator !== "undefined" && /iPhone|iPad|iPod/i.test(navigator.userAgent || "") ? "ios" : "web");
+  const fn = httpsCallable(functions, "recordAttendanceLifecycleEvent", { timeout: 15000 });
+  const result = await fn({ sessionId, eventType, source: normalizedReason.slice(0, 120), platform });
+  if (result?.data?.success !== true) {
+    throw new Error("The attendance server did not confirm the security event.");
   }
+  return result.data;
 }
-
 /**
  * Lecturer: Excuse a flagged/disqualified student and reinstate their attendance as Present (Approved).
  * Used when a student explains their situation physically in class (e.g. accidental app switch / screen timeout).

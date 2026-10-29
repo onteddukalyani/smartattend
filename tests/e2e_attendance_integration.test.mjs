@@ -144,6 +144,7 @@ test("E2E Integration: Complete 10-Step Attendance Flow Against Live Emulator", 
       roomNo: "Hall-101",
       batch: "2025",
       geofenceRadius: 10,
+      classroomLocation: { latitude: 12.971630, longitude: 77.594615 },
       rotationIntervalSec: 10,
       durationMinutes: 3,
       qr1DurationSeconds: 60,
@@ -158,7 +159,26 @@ test("E2E Integration: Complete 10-Step Attendance Flow Against Live Emulator", 
   const qr2Secret = sessionInitResult.qr2Token;
   assert.ok(sessionId, "Session ID must be returned");
   assert.ok(qr1Secret, "QR1 secret must be generated");
-  assert.ok(qr2Secret, "QR2 secret must be generated");
+  // Phase 2 QR validation must fail before the lecturer releases Phase 2.
+  const phase1Slot = Math.floor(Date.now() / 10000);
+  const phase1Sig = generateDynamicQrToken(sessionId, 2, phase1Slot, 10, qr2Secret);
+  await assert.rejects(
+    async () => fns.validateQR2.run({
+      auth: { uid: STUDENT_UID, token: { email: STUDENT_EMAIL } },
+      data: { sessionId, qr2Token: qr2Secret, slot: phase1Slot, sig: phase1Sig, int: 10 }
+    }),
+    (err) => err.code === "failed-precondition" && /not released/i.test(err.message)
+  );
+
+  // An un-authorized student must not be able to pollute a session with lifecycle events.
+  await assert.rejects(
+    async () => fns.recordAttendanceLifecycleEvent.run({
+      auth: { uid: STUDENT_UID, token: { email: STUDENT_EMAIL } },
+      data: { sessionId, eventType: "APP_SWITCH", source: "test" }
+    }),
+    (err) => err.code === "permission-denied"
+  );
+    assert.ok(qr2Secret, "QR2 secret must be generated");
 
   // Verify Database State for Session
   const sessionSnap = await db.collection("attendance_sessions").doc(sessionId).get();
@@ -694,6 +714,14 @@ test("E2E Integration: Complete 10-Step Attendance Flow Against Live Emulator", 
   const nowPhase2 = Date.now();
   const currentSlot2 = Math.floor(nowPhase2 / 10000);
   const sig2 = generateDynamicQrToken(sessionId, 2, currentSlot2, 10, qr2Secret);
+
+  await assert.rejects(
+    async () => fns.validateQR2.run({
+      auth: { uid: STUDENT_UID, token: { email: STUDENT_EMAIL } },
+      data: { sessionId, qr2Token: "forged-session-id-token" }
+    }),
+    (err) => err.code === "permission-denied"
+  );
 
   const qr2Res = await fns.validateQR2.run({
     auth: { uid: STUDENT_UID, token: { email: STUDENT_EMAIL } },

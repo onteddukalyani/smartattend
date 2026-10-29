@@ -1512,7 +1512,7 @@ exports.initiateAttendanceSession = onCall({ cors: true }, async (request) => {
     throw new HttpsError("unauthenticated", "Authentication required to initiate session.");
   }
 
-  const { classCode, courseCode, roomNo, batch, lecturerInfo, geofenceRadius } = request.data || {};
+  const { classCode, courseCode, roomNo, batch, lecturerInfo, geofenceRadius, classroomLocation } = request.data || {};
   if (!classCode || !courseCode || !roomNo) {
     throw new HttpsError("invalid-argument", "Missing required session parameters (classCode, courseCode, roomNo).");
   }
@@ -1525,18 +1525,30 @@ exports.initiateAttendanceSession = onCall({ cors: true }, async (request) => {
     await assertLecturerCourseScope(request.auth.uid, lecturerEmail, courseCode);
   }
 
-  // Geofence radius validation: approved range is 5 to 50 metres, default is 10 metres.
-  // Reject invalid, non-numeric, non-finite, below-minimum, or above-maximum values without silent conversion.
-  let effectiveGeofenceRadius = 10;
+  // Store geofence coordinates atomically with the session to prevent QR1 checks
+  // racing a later client-side location write. Radius 0 explicitly disables it.
+  const latitude = Number(classroomLocation?.latitude ?? classroomLocation?.lat);
+  const longitude = Number(classroomLocation?.longitude ?? classroomLocation?.lng ?? classroomLocation?.lon);
+  const hasClassroomCoordinates = Boolean(
+    classroomLocation &&
+    Number.isFinite(latitude) && latitude >= -90 && latitude <= 90 &&
+    Number.isFinite(longitude) && longitude >= -180 && longitude <= 180
+  );
+  if (classroomLocation && !hasClassroomCoordinates) {
+    throw new HttpsError("invalid-argument", "Classroom location must contain valid latitude and longitude coordinates.");
+  }
+  let effectiveGeofenceRadius = hasClassroomCoordinates ? 10 : 0;
   if (geofenceRadius !== undefined && geofenceRadius !== null) {
-    if (typeof geofenceRadius !== "number" || !Number.isFinite(geofenceRadius) || geofenceRadius < 5 || geofenceRadius > 50) {
-      throw new HttpsError(
-        "invalid-argument",
-        "Geofence radius must be a finite number between 5 and 50 metres (default is 10m)."
-      );
+    if (typeof geofenceRadius !== "number" || !Number.isFinite(geofenceRadius) ||
+      (geofenceRadius !== 0 && (geofenceRadius < 5 || geofenceRadius > 50))) {
+      throw new HttpsError("invalid-argument", "Geofence radius must be 0 (disabled) or a finite number between 5 and 50 metres.");
     }
     effectiveGeofenceRadius = geofenceRadius;
   }
+  if (effectiveGeofenceRadius > 0 && !hasClassroomCoordinates) {
+    throw new HttpsError("invalid-argument", "A classroom location is required when geofencing is enabled.");
+  }
+  const storedClassroomLocation = hasClassroomCoordinates ? { latitude, longitude } : null;
 
   const nowMs = Date.now();
   const sessionStartMs = nowMs;
@@ -1601,6 +1613,7 @@ exports.initiateAttendanceSession = onCall({ cors: true }, async (request) => {
     roomNo: roomNo,
     batch: batch || "2025",
     geofenceRadius: effectiveGeofenceRadius,
+    classroomLocation: storedClassroomLocation,
     rotationIntervalSec: rotationIntervalSec,
     phase: "PHASE_1",
     status: "ACTIVE",
@@ -1975,9 +1988,12 @@ exports.validateQR2 = onCall(async (request) => {
   const session = sessionSnap.data();
   const security = securitySnap.data();
 
-  // 1. Validate session active
-  if (session.active === false || session.status === "CLOSED") {
+  // 1. Validate session active and require the server-controlled Phase 2 transition.
+  if (session.active === false || session.status === "CLOSED" || session.phase === "CLOSED") {
     throw new HttpsError("failed-precondition", "This attendance session has ended.");
+  }
+  if (!(session.phase === "PHASE_2" || session.phase === "2" || session.qr2Released === true)) {
+    throw new HttpsError("failed-precondition", "QR 2 is not released yet. Wait for the lecturer to release Phase 2.");
   }
 
   // 2. Validate server time within T = 60s to 180s
@@ -2006,11 +2022,11 @@ exports.validateQR2 = onCall(async (request) => {
       clientInterval: request.data.int,
       authoritativeInterval,
       serverNow,
-      secret: security.qr2Token || sessionId
+      secret: security.qr2Token
     });
   } else {
     const inputHash = hashToken(qr2Token);
-    if (inputHash !== security.qr2TokenHash && qr2Token !== security.qr2Token && qr2Token !== sessionId) {
+    if (!security.qr2TokenHash || inputHash !== security.qr2TokenHash) {
       throw new HttpsError("permission-denied", "❌ Invalid QR 2 token.");
     }
   }
@@ -2081,8 +2097,11 @@ exports.validateQR2 = onCall(async (request) => {
     return (rollNo && fRoll === rollNo) || (studentUid && fUid === studentUid.toUpperCase().trim());
   });
 
-  const isAndroidClient = request.data?.platform === "android" || request.data?.isAndroid === true;
-  const violationThreshold = isAndroidClient ? 2 : 1;
+  const lifecycleStudentSnap = rollNo ? await db.collection("students").doc(rollNo).get() : null;
+  const lifecycleStudent = lifecycleStudentSnap?.exists ? lifecycleStudentSnap.data() : {};
+  const requestUserAgent = String(request.rawRequest?.headers?.["user-agent"] || "").toLowerCase();
+  const isAndroidClient = lifecycleStudent?.registeredPlatform === "android" || requestUserAgent.includes("android");
+  const violationThreshold = isAndroidClient ? 2 : Number.MAX_SAFE_INTEGER;
 
   const authViolations = Math.max(
     Number(authData.confirmedKioskViolations || authData.violationCount || 0),
@@ -2182,8 +2201,11 @@ exports.submitAttendance = onCall(async (request) => {
     const kioskEndsAtMs = parseStrictTimestampMs(security.kioskEndsAt) ||
       (typeof security.kioskEndsAt?.toMillis === "function" ? security.kioskEndsAt.toMillis() : Number(security.kioskEndsAt) || 0);
 
-    if (session.active === false || (kioskEndsAtMs && serverNow > kioskEndsAtMs)) {
+    if (session.active === false || session.status === "CLOSED" || session.phase === "CLOSED" || (kioskEndsAtMs && serverNow > kioskEndsAtMs)) {
       throw new HttpsError("failed-precondition", "Attendance session is closed.");
+    }
+    if (!(session.phase === "PHASE_2" || session.phase === "2" || session.qr2Released === true)) {
+      throw new HttpsError("failed-precondition", "QR 2 has not been released for this session.");
     }
 
     // Option A: Authoritative Student Platform Binding Verification (Fail-closed on unbound accounts)
@@ -2270,8 +2292,8 @@ exports.submitAttendance = onCall(async (request) => {
       rollAuthData.disqualified === true ||
       (sessionFlagged && !sessionFlagged.excused && !sessionFlagged.resolved && (sessionFlagged.disqualified === true || sessionFlagged.status === "FLAGGED_DISQUALIFIED"));
 
-    const isAndroidDevice = request.data?.platform === "android" || request.data?.isAndroid === true;
-    const violationThreshold = isAndroidDevice ? 2 : 1;
+    const isAndroidDevice = boundPlatform === "android";
+    const violationThreshold = isAndroidDevice ? 2 : Number.MAX_SAFE_INTEGER;
 
     const authViolations = Math.max(
       Number(authData.confirmedKioskViolations || authData.violationCount || 0),
@@ -2310,7 +2332,7 @@ exports.submitAttendance = onCall(async (request) => {
           clientInterval: request.data.int,
           authoritativeInterval,
           serverNow,
-          secret: security.qr2Token || sessionId
+          secret: security.qr2Token
         });
       } else {
         if (!qr2Token || hashToken(qr2Token) !== security.qr2TokenHash) {
@@ -2476,9 +2498,15 @@ exports.submitAttendance = onCall(async (request) => {
     // boolean flags cannot be cryptographically proven by the backend.
     // Genuine cryptographic student & device verification is provided separately via hardware-backed
     // keystore challenges (biometric_challenges/{challengeId}) and authoritative face vector comparison.
-    const isAntiSpoofPassed = biometricData?.antiSpoof === "PASSED" || biometricData?.antiSpoofScore === "PASSED" || biometricData?.antiSpoof === undefined;
-    if (!biometricData || biometricData.liveness !== true || !isAntiSpoofPassed || biometricData.antiSpoof === "FAILED") {
-      throw new HttpsError("permission-denied", "Face liveness verification failed. Active optical presence required.");
+    // Optical liveness is a client-side signal, not cryptographic proof. Never
+    // accept a missing anti-spoof result; server face matching and the separately
+    // verified hardware challenge remain the security trust boundaries.
+    const hasExplicitLivenessResult =
+      biometricData?.liveness === true &&
+      (biometricData?.antiSpoof === "PASSED" || biometricData?.antiSpoofScore === "PASSED") &&
+      Number(biometricData?.blinkCount) >= 1;
+    if (!hasExplicitLivenessResult || biometricData?.antiSpoof === "FAILED") {
+      throw new HttpsError("permission-denied", "Face liveness verification failed. Please complete the live face challenge and try again.");
     }
 
     if (serverCalculatedDistance > MAX_FACE_MATCH_THRESHOLD) {
@@ -3533,9 +3561,15 @@ exports.recordAttendanceLifecycleEvent = onCall(async (request) => {
 
   const studentUid = request.auth.uid;
   const sessionRef = db.collection("attendance_sessions").doc(sessionId);
+  const sessionSnap = await sessionRef.get();
+  if (!sessionSnap.exists) throw new HttpsError("not-found", "Attendance session not found.");
+  const session = sessionSnap.data() || {};
+  if (session.active === false || session.status === "CLOSED" || session.phase === "CLOSED") {
+    throw new HttpsError("failed-precondition", "Attendance session has ended.");
+  }
+
   let authRef = sessionRef.collection("authorizations").doc(studentUid);
   let authSnap = await authRef.get();
-
   let studentProfile = null;
   if (!authSnap.exists) {
     studentProfile = await resolveTrustedStudent(studentUid, request.auth.token.email);
@@ -3548,29 +3582,34 @@ exports.recordAttendanceLifecycleEvent = onCall(async (request) => {
       }
     }
   }
-
-  if (!studentProfile) {
-    studentProfile = await resolveTrustedStudent(studentUid, request.auth.token.email);
+  if (!studentProfile) studentProfile = await resolveTrustedStudent(studentUid, request.auth.token.email);
+  if (!authSnap.exists) {
+    throw new HttpsError("permission-denied", "Lifecycle events can only be recorded after QR 1 authorization for this session.");
   }
 
-  const authData = authSnap.exists ? authSnap.data() : {};
+  const authData = authSnap.data() || {};
+  if (!(authData.qr1Verified === true || authData.status === "QR1_VERIFIED" ||
+        authData.status === "SESSION_AUTHORIZED" || authData.status === "QR2_VERIFIED")) {
+    throw new HttpsError("permission-denied", "QR 1 authorization is required before reporting attendance lifecycle events.");
+  }
   const rollNo = (authData.rollNo || studentProfile?.rollNo || studentUid).toUpperCase().trim();
   const studentName = authData.studentName || studentProfile?.name || rollNo;
   const nowMs = Date.now();
 
-  const isConfirmedViolation = 
-    eventType === "CONFIRMED_KIOSK_ESCAPE" ||
-    eventType === "APP_LEAVE" ||
-    eventType === "APP_SWITCH" ||
-    eventType === "APP_BACKGROUNDED" ||
-    eventType === "DEVTOOLS_OPENED" ||
-    (source && (source.includes("kiosk") || source.includes("background") || source.includes("app_switch") || source.includes("devtools")));
-
+  const isConfirmedViolation = [
+    "CONFIRMED_KIOSK_ESCAPE", "APP_LEAVE", "APP_SWITCH",
+    "APP_BACKGROUNDED", "DEVTOOLS_OPENED", "SCREEN_CAPTURE_DETECTED",
+    "VPN_DETECTED", "MOCK_LOCATION_DETECTED", "GEOFENCE_EXCEEDED_MAX_ATTEMPTS"
+  ].includes(String(eventType || "").toUpperCase());
   const prevCount = Number(authData.confirmedKioskViolations || authData.violationCount || 0);
-  const nextCount = prevCount + 1;
-  const isAndroidClient = platform === "android" || platform === "ANDROID" || (source && source.includes("android"));
-  const violationThreshold = isAndroidClient ? 2 : 1;
-  const isDisqualified = nextCount >= violationThreshold;
+  const nextCount = isConfirmedViolation ? prevCount + 1 : prevCount;
+  // Derive platform from the user-agent instead of trusting the supplied platform field.
+  const userAgent = String(request.rawRequest?.headers?.["user-agent"] || "").toLowerCase();
+  const lifecycleStudentSnap = rollNo ? await db.collection("students").doc(rollNo).get() : null;
+  const lifecycleStudent = lifecycleStudentSnap?.exists ? lifecycleStudentSnap.data() : {};
+  const isAndroidClient = lifecycleStudent?.registeredPlatform === "android" || userAgent.includes("android");
+  const violationThreshold = isAndroidClient ? 2 : Number.MAX_SAFE_INTEGER;
+  const isDisqualified = isConfirmedViolation && isAndroidClient && nextCount >= violationThreshold;
 
   const violationEntry = {
     type: eventType || "CONFIRMED_KIOSK_ESCAPE",
@@ -3581,7 +3620,7 @@ exports.recordAttendanceLifecycleEvent = onCall(async (request) => {
     disqualified: isDisqualified
   };
 
-  const updatePayload = {
+  const updatePayload = isConfirmedViolation ? {
     hasViolation: true,
     violation: 1,
     violationCount: nextCount,
@@ -3591,10 +3630,17 @@ exports.recordAttendanceLifecycleEvent = onCall(async (request) => {
     violations: FieldValue.arrayUnion(violationEntry),
     lastViolationAt: nowMs,
     lastViolationReason: `Security violation (${source || eventType}) during attendance session`
+  } : {
+    lastLifecycleEvent: {
+      type: String(eventType || "LIFECYCLE_REVIEW").slice(0, 80),
+      source: String(source || "client_lifecycle").slice(0, 80),
+      platform: String(platform || "unknown").slice(0, 40),
+      timestamp: nowMs
+    }
   };
 
   // Authoritatively update both studentUid and rollNo documents with merge: true
-  await sessionRef.collection("authorizations").doc(studentUid).set(updatePayload, { merge: true });
+  await authRef.set(updatePayload, { merge: true });
   if (rollNo && rollNo !== studentUid) {
     try {
       await sessionRef.collection("authorizations").doc(rollNo).set(updatePayload, { merge: true });
@@ -3611,7 +3657,8 @@ exports.recordAttendanceLifecycleEvent = onCall(async (request) => {
     count: nextCount,
     violationCount: nextCount,
     disqualified: isDisqualified,
-    status: isDisqualified ? "FLAGGED_DISQUALIFIED" : "FLAGGED_WARNING",
+    status: isConfirmedViolation ? (isDisqualified ? "FLAGGED_DISQUALIFIED" : "FLAGGED_WARNING") : "FLAGGED_REVIEW",
+    resolved: false,
     timestamp: nowMs
   };
 
@@ -3642,12 +3689,12 @@ exports.recordAttendanceLifecycleEvent = onCall(async (request) => {
   return {
     success: true,
     platform: platform || "android",
-    status: isDisqualified ? "DISQUALIFIED" : "WARNING",
+    status: isDisqualified ? "DISQUALIFIED" : (isConfirmedViolation ? "WARNING" : "REVIEW"),
     violationCount: nextCount,
     disqualified: isDisqualified,
     message: isDisqualified
       ? "Attendance forfeited: Confirmed security violation detected during kiosk session."
-      : "Warning: Kiosk exit detected."
+      : (isConfirmedViolation ? "Warning: Confirmed kiosk violation recorded." : "Lifecycle interruption recorded for lecturer review.")
   };
 });
 

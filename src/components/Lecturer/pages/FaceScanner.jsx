@@ -707,7 +707,9 @@ function FaceScanner({
                 consecutiveMatchesRef.current = 0;
               }
 
-              const isLive = livenessConfirmedRef.current || (isMatch && consecutiveMatchesRef.current >= 3);
+              // A matching face across several frames is not proof of live presence.
+              // Require the active liveness challenge and an observed blink.
+              const isLive = livenessConfirmedRef.current && Number(challengeEngine.blinkCount) >= 1;
               const isSpoofed = spoofDetectedRef.current;
 
               if (isSpoofed) {
@@ -761,7 +763,7 @@ function FaceScanner({
                     distance: dist,
                     liveness: true,
                     antiSpoof: "PASSED",
-                    blinkCount: challengeEngine.blinkCount || 1,
+                    blinkCount: Number(challengeEngine.blinkCount) || 0,
                     student: verifiedStudent,
                     liveDescriptor: Array.from(liveDescriptor)
                   });
@@ -772,12 +774,9 @@ function FaceScanner({
                 }
               } else if (isMatch && !isLive) {
                 mismatchFramesRef.current = 0;
-                // If student holds face steadily in frame for >= 3 frames without spoof, or challenge is progressing,
-                // confirm presence immediately so verification never gets stuck on blink prompt
-                if (consecutiveMatchesRef.current >= 3 || challengeEngine.progress >= 40 || challengeEngine.blinkCount >= 1) {
-                  livenessConfirmedRef.current = true;
-                  setLivenessPassed(true);
-                }
+                // A stable face match or partial challenge progress must never substitute
+                // for a completed liveness challenge. Keep prompting until the real blink
+                // challenge confirms live presence.
                 updateStatus("liveness_check");
                 updateFeedback(challengeEngine.message || "👁️ Face aligned! Please blink naturally to confirm live presence...");
                 onVerificationChange({

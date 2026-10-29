@@ -581,7 +581,16 @@ service cloud.firestore {
       // Authorizations subcollection: student devices and lecturers
       // Authorizations subcollection: student devices and lecturers
       match /authorizations/{authDocId} {
-        allow read: if isSignedIn();
+        // Students may read only their own authorization record. Staff access is
+        // retained for the lecturer's live supervision dashboard.
+        allow read: if isStaff() || (
+          isSignedIn() && (
+            request.auth.uid == authDocId ||
+            resource.data.studentUid == request.auth.uid ||
+            (request.auth.token.email != null && resource.data.studentEmail != null &&
+              resource.data.studentEmail.lower() == request.auth.token.email.lower())
+          )
+        );
         // Only trusted server functions may create QR1 authorization records.
         // A student cannot self-assert qr1Verified/status by writing directly to Firestore.
         allow create: if false;
@@ -603,46 +612,50 @@ service cloud.firestore {
           ])
         );
         match /{document=**} {
-          allow read: if isSignedIn();
+          allow read: if isStaff();
           allow write: if false;
         }
       }
 
       match /violations/{violationId} {
-        allow read: if isSignedIn();
-        allow create: if isSignedIn();
+        // Only trusted Cloud Functions may create violation records. Students
+        // cannot forge violations or read other students' violation history.
+        allow read: if isStaff() || (
+          isSignedIn() &&
+          exists(/databases/$(database)/documents/attendance_sessions/$(sessionId)/authorizations/$(request.auth.uid))
+        );
+        allow create: if false;
         allow update, delete: if isStaff();
         match /{document=**} {
-          allow read: if isSignedIn();
+          allow read: if isStaff();
           allow write: if false;
         }
       }
 
       match /audit_logs/{logId} {
-        allow read: if isSignedIn();
-        allow write: if isStaff();
+        allow read, write: if isStaff();
         match /{document=**} {
-          allow read: if isSignedIn();
+          allow read: if isStaff();
           allow write: if false;
         }
       }
 
       // Time adjustments audit records: only Cloud Functions Admin SDK can write
       match /time_adjustments/{adjustmentId} {
-        allow read: if isSignedIn();
+        allow read: if isStaff();
         allow write: if false;
         match /{document=**} {
-          allow read: if isSignedIn();
+          allow read: if isStaff();
           allow write: if false;
         }
       }
 
       // Geofence adjustments audit records: only Cloud Functions Admin SDK can write
       match /geofence_adjustments/{adjustmentId} {
-        allow read: if isSignedIn();
+        allow read: if isStaff();
         allow write: if false;
         match /{document=**} {
-          allow read: if isSignedIn();
+          allow read: if isStaff();
           allow write: if false;
         }
       }
