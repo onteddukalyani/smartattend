@@ -130,6 +130,11 @@ function QrScannerApp() {
 
     // Current State: 'IDLE' | 'AUTHORIZING_QR1' | 'KIOSK_WAITING_QR2' | 'VALIDATING_QR2' | 'BIOMETRIC_SCAN' | 'ATTENDANCE_SUCCESS' | 'DISQUALIFIED'
     const [scanState, setScanState] = useState('IDLE');
+    // Lock the camera off after QR2 succeeds until this attendance session ends.
+    const cameraLockedForSessionRef = useRef(false);
+    // Prevent returning to the initial QR1 scan page once QR1 is accepted.
+    // QR2 scanning remains available from the waiting screen when released.
+    const qr1AcceptedForSessionRef = useRef(false);
 
     // iOS Guided Access Lockdown State
     const [showGuidedAccessRequired, setShowGuidedAccessRequired] = useState(false);
@@ -250,12 +255,12 @@ function QrScannerApp() {
             const ends = typeof sessionData.kioskEndsAt.toMillis === 'function' ? sessionData.kioskEndsAt.toMillis() : Number(sessionData.kioskEndsAt);
             if (ends > 0) setKioskEndsAt(ends);
         }
-        // If lecturer transitions early or releases QR 2, immediately unlock and activate camera
+        // Session updates may unlock QR2, but cannot reopen the camera after QR2 was accepted.
         if (sessionData.phase === 'PHASE_2' || sessionData.phase === '2' || sessionData.qr2Released === true) {
             setForceQr2Unlocked(true);
-            setScannerActive(true);
+            if (!cameraLockedForSessionRef.current && scanState === 'KIOSK_WAITING_QR2') setScannerActive(true);
         }
-    }, [sessionData]);
+    }, [sessionData, scanState]);
 
     // Authoritative target time for Phase 2 QR unlock (immediate from auth response + real-time Firestore sync)
     const effectiveQr2TargetMs = (sessionData?.qr2StartsAt
@@ -288,18 +293,29 @@ function QrScannerApp() {
             ? (typeof sessionData.expiresAt.toMillis === 'function' ? sessionData.expiresAt.toMillis() : Number(sessionData.expiresAt))
             : kioskEndsAt)) || 0;
 
-    // Explicitly manage camera hardware during waiting phase vs QR2 release
+    // QR-scanner camera is allowed for QR1 and QR2 only. After QR2 is accepted,
+    // keep the QR-scanning page/camera closed until the session ends. The separate
+    // face-verification component may still open its own camera for live face capture.
     useEffect(() => {
-        if (scanState === 'KIOSK_WAITING_QR2') {
-            if (!isQr2Released) {
-                releaseAllMediaTracks();
-                releaseCameraLock();
-                setScannerActive(false);
-            } else {
-                setScannerActive(true);
-            }
+        // A transient handler must not send a student back to QR1 after successful
+        // check-in. Keep them on the session waiting/verification flow instead.
+        if (qr1AcceptedForSessionRef.current && scanState === 'IDLE') {
+            setScanState('KIOSK_WAITING_QR2');
+            setScannerActive(false);
+            releaseAllMediaTracks();
+            releaseCameraLock();
+            return;
         }
-    }, [scanState, isQr2Released]);
+        const shouldCameraBeActive = !cameraLockedForSessionRef.current &&
+            (scanState === 'IDLE' || (scanState === 'KIOSK_WAITING_QR2' && isQr2Released));
+        if (shouldCameraBeActive) {
+            setScannerActive(true);
+        } else {
+            setScannerActive(false);
+            releaseAllMediaTracks();
+            releaseCameraLock();
+        }
+    }, [scanState, isQr2Released, sessionEndedAutoReleased]);
 
     // Haptic vibration feedback trigger when Phase 2 unlocks
     const wasQr2ReleasedRef = useRef(false);
@@ -1302,6 +1318,9 @@ function QrScannerApp() {
         if (activeSessionId) {
             requestAutoFailSafeUnlock(activeSessionId, user?.uid, deviceIdentity?.deviceId).catch(() => { });
         }
+        // The session is over: release the QR-scanner lock so a fresh session can start.
+        cameraLockedForSessionRef.current = false;
+        qr1AcceptedForSessionRef.current = false;
         setSessionEndedAutoReleased(true);
         if (
             reason.toLowerCase().includes('dashboard') ||
@@ -1844,7 +1863,7 @@ function QrScannerApp() {
             }
             if (data.phase === 'PHASE_2' || data.phase === '2' || data.qr2Released === true) {
                 setForceQr2Unlocked(true);
-                setScannerActive(true);
+                if (!cameraLockedForSessionRef.current && scanState === 'KIOSK_WAITING_QR2') setScannerActive(true);
             }
             // If lecturer ends the session in real-time or releases student
             const cleanRoll = (loggedInRollNo || '').trim().toUpperCase();
@@ -1860,7 +1879,7 @@ function QrScannerApp() {
             }
         });
         return () => unsub();
-    }, [activeSessionId, sessionStartAt, kioskEndsAt, loggedInRollNo, user?.uid, handleSessionCompletedAutoUnlock]);
+    }, [activeSessionId, sessionStartAt, kioskEndsAt, loggedInRollNo, user?.uid, scanState, handleSessionCompletedAutoUnlock]);
 
     // Subscribe to Individual Student Authorization for Remote Release by Lecturer
     useEffect(() => {
@@ -2114,6 +2133,8 @@ function QrScannerApp() {
         setAuthQr2StartsAt(targetQr2);
         setAuthQr1DurationSec(durationSec);
 
+        // Lock the QR1 entry page for this session before updating the UI.
+        qr1AcceptedForSessionRef.current = true;
         // Instant visual transition to Kiosk Waiting Screen
         setScanState('KIOSK_WAITING_QR2');
         setErrorMessage('');
@@ -2357,6 +2378,12 @@ function QrScannerApp() {
                 }
             }
 
+            // QR2 succeeded: disable the camera for the rest of this attendance session.
+            cameraLockedForSessionRef.current = true;
+            setScannerActive(false);
+            releaseAllMediaTracks();
+            releaseCameraLock();
+
             setActiveSessionId(targetSession);
             setActiveQr2Token(qr2Token);
             if (result?.kioskEndsAt) setKioskEndsAt(result.kioskEndsAt);
@@ -2414,8 +2441,9 @@ function QrScannerApp() {
                 setSupervisionViolation(true);
             } else if (msg.includes('QR 1') || msg.includes('Access denied') || msg.includes('Access Denied')) {
                 setErrorMessage('⛔ Access Denied: You must scan QR 1 first during Phase 1. All students must scan both QR codes. Attendance cannot be accepted without scanning QR 1.');
-                setScanState('IDLE');
-                setActiveSessionId(null);
+                // Never reopen QR1 while the current attendance session is active.
+                setScanState(qr1AcceptedForSessionRef.current ? 'KIOSK_WAITING_QR2' : 'IDLE');
+                if (!qr1AcceptedForSessionRef.current) setActiveSessionId(null);
             } else {
                 // Network or transient error fallback: check local QR 1 check-in record
                 const storedAuth = (typeof sessionStorage !== "undefined" ? sessionStorage.getItem(`smartattend_qr1_auth_${targetSession}`) : null)
@@ -5234,7 +5262,7 @@ function QrScannerApp() {
                                             setSessionData(fresh);
                                             if (fresh.phase === 'PHASE_2' || fresh.phase === '2' || fresh.qr2Released === true) {
                                                 setForceQr2Unlocked(true);
-                                                setScannerActive(true);
+                                                if (!cameraLockedForSessionRef.current && scanState === 'KIOSK_WAITING_QR2') setScannerActive(true);
                                                 return;
                                             }
                                         }
@@ -5242,7 +5270,7 @@ function QrScannerApp() {
                                 }
                                 if (sessionData?.phase === 'PHASE_2' || sessionData?.qr2Released === true) {
                                     setForceQr2Unlocked(true);
-                                    setScannerActive(true);
+                                    if (!cameraLockedForSessionRef.current && scanState === 'KIOSK_WAITING_QR2') setScannerActive(true);
                                 } else {
                                     alert(`⏳ Under Lecturer Supervision\n\nLecturer ${sessionData?.lecturerName || 'Faculty'} has not presented QR 2 yet. Please wait for the lecturer to switch to Phase 2 on the screen.`);
                                 }
