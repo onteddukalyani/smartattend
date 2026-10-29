@@ -3046,7 +3046,7 @@ test("34. Anti-Proxy VPN & Mock GPS Check: Rejects mock location and active prox
   );
 });
 
-test("35. Browser Camera Authorization: Only lecturer, admin, and iPhone users can access camera in browser; Android web students blocked", () => {
+test("35. Browser Camera Authorization: All users (lecturer, admin, student, Android, iOS, desktop) can access camera in browser", () => {
   // Case A: Lecturer in browser on ANY device (Android, PC, iOS)
   const lecturerBrowser = isBrowserCameraAllowed({ role: "lecturer" }, { uid: "lec_1" });
   assert.strictEqual(lecturerBrowser.allowed, true);
@@ -3078,16 +3078,13 @@ test("35. Browser Camera Authorization: Only lecturer, admin, and iPhone users c
   assert.strictEqual(iosStudent.allowed, true);
   assert.strictEqual(iosStudent.reason, "iphone_user");
 
-  // Case D: Android web student in browser (Must be BLOCKED from browser camera)
+  // Case D: Android web student in browser — NOW ALLOWED for all devices
   const androidWebStudent = isBrowserCameraAllowed({ role: "student", deviceType: "android" });
-  assert.strictEqual(androidWebStudent.allowed, false);
-  assert.strictEqual(androidWebStudent.reason, "android_web_student");
-  assert.ok(androidWebStudent.message.includes("Camera in browser is only available for Lecturers, Admins, and iPhone users"));
+  assert.strictEqual(androidWebStudent.allowed, true);
 
-  // Desktop / PC browser student (Must also be BLOCKED)
+  // Desktop / PC browser student — also ALLOWED
   const desktopWebStudent = isBrowserCameraAllowed({ role: "student", deviceType: "web" });
-  assert.strictEqual(desktopWebStudent.allowed, false);
-  assert.strictEqual(desktopWebStudent.reason, "android_web_student");
+  assert.strictEqual(desktopWebStudent.allowed, true);
 
   // Case E: Native Mobile App (Capacitor APK) - Always allowed for all users
   const origIsNative = Capacitor.isNativePlatform;

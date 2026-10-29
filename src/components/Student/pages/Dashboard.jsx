@@ -59,7 +59,7 @@ import { locationFromPosition, isAccurateLocation } from "../../../utils/locatio
 import { Capacitor } from "@capacitor/core";
 import { KioskPlugin } from "../../../plugins/kiosk";
 import { checkForAppUpdate, subscribeToAppUpdates, triggerApkDownload } from "../../../services/appUpdateService";
-import { dismissAppUpdate, isAppUpdateDismissed } from "../../../utils/appUpdateDismissal";
+import { dismissAppUpdate, isAppUpdateDismissed, hasAppUpdateNotificationBeenShown, markAppUpdateNotificationShown } from "../../../utils/appUpdateDismissal";
 import { registerStudentDevice } from "../../../services/deviceRegistrationService";
 import AppUpdateModal from "../../Common/AppUpdateModal";
 import "./Dashboard.css";
@@ -132,8 +132,6 @@ export default function StudentDashboard() {
 
     // App Update Reminder State
     const [updateInfo, setUpdateInfo] = useState(null);
-    const [showUpdateModal, setShowUpdateModal] = useState(false);
-    const [updateDismissed, setUpdateDismissed] = useState(false);
 
     // Subscribe to App Updates so students are immediately notified of new versions
     useEffect(() => {
@@ -142,11 +140,15 @@ export default function StudentDashboard() {
             if (!isMounted) return;
             if (!info?.hasUpdate) {
                 setUpdateInfo(null);
-                setUpdateDismissed(false);
+                return;
+            }
+            // Non-mandatory: only show once per version
+            if (!info.isMandatory && (isAppUpdateDismissed(info.latestVersion) || hasAppUpdateNotificationBeenShown(info.latestVersion))) {
+                setUpdateInfo(null);
                 return;
             }
             setUpdateInfo(info);
-            setUpdateDismissed(!info.isMandatory && isAppUpdateDismissed(info.latestVersion));
+            if (!info.isMandatory) markAppUpdateNotificationShown(info.latestVersion);
         };
 
         checkForAppUpdate().then((info) => {
@@ -1105,124 +1107,6 @@ export default function StudentDashboard() {
                 }}>
                     <FaSyncAlt className={refreshing ? "fa-spin" : ""} style={{ transform: refreshing ? "none" : `rotate(${pullDistance * 3}deg)` }} />
                     <span>{refreshing ? "Refreshing sessions & records..." : (pullDistance > 60 ? "Release to refresh..." : "Pull down to refresh")}</span>
-                </div>
-            )}
-
-            {/* 0. Student App Update Reminder Banner */}
-            {updateInfo && updateInfo.hasUpdate && (!updateDismissed || updateInfo.isMandatory) && (
-                <div
-                    className="student-update-reminder-banner"
-                    style={{
-                        margin: "0 0 20px 0",
-                        padding: "16px 20px",
-                        background: "linear-gradient(135deg, rgba(79, 70, 229, 0.12) 0%, rgba(147, 51, 234, 0.12) 100%)",
-                        border: "1.5px solid rgba(99, 102, 241, 0.5)",
-                        borderRadius: "18px",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "space-between",
-                        flexWrap: "wrap",
-                        gap: "14px",
-                        boxShadow: "0 8px 24px rgba(99, 102, 241, 0.12)",
-                        position: "relative"
-                    }}
-                >
-                    <div style={{ display: "flex", alignItems: "flex-start", gap: "14px", minWidth: 0, flex: "1 1 300px" }}>
-                        <div style={{
-                            width: "44px",
-                            height: "44px",
-                            borderRadius: "12px",
-                            background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
-                            color: "#ffffff",
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            fontSize: "1.25rem",
-                            flexShrink: 0,
-                            boxShadow: "0 4px 12px rgba(99, 102, 241, 0.3)"
-                        }}>
-                            <FaSyncAlt />
-                        </div>
-                        <div style={{ minWidth: 0 }}>
-                            <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
-                                <span style={{ fontWeight: 800, fontSize: "1rem", color: "var(--text-main, #0f172a)" }}>
-                                    🚀 SmartAttend Update Available
-                                </span>
-                                <span style={{
-                                    background: "#4f46e5",
-                                    color: "#ffffff",
-                                    fontSize: "0.72rem",
-                                    padding: "2px 8px",
-                                    borderRadius: "999px",
-                                    fontWeight: 800
-                                }}>
-                                    v{updateInfo.latestVersion}
-                                </span>
-                                {updateInfo.isMandatory && (
-                                    <span style={{
-                                        background: "#ef4444",
-                                        color: "#ffffff",
-                                        fontSize: "0.72rem",
-                                        padding: "2px 8px",
-                                        borderRadius: "999px",
-                                        fontWeight: 800
-                                    }}>
-                                        MANDATORY
-                                    </span>
-                                )}
-                            </div>
-                            <p style={{ margin: "4px 0 0", fontSize: "0.84rem", color: "var(--text-muted, #64748b)", lineHeight: 1.4 }}>
-                                {updateInfo.releaseNotes?.[0] || "A fresh update with camera, biometric face verification & geofence improvements is ready."}
-                            </p>
-                        </div>
-                    </div>
-
-                    <div style={{ display: "flex", alignItems: "center", gap: "8px", flexShrink: 0 }}>
-                        <button
-                            type="button"
-                            onClick={() => setShowUpdateModal(true)}
-                            style={{
-                                background: "linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)",
-                                color: "#ffffff",
-                                border: "none",
-                                borderRadius: "10px",
-                                padding: "9px 18px",
-                                fontWeight: 800,
-                                fontSize: "0.85rem",
-                                cursor: "pointer",
-                                display: "inline-flex",
-                                alignItems: "center",
-                                gap: "6px",
-                                boxShadow: "0 4px 12px rgba(79, 70, 229, 0.35)",
-                                transition: "all 0.15s ease"
-                            }}
-                        >
-                            <FaFileDownload /> Update App Now
-                        </button>
-                        {!updateInfo.isMandatory && (
-                            <button
-                                type="button"
-                                onClick={() => {
-                                    dismissAppUpdate(updateInfo.latestVersion);
-                                    setUpdateDismissed(true);
-                                    setShowUpdateModal(false);
-                                }}
-                                title="Dismiss reminder for now"
-                                style={{
-                                    background: "transparent",
-                                    border: "1px solid var(--border, #cbd5e1)",
-                                    borderRadius: "10px",
-                                    padding: "9px 12px",
-                                    color: "var(--text-muted, #64748b)",
-                                    fontWeight: 700,
-                                    fontSize: "0.82rem",
-                                    cursor: "pointer"
-                                }}
-                            >
-                                <FaTimes />
-                            </button>
-                        )}
-                    </div>
                 </div>
             )}
 
@@ -2626,11 +2510,11 @@ export default function StudentDashboard() {
 
             {/* App Update Modal */}
             <AppUpdateModal
-                updateInfo={showUpdateModal ? updateInfo : null}
+                updateInfo={updateInfo}
                 onClose={() => {
                     if (!updateInfo?.isMandatory) {
                         dismissAppUpdate(updateInfo?.latestVersion);
-                        setUpdateDismissed(true);
+
                     }
                     setShowUpdateModal(false);
                 }}

@@ -1093,3 +1093,97 @@
 
 
 
+
+/* ── Simple Update Alert Box (replaces complex modal) ── */
+.stu-alert-box {
+  background: var(--surface, #1e293b);
+  border: 1.5px solid rgba(99,102,241,0.35);
+  border-radius: 20px;
+  padding: 32px 28px 24px;
+  max-width: 380px;
+  width: 92vw;
+  text-align: center;
+  box-shadow: 0 24px 64px rgba(0,0,0,0.45);
+  position: relative;
+  z-index: 1;
+}
+.stu-alert-icon-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  background: linear-gradient(135deg,#6366f1,#8b5cf6);
+  margin: 0 auto 18px;
+  box-shadow: 0 8px 24px rgba(99,102,241,0.4);
+}
+.stu-alert-icon {
+  font-size: 1.7rem;
+  color: #fff;
+}
+.stu-alert-icon.mandatory {
+  color: #fef08a;
+}
+.stu-alert-title {
+  font-size: 1.25rem;
+  font-weight: 800;
+  color: var(--text-main, #f1f5f9);
+  margin: 0 0 8px;
+}
+.stu-alert-version {
+  font-size: 0.88rem;
+  color: var(--text-muted, #94a3b8);
+  margin: 0 0 10px;
+}
+.stu-alert-msg {
+  font-size: 0.9rem;
+  color: var(--text-secondary, #cbd5e1);
+  line-height: 1.55;
+  margin: 0 0 12px;
+}
+.stu-alert-note {
+  font-size: 0.82rem;
+  color: #818cf8;
+  background: rgba(99,102,241,0.1);
+  border-radius: 10px;
+  padding: 8px 12px;
+  margin: 0 0 20px;
+  text-align: left;
+}
+.stu-alert-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.stu-alert-btn-update {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 13px 20px;
+  background: linear-gradient(135deg,#6366f1 0%,#4f46e5 100%);
+  color: #fff;
+  border: none;
+  border-radius: 12px;
+  font-size: 1rem;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 6px 18px rgba(79,70,229,0.4);
+  transition: opacity .15s;
+}
+.stu-alert-btn-update:hover { opacity: 0.9; }
+.stu-alert-btn-later {
+  width: 100%;
+  padding: 11px 20px;
+  background: transparent;
+  border: 1px solid rgba(148,163,184,0.3);
+  border-radius: 12px;
+  color: var(--text-muted, #94a3b8);
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background .15s;
+}
+.stu-alert-btn-later:hover { background: rgba(255,255,255,0.05); }

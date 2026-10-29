@@ -89,7 +89,8 @@ function App() {
     const handleUpdateDetected = async (info) => {
       if (!isMounted || !info || !info.hasUpdate) return;
 
-      if (!info.isMandatory && isAppUpdateDismissed(info.latestVersion)) {
+      // Non-mandatory: only show once per version (never again after dismissed/shown)
+      if (!info.isMandatory && (isAppUpdateDismissed(info.latestVersion) || hasAppUpdateNotificationBeenShown(info.latestVersion))) {
         setUpdateInfo(null);
         setIsUpdateModalOpen(false);
         return;
@@ -97,6 +98,10 @@ function App() {
 
       setUpdateInfo(info);
       setIsUpdateModalOpen(true);
+      // Mark as shown so it never pops up again this version
+      if (!info.isMandatory) {
+        markAppUpdateNotificationShown(info.latestVersion);
+      }
 
       if (!hasAppUpdateNotificationBeenShown(info.latestVersion)) {
         markAppUpdateNotificationShown(info.latestVersion);
@@ -1070,16 +1075,6 @@ function App() {
           <Route path="*" element={<Navigate to={defaultDashboard} replace />} />
         </Routes>
       </Suspense>
-      <AppUpdateBanner
-        updateInfo={updateInfo}
-        onOpenModal={() => setIsUpdateModalOpen(true)}
-        onDismiss={() => {
-          dismissAppUpdate(updateInfo?.latestVersion);
-          setUpdateInfo(null);
-          setIsUpdateModalOpen(false);
-        }}
-      />
-      <HeadsUpNotification />
       <AppUpdateModal
         updateInfo={isUpdateModalOpen ? updateInfo : null}
         onClose={() => {
@@ -1090,6 +1085,7 @@ function App() {
           setIsUpdateModalOpen(false);
         }}
       />
+      <HeadsUpNotification />
       <AndroidOverlayPermissionModal />
     </>
   );
