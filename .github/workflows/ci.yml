@@ -23,7 +23,27 @@ jobs:
       - name: Install Cloud Functions dependencies
         working-directory: functions
         run: npm ci --legacy-peer-deps
-      - name: Run tests
-        run: npm test
+      - name: Negative/security tests
+        if: always()
+        run: node --test tests/negative_cases.test.mjs
+      - name: Face enrollment API tests
+        if: always()
+        run: node --test tests/faceEnrollmentApi.test.mjs
+      - name: Face enrollment transaction tests
+        if: always()
+        run: node --test tests/faceEnrollmentTransaction.test.mjs
+      - name: Geofence tests
+        if: always()
+        run: node --test tests/locationGeofence.test.mjs
+      - name: App update dismissal tests
+        if: always()
+        run: node --test tests/appUpdateDismissal.test.mjs
+      - name: Login role validation tests
+        if: always()
+        run: node --test tests/loginRoleValidation.test.mjs
+      - name: Attendance emulator integration tests
+        if: always()
+        run: node --test tests/e2e_attendance_integration.test.mjs
       - name: Build web app
+        if: always()
         run: npm run build
