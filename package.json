@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "test": "node --test tests/negative_cases.test.mjs tests/faceEnrollmentApi.test.mjs tests/faceEnrollmentTransaction.test.mjs tests/locationGeofence.test.mjs tests/appUpdateDismissal.test.mjs tests/loginRoleValidation.test.mjs",
+    "test": "node --test tests/negative_cases.test.mjs tests/faceEnrollmentApi.test.mjs tests/faceEnrollmentTransaction.test.mjs tests/locationGeofence.test.mjs tests/appUpdateDismissal.test.mjs tests/loginRoleValidation.test.mjs tests/e2e_attendance_integration.test.mjs",
     "preview": "vite preview",
     "cap:sync": "npm run build && npx cap sync android",
     "cap:sync:ios": "npm run build && npx cap sync ios",
