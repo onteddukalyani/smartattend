@@ -51,6 +51,8 @@ function NativeQrScanner({
     const onScanRef = useRef(onScan);
     const onErrorRef = useRef(onError);
     const isStartingRef = useRef(false);
+    // Invalidates camera requests that resolve after the scanner is stopped/unmounted.
+    const cameraGenerationRef = useRef(0);
 
     useEffect(() => {
         onScanRef.current = onScan;
@@ -61,6 +63,9 @@ function NativeQrScanner({
     }, [onError]);
 
     const stopStream = useCallback(() => {
+        // getUserMedia cannot be cancelled; invalidate pending requests so late streams stop.
+        cameraGenerationRef.current += 1;
+        isScanningRef.current = false;
         if (animRef.current) {
             cancelAnimationFrame(animRef.current);
             animRef.current = null;
@@ -94,6 +99,7 @@ function NativeQrScanner({
 
         if (isStartingRef.current) return;
         isStartingRef.current = true;
+        const cameraGeneration = ++cameraGenerationRef.current;
 
         setLoading(true);
         setErrorMsg('');
@@ -113,6 +119,10 @@ function NativeQrScanner({
 
         // Brief cooldown for hardware camera HAL release
         await new Promise((r) => setTimeout(r, 120));
+        if (!active || cameraGeneration !== cameraGenerationRef.current) {
+            if (cameraGeneration === cameraGenerationRef.current) isStartingRef.current = false;
+            return;
+        }
 
         if (!navigator?.mediaDevices?.getUserMedia) {
             const err = new Error('Camera access (getUserMedia) is not supported on this device/browser.');
@@ -139,6 +149,10 @@ function NativeQrScanner({
                 }
             }
         } catch (_) { }
+        if (!active || cameraGeneration !== cameraGenerationRef.current) {
+            if (cameraGeneration === cameraGenerationRef.current) isStartingRef.current = false;
+            return;
+        }
 
         const progressiveConstraints = [
             // Tier 0: Direct target hardware deviceId if discovered
@@ -186,10 +200,20 @@ function NativeQrScanner({
         for (const constraints of progressiveConstraints) {
             try {
                 stream = await navigator.mediaDevices.getUserMedia(constraints);
+                // Native camera startup may resolve after React has deactivated/unmounted this scanner.
+                if (!active || cameraGeneration !== cameraGenerationRef.current) {
+                    stream?.getTracks?.().forEach((track) => { try { track.stop(); } catch (_) { } });
+                    if (cameraGeneration === cameraGenerationRef.current) isStartingRef.current = false;
+                    return;
+                }
                 if (stream && stream.getVideoTracks().length > 0) {
                     break;
                 }
             } catch (err) {
+                if (!active || cameraGeneration !== cameraGenerationRef.current) {
+                    if (cameraGeneration === cameraGenerationRef.current) isStartingRef.current = false;
+                    return;
+                }
                 lastErr = err;
                 if (err?.name === 'NotAllowedError' || err?.name === 'PermissionDeniedError') {
                     break;
@@ -211,6 +235,11 @@ function NativeQrScanner({
             return;
         }
 
+        if (!active || cameraGeneration !== cameraGenerationRef.current) {
+            stream.getTracks().forEach((track) => { try { track.stop(); } catch (_) { } });
+            if (cameraGeneration === cameraGenerationRef.current) isStartingRef.current = false;
+            return;
+        }
         streamRef.current = stream;
 
         // Check torch support
