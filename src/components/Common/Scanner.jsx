@@ -132,6 +132,9 @@ function QrScannerApp() {
     const [scanState, setScanState] = useState('IDLE');
     // Lock the camera off after QR2 succeeds until this attendance session ends.
     const cameraLockedForSessionRef = useRef(false);
+    // Prevent returning to the initial QR1 scan page once QR1 is accepted.
+    // QR2 scanning remains available from the waiting screen when released.
+    const qr1AcceptedForSessionRef = useRef(false);
 
     // iOS Guided Access Lockdown State
     const [showGuidedAccessRequired, setShowGuidedAccessRequired] = useState(false);
@@ -1308,6 +1311,7 @@ function QrScannerApp() {
         }
         // The session is over: release the QR-scanner lock so a fresh session can start.
         cameraLockedForSessionRef.current = false;
+        qr1AcceptedForSessionRef.current = false;
         setSessionEndedAutoReleased(true);
         if (
             reason.toLowerCase().includes('dashboard') ||
@@ -2120,6 +2124,8 @@ function QrScannerApp() {
         setAuthQr2StartsAt(targetQr2);
         setAuthQr1DurationSec(durationSec);
 
+        // Lock the QR1 entry page for this session before updating the UI.
+        qr1AcceptedForSessionRef.current = true;
         // Instant visual transition to Kiosk Waiting Screen
         setScanState('KIOSK_WAITING_QR2');
         setErrorMessage('');
@@ -2426,8 +2432,9 @@ function QrScannerApp() {
                 setSupervisionViolation(true);
             } else if (msg.includes('QR 1') || msg.includes('Access denied') || msg.includes('Access Denied')) {
                 setErrorMessage('⛔ Access Denied: You must scan QR 1 first during Phase 1. All students must scan both QR codes. Attendance cannot be accepted without scanning QR 1.');
-                setScanState('IDLE');
-                setActiveSessionId(null);
+                // Never reopen QR1 while the current attendance session is active.
+                setScanState(qr1AcceptedForSessionRef.current ? 'KIOSK_WAITING_QR2' : 'IDLE');
+                if (!qr1AcceptedForSessionRef.current) setActiveSessionId(null);
             } else {
                 // Network or transient error fallback: check local QR 1 check-in record
                 const storedAuth = (typeof sessionStorage !== "undefined" ? sessionStorage.getItem(`smartattend_qr1_auth_${targetSession}`) : null)
