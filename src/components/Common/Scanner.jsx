@@ -139,8 +139,17 @@ function QrScannerApp() {
                 ? JSON.parse(localStorage.getItem('smartattend_kiosk_session_state') || 'null')
                 : null;
             const activeStates = ['KIOSK_WAITING_QR2', 'VALIDATING_QR2', 'BIOMETRIC_SCAN', 'SUBMITTING_ATTENDANCE', 'ATTENDANCE_SUCCESS', 'DISQUALIFIED'];
-            if (savedSessionId && saved?.sessionId === savedSessionId && activeStates.includes(saved.scanState)) {
-                return saved.scanState;
+            const hasValidTimer = Boolean(
+                (Number(saved?.kioskEndsAt) > Date.now()) ||
+                (Number(saved?.autoReleaseAt) > Date.now())
+            );
+            const acceptedForSession = Boolean(
+                savedSessionId && saved?.sessionId === savedSessionId &&
+                (saved.qr1Accepted === true || activeStates.includes(saved.scanState)) &&
+                hasValidTimer
+            );
+            if (acceptedForSession) {
+                return activeStates.includes(saved.scanState) ? saved.scanState : 'KIOSK_WAITING_QR2';
             }
         } catch (_) { }
         return 'IDLE';
@@ -158,8 +167,13 @@ function QrScannerApp() {
             const savedState = typeof localStorage !== 'undefined'
                 ? JSON.parse(localStorage.getItem('smartattend_kiosk_session_state') || 'null')
                 : null;
+            const activeStates = ['KIOSK_WAITING_QR2', 'VALIDATING_QR2', 'BIOMETRIC_SCAN', 'SUBMITTING_ATTENDANCE', 'ATTENDANCE_SUCCESS', 'DISQUALIFIED'];
+            const hasValidTimer = Boolean(
+                Number(savedState?.kioskEndsAt) > Date.now() ||
+                Number(savedState?.autoReleaseAt) > Date.now()
+            );
             return Boolean(savedSessionId && savedState?.sessionId === savedSessionId &&
-                ['KIOSK_WAITING_QR2', 'VALIDATING_QR2', 'BIOMETRIC_SCAN', 'SUBMITTING_ATTENDANCE', 'ATTENDANCE_SUCCESS', 'DISQUALIFIED'].includes(savedState.scanState));
+                hasValidTimer && (savedState.qr1Accepted === true || activeStates.includes(savedState.scanState)));
         } catch (_) {
             return false;
         }
@@ -1517,6 +1531,7 @@ function QrScannerApp() {
                     attendanceSubmittedAt,
                     autoReleaseAt,
                     scanState,
+                    qr1Accepted: qr1AcceptedForSessionRef.current,
                     activeQr2Token,
                     submissionDetails,
                     rollNo: loggedInRollNo
@@ -2220,6 +2235,7 @@ function QrScannerApp() {
                     authQr2StartsAt: targetQr2,
                     authQr1DurationSec: durationSec,
                     scanState: 'KIOSK_WAITING_QR2',
+                    qr1Accepted: true,
                     rollNo: loggedInRollNo
                 }));
             }
@@ -2287,14 +2303,27 @@ function QrScannerApp() {
                 if (result?.qr1DurationSeconds) setAuthQr1DurationSec(result.qr1DurationSeconds);
                 console.log('[Scanner] Phase 1 check-in confirmed by server for session:', sessionId);
             })
-            .catch((err) => {
-                console.warn('[Scanner] Authorize QR1 server response:', err?.message || err);
-                const msg = String(err?.message || '');
-                if (msg.includes('ended') || msg.includes('CLOSED') || msg.includes('disqualified') || msg.includes('violation')) {
-                    setErrorMessage(err.message || 'Attendance session ended or disqualified.');
-                    setScanState('IDLE');
-                    Kiosk.stopKioskMode().catch(() => { });
-                }
+            .catch(async (err) => {
+                console.warn('[Scanner] Authorize QR1 server authorization failed:', err?.message || err);
+                // The optimistic transition is only provisional. If the server did not
+                // confirm QR1, roll back this attempt completely so the student can retry.
+                qr1AcceptedForSessionRef.current = false;
+                cameraLockedForSessionRef.current = false;
+                setErrorMessage(err?.message || 'Could not verify QR 1 with the attendance server. Check your connection and scan again.');
+                setScanState('IDLE');
+                setScannerActive(true);
+                setActiveSessionId('');
+                try {
+                    localStorage.removeItem('smartattend_kiosk_session_state');
+                    localStorage.removeItem('smartattend_kiosk_session_id');
+                    sessionStorage.removeItem('smartattend_kiosk_session_id');
+                    sessionStorage.removeItem(`smartattend_qr1_auth_${sessionId}`);
+                    localStorage.removeItem(`smartattend_qr1_auth_${sessionId}`);
+                } catch (_) { }
+                releaseCameraLock();
+                releaseAllMediaTracks();
+                await Kiosk.stopKioskMode().catch(() => { });
+                await Kiosk.clearAttendanceRestrictions().catch(() => { });
             });
     };
 
@@ -2422,26 +2451,7 @@ function QrScannerApp() {
             let result = await Promise.race([validatePromise, timeoutPromise]);
 
             if (result?.__timedOut) {
-                console.warn('[Scanner] validateStudentQR2 timed out (3.5s). Checking local Phase 1 check-in record...');
-                const storedAuth = (typeof sessionStorage !== "undefined" ? sessionStorage.getItem(`smartattend_qr1_auth_${targetSession}`) : null)
-                    || (typeof localStorage !== "undefined" ? localStorage.getItem(`smartattend_qr1_auth_${targetSession}`) : null);
-                let localAuth = null;
-                if (storedAuth) {
-                    try { localAuth = JSON.parse(storedAuth); } catch (_) { }
-                }
-                const isLocalQr1Verified = localAuth && (localAuth.qr1Verified === true || localAuth.status === "QR1_VERIFIED" || localAuth.status === "SESSION_AUTHORIZED");
-                if (isLocalQr1Verified) {
-                    result = {
-                        success: true,
-                        authorized: true,
-                        sessionId: targetSession,
-                        rollNo: localAuth.rollNo || loggedInRollNo,
-                        studentName: localAuth.studentName || loggedInName,
-                        kioskEndsAt: kioskEndsAt || (Date.now() + 60000)
-                    };
-                } else {
-                    throw new Error("⛔ Access Denied: You must scan QR 1 first during Phase 1. All students must scan both QR codes.");
-                }
+                throw new Error('The attendance server did not respond in time. QR 2 has not been accepted; please retry scanning the current QR code.');
             }
 
             // QR2 succeeded: disable the camera for the rest of this attendance session.
@@ -2500,41 +2510,19 @@ function QrScannerApp() {
             } catch (_) { }
         } catch (err) {
             console.error('Error validating QR 2:', err);
-            const msg = err.message || '';
-            if (msg.includes('violation') || msg.includes('disqualified') || msg.includes('unexcused')) {
+            const msg = err?.message || 'QR 2 could not be verified by the attendance server.';
+            if (msg.toLowerCase().includes('violation') || msg.toLowerCase().includes('disqualified') || msg.toLowerCase().includes('unexcused')) {
                 setErrorMessage('❌ Attendance Disqualified: Security violation detected on your session. Attendance forfeited.');
                 setScanState('DISQUALIFIED');
                 setSupervisionViolation(true);
-            } else if (msg.includes('QR 1') || msg.includes('Access denied') || msg.includes('Access Denied')) {
-                setErrorMessage('⛔ Access Denied: You must scan QR 1 first during Phase 1. All students must scan both QR codes. Attendance cannot be accepted without scanning QR 1.');
-                // Never reopen QR1 while the current attendance session is active.
-                setScanState(qr1AcceptedForSessionRef.current ? 'KIOSK_WAITING_QR2' : 'IDLE');
-                if (!qr1AcceptedForSessionRef.current) setActiveSessionId(null);
+                setScannerActive(false);
             } else {
-                // Network or transient error fallback: check local QR 1 check-in record
-                const storedAuth = (typeof sessionStorage !== "undefined" ? sessionStorage.getItem(`smartattend_qr1_auth_${targetSession}`) : null)
-                    || (typeof localStorage !== "undefined" ? localStorage.getItem(`smartattend_qr1_auth_${targetSession}`) : null);
-                let localAuth = null;
-                if (storedAuth) {
-                    try { localAuth = JSON.parse(storedAuth); } catch (_) { }
-                }
-                const isLocalQr1Verified = localAuth && (localAuth.qr1Verified === true || localAuth.status === "QR1_VERIFIED" || localAuth.status === "SESSION_AUTHORIZED");
-                if (isLocalQr1Verified) {
-                    console.warn('[Scanner] Network error during QR2 validation, but QR1 is verified locally. Transitioning to biometrics.');
-                    setActiveSessionId(targetSession);
-                    setActiveQr2Token(qr2Token);
-                    releaseCameraLock();
-                    releaseAllMediaTracks();
-                    setScannerActive(false);
-                    try { Kiosk.enableCamera().catch(() => { }); } catch (_) { }
-                    fingerprintAutoTriggeredRef.current = false;
-                    setBiometricComboStep(isNativeApp ? 'FINGERPRINT' : 'FACE');
-                    setFingerprintError('');
-                    setScanState('BIOMETRIC_SCAN');
-                } else {
-                    setErrorMessage(msg || 'Invalid Phase 2 QR code.');
-                    setScanState(activeSessionId ? 'KIOSK_WAITING_QR2' : 'IDLE');
-                }
+                // Never use localStorage as proof of QR2 acceptance. Keep the student
+                // inside the already-authorized session and allow a genuine server retry.
+                setErrorMessage(msg);
+                setScanState(qr1AcceptedForSessionRef.current ? 'KIOSK_WAITING_QR2' : 'IDLE');
+                setScannerActive(Boolean(qr1AcceptedForSessionRef.current));
+                if (!qr1AcceptedForSessionRef.current) setActiveSessionId('');
             }
         }
     };
