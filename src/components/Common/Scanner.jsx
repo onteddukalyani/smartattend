@@ -5596,7 +5596,7 @@ function QrScannerApp() {
 
             {/* Camera Viewport (Spacious, rounded card) */}
             <div className="st-camera-viewport-card">
-                {isCameraAllowed ? (
+                {
                     scannerActive ? (
                         <NativeQrScanner
                             key={`${retryKey}-${effectiveFacingMode}`}
@@ -5612,77 +5612,7 @@ function QrScannerApp() {
                             <p style={{ margin: 0, fontWeight: 700 }}>Starting attendance camera...</p>
                         </div>
                     )
-                ) : (
-                    <div className="st-browser-camera-blocked-card" style={{ padding: '32px 20px', textAlign: 'center', background: '#ffffff', borderRadius: '16px', border: '1.5px solid #fca5a5' }}>
-                        <div style={{ width: '56px', height: '56px', borderRadius: '50%', background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px', fontSize: '1.75rem' }}>
-                            <FaLock />
-                        </div>
-                        <h3 style={{ color: '#991b1b', margin: '0 0 10px', fontSize: '1.2rem', fontWeight: 800 }}>
-                            Camera Scanning Blocked in Mobile Browser
-                        </h3>
-                        <p style={{ fontSize: '0.92rem', color: '#475569', lineHeight: 1.5, maxWidth: '440px', margin: '0 auto 20px' }}>
-                            To enforce proxy prevention and Kiosk lockdown, <strong>Android students must use the official SmartAttend Android App (.apk)</strong>. Online camera scanning is not supported on Android browsers.
-                        </p>
-                        <div style={{ display: 'flex', gap: '12px', justifyContent: 'center', flexWrap: 'wrap' }}>
-                            <button
-                                type="button"
-                                onClick={handleOpenInSmartAttendApp}
-                                style={{
-                                    padding: '10px 20px',
-                                    borderRadius: '10px',
-                                    background: '#6366f1',
-                                    color: '#ffffff',
-                                    border: 'none',
-                                    fontWeight: 800,
-                                    fontSize: '0.9rem',
-                                    cursor: 'pointer',
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    gap: '8px',
-                                    boxShadow: '0 4px 12px rgba(99, 102, 241, 0.25)'
-                                }}
-                            >
-                                <FaMobileAlt /> Open in SmartAttend App
-                            </button>
-                            <a
-                                href={getApkDownloadUrl()}
-                                target="_blank"
-                                rel="noreferrer"
-                                style={{
-                                    padding: '10px 20px',
-                                    borderRadius: '10px',
-                                    background: '#f1f5f9',
-                                    color: '#1e293b',
-                                    border: '1px solid #cbd5e1',
-                                    fontWeight: 700,
-                                    fontSize: '0.9rem',
-                                    textDecoration: 'none',
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    gap: '8px'
-                                }}
-                            >
-                                <FaDownload /> Download APK
-                            </a>
-                            <button
-                                type="button"
-                                onClick={() => navigate('/student')}
-                                style={{
-                                    padding: '10px 18px',
-                                    borderRadius: '10px',
-                                    background: 'transparent',
-                                    color: '#64748b',
-                                    border: 'none',
-                                    fontWeight: 600,
-                                    fontSize: '0.88rem',
-                                    cursor: 'pointer'
-                                }}
-                            >
-                                Return to Dashboard
-                            </button>
-                        </div>
-                    </div>
-                )}
+                }
             </div>
 
             {/* Loading or Error States */}

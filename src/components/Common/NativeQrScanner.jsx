@@ -354,6 +354,9 @@ function NativeQrScanner({
         animRef.current = requestAnimationFrame(scanFrame);
     }, [active, facingMode, stopStream]);
 
+    const startCameraRef = useRef(startCamera);
+    useEffect(() => { startCameraRef.current = startCamera; }, [startCamera]);
+
     const activeFacingModeRef = useRef(facingMode);
     useEffect(() => {
         if (activeFacingModeRef.current !== facingMode) {
@@ -361,14 +364,16 @@ function NativeQrScanner({
             stopStream();
         }
         if (active) {
-            startCamera();
+            startCameraRef.current();
         } else {
             stopStream();
         }
         return () => {
             stopStream();
         };
-    }, [active, facingMode, startCamera, stopStream]);
+        // Only re-run on actual active/facingMode changes — not on callback identity changes
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [active, facingMode]);
 
     const toggleTorch = async () => {
         if (!streamRef.current || !torchAvailable) return;
