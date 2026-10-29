@@ -216,6 +216,12 @@ function NativeQrScanner({
                     break;
                 }
             } catch (err) {
+                // Do not continue through fallback camera constraints if this scanner
+                // was deactivated while a native permission/camera request was pending.
+                if (!active || cameraGeneration !== cameraGenerationRef.current) {
+                    if (cameraGeneration === cameraGenerationRef.current) isStartingRef.current = false;
+                    return;
+                }
                 lastErr = err;
                 if (err?.name === 'NotAllowedError' || err?.name === 'PermissionDeniedError') {
                     break;
