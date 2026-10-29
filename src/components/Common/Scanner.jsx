@@ -3119,10 +3119,12 @@ function QrScannerApp() {
                         setScanState('DISQUALIFIED');
                         return;
                     }
-                    setErrorMessage('⚠️ Submission notice: ' + (msg || 'Error recording attendance.'));
-                    if (msg.includes('QR 1') || msg.includes('Access Denied') || msg.includes('Missing Phase 1')) {
-                        setScanState('IDLE');
-                    }
+                    setErrorMessage('⚠️ Attendance is not yet confirmed: ' + (msg || 'The server did not confirm the submission. Your session is being kept open so you can retry safely.'));
+                    // Do not reset to IDLE here. Returning to the QR scanner after a transient
+                    // submission error discards the student's verified face/session context and
+                    // makes a successful biometric flow look like it silently failed. Keep the
+                    // submission screen active so the student can retry or ask the lecturer to
+                    // verify the attendance record. Server-side validation remains authoritative.
                 } finally {
                     setSubmittingAttendance(false);
                 }
