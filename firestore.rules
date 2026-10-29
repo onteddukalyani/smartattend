@@ -584,7 +584,7 @@ service cloud.firestore {
         allow read: if isSignedIn();
         // Only trusted server functions may create QR1 authorization records.
         // A student cannot self-assert qr1Verified/status by writing directly to Firestore.
-        allow create: if isStaff();
+        allow create: if false;
         allow delete: if isStaff();
         allow update: if isStaff() || (
           isSignedIn() &&
