@@ -318,6 +318,23 @@ function QrScannerApp() {
     useEffect(() => {
         let watchId = null;
 
+        // Skip GPS collection entirely if user has previously denied location permission
+        const gpsPermissionDenied = localStorage.getItem('smartattend_gps_permission_denied') === 'true';
+        if (gpsPermissionDenied) {
+            // Still hydrate from recent local cache if fresh
+            try {
+                const cached = localStorage.getItem('smartattend_student_location');
+                if (cached) {
+                    const parsed = JSON.parse(cached);
+                    if (isFreshLocation(parsed)) {
+                        prewarmedLocationRef.current = parsed;
+                        setCurrentStudentLocation(parsed);
+                    }
+                }
+            } catch (_) { }
+            return; // Do not request GPS if user denied it
+        }
+
         // Instant hydrate from recent local cache if fresh
         try {
             const cached = localStorage.getItem('smartattend_student_location');
@@ -373,7 +390,12 @@ function QrScannerApp() {
                 // 1. Instant GPS prime: Rapid lock with fast GNSS fallback
                 navigator.geolocation.getCurrentPosition(
                     applyStudentGps,
-                    () => {
+                    (primeErr) => {
+                        // If user explicitly denied GPS, record it and don't ask again
+                        if (primeErr && (primeErr.code === 1 || primeErr.message?.toLowerCase().includes('denied'))) {
+                            try { localStorage.setItem('smartattend_gps_permission_denied', 'true'); } catch (_) {}
+                            return; // Stop — don't try fallback if user denied
+                        }
                         // Indoor fallback: network/Wi-Fi positioning if GNSS satellite lock is delayed indoors
                         try {
                             navigator.geolocation.getCurrentPosition(
@@ -2522,7 +2544,9 @@ function QrScannerApp() {
         let studentCoords = pickBestStudentLocation(candidates);
 
         // Fast GPS Lock: If location is not yet acquired or is stale (>60s), quickly resolve with concurrent fallback
-        if ((!studentCoords || !isFreshLocation(studentCoords)) && typeof navigator !== "undefined" && navigator.geolocation) {
+        // Skip if geofence is disabled or user denied GPS
+        const _gpsDeniedAtScan = localStorage.getItem('smartattend_gps_permission_denied') === 'true';
+        if ((!studentCoords || !isFreshLocation(studentCoords)) && !isGeofenceDisabled && !_gpsDeniedAtScan && typeof navigator !== "undefined" && navigator.geolocation) {
             try {
                 const freshFix = await new Promise((resolve) => {
                     const tid = setTimeout(() => resolve(null), 3000);
@@ -4498,144 +4522,8 @@ function QrScannerApp() {
         );
     }
 
-    // =========================================================================
-    // UI VIEW 1.2: ANDROID WEB USERS BLOCKED & REDIRECT SCREEN
-    // =========================================================================
-    if (isAndroidWebStudent) {
-        return (
-            <div style={{
-                maxWidth: '540px',
-                margin: '28px auto',
-                padding: '36px 24px',
-                background: 'var(--surface, #ffffff)',
-                borderRadius: '24px',
-                border: '1.5px solid #6366f1',
-                boxShadow: '0 20px 45px -10px rgba(99, 102, 241, 0.25)',
-                color: 'var(--text-main, #0f172a)',
-                textAlign: 'center',
-                position: 'relative'
-            }}>
-                <div style={{
-                    width: '84px',
-                    height: '84px',
-                    borderRadius: '24px',
-                    background: 'linear-gradient(135deg, #e0e7ff 0%, #c7d2fe 100%)',
-                    color: '#4f46e5',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    margin: '0 auto 18px',
-                    fontSize: '42px',
-                    boxShadow: '0 10px 25px rgba(99, 102, 241, 0.25)'
-                }}>
-                    <FaMobileAlt />
-                </div>
 
-                <div style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    padding: '6px 14px',
-                    borderRadius: '20px',
-                    background: 'rgba(239, 68, 68, 0.1)',
-                    color: '#dc2626',
-                    fontSize: '0.8rem',
-                    fontWeight: 800,
-                    marginBottom: '14px'
-                }}>
-                    <FaLock size={12} /> Browser Camera Blocked for Android
-                </div>
-
-                <h2 style={{ fontSize: '1.45rem', fontWeight: 800, margin: '0 0 10px 0', color: 'var(--text-main, #0f172a)' }}>
-                    Open SmartAttend Android App
-                </h2>
-                <p style={{ color: 'var(--text-muted, #64748b)', fontSize: '0.92rem', margin: '0 0 24px 0', lineHeight: 1.55 }}>
-                    Per institutional attendance security and anti-proxy rules, Android students <strong>cannot use the web browser camera</strong> to scan QR codes. Please mark attendance inside the official <strong>SmartAttend Android App</strong> (.apk).
-                </p>
-
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '22px' }}>
-                    <button
-                        type="button"
-                        onClick={handleOpenInSmartAttendApp}
-                        style={{
-                            width: '100%',
-                            padding: '15px 20px',
-                            borderRadius: '14px',
-                            background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
-                            color: '#ffffff',
-                            border: 'none',
-                            fontWeight: 800,
-                            fontSize: '1rem',
-                            cursor: 'pointer',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            gap: '10px',
-                            boxShadow: '0 8px 24px rgba(79, 70, 229, 0.35)'
-                        }}
-                    >
-                        <FaBolt /> Launch SmartAttend App
-                    </button>
-
-                    <a
-                        href={getApkDownloadUrl()}
-                        download="SmartAttend-release.apk"
-                        style={{
-                            width: '100%',
-                            padding: '13px 20px',
-                            borderRadius: '14px',
-                            background: 'var(--surface-soft, #f8fafc)',
-                            color: '#334155',
-                            border: '1.5px solid var(--border, #cbd5e1)',
-                            fontWeight: 700,
-                            fontSize: '0.92rem',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            gap: '8px',
-                            textDecoration: 'none',
-                            boxSizing: 'border-box'
-                        }}
-                    >
-                        <FaDownload /> Download Official APK (.apk)
-                    </a>
-
-                    <button
-                        type="button"
-                        onClick={() => navigate('/student', { replace: true })}
-                        style={{
-                            width: '100%',
-                            padding: '11px 20px',
-                            borderRadius: '12px',
-                            background: 'transparent',
-                            color: '#64748b',
-                            border: 'none',
-                            fontWeight: 600,
-                            fontSize: '0.86rem',
-                            cursor: 'pointer'
-                        }}
-                    >
-                        ← Return to Student Dashboard
-                    </button>
-                </div>
-
-                <div style={{
-                    padding: '12px 14px',
-                    borderRadius: '12px',
-                    background: 'rgba(99, 102, 241, 0.06)',
-                    border: '1px solid rgba(99, 102, 241, 0.18)',
-                    fontSize: '0.78rem',
-                    color: '#4338ca',
-                    textAlign: 'left',
-                    lineHeight: 1.45
-                }}>
-                    <strong>💡 Instant Launch:</strong> If you already downloaded the APK, tapping <strong>Launch SmartAttend App</strong> will open the app directly. If your phone asks, choose <em>"Open with SmartAttend"</em>.
-                </div>
-            </div>
-        );
-    }
-
-    // =========================================================================
+        // =========================================================================
     // UI VIEW 1.5: DISQUALIFIED LOCKED SCREEN (App switching detected, locked until Lecturer PIN or Session End)
     // =========================================================================
     if (scanState === 'DISQUALIFIED') {
@@ -5397,24 +5285,14 @@ function QrScannerApp() {
                         </div>
 
                         <div className="st-camera-viewport-card active-phase2">
-                            {isCameraAllowed ? (
-                                <NativeQrScanner
-                                    key={`waiting-${retryKey}-${effectiveFacingMode}`}
-                                    onScan={handleCameraScan}
-                                    onError={handleCameraError}
-                                    facingMode={effectiveFacingMode}
-                                    onToggleFacingMode={handleToggleFacingMode}
-                                    active={scanState === 'KIOSK_WAITING_QR2' && isQr2Released}
-                                />
-                            ) : (
-                                <div className="st-browser-camera-blocked-card" style={{ padding: '24px', textAlign: 'center', background: '#ffffff', borderRadius: '16px' }}>
-                                    <FaLock style={{ fontSize: '32px', color: '#dc2626', marginBottom: '10px' }} />
-                                    <h4 style={{ color: '#991b1b', margin: '0 0 8px' }}>Camera Blocked in Web Browser</h4>
-                                    <p style={{ fontSize: '0.88rem', color: '#64748b', margin: 0 }}>
-                                        Camera in browser is only available for Lecturers, Admins, and iPhone users. Please use the official SmartAttend Android App (.apk).
-                                    </p>
-                                </div>
-                            )}
+                            <NativeQrScanner
+                                key={`waiting-${retryKey}-${effectiveFacingMode}`}
+                                onScan={handleCameraScan}
+                                onError={handleCameraError}
+                                facingMode={effectiveFacingMode}
+                                onToggleFacingMode={handleToggleFacingMode}
+                                active={scanState === 'KIOSK_WAITING_QR2' && isQr2Released}
+                            />
                         </div>
 
                         <div className="st-phase2-instruction">
