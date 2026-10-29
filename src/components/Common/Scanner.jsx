@@ -297,6 +297,15 @@ function QrScannerApp() {
     // keep the QR-scanning page/camera closed until the session ends. The separate
     // face-verification component may still open its own camera for live face capture.
     useEffect(() => {
+        // A transient handler must not send a student back to QR1 after successful
+        // check-in. Keep them on the session waiting/verification flow instead.
+        if (qr1AcceptedForSessionRef.current && scanState === 'IDLE') {
+            setScanState('KIOSK_WAITING_QR2');
+            setScannerActive(false);
+            releaseAllMediaTracks();
+            releaseCameraLock();
+            return;
+        }
         const shouldCameraBeActive = !cameraLockedForSessionRef.current &&
             (scanState === 'IDLE' || (scanState === 'KIOSK_WAITING_QR2' && isQr2Released));
         if (shouldCameraBeActive) {
