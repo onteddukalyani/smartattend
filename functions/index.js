@@ -1812,8 +1812,18 @@ exports.authorizeQR1 = onCall(async (request) => {
   // 6. Atomic transaction: create authorization & increment count
   await db.runTransaction(async (transaction) => {
     const freshSessionSnap = await transaction.get(sessionRef);
-    if (!freshSessionSnap.exists || freshSessionSnap.data().active === false || freshSessionSnap.data().status === "CLOSED") {
+    if (!freshSessionSnap.exists) throw new HttpsError("not-found", "Attendance session not found.");
+    const freshSession = freshSessionSnap.data() || {};
+    if (freshSession.active === false || freshSession.status === "CLOSED" || freshSession.phase === "CLOSED") {
       throw new HttpsError("failed-precondition", "Session ended during authorization.");
+    }
+    if (freshSession.phase && freshSession.phase !== "PHASE_1") {
+      throw new HttpsError("failed-precondition", "QR 1 check-in is closed. Session has already transitioned to Phase 2.");
+    }
+    const freshExpiry = parseStrictTimestampMs(freshSession.qr1ExpiresAt) ||
+      (typeof freshSession.qr1ExpiresAt?.toMillis === "function" ? freshSession.qr1ExpiresAt.toMillis() : Number(freshSession.qr1ExpiresAt) || 0);
+    if (freshExpiry > 0 && Date.now() > freshExpiry + 15000) {
+      throw new HttpsError("deadline-exceeded", "QR 1 has expired! The check-in window is closed.");
     }
 
     transaction.set(authRef, {
@@ -1871,51 +1881,65 @@ exports.transitionToPhase2 = onCall(async (request) => {
     throw new HttpsError("unauthenticated", "Authentication required.");
   }
 
-  const { sessionId, now } = request.data || {};
+  const { sessionId } = request.data || {};
   if (!sessionId) {
     throw new HttpsError("invalid-argument", "Session ID is required.");
   }
 
   const sessionRef = db.collection("attendance_sessions").doc(sessionId);
-  const [sessionSnap, securitySnap] = await Promise.all([
-    sessionRef.get(),
-    sessionRef.collection("security").doc("tokens").get()
-  ]);
+  const securityRef = sessionRef.collection("security").doc("tokens");
+  const serverNow = Date.now();
 
-  if (!sessionSnap.exists || !securitySnap.exists) {
-    throw new HttpsError("not-found", "Session not found.");
-  }
-
-  const session = sessionSnap.data();
-  if (session.ownerId !== request.auth.uid) {
-    throw new HttpsError("permission-denied", "Only the session lecturer can transition to Phase 2.");
-  }
-
-  const serverNow = typeof now === "number" && now > 0 ? now : Date.now();
-
-  await sessionRef.update({
-    phase: "PHASE_2",
-    qr2Released: true,
-    qr1ExpiresAt: serverNow,
-    qr2StartsAt: serverNow,
-    updatedAt: FieldValue.serverTimestamp()
-  });
-
-  if (securitySnap.exists) {
-    await sessionRef.collection("security").doc("tokens").update({
+  // Atomic one-way transition: retries must not reset the QR2 deadline.
+  await db.runTransaction(async (transaction) => {
+    const [sessionSnap, securitySnap] = await Promise.all([
+      transaction.get(sessionRef),
+      transaction.get(securityRef)
+    ]);
+    if (!sessionSnap.exists || !securitySnap.exists) {
+      throw new HttpsError("not-found", "Session not found.");
+    }
+    const session = sessionSnap.data() || {};
+    if (session.ownerId !== request.auth.uid) {
+      throw new HttpsError("permission-denied", "Only the session lecturer can transition to Phase 2.");
+    }
+    if (session.active === false || session.status === "CLOSED" || session.phase === "CLOSED") {
+      throw new HttpsError("failed-precondition", "This attendance session has ended.");
+    }
+    if (session.phase === "PHASE_2" || session.qr2Released === true) return;
+    if (session.phase && session.phase !== "PHASE_1") {
+      throw new HttpsError("failed-precondition", "Session is not in Phase 1.");
+    }
+    transaction.update(sessionRef, {
+      phase: "PHASE_2",
+      qr2Released: true,
+      qr1ExpiresAt: serverNow,
+      qr2StartsAt: serverNow,
+      updatedAt: FieldValue.serverTimestamp()
+    });
+    transaction.update(securityRef, {
       phase: "PHASE_2",
       qr1ExpiresAt: serverNow,
       qr2StartsAt: serverNow
-    }).catch(() => {});
-  }
+    });
+  });
+
+  const finalSession = await sessionRef.get();
+  const finalData = finalSession.data() || {};
+  const phase2Start = parseStrictTimestampMs(finalData.qr2StartsAt) ||
+    (typeof finalData.qr2StartsAt?.toMillis === "function" ? finalData.qr2StartsAt.toMillis() : Number(finalData.qr2StartsAt)) ||
+    serverNow;
+  const phase1End = parseStrictTimestampMs(finalData.qr1ExpiresAt) ||
+    (typeof finalData.qr1ExpiresAt?.toMillis === "function" ? finalData.qr1ExpiresAt.toMillis() : Number(finalData.qr1ExpiresAt)) ||
+    phase2Start;
 
   return {
     success: true,
-    sessionId: sessionId,
+    sessionId,
     phase: "PHASE_2",
     qr2Released: true,
-    qr1ExpiresAt: serverNow,
-    qr2StartsAt: serverNow
+    qr1ExpiresAt: phase1End,
+    qr2StartsAt: phase2Start
   };
 });
 

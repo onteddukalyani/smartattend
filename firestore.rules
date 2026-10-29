@@ -500,14 +500,19 @@ service cloud.firestore {
         (request.auth.token.email != null && resource.data.ownerEmail != null && resource.data.ownerEmail.lower() == request.auth.token.email.lower())
       );
 
-      allow update: if isSignedIn() && (
-        isAdmin() ||
-        (isLecturer() && (
+      // Session phase, lifecycle, deadlines, ownership, release codes and QR secrets
+      // are server-controlled. Callable Cloud Functions use Admin SDK and bypass these rules.
+      allow update: if isSignedIn() &&
+        (isAdmin() || (isLecturer() && (
           resource.data.ownerId == request.auth.uid ||
           (request.auth.token.email != null && resource.data.ownerEmail != null && resource.data.ownerEmail.lower() == request.auth.token.email.lower())
-        )) ||
-        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['authorizedCount', 'attendedCount', 'attendees']))
-      );
+        ))) &&
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          'phase', 'qr2Released', 'qr1ExpiresAt', 'qr2StartsAt', 'active', 'status',
+          'ownerId', 'ownerEmail', 'sessionPin', 'lecturerPin', 'releaseCodeHash',
+          'rawReleaseCodeHash', 'qr1Token', 'qr2Token', 'qr1TokenHash', 'qr2TokenHash',
+          'kioskEndsAt', 'expiresAt'
+        ]);
 
       match /security/{docId} {
         allow read: if isSignedIn() && (
@@ -577,34 +582,25 @@ service cloud.firestore {
       // Authorizations subcollection: student devices and lecturers
       match /authorizations/{authDocId} {
         allow read: if isSignedIn();
-        allow create: if isStaff() || (
-          isSignedIn() &&
-          (
-            request.auth.uid == authDocId ||
-            (request.resource.data.studentUid != null && request.resource.data.studentUid == request.auth.uid) ||
-            (request.auth.token.email != null && (
-              (request.resource.data.studentEmail != null && request.resource.data.studentEmail.lower() == request.auth.token.email.lower()) ||
-              authDocId.lower() == request.auth.token.email.split('@')[0].lower()
-            ))
-          ) &&
-          request.resource.data.qr1Verified == true
-        );
+        // Only trusted server functions may create QR1 authorization records.
+        // A student cannot self-assert qr1Verified/status by writing directly to Firestore.
+        allow create: if false;
         allow delete: if isStaff();
         allow update: if isStaff() || (
           isSignedIn() &&
           (
             request.auth.uid == authDocId ||
             (resource.data.studentUid != null && resource.data.studentUid == request.auth.uid) ||
-            (request.auth.token.email != null && (
-              (resource.data.studentEmail != null && resource.data.studentEmail.lower() == request.auth.token.email.lower()) ||
-              authDocId.lower() == request.auth.token.email.split('@')[0].lower()
-            ))
+            (request.auth.token.email != null && resource.data.studentEmail != null &&
+              resource.data.studentEmail.lower() == request.auth.token.email.lower())
           ) &&
+          // Student clients may update presence/telemetry only, never authorization,
+          // biometric verdicts, violations, release state, or attendance state.
           request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-            'lastHeartbeat', 'clientTimestamp', 'detectedPlatform', 'deviceIp', 'userAgent', 'studentLocation', 'status', 'qr1Verified', 'qr2Verified', 'qr2Scanned', 'qr2ScannedAt', 'faceVerified', 'verificationStage', 'lastActiveAt', 'distance', 'classroomDistance', 'antiSpoofScore', 'liveness', 'attendanceSubmittedAt', 'submittedAt', 'biometricVerified', 'deviceAuthMode', 'deviceId', 'isDeviceOwner', 'releaseStatus', 'released', 'authorizedAt', 'verifiedAt', 'kioskEndsAt', 'sessionStartAt', 'qr1ExpiresAt', 'qr2StartsAt', 'qr1DurationSeconds', 'rollNo', 'studentName', 'studentEmail', 'sessionId', 'studentUid'
-          ]) &&
-          (resource.data.hasViolation != true || request.resource.data.hasViolation == true) &&
-          (resource.data.disqualified != true || request.resource.data.disqualified == true)
+            'lastHeartbeat', 'clientTimestamp', 'detectedPlatform', 'deviceIp',
+            'userAgent', 'studentLocation', 'lastActiveAt', 'distance',
+            'classroomDistance', 'verificationStage'
+          ])
         );
         match /{document=**} {
           allow read: if isSignedIn();

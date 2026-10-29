@@ -1498,8 +1498,11 @@ function QrScannerApp() {
             ((kioskEndsAt && kioskEndsAt > Date.now()) || (autoReleaseAt && autoReleaseAt > Date.now())) &&
             (
                 scanState === 'KIOSK_WAITING_QR2' ||
+                scanState === 'VALIDATING_QR2' ||
                 scanState === 'BIOMETRIC_SCAN' ||
-                scanState === 'SUBMITTING_ATTENDANCE'
+                scanState === 'SUBMITTING_ATTENDANCE' ||
+                scanState === 'ATTENDANCE_SUCCESS' ||
+                scanState === 'DISQUALIFIED'
             )
         );
 
@@ -1521,7 +1524,7 @@ function QrScannerApp() {
             } catch (e) {
                 console.warn('LocalStorage save notice:', e);
             }
-        } else if (scanState === 'IDLE' || scanState === 'ATTENDANCE_SUCCESS' || scanState === 'DISQUALIFIED' || (autoReleaseAt && Date.now() >= autoReleaseAt)) {
+        } else if ((scanState === 'IDLE' && !qr1AcceptedForSessionRef.current) || (autoReleaseAt && Date.now() >= autoReleaseAt)) {
             try {
                 localStorage.removeItem('smartattend_kiosk_session_state');
             } catch (_) { }
