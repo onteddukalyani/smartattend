@@ -1812,8 +1812,18 @@ exports.authorizeQR1 = onCall(async (request) => {
   // 6. Atomic transaction: create authorization & increment count
   await db.runTransaction(async (transaction) => {
     const freshSessionSnap = await transaction.get(sessionRef);
-    if (!freshSessionSnap.exists || freshSessionSnap.data().active === false || freshSessionSnap.data().status === "CLOSED") {
+    if (!freshSessionSnap.exists) throw new HttpsError("not-found", "Attendance session not found.");
+    const freshSession = freshSessionSnap.data() || {};
+    if (freshSession.active === false || freshSession.status === "CLOSED" || freshSession.phase === "CLOSED") {
       throw new HttpsError("failed-precondition", "Session ended during authorization.");
+    }
+    if (freshSession.phase && freshSession.phase !== "PHASE_1") {
+      throw new HttpsError("failed-precondition", "QR 1 check-in is closed. Session has already transitioned to Phase 2.");
+    }
+    const freshExpiry = parseStrictTimestampMs(freshSession.qr1ExpiresAt) ||
+      (typeof freshSession.qr1ExpiresAt?.toMillis === "function" ? freshSession.qr1ExpiresAt.toMillis() : Number(freshSession.qr1ExpiresAt) || 0);
+    if (freshExpiry > 0 && Date.now() > freshExpiry + 15000) {
+      throw new HttpsError("deadline-exceeded", "QR 1 has expired! The check-in window is closed.");
     }
 
     transaction.set(authRef, {
@@ -1871,7 +1881,7 @@ exports.transitionToPhase2 = onCall(async (request) => {
     throw new HttpsError("unauthenticated", "Authentication required.");
   }
 
-  const { sessionId, now } = request.data || {};
+  const { sessionId } = request.data || {};
   if (!sessionId) {
     throw new HttpsError("invalid-argument", "Session ID is required.");
   }
@@ -1891,7 +1901,8 @@ exports.transitionToPhase2 = onCall(async (request) => {
     throw new HttpsError("permission-denied", "Only the session lecturer can transition to Phase 2.");
   }
 
-  const serverNow = typeof now === "number" && now > 0 ? now : Date.now();
+  // Use server time only; client-supplied timestamps are untrusted.
+  const serverNow = Date.now();
 
   await sessionRef.update({
     phase: "PHASE_2",
