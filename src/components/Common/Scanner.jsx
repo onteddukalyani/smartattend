@@ -134,22 +134,23 @@ function QrScannerApp() {
     const cameraLockedForSessionRef = useRef(false);
     // Prevent returning to the initial QR1 scan page once QR1 is accepted.
     // QR2 scanning remains available from the waiting screen when released.
-    const qr1AcceptedForSessionRef = useRef(false);
-    // Restore the QR1 lock if Scanner remounts during an already-authorized session.
-    // The persisted kiosk session is cleared by the session-end/logout handlers.
-    useEffect(() => {
+    const qr1AcceptedForSessionRef = useRef((() => {
+        // Read synchronously before the first render so a remount cannot briefly
+        // render the initial QR1 page for a session that is already in progress.
         try {
             const savedSessionId = (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('smartattend_kiosk_session_id'))
                 || (typeof localStorage !== 'undefined' && localStorage.getItem('smartattend_kiosk_session_id'));
             const savedState = typeof localStorage !== 'undefined'
                 ? JSON.parse(localStorage.getItem('smartattend_kiosk_session_state') || 'null')
                 : null;
-            if (savedSessionId && savedState?.sessionId === savedSessionId &&
-                ['KIOSK_WAITING_QR2', 'VALIDATING_QR2', 'BIOMETRIC_SCAN', 'SUBMITTING_ATTENDANCE', 'ATTENDANCE_SUCCESS', 'DISQUALIFIED'].includes(savedState.scanState)) {
-                qr1AcceptedForSessionRef.current = true;
-            }
-        } catch (_) { }
-    }, []);
+            return Boolean(savedSessionId && savedState?.sessionId === savedSessionId &&
+                ['KIOSK_WAITING_QR2', 'VALIDATING_QR2', 'BIOMETRIC_SCAN', 'SUBMITTING_ATTENDANCE', 'ATTENDANCE_SUCCESS', 'DISQUALIFIED'].includes(savedState.scanState));
+        } catch (_) {
+            return false;
+        }
+    })());
+    // Keep the QR1 lock in memory for this component instance. It is cleared only
+    // by the explicit session-end/logout flow, not by camera errors or UI resets.
 
     // iOS Guided Access Lockdown State
     const [showGuidedAccessRequired, setShowGuidedAccessRequired] = useState(false);
@@ -316,6 +317,8 @@ function QrScannerApp() {
         // callback or component remount attempts to restore IDLE, recover the
         // persisted session state instead of reopening the QR1 scanner.
         if (qr1AcceptedForSessionRef.current && scanState === 'IDLE') {
+            // Keep the screen out of the QR1 branch even if a late error handler
+            // tries to reset scanState. The active session must be explicitly ended.
             let resumeState = 'KIOSK_WAITING_QR2';
             try {
                 const saved = typeof localStorage !== 'undefined'
@@ -5693,7 +5696,9 @@ function QrScannerApp() {
                     <button
                         type="button"
                         onClick={() => {
-                            setScanState('IDLE');
+                            // QR1 authorization is in flight; do not reset to the
+                            // initial QR1 screen while this session is being resolved.
+                            if (!qr1AcceptedForSessionRef.current) setScanState('IDLE');
                             setErrorMessage('');
                             scanProcessingRef.current = false;
                         }}
