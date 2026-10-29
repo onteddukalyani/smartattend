@@ -129,7 +129,22 @@ function QrScannerApp() {
     }, []);
 
     // Current State: 'IDLE' | 'AUTHORIZING_QR1' | 'KIOSK_WAITING_QR2' | 'VALIDATING_QR2' | 'BIOMETRIC_SCAN' | 'ATTENDANCE_SUCCESS' | 'DISQUALIFIED'
-    const [scanState, setScanState] = useState('IDLE');
+    const [scanState, setScanState] = useState(() => {
+        // Hydrate an in-progress attendance state before the first render. This
+        // prevents the QR1 page flashing/reopening when this component remounts.
+        try {
+            const savedSessionId = (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('smartattend_kiosk_session_id'))
+                || (typeof localStorage !== 'undefined' && localStorage.getItem('smartattend_kiosk_session_id'));
+            const saved = typeof localStorage !== 'undefined'
+                ? JSON.parse(localStorage.getItem('smartattend_kiosk_session_state') || 'null')
+                : null;
+            const activeStates = ['KIOSK_WAITING_QR2', 'VALIDATING_QR2', 'BIOMETRIC_SCAN', 'SUBMITTING_ATTENDANCE', 'ATTENDANCE_SUCCESS', 'DISQUALIFIED'];
+            if (savedSessionId && saved?.sessionId === savedSessionId && activeStates.includes(saved.scanState)) {
+                return saved.scanState;
+            }
+        } catch (_) { }
+        return 'IDLE';
+    });
     // Lock the camera off after QR2 succeeds until this attendance session ends.
     const cameraLockedForSessionRef = useRef(false);
     // Prevent returning to the initial QR1 scan page once QR1 is accepted.
