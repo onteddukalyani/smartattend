@@ -237,11 +237,7 @@ export function LiveFaceEnrollment({
             // Cooldown for hardware camera HAL release
             await new Promise((r) => setTimeout(r, 200));
 
-            if (!isCameraAllowed) {
-                setCameraError("Camera in browser is only available for Lecturers, Admins, and iPhone users. Android students must use the official SmartAttend Android App (.apk).");
-                setCameraLoading(false);
-                return;
-            }
+
 
             if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
                 throw new Error("Camera API is not supported in this browser.");
@@ -730,42 +726,7 @@ export function LiveFaceEnrollment({
                         {/* Standby Camera Box */}
                         {!cameraActive && (
                             <div className="lfe-camera-placeholder">
-                                {!isCameraAllowed ? (
-                                    <>
-                                        <div className="lfe-placeholder-icon-wrap" style={{ background: '#fee2e2', color: '#dc2626' }}>
-                                            <FaLock className="lfe-camera-placeholder-icon" />
-                                        </div>
-                                        <h5 style={{ color: '#991b1b' }}>Camera Unavailable in Web Browser</h5>
-                                        <p>
-                                            Per college attendance policy, camera access in the web browser is only available for <strong>Lecturers</strong>, <strong>Admins</strong>, and <strong>iPhone users</strong>.
-                                        </p>
-                                        <div style={{
-                                            padding: '10px 14px',
-                                            borderRadius: '10px',
-                                            background: '#fef2f2',
-                                            border: '1px solid #fecaca',
-                                            color: '#b91c1c',
-                                            fontSize: '0.84rem',
-                                            fontWeight: 700,
-                                            margin: '12px 0 16px',
-                                            textAlign: 'left',
-                                            lineHeight: 1.45
-                                        }}>
-                                            🛡️ Android students must use the official <strong>SmartAttend Android App (.apk)</strong> for live facial biometrics registration and attendance.
-                                        </div>
-                                        <div className="lfe-placeholder-btn-group">
-                                            <a
-                                                href={getApkDownloadUrl()}
-                                                download="SmartAttend-release.apk"
-                                                className="lfe-primary-cam-btn"
-                                                style={{ width: "100%", justifyContent: "center", textDecoration: "none", background: "#16a34a" }}
-                                            >
-                                                <FaDownload /> Download SmartAttend Android App (.apk)
-                                            </a>
-                                        </div>
-                                    </>
-                                ) : (
-                                    <>
+                                <>
                                         <div className="lfe-placeholder-icon-wrap">
                                             <FaIdCard className="lfe-camera-placeholder-icon" />
                                         </div>
@@ -815,8 +776,7 @@ export function LiveFaceEnrollment({
                                                 <FaInfoCircle /> {cameraError}
                                             </div>
                                         )}
-                                    </>
-                                )}
+                                </>
                             </div>
                         )}
                     </>

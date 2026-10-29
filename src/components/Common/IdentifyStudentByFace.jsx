@@ -121,21 +121,13 @@ export default function IdentifyStudentByFace() {
                             <p>Follow the liveness checkpoints to capture and verify face biometrics.</p>
                         </div>
 
-                        {isCameraAllowed ? (
-                            <div className="camera-embed-wrap">
+                        <div className="camera-embed-wrap">
                                 <LiveFaceEnrollment
                                     hideHeader={true}
                                     targetName="Student Candidate"
                                     onFaceEnrolled={handleFaceCaptured}
                                 />
                             </div>
-                        ) : (
-                            <div className="camera-blocked-notice">
-                                <FaLock className="lock-icon" />
-                                <h4>Camera Blocked in Web Browser</h4>
-                                <p>Please ensure camera permissions are allowed, or access via the SmartAttend app.</p>
-                            </div>
-                        )}
                     </div>
                 )}
 
