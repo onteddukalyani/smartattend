@@ -97,8 +97,19 @@ function NativeQrScanner({
 
         setLoading(true);
         setErrorMsg('');
-        stopStream();
-        releaseAllTracks();
+
+        // Do not call stopStream() here: it resets isStartingRef while this
+        // start attempt is still in progress, allowing a second getUserMedia()
+        // request to race the first one. Also do not stop every <video> on the
+        // page; that can interrupt unrelated camera consumers and cause the QR
+        // camera to reopen. Clean up only this scanner's stale stream.
+        if (streamRef.current) {
+            streamRef.current.getTracks().forEach((track) => {
+                try { track.stop(); } catch (_) { }
+            });
+            streamRef.current = null;
+        }
+        if (videoRef.current) videoRef.current.srcObject = null;
 
         // Brief cooldown for hardware camera HAL release
         await new Promise((r) => setTimeout(r, 120));
