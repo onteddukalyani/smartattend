@@ -3595,7 +3595,8 @@ exports.recordAttendanceLifecycleEvent = onCall(async (request) => {
 
   const isConfirmedViolation = [
     "CONFIRMED_KIOSK_ESCAPE", "APP_LEAVE", "APP_SWITCH",
-    "APP_BACKGROUNDED", "DEVTOOLS_OPENED"
+    "APP_BACKGROUNDED", "DEVTOOLS_OPENED", "SCREEN_CAPTURE_DETECTED",
+    "VPN_DETECTED", "MOCK_LOCATION_DETECTED", "GEOFENCE_EXCEEDED_MAX_ATTEMPTS"
   ].includes(String(eventType || "").toUpperCase());
   const prevCount = Number(authData.confirmedKioskViolations || authData.violationCount || 0);
   const nextCount = isConfirmedViolation ? prevCount + 1 : prevCount;
