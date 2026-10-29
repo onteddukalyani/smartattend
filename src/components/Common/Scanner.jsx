@@ -135,6 +135,21 @@ function QrScannerApp() {
     // Prevent returning to the initial QR1 scan page once QR1 is accepted.
     // QR2 scanning remains available from the waiting screen when released.
     const qr1AcceptedForSessionRef = useRef(false);
+    // Restore the QR1 lock if Scanner remounts during an already-authorized session.
+    // The persisted kiosk session is cleared by the session-end/logout handlers.
+    useEffect(() => {
+        try {
+            const savedSessionId = (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('smartattend_kiosk_session_id'))
+                || (typeof localStorage !== 'undefined' && localStorage.getItem('smartattend_kiosk_session_id'));
+            const savedState = typeof localStorage !== 'undefined'
+                ? JSON.parse(localStorage.getItem('smartattend_kiosk_session_state') || 'null')
+                : null;
+            if (savedSessionId && savedState?.sessionId === savedSessionId &&
+                ['KIOSK_WAITING_QR2', 'VALIDATING_QR2', 'BIOMETRIC_SCAN', 'SUBMITTING_ATTENDANCE', 'ATTENDANCE_SUCCESS', 'DISQUALIFIED'].includes(savedState.scanState)) {
+                qr1AcceptedForSessionRef.current = true;
+            }
+        } catch (_) { }
+    }, []);
 
     // iOS Guided Access Lockdown State
     const [showGuidedAccessRequired, setShowGuidedAccessRequired] = useState(false);
@@ -297,10 +312,20 @@ function QrScannerApp() {
     // keep the QR-scanning page/camera closed until the session ends. The separate
     // face-verification component may still open its own camera for live face capture.
     useEffect(() => {
-        // A transient handler must not send a student back to QR1 after successful
-        // check-in. Keep them on the session waiting/verification flow instead.
+        // The initial QR1 screen is forbidden after QR1 acceptance. If an async
+        // callback or component remount attempts to restore IDLE, recover the
+        // persisted session state instead of reopening the QR1 scanner.
         if (qr1AcceptedForSessionRef.current && scanState === 'IDLE') {
-            setScanState('KIOSK_WAITING_QR2');
+            let resumeState = 'KIOSK_WAITING_QR2';
+            try {
+                const saved = typeof localStorage !== 'undefined'
+                    ? JSON.parse(localStorage.getItem('smartattend_kiosk_session_state') || 'null')
+                    : null;
+                if (['VALIDATING_QR2', 'BIOMETRIC_SCAN', 'SUBMITTING_ATTENDANCE', 'ATTENDANCE_SUCCESS', 'DISQUALIFIED'].includes(saved?.scanState)) {
+                    resumeState = saved.scanState;
+                }
+            } catch (_) { }
+            setScanState(resumeState);
             setScannerActive(false);
             releaseAllMediaTracks();
             releaseCameraLock();
