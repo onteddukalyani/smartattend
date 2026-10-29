@@ -295,52 +295,17 @@ export function subscribeToAuthorizations(sessionId, onUpdate) {
  * - iPhone & Web: records suspicious interruption for audit review without automatic disqualification.
  */
 export async function reportAttendanceLifecycleEvent(sessionId, eventData) {
-  let cloudSuccess = false;
-  let cloudResult = null;
+  if (!sessionId) throw new Error("Attendance session ID is required to report a lifecycle event.");
   try {
-    const fn = httpsCallable(functions, "recordAttendanceLifecycleEvent");
+    const fn = httpsCallable(functions, "recordAttendanceLifecycleEvent", { timeout: 15000 });
     const result = await fn({ sessionId, ...eventData });
-    if (result && result.data && result.data.success) {
-      cloudSuccess = true;
-      cloudResult = result.data;
-    }
+    if (result?.data?.success === true) return result.data;
+    throw new Error("The attendance server did not confirm that the lifecycle event was recorded.");
   } catch (err) {
-    console.warn("Cloud function recordAttendanceLifecycleEvent notice (falling back to direct Firestore update):", err.message || err);
+    // Never claim a violation was recorded when the authoritative server did not confirm it.
+    console.warn("Cloud function recordAttendanceLifecycleEvent failed:", err?.message || err);
+    throw new Error("The attendance server could not record this lifecycle event. It has not been confirmed; please retry when connected.");
   }
-
-  // If cloud function ran successfully, return its result
-  if (cloudSuccess && cloudResult) {
-    return cloudResult;
-  }
-
-  // Fallback to client-side Firestore recording so lecturer dashboard always receives violations in real-time
-  const currentUser = auth.currentUser;
-  const studentUid = currentUser?.uid || "";
-  const rollNo = (currentUser?.email ? currentUser.email.split("@")[0] : "").toUpperCase().trim();
-  const nextCount = Number(eventData?.count || 1);
-  const isDisqualified = eventData?.eventType === "CONFIRMED_KIOSK_ESCAPE" ? (nextCount >= 1) : false;
-
-  if (sessionId) {
-    try {
-      await recordSessionViolation(
-        sessionId,
-        studentUid,
-        rollNo,
-        eventData?.source || eventData?.eventType || "KIOSK_ESCAPE",
-        nextCount,
-        isDisqualified
-      );
-    } catch (fbErr) {
-      console.warn("Notice updating session violation directly in Firestore:", fbErr);
-    }
-  }
-
-  return {
-    success: true,
-    status: isDisqualified ? "DISQUALIFIED" : "WARNING",
-    violationCount: nextCount,
-    disqualified: isDisqualified
-  };
 }
 
 /**
