@@ -11,7 +11,7 @@ process.env.FIRESTORE_EMULATOR_HOST = "127.0.0.1:8088";
 process.env.GCLOUD_PROJECT = "smartattend-test";
 process.env.FIREBASE_CONFIG = JSON.stringify({ projectId: "smartattend-test" });
 
-const admin = require("../functions/node_modules/firebase-admin");
+const admin = require("firebase-admin");
 const fns = require("../functions/index.js");
 
 const db = admin.firestore();
@@ -144,6 +144,7 @@ test("E2E Integration: Complete 10-Step Attendance Flow Against Live Emulator", 
       roomNo: "Hall-101",
       batch: "2025",
       geofenceRadius: 10,
+      classroomLocation: { latitude: 12.971630, longitude: 77.594615 },
       rotationIntervalSec: 10,
       durationMinutes: 3,
       qr1DurationSeconds: 60,
