@@ -11,7 +11,7 @@ process.env.FIRESTORE_EMULATOR_HOST = "127.0.0.1:8088";
 process.env.GCLOUD_PROJECT = "smartattend-test";
 process.env.FIREBASE_CONFIG = JSON.stringify({ projectId: "smartattend-test" });
 
-const admin = require("firebase-admin");
+const admin = require("../functions/node_modules/firebase-admin");
 const fns = require("../functions/index.js");
 
 const db = admin.firestore();
