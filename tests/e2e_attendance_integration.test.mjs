@@ -12,9 +12,15 @@ process.env.GCLOUD_PROJECT = "smartattend-test";
 process.env.FIREBASE_CONFIG = JSON.stringify({ projectId: "smartattend-test" });
 
 const admin = require("../functions/node_modules/firebase-admin");
-const fns = require("../functions/index.js");
+
+// Initialize the Admin SDK explicitly for the test process. The functions entry
+// point must not be relied on to initialize the default app as an import side effect.
+if (admin.apps.length === 0) {
+  admin.initializeApp({ projectId: process.env.GCLOUD_PROJECT });
+}
 
 const db = admin.firestore();
+const fns = require("../functions/index.js");
 
 // Test Fixtures
 const LECTURER_UID = "lecturer_alice_prod";
