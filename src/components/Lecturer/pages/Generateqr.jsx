@@ -340,6 +340,8 @@ function GenerateQR() {
                     setShowPhoneAnchorModal(false);
                 }
             }
+        }, (err) => {
+            console.warn("[Generateqr] Pre-session anchor snapshot notice:", err?.message || err);
         });
         return () => unsub();
     }, [preSessionAnchorToken, geofenceRadius]);
