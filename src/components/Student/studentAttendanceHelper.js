@@ -1,4 +1,18 @@
-import { normalizeBranchName } from "../../utils/studentDataHelper";
+export function normalizeBranchName(branch) {
+    if (!branch) return "CSE";
+    const str = String(branch).trim().toUpperCase();
+    if (!str) return "CSE";
+    if (str === "CSE" || str === "CE" || str === "CSE-A" || str === "CSE-B" || str === "GENERAL") return "CSE";
+    if (str === "ECE") return "ECE";
+    if (str === "DSAI" || str === "DS & AI" || str === "DS/AI" || str === "DS-AI") return "DSAI";
+    if (str === "AIC" || str === "AI & COMPUTING" || str === "AI/COMPUTING" || str === "AI-C") return "AIC";
+    const clean = str.replace(/[^A-Z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+    if (clean.includes("DATA SCIENCE") || clean.includes("DSAI") || (clean.includes("DATA") && clean.includes("AI")) || (clean.includes("DS") && clean.includes("AI"))) return "DSAI";
+    if (clean.includes("CYBERNETIC") || clean.includes("AIC") || (clean.includes("COMPUTING") && (clean.includes("AI") || clean.includes("ARTIFICIAL"))) || clean.includes("INTELLIGENCE AND COMPUTING") || clean.includes("AI COMPUTING")) return "AIC";
+    if (clean.includes("ELECTRONIC") || clean.includes("ECE") || clean.includes("COMMUNICATION")) return "ECE";
+    if (clean.includes("COMPUTER") || clean.includes("CSE") || clean.includes("SOFTWARE") || clean.includes("PROGRAMMING") || clean.includes("INFORMATION") || clean.includes("IT")) return "CSE";
+    return "CSE";
+}
 
 /**
  * Centralized attendance and course calculation engine for Student Portal.
@@ -25,25 +39,70 @@ export function parseTimestampMillis(ts) {
     return 0;
 }
 
-function isStudentEnrolledInCourse(course, studentIdentifiers) {
+export function isStudentEnrolledInCourse(course, studentIdentifiers, studentProfile = {}, enrichedRecords = []) {
+    if (!course) return false;
+    const rawCourseCode = normalizeCode(course.courseCode || course.code || course.id || "");
+
+    // 1. Check explicit roster if available
     const roster = [
         ...(Array.isArray(course.enrolledStudents) ? course.enrolledStudents : []),
         ...(Array.isArray(course.students) ? course.students : [])
     ];
 
-    return roster.some((entry) => {
-        const identifiers = entry && typeof entry === "object"
-            ? [entry.rollNo, entry.rollNumber, entry.studentId, entry.uid, entry.email, entry.id]
-            : [entry];
+    if (roster.length > 0) {
+        const inRoster = roster.some((entry) => {
+            const identifiers = entry && typeof entry === "object"
+                ? [entry.rollNo, entry.rollNumber, entry.studentId, entry.uid, entry.email, entry.id]
+                : [entry];
 
-        return identifiers.some((value) => {
-            const identifier = String(value || "").trim().toUpperCase();
-            if (!identifier) return false;
-            if (studentIdentifiers.has(identifier)) return true;
-            const emailPrefix = identifier.split("@")[0];
-            return emailPrefix !== identifier && studentIdentifiers.has(emailPrefix);
+            return identifiers.some((value) => {
+                const identifier = String(value || "").trim().toUpperCase();
+                if (!identifier) return false;
+                if (studentIdentifiers.has(identifier)) return true;
+                const emailPrefix = identifier.split("@")[0];
+                return emailPrefix !== identifier && studentIdentifiers.has(emailPrefix);
+            });
         });
-    });
+        if (inRoster) return true;
+    }
+
+    // 2. Check if student has attendance records for this course
+    if (rawCourseCode && Array.isArray(enrichedRecords)) {
+        const hasRecord = enrichedRecords.some((r) => {
+            const rCode = normalizeCode(r.courseCode || r.classCode || "");
+            return rCode === rawCourseCode;
+        });
+        if (hasRecord) return true;
+    }
+
+    // 3. If roster is empty / not configured: fallback to branch/department, semester, batch matching
+    if (roster.length === 0) {
+        const studentBranch = normalizeBranchName(studentProfile?.branch || studentProfile?.department || "");
+        const courseBranch = normalizeBranchName(course.department || course.branch || course.classCode || "");
+
+        // If course specifies a department/branch, it must match the student's branch (unless "ALL" or "GENERAL")
+        if (courseBranch && courseBranch !== "GENERAL" && courseBranch !== "ALL" && studentBranch) {
+            if (courseBranch !== studentBranch) return false;
+        }
+
+        // If course specifies batch, check match
+        if (course.batch && studentProfile?.batch) {
+            const cBatch = String(course.batch).trim();
+            const sBatch = String(studentProfile.batch).trim();
+            if (cBatch && sBatch && cBatch !== sBatch && cBatch.toUpperCase() !== "ALL") return false;
+        }
+
+        // If course specifies semester, check match
+        if (course.semester && studentProfile?.semester) {
+            const cSem = String(course.semester).trim();
+            const sSem = String(studentProfile.semester).trim();
+            if (cSem && sSem && cSem !== sSem && cSem.toUpperCase() !== "ALL") return false;
+        }
+
+        return true;
+    }
+
+    return false;
 }
 
 export const isInternalSecretOrUid = (val) => {
@@ -171,7 +230,7 @@ export function computeStudentMetrics(coursesDocs = [], sessionsDocs = [], recor
     const enrolledCourseCodes = new Set();
 
     coursesDocs.forEach((c) => {
-        if (!isStudentEnrolledInCourse(c, candidateSet)) return;
+        if (!isStudentEnrolledInCourse(c, candidateSet, studentProfile, enrichedRecords)) return;
         const rawCode = (c.courseCode || c.code || c.id || "").trim().toUpperCase();
         const norm = normalizeCode(rawCode);
         if (norm) {
@@ -193,35 +252,15 @@ export function computeStudentMetrics(coursesDocs = [], sessionsDocs = [], recor
         }
     });
 
-    // Auto-discover any active courses appearing in sessions or records that aren't in the courses collection yet
-    sessionsDocs.forEach((s) => {
-        const sCourse = (s.courseCode || s.classCode || "").trim().toUpperCase();
-        const norm = normalizeCode(sCourse);
-        if (norm && enrolledCourseCodes.has(norm) && !courseMap.has(norm)) {
-            courseMap.set(norm, {
-                id: sCourse,
-                courseCode: sCourse,
-                courseName: sCourse,
-                lecturerName: s.lecturerName || "Faculty",
-                lecturerEmail: s.lecturerEmail || s.ownerEmail || "",
-                department: s.department || studentProfile.branch || studentProfile.department || "General",
-                semester: s.semester || studentProfile.semester || "1",
-                batch: s.batch || studentProfile.batch || "2025",
-                defaultRoom: s.roomNo || "N/A",
-                credits: 3,
-                description: `Lecture sessions conducted for ${sCourse}`
-            });
-        }
-    });
-
+    // Auto-discover any active courses appearing in student's attended records
     enrichedRecords.forEach((r) => {
         const rCourse = (r.courseCode || r.classCode || "").trim().toUpperCase();
         const norm = normalizeCode(rCourse);
-        if (norm && enrolledCourseCodes.has(norm) && !courseMap.has(norm) && norm !== "GENERAL" && norm !== "NA") {
+        if (norm && !courseMap.has(norm) && norm !== "GENERAL" && norm !== "NA") {
             courseMap.set(norm, {
                 id: rCourse,
                 courseCode: rCourse,
-                courseName: rCourse,
+                courseName: r.courseName || rCourse,
                 lecturerName: r.lecturerName || "Faculty",
                 lecturerEmail: "",
                 department: studentProfile.branch || studentProfile.department || "General",
@@ -234,23 +273,42 @@ export function computeStudentMetrics(coursesDocs = [], sessionsDocs = [], recor
         }
     });
 
+    // Auto-discover any conducted sessions matching the student
+    sessionsDocs.forEach((s) => {
+        const sCourse = (s.courseCode || s.classCode || "").trim().toUpperCase();
+        const norm = normalizeCode(sCourse);
+        if (norm && !courseMap.has(norm) && norm !== "GENERAL" && norm !== "NA") {
+            const hasAttended = Array.isArray(s.attendees) && s.attendees.some((att) => {
+                const roll = String(att?.rollNo || att?.roll || att || "").trim().toUpperCase();
+                const em = String(att?.email || att?.studentEmail || "").split("@")[0].trim().toUpperCase();
+                return candidateSet.has(roll) || candidateSet.has(em);
+            });
+            const matchesProfile = (!s.batch || String(s.batch).trim() === String(studentProfile.batch || "").trim()) &&
+                                   (!s.classCode || !studentProfile.branch || normalizeBranchName(s.classCode) === normalizeBranchName(studentProfile.branch));
+            if (hasAttended || matchesProfile) {
+                courseMap.set(norm, {
+                    id: sCourse,
+                    courseCode: sCourse,
+                    courseName: s.courseName || s.topic || sCourse,
+                    lecturerName: s.lecturerName || "Faculty",
+                    lecturerEmail: s.lecturerEmail || s.ownerEmail || "",
+                    department: s.department || studentProfile.branch || "General",
+                    semester: s.semester || studentProfile.semester || "1",
+                    batch: s.batch || studentProfile.batch || "2025",
+                    defaultRoom: s.roomNo || "N/A",
+                    credits: 3,
+                    description: `Lecture sessions conducted for ${sCourse}`
+                });
+            }
+        }
+    });
+
     // 4. Calculate stats for each course
     const allCoursesList = Array.from(courseMap.values());
 
     const coursesWithStats = allCoursesList.map((course) => {
         const cNorm = normalizeCode(course.courseCode);
         const cNameNorm = normalizeCode(course.courseName);
-
-        // Find all sessions conducted for this course
-        const matchingSessions = sessionsDocs.filter((s) => {
-            const sCodeNorm = normalizeCode(s.courseCode || s.classCode || "");
-            const sIdNorm = normalizeCode(s.id || "");
-            return (
-                (cNorm && sCodeNorm === cNorm) ||
-                (cNorm && sIdNorm.includes(cNorm)) ||
-                (cNameNorm && sCodeNorm === cNameNorm)
-            );
-        });
 
         // Find student records for this course
         const matchingRecords = enrichedRecords.filter((r) => {
@@ -269,7 +327,61 @@ export function computeStudentMetrics(coursesDocs = [], sessionsDocs = [], recor
             return false;
         });
 
-        const attendedCount = matchingRecords.length;
+        // Deduplicate attended records by sessionId to ensure true class count
+        const attendedSessionIds = new Set();
+        const deduplicatedRecords = [];
+        matchingRecords.forEach((r) => {
+            const sid = String(r.sessionId || r.id || "").trim().toUpperCase();
+            if (sid && !attendedSessionIds.has(sid)) {
+                attendedSessionIds.add(sid);
+                deduplicatedRecords.push(r);
+            }
+        });
+        const attendedCount = deduplicatedRecords.length;
+
+        // Find all sessions conducted for this course that belong to this student's class
+        const matchingSessions = sessionsDocs.filter((s) => {
+            const sCodeNorm = normalizeCode(s.courseCode || s.classCode || "");
+            const sTopicNorm = normalizeCode(s.topic || s.courseName || "");
+            const codeMatches = (cNorm && sCodeNorm === cNorm) || (cNameNorm && (sCodeNorm === cNameNorm || sTopicNorm === cNameNorm));
+            if (!codeMatches) return false;
+
+            const sid = String(s.id || s.sessionId || "").trim().toUpperCase();
+            const hasAttended = (sid && attendedSessionIds.has(sid)) || (Array.isArray(s.attendees) && s.attendees.some((att) => {
+                const roll = String(att?.rollNo || att?.roll || att || "").trim().toUpperCase();
+                const em = String(att?.email || att?.studentEmail || "").split("@")[0].trim().toUpperCase();
+                return candidateSet.has(roll) || candidateSet.has(em);
+            }));
+            if (hasAttended) return true;
+
+            // If not attended, verify the session was actually conducted for this student's cohort
+            if (s.batch && studentProfile?.batch) {
+                const sBatch = String(s.batch).trim();
+                const pBatch = String(studentProfile.batch).trim();
+                if (sBatch && pBatch && sBatch.toUpperCase() !== "ALL" && sBatch !== pBatch) {
+                    return false;
+                }
+            }
+
+            if (s.classCode || s.department || s.branch) {
+                const sBranch = normalizeBranchName(s.classCode || s.department || s.branch);
+                const pBranch = normalizeBranchName(studentProfile?.branch || studentProfile?.department || "");
+                if (sBranch && pBranch && sBranch !== "ALL" && sBranch !== "GENERAL" && sBranch !== pBranch) {
+                    return false;
+                }
+            }
+
+            if (s.section && studentProfile?.section) {
+                const sSec = String(s.section).trim().toUpperCase();
+                const pSec = String(studentProfile.section).trim().toUpperCase();
+                if (sSec && pSec && sSec !== "ALL" && sSec !== pSec) {
+                    return false;
+                }
+            }
+
+            return true;
+        });
+
         // Total conducted is at least as large as the sessions found or attended records
         const totalConducted = Math.max(matchingSessions.length, attendedCount);
 
@@ -300,11 +412,14 @@ export function computeStudentMetrics(coursesDocs = [], sessionsDocs = [], recor
         }
 
         // Build detailed conducted sessions list with student's Present / Absent status
-        const attendedSessionIds = new Set(matchingRecords.map((r) => String(r.sessionId || "").trim().toUpperCase()).filter(Boolean));
         const detailedSessions = matchingSessions.map((s) => {
-            const sid = String(s.id || "").trim().toUpperCase();
-            const myRecord = matchingRecords.find((r) => String(r.sessionId || "").trim().toUpperCase() === sid || (r.id && String(r.id).toUpperCase().startsWith(`${sid}_`)));
-            const isPresent = Boolean(myRecord) || attendedSessionIds.has(sid);
+            const sid = String(s.id || s.sessionId || "").trim().toUpperCase();
+            const myRecord = deduplicatedRecords.find((r) => {
+                const rSid = String(r.sessionId || "").trim().toUpperCase();
+                const rId = String(r.id || "").trim().toUpperCase();
+                return (sid && rSid === sid) || (sid && rId.startsWith(`${sid}_`));
+            });
+            const isPresent = Boolean(myRecord) || (sid && attendedSessionIds.has(sid));
 
             return {
                 id: s.id,
@@ -327,7 +442,7 @@ export function computeStudentMetrics(coursesDocs = [], sessionsDocs = [], recor
             status,
             leavesAvailable,
             classesNeeded,
-            history: matchingRecords,
+            history: deduplicatedRecords,
             sessions: detailedSessions
         };
     });

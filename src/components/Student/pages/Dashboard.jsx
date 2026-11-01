@@ -58,10 +58,7 @@ import { detectDeviceType, getClientIpAddress, getDeviceDisplayName, isDeviceMat
 import { locationFromPosition, isAccurateLocation } from "../../../utils/location";
 import { Capacitor } from "@capacitor/core";
 import { KioskPlugin } from "../../../plugins/kiosk";
-import { checkForAppUpdate, subscribeToAppUpdates, triggerApkDownload } from "../../../services/appUpdateService";
-import { dismissAppUpdate, isAppUpdateDismissed, hasAppUpdateNotificationBeenShown, markAppUpdateNotificationShown } from "../../../utils/appUpdateDismissal";
 import { registerStudentDevice } from "../../../services/deviceRegistrationService";
-import AppUpdateModal from "../../Common/AppUpdateModal";
 import "./Dashboard.css";
 
 export default function StudentDashboard() {
@@ -130,40 +127,7 @@ export default function StudentDashboard() {
     const [fetchedStudentData, setFetchedStudentData] = useState(null);
     const [notifications, setNotifications] = useState([]);
 
-    // App Update Reminder State
-    const [updateInfo, setUpdateInfo] = useState(null);
 
-    // Subscribe to App Updates so students are immediately notified of new versions
-    useEffect(() => {
-        let isMounted = true;
-        const applyUpdateInfo = (info) => {
-            if (!isMounted) return;
-            if (!info?.hasUpdate) {
-                setUpdateInfo(null);
-                return;
-            }
-            // Non-mandatory: only show once per version
-            if (!info.isMandatory && (isAppUpdateDismissed(info.latestVersion) || hasAppUpdateNotificationBeenShown(info.latestVersion))) {
-                setUpdateInfo(null);
-                return;
-            }
-            setUpdateInfo(info);
-            if (!info.isMandatory) markAppUpdateNotificationShown(info.latestVersion);
-        };
-
-        checkForAppUpdate().then((info) => {
-            applyUpdateInfo(info);
-        }).catch(() => {});
-
-        const unsub = subscribeToAppUpdates((info) => {
-            applyUpdateInfo(info);
-        });
-
-        return () => {
-            isMounted = false;
-            if (typeof unsub === "function") unsub();
-        };
-    }, []);
 
     // Auto-prompt location & notification access and biometric registration just after logging in
     useEffect(() => {
@@ -775,19 +739,17 @@ export default function StudentDashboard() {
         } catch (_) {}
     }, []);
 
-    // 3. Real-time Attendance Records listener (Authorized by studentUid and studentEmail)
+    // 3. Real-time Attendance Records listener (Authorized by studentUid, studentEmail, and rollNo)
     useEffect(() => {
-        if (!user?.uid && !cleanEmail) {
+        if (!user?.uid && !cleanEmail && (!candidateRolls || candidateRolls.length === 0)) {
             return;
         }
 
         const unsubs = [];
-        const uidMap = new Map();
-        const emailMap = new Map();
+        const recordsMap = new Map();
 
         const emitMergedRecords = () => {
-            const merged = new Map([...uidMap, ...emailMap]);
-            const list = Array.from(merged.values());
+            const list = Array.from(recordsMap.values());
             setRecords(list);
             setLoading(false);
             setRefreshing(false);
@@ -796,8 +758,7 @@ export default function StudentDashboard() {
         if (user?.uid) {
             const qUid = query(collection(db, "attendance_records"), where("studentUid", "==", user.uid));
             unsubs.push(onSnapshot(qUid, (snapshot) => {
-                uidMap.clear();
-                snapshot.docs.forEach((d) => uidMap.set(d.id, { id: d.id, ...d.data() }));
+                snapshot.docs.forEach((d) => recordsMap.set(d.id, { id: d.id, ...d.data() }));
                 emitMergedRecords();
             }, (err) => {
                 console.warn("UID records listener notice:", err);
@@ -808,8 +769,7 @@ export default function StudentDashboard() {
         if (cleanEmail) {
             const qEmail = query(collection(db, "attendance_records"), where("studentEmail", "==", cleanEmail));
             unsubs.push(onSnapshot(qEmail, (snapshot) => {
-                emailMap.clear();
-                snapshot.docs.forEach((d) => emailMap.set(d.id, { id: d.id, ...d.data() }));
+                snapshot.docs.forEach((d) => recordsMap.set(d.id, { id: d.id, ...d.data() }));
                 emitMergedRecords();
             }, (err) => {
                 console.warn("Email records listener notice:", err);
@@ -817,8 +777,20 @@ export default function StudentDashboard() {
             }));
         }
 
+        (candidateRolls || []).slice(0, 5).forEach((roll) => {
+            if (roll && roll !== user?.uid && roll !== cleanEmail) {
+                const qRoll = query(collection(db, "attendance_records"), where("rollNo", "==", roll));
+                unsubs.push(onSnapshot(qRoll, (snapshot) => {
+                    snapshot.docs.forEach((d) => recordsMap.set(d.id, { id: d.id, ...d.data() }));
+                    emitMergedRecords();
+                }, (err) => {
+                    console.debug("Roll records listener notice:", err);
+                }));
+            }
+        });
+
         return () => unsubs.forEach((u) => { try { u(); } catch (_) { } });
-    }, [user?.uid, cleanEmail]);
+    }, [user?.uid, cleanEmail, candidateRolls]);
 
     // Native-feel pull-to-refresh touch listener for Android & mobile WebView
     const touchStartRef = useRef(0);
@@ -854,7 +826,11 @@ export default function StudentDashboard() {
     const handleManualRefresh = useCallback(async () => {
         setRefreshing(true);
         try {
-            const [coursesSnap, sessionsSnap, uidRecordsSnap, emailRecordsSnap] = await Promise.all([
+            const rollQueries = (candidateRolls || []).slice(0, 5)
+                .filter((roll) => roll && roll !== user?.uid && roll !== cleanEmail)
+                .map((roll) => getDocs(query(collection(db, "attendance_records"), where("rollNo", "==", roll))).catch(() => ({ docs: [] })));
+
+            const [coursesSnap, sessionsSnap, uidRecordsSnap, emailRecordsSnap, ...rollRecordsSnaps] = await Promise.all([
                 getDocs(collection(db, "courses")).catch(() => ({ docs: [] })),
                 getDocs(collection(db, "attendance_sessions")).catch(() => ({ docs: [] })),
                 user?.uid
@@ -862,7 +838,8 @@ export default function StudentDashboard() {
                     : Promise.resolve({ docs: [] }),
                 cleanEmail
                     ? getDocs(query(collection(db, "attendance_records"), where("studentEmail", "==", cleanEmail))).catch(() => ({ docs: [] }))
-                    : Promise.resolve({ docs: [] })
+                    : Promise.resolve({ docs: [] }),
+                ...rollQueries
             ]);
 
             setCourses(coursesSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
@@ -870,7 +847,7 @@ export default function StudentDashboard() {
 
             // Merge and deduplicate records by ID
             const recMap = new Map();
-            [...uidRecordsSnap.docs, ...emailRecordsSnap.docs].forEach((d) => {
+            [...uidRecordsSnap.docs, ...emailRecordsSnap.docs, ...rollRecordsSnaps.flatMap((s) => s.docs)].forEach((d) => {
                 recMap.set(d.id, { id: d.id, ...d.data() });
             });
             setRecords(Array.from(recMap.values()));
@@ -879,7 +856,7 @@ export default function StudentDashboard() {
         } finally {
             setRefreshing(false);
         }
-    }, [user?.uid, candidateRolls]);
+    }, [user?.uid, cleanEmail, candidateRolls]);
 
     // Auto-refresh when student returns to app on Android native or refocused in browser
     useEffect(() => {
@@ -2508,17 +2485,7 @@ export default function StudentDashboard() {
                 </div>
             )}
 
-            {/* App Update Modal */}
-            <AppUpdateModal
-                updateInfo={updateInfo}
-                onClose={() => {
-                    if (!updateInfo?.isMandatory) {
-                        dismissAppUpdate(updateInfo?.latestVersion);
 
-                    }
-                    setUpdateInfo(null);
-                }}
-            />
 
             {/* Re-Registration Request Modal */}
             <RequestReRegistrationModal

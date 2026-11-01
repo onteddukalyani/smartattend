@@ -1,7 +1,8 @@
 import { useEffect } from "react";
 import { FaDownload, FaRedo, FaExclamationTriangle, FaRocket } from "react-icons/fa";
 import { Capacitor } from "@capacitor/core";
-import { triggerApkDownload } from "../../services/appUpdateService";
+import { triggerApkDownload, compareVersions } from "../../services/appUpdateService";
+import { dismissAppUpdate, markAppUpdateNotificationShown, isAppUpdateDismissed } from "../../utils/appUpdateDismissal";
 import { getApkDownloadUrl } from "../../utils/apkUrl";
 import "./AppUpdateModal.css";
 
@@ -29,7 +30,25 @@ export default function AppUpdateModal({ updateInfo, onClose }) {
   const currentVersion = updateInfo?.currentVersion || "";
   const apkUrl = updateInfo?.apkUrl || getApkDownloadUrl();
 
+  // If already running latest version or newer, do not show update modal
+  if (currentVersion && latestVersion && compareVersions(currentVersion, latestVersion) >= 0) {
+    if (!updateInfo.latestVersionCode || !updateInfo.currentVersionCode || updateInfo.latestVersionCode <= updateInfo.currentVersionCode) {
+      return null;
+    }
+  }
+
+  // If non-mandatory update was already dismissed by user
+  if (!isMandatory && latestVersion && isAppUpdateDismissed(latestVersion)) {
+    return null;
+  }
+
   const handleUpdate = () => {
+    if (latestVersion) {
+      dismissAppUpdate(latestVersion);
+      markAppUpdateNotificationShown(latestVersion);
+    }
+    if (onClose) onClose();
+
     if (isNative) {
       // Native APK: trigger direct download
       triggerApkDownload(apkUrl);
@@ -47,6 +66,10 @@ export default function AppUpdateModal({ updateInfo, onClose }) {
   };
 
   const handleDismiss = () => {
+    if (latestVersion) {
+      dismissAppUpdate(latestVersion);
+      markAppUpdateNotificationShown(latestVersion);
+    }
     if (!isMandatory && onClose) onClose();
   };
 

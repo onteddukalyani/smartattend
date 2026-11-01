@@ -1,13 +1,10 @@
 import { registerPlugin, Capacitor } from "@capacitor/core";
-import { playNotificationChime } from "./notificationsService";
 
 // Register custom native Android notification plugin if on native platform
 const NativeNotificationPlugin = registerPlugin("NativeNotificationPlugin");
 
 // Track recently alerted notification IDs to prevent duplicate popups within session
 const seenAlertIds = new Set();
-let isInitialized = false;
-let sessionStartTime = Date.now();
 
 /**
  * Request notification permissions across Android 13+ and Desktop Web

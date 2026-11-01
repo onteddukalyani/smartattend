@@ -11,10 +11,9 @@ import { FaGraduationCap, FaSpinner } from "react-icons/fa";
 import ProtectedRoute from "./components/ProtectedRoute";
 import { useAuth } from "./components/authcontext";
 import AppUpdateModal from "./components/Common/AppUpdateModal";
-import AppUpdateBanner from "./components/Common/AppUpdateBanner";
 import HeadsUpNotification from "./components/Common/HeadsUpNotification";
 import AndroidOverlayPermissionModal from "./components/Common/AndroidOverlayPermissionModal";
-import { checkForAppUpdate, subscribeToAppUpdates } from "./services/appUpdateService";
+import { checkForAppUpdate, subscribeToAppUpdates, compareVersions } from "./services/appUpdateService";
 import { requestAppNotificationPermissions, triggerRealAppNotification } from "./services/nativeNotificationService";
 import {
   dismissAppUpdate,
@@ -88,6 +87,17 @@ function App() {
 
     const handleUpdateDetected = async (info) => {
       if (!isMounted || !info || !info.hasUpdate) return;
+
+      // If app is already updated (currentVersion >= latestVersion and no higher versionCode)
+      const currentVer = info.currentVersion;
+      const latestVer = info.latestVersion;
+      if (currentVer && latestVer && compareVersions(currentVer, latestVer) >= 0) {
+        if (!info.latestVersionCode || !info.currentVersionCode || info.latestVersionCode <= info.currentVersionCode) {
+          setUpdateInfo(null);
+          setIsUpdateModalOpen(false);
+          return;
+        }
+      }
 
       // Non-mandatory: only show once per version (never again after dismissed/shown)
       if (!info.isMandatory && (isAppUpdateDismissed(info.latestVersion) || hasAppUpdateNotificationBeenShown(info.latestVersion))) {
@@ -357,7 +367,17 @@ function App() {
             />
           </Routes>
         </Suspense>
-        <AppUpdateModal updateInfo={updateInfo} onClose={() => setUpdateInfo(null)} />
+        <AppUpdateModal
+          updateInfo={isUpdateModalOpen ? updateInfo : null}
+          onClose={() => {
+            if (updateInfo?.latestVersion) {
+              dismissAppUpdate(updateInfo.latestVersion);
+              markAppUpdateNotificationShown(updateInfo.latestVersion);
+            }
+            setUpdateInfo(null);
+            setIsUpdateModalOpen(false);
+          }}
+        />
       </>
     );
   }
@@ -391,7 +411,17 @@ function App() {
             />
           </Routes>
         </Suspense>
-        <AppUpdateModal updateInfo={updateInfo} onClose={() => setUpdateInfo(null)} />
+        <AppUpdateModal
+          updateInfo={isUpdateModalOpen ? updateInfo : null}
+          onClose={() => {
+            if (updateInfo?.latestVersion) {
+              dismissAppUpdate(updateInfo.latestVersion);
+              markAppUpdateNotificationShown(updateInfo.latestVersion);
+            }
+            setUpdateInfo(null);
+            setIsUpdateModalOpen(false);
+          }}
+        />
       </>
     );
   }

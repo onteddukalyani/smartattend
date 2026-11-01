@@ -199,12 +199,10 @@ export default function Statistics() {
         }
 
         const unsubs = [];
-        const uidMap = new Map();
-        const emailMap = new Map();
+        const recordsMap = new Map();
 
         const emitMergedRecords = () => {
-            const merged = new Map([...uidMap, ...emailMap]);
-            const list = Array.from(merged.values());
+            const list = Array.from(recordsMap.values());
             setRecords(list);
             setLoading(false);
             setRefreshing(false);
@@ -213,8 +211,7 @@ export default function Statistics() {
         if (user?.uid) {
             const qUid = query(collection(db, "attendance_records"), where("studentUid", "==", user.uid));
             unsubs.push(onSnapshot(qUid, (snapshot) => {
-                uidMap.clear();
-                snapshot.docs.forEach((d) => uidMap.set(d.id, { id: d.id, ...d.data() }));
+                snapshot.docs.forEach((d) => recordsMap.set(d.id, { id: d.id, ...d.data() }));
                 emitMergedRecords();
             }, (err) => {
                 console.warn("UID records listener notice in Statistics:", err);
@@ -225,8 +222,7 @@ export default function Statistics() {
         if (cleanEmail) {
             const qEmail = query(collection(db, "attendance_records"), where("studentEmail", "==", cleanEmail));
             unsubs.push(onSnapshot(qEmail, (snapshot) => {
-                emailMap.clear();
-                snapshot.docs.forEach((d) => emailMap.set(d.id, { id: d.id, ...d.data() }));
+                snapshot.docs.forEach((d) => recordsMap.set(d.id, { id: d.id, ...d.data() }));
                 emitMergedRecords();
             }, (err) => {
                 console.warn("Email records listener notice in Statistics:", err);
@@ -234,13 +230,29 @@ export default function Statistics() {
             }));
         }
 
+        (candidateRolls || []).slice(0, 5).forEach((roll) => {
+            if (roll && roll !== user?.uid && roll !== cleanEmail) {
+                const qRoll = query(collection(db, "attendance_records"), where("rollNo", "==", roll));
+                unsubs.push(onSnapshot(qRoll, (snapshot) => {
+                    snapshot.docs.forEach((d) => recordsMap.set(d.id, { id: d.id, ...d.data() }));
+                    emitMergedRecords();
+                }, (err) => {
+                    console.debug("Roll records listener notice in Statistics:", err);
+                }));
+            }
+        });
+
         return () => unsubs.forEach((u) => { try { u(); } catch (_) { } });
-    }, [user?.uid, cleanEmail]);
+    }, [user?.uid, cleanEmail, candidateRolls]);
 
     const handleRefresh = async () => {
         setRefreshing(true);
         try {
-            const [coursesSnap, sessionsSnap, uidRecordsSnap, emailRecordsSnap] = await Promise.all([
+            const rollQueries = (candidateRolls || []).slice(0, 5)
+                .filter((roll) => roll && roll !== user?.uid && roll !== cleanEmail)
+                .map((roll) => getDocs(query(collection(db, "attendance_records"), where("rollNo", "==", roll))).catch(() => ({ docs: [] })));
+
+            const [coursesSnap, sessionsSnap, uidRecordsSnap, emailRecordsSnap, ...rollRecordsSnaps] = await Promise.all([
                 getDocs(collection(db, "courses")).catch(() => ({ docs: [] })),
                 getDocs(collection(db, "attendance_sessions")).catch(() => ({ docs: [] })),
                 user?.uid
@@ -248,7 +260,8 @@ export default function Statistics() {
                     : Promise.resolve({ docs: [] }),
                 cleanEmail
                     ? getDocs(query(collection(db, "attendance_records"), where("studentEmail", "==", cleanEmail))).catch(() => ({ docs: [] }))
-                    : Promise.resolve({ docs: [] })
+                    : Promise.resolve({ docs: [] }),
+                ...rollQueries
             ]);
 
             setCourses(coursesSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
@@ -256,7 +269,7 @@ export default function Statistics() {
 
             // Merge and deduplicate records by ID
             const recMap = new Map();
-            [...uidRecordsSnap.docs, ...emailRecordsSnap.docs].forEach((d) => {
+            [...uidRecordsSnap.docs, ...emailRecordsSnap.docs, ...rollRecordsSnaps.flatMap((s) => s.docs)].forEach((d) => {
                 recMap.set(d.id, { id: d.id, ...d.data() });
             });
             setRecords(Array.from(recMap.values()));
