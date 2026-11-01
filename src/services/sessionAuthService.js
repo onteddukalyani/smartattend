@@ -65,6 +65,7 @@ export async function initiateSession(sessionParams) {
     const releaseCodeHash = await sha256(sessionPin);
 
     const now = Date.now();
+    const sessionStartAt = now;
     const qr1Sec = Number(sessionParams.qr1DurationSeconds) > 0 ? Number(sessionParams.qr1DurationSeconds) : 60;
     const qr2Sec = Number(sessionParams.qr2DurationSeconds) > 0 ? Number(sessionParams.qr2DurationSeconds) : 75;
     const totalSec = qr1Sec + qr2Sec;

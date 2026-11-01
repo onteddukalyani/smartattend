@@ -805,29 +805,40 @@ function GenerateQR() {
             const radius = geofenceRadius > 0 ? geofenceRadius : 25;
             handleUpdateGeofenceRadius(radius);
             if (typeof navigator !== "undefined" && navigator.geolocation) {
+                const onPos = (pos) => {
+                    const coords = {
+                        latitude: pos.coords.latitude,
+                        longitude: pos.coords.longitude,
+                        accuracy: Math.round(pos.coords.accuracy || 35),
+                        radius: radius,
+                        source: "LAPTOP",
+                        timestamp: Date.now()
+                    };
+                    setClassroomCoords(coords);
+                    setClassroomGpsStatus("ACTIVE");
+                    if (sessionId) {
+                        updateDoc(doc(db, "attendance_sessions", sessionId), {
+                            classroomLocation: coords,
+                            geofenceRadius: radius,
+                            locationMode: "LAPTOP",
+                            updatedAt: Date.now()
+                        }).catch(() => { });
+                    }
+                };
                 navigator.geolocation.getCurrentPosition(
-                    (pos) => {
-                        const coords = {
-                            latitude: pos.coords.latitude,
-                            longitude: pos.coords.longitude,
-                            accuracy: Math.round(pos.coords.accuracy || 35),
-                            radius: radius,
-                            source: "LAPTOP",
-                            timestamp: Date.now()
-                        };
-                        setClassroomCoords(coords);
-                        setClassroomGpsStatus("ACTIVE");
-                        if (sessionId) {
-                            updateDoc(doc(db, "attendance_sessions", sessionId), {
-                                classroomLocation: coords,
-                                geofenceRadius: radius,
-                                locationMode: "LAPTOP",
-                                updatedAt: Date.now()
-                            }).catch(() => { });
-                        }
+                    onPos,
+                    (err) => {
+                        console.warn("Laptop geolocation initial attempt notice:", err?.message || err);
+                        navigator.geolocation.getCurrentPosition(
+                            onPos,
+                            (err2) => {
+                                console.warn("Laptop geolocation fallback notice:", err2?.message || err2);
+                                alert("⚠️ Could not retrieve laptop location. Please ensure location permissions are allowed in your browser address bar, or choose '3. No Location' to start without GPS.");
+                            },
+                            { enableHighAccuracy: true, timeout: 6000, maximumAge: 60000 }
+                        );
                     },
-                    (err) => console.warn("Laptop geolocation notice:", err?.message || err),
-                    { enableHighAccuracy: false, timeout: 8000, maximumAge: 30000 }
+                    { enableHighAccuracy: false, timeout: 6000, maximumAge: 60000 }
                 );
             }
         } else if (mode === "MOBILE") {
@@ -860,7 +871,7 @@ function GenerateQR() {
                         { enableHighAccuracy: true, timeout: 10000, maximumAge: 10000 }
                     );
                 }
-            } else if (sessionId) {
+            } else if (!isMobileDevice) {
                 setShowPhoneAnchorModal(true);
             }
         }

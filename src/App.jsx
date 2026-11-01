@@ -368,6 +368,8 @@ function App() {
             />
             <Route path="/anchor-gps" element={<AnchorGps />} />
             <Route path="/anchor" element={<AnchorGps />} />
+            <Route path="/anchor-gps" element={<AnchorGps />} />
+            <Route path="/anchor" element={<AnchorGps />} />
             <Route path="/lecturer/anchor-gps" element={<AnchorGps />} />
             <Route path="/lecturer/anchor" element={<AnchorGps />} />
 
@@ -414,6 +416,8 @@ function App() {
               path="/login"
               element={<Login />}
             />
+            <Route path="/anchor-gps" element={<AnchorGps />} />
+            <Route path="/anchor" element={<AnchorGps />} />
 
             <Route
               path="*"
@@ -1090,6 +1094,8 @@ function App() {
             }
           />
           <Route path="/institution" element={<Navigate to="/admin/institution" replace />} />
+          <Route path="/anchor-gps" element={<AnchorGps />} />
+          <Route path="/anchor" element={<AnchorGps />} />
 
           {/* Fallback to user's registered home dashboard */}
           <Route path="/" element={<Navigate to={defaultDashboard} replace />} />
