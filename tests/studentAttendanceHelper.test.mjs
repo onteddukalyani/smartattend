@@ -157,3 +157,4 @@ test("studentAttendanceHelper: computeStudentMetrics calculates stats accurately
     assert.equal(metrics.totalMissed, 1);
     assert.equal(metrics.overallPercentage, 50);
 });
+
