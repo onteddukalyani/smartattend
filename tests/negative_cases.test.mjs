@@ -3078,9 +3078,10 @@ test("35. Browser Camera Authorization: All users (lecturer, admin, student, And
   assert.strictEqual(iosStudent.allowed, true);
   assert.strictEqual(iosStudent.reason, "iphone_user");
 
-  // Case D: Android web student in browser — NOW ALLOWED for all devices
+  // Case D: Android web student in browser is blocked from attendance (forced to use APK)
   const androidWebStudent = isBrowserCameraAllowed({ role: "student", deviceType: "android" });
-  assert.strictEqual(androidWebStudent.allowed, true);
+  assert.strictEqual(androidWebStudent.allowed, false);
+  assert.strictEqual(androidWebStudent.reason, "android_web_blocked");
 
   // Desktop / PC browser student — also ALLOWED
   const desktopWebStudent = isBrowserCameraAllowed({ role: "student", deviceType: "web" });

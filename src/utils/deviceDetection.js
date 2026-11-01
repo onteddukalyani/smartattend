@@ -237,6 +237,21 @@ export function isBrowserCameraAllowed(profile = {}, user = {}, context = "qr_sc
     return { allowed: true, reason: "biometric_registration" };
   }
 
-  // Camera is allowed in browser for all devices and users
+  // Android Web Student: strictly blocked from marking attendance in browser! Must use APK!
+  const isAndroid =
+    detectDeviceType() === "android" ||
+    profile?.deviceType === "android" ||
+    (typeof navigator !== "undefined" && /Android/i.test(navigator.userAgent)) ||
+    (typeof localStorage !== "undefined" && (localStorage.getItem("smartattend_student_device_type") === "android" || localStorage.getItem("smartattend_device_type") === "android"));
+
+  if (isAndroid) {
+    return {
+      allowed: false,
+      reason: "android_web_blocked",
+      message: "To enforce anti-proxy security and hardware Lock Task Kiosk mode, Android students must use the official SmartAttend Android App (.apk)."
+    };
+  }
+
+  // Desktop / PC browser
   return { allowed: true, reason: "browser_allowed" };
 }

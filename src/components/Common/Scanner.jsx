@@ -107,8 +107,8 @@ function QrScannerApp() {
     const isStaff = isStaffCameraUser(profile, user) ||
         (typeof window !== "undefined" && (window.location.pathname.includes("/lecturer") || window.location.pathname.includes("/admin")));
     const isAndroidWebStudent = !isNativeApp && isAndroidDevice && !isStaff;
-    const browserCameraAuth = isBrowserCameraAllowed(profile, user);
-    const isCameraAllowed = true; // Camera allowed in browser for all devices
+    const browserCameraAuth = isBrowserCameraAllowed(profile, user, 'qr_scanner');
+    const isCameraAllowed = browserCameraAuth.allowed;
     const [showAppBanner, setShowAppBanner] = useState(false);
     const [dismissedAppBanner, setDismissedAppBanner] = useState(false);
     const [deviceOwnerStatus, setDeviceOwnerStatus] = useState({ checked: false, isDeviceOwner: true, isWeb: false });
@@ -5650,68 +5650,146 @@ function QrScannerApp() {
 
             {/* Camera Viewport with Targeting Overlay & Floating Controls */}
             <div className="st-camera-viewport-card">
-                {/* Floating Top Status Badge */}
-                <div className="st-camera-badge-floating">
-                    <span className="st-live-pulse-dot" />
-                    <span>Live Viewfinder · Scan QR 1</span>
-                </div>
+                {isCameraAllowed ? (
+                    <>
+                        {/* Floating Top Status Badge */}
+                        <div className="st-camera-badge-floating">
+                            <span className="st-live-pulse-dot" />
+                            <span>Live Viewfinder · Scan QR 1</span>
+                        </div>
 
-                {/* Optical Viewfinder Target Frame with Animated Laser Beam */}
-                <div className="st-viewfinder-overlay">
-                    <div className="st-viewfinder-frame">
-                        <div className="st-corner-tl" />
-                        <div className="st-corner-tr" />
-                        <div className="st-corner-bl" />
-                        <div className="st-corner-br" />
-                        <div className="st-laser-scan-line" />
-                    </div>
-                </div>
+                        {/* Optical Viewfinder Target Frame with Animated Laser Beam */}
+                        <div className="st-viewfinder-overlay">
+                            <div className="st-viewfinder-frame">
+                                <div className="st-corner-tl" />
+                                <div className="st-corner-tr" />
+                                <div className="st-corner-bl" />
+                                <div className="st-corner-br" />
+                                <div className="st-laser-scan-line" />
+                            </div>
+                        </div>
 
-                {scannerActive ? (
-                    <NativeQrScanner
-                        key={`${retryKey}-${effectiveFacingMode}`}
-                        onScan={handleCameraScan}
-                        onError={handleCameraError}
-                        facingMode={effectiveFacingMode}
-                        onToggleFacingMode={handleToggleFacingMode}
-                        active={scannerActive}
-                    />
+                        {scannerActive ? (
+                            <NativeQrScanner
+                                key={`${retryKey}-${effectiveFacingMode}`}
+                                onScan={handleCameraScan}
+                                onError={handleCameraError}
+                                facingMode={effectiveFacingMode}
+                                onToggleFacingMode={handleToggleFacingMode}
+                                active={scannerActive}
+                            />
+                        ) : (
+                            <div style={{ padding: '48px 20px', textAlign: 'center', color: '#64748b' }}>
+                                <FaSpinner className="fa-spin" style={{ fontSize: '2.4rem', color: '#6366f1', marginBottom: '14px' }} />
+                                <p style={{ margin: 0, fontWeight: 700, fontSize: '0.95rem' }}>Initializing attendance camera...</p>
+                            </div>
+                        )}
+
+                        {/* Floating Bottom Viewport Controls */}
+                        <div className="st-viewport-controls">
+                            <button
+                                type="button"
+                                onClick={handleToggleFacingMode}
+                                className="st-ctrl-btn"
+                                title="Switch Camera (Front/Rear)"
+                            >
+                                <FaSyncAlt />
+                                <span>{effectiveFacingMode === 'user' ? 'Front' : 'Rear'}</span>
+                            </button>
+                            {!isNativeApp && (
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        if (!isBrowserFullscreen) {
+                                            Kiosk.requestFullscreen().catch(() => {});
+                                        } else {
+                                            Kiosk.exitFullscreen().catch(() => {});
+                                        }
+                                    }}
+                                    className="st-ctrl-btn"
+                                    title="Toggle Fullscreen"
+                                >
+                                    <FaExpand />
+                                    <span>{isBrowserFullscreen ? 'Exit' : 'Fullscreen'}</span>
+                                </button>
+                            )}
+                        </div>
+                    </>
                 ) : (
-                    <div style={{ padding: '48px 20px', textAlign: 'center', color: '#64748b' }}>
-                        <FaSpinner className="fa-spin" style={{ fontSize: '2.4rem', color: '#6366f1', marginBottom: '14px' }} />
-                        <p style={{ margin: 0, fontWeight: 700, fontSize: '0.95rem' }}>Initializing attendance camera...</p>
-                    </div>
-                )}
-
-                {/* Floating Bottom Viewport Controls */}
-                <div className="st-viewport-controls">
-                    <button
-                        type="button"
-                        onClick={handleToggleFacingMode}
-                        className="st-ctrl-btn"
-                        title="Switch Camera (Front/Rear)"
-                    >
-                        <FaSyncAlt />
-                        <span>{effectiveFacingMode === 'user' ? 'Front' : 'Rear'}</span>
-                    </button>
-                    {!isNativeApp && (
+                    /* Android Web Browser Camera Blocked - Force Official APK */
+                    <div className="st-browser-camera-blocked-card" style={{ padding: '36px 20px', textAlign: 'center', background: '#0f172a', borderRadius: '20px', border: '1.5px solid rgba(239, 68, 68, 0.4)', color: '#f8fafc', boxShadow: '0 12px 36px rgba(0, 0, 0, 0.5)' }}>
+                        <div style={{ width: '64px', height: '64px', borderRadius: '50%', background: 'rgba(239, 68, 68, 0.15)', color: '#ef4444', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px', fontSize: '2rem' }}>
+                            <FaLock />
+                        </div>
+                        <h3 style={{ color: '#f87171', margin: '0 0 10px', fontSize: '1.25rem', fontWeight: 800 }}>
+                            Android Students Must Use SmartAttend App
+                        </h3>
+                        <p style={{ fontSize: '0.92rem', color: '#94a3b8', lineHeight: 1.6, maxWidth: '440px', margin: '0 auto 20px' }}>
+                            To enforce anti-proxy security and hardware Lock Task Kiosk mode, <strong>attendance marking on Android devices requires the official SmartAttend APK</strong>. Browser scanning is not allowed on Android.
+                        </p>
+                        <div style={{ display: 'flex', gap: '12px', justifyContent: 'center', flexWrap: 'wrap', marginBottom: '16px' }}>
+                            <button
+                                type="button"
+                                onClick={handleOpenInSmartAttendApp}
+                                style={{
+                                    padding: '12px 22px',
+                                    borderRadius: '12px',
+                                    background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
+                                    color: '#ffffff',
+                                    border: 'none',
+                                    fontWeight: 800,
+                                    fontSize: '0.92rem',
+                                    cursor: 'pointer',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '8px',
+                                    boxShadow: '0 6px 18px rgba(99, 102, 241, 0.35)'
+                                }}
+                            >
+                                <FaMobileAlt /> Open in SmartAttend App
+                            </button>
+                            <a
+                                href={getApkDownloadUrl()}
+                                download="SmartAttend-release.apk"
+                                style={{
+                                    padding: '12px 22px',
+                                    borderRadius: '12px',
+                                    background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                                    color: '#ffffff',
+                                    border: 'none',
+                                    fontWeight: 800,
+                                    fontSize: '0.92rem',
+                                    textDecoration: 'none',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '8px',
+                                    boxShadow: '0 6px 18px rgba(16, 185, 129, 0.35)'
+                                }}
+                            >
+                                <FaDownload /> Download SmartAttend APK (.apk)
+                            </a>
+                        </div>
                         <button
                             type="button"
-                            onClick={() => {
-                                if (!isBrowserFullscreen) {
-                                    Kiosk.requestFullscreen().catch(() => {});
-                                } else {
-                                    Kiosk.exitFullscreen().catch(() => {});
-                                }
+                            onClick={() => navigate('/student')}
+                            style={{
+                                padding: '8px 16px',
+                                borderRadius: '10px',
+                                background: 'transparent',
+                                color: '#94a3b8',
+                                border: '1px solid rgba(255, 255, 255, 0.12)',
+                                fontWeight: 600,
+                                fontSize: '0.85rem',
+                                cursor: 'pointer'
                             }}
-                            className="st-ctrl-btn"
-                            title="Toggle Fullscreen"
                         >
-                            <FaExpand />
-                            <span>{isBrowserFullscreen ? 'Exit' : 'Fullscreen'}</span>
+                            Return to Dashboard
                         </button>
-                    )}
-                </div>
+                        <p style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '16px', marginBottom: 0 }}>
+                            🍎 iPhone users can mark attendance directly in Safari with Guided Access.
+                        </p>
+                    </div>
+                )}
             </div>
 
             {/* Bottom Info Strip: GPS Telemetry & Quick Device Setup Pills */}
