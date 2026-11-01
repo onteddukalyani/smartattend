@@ -792,36 +792,6 @@ export default function StudentDashboard() {
         return () => unsubs.forEach((u) => { try { u(); } catch (_) { } });
     }, [user?.uid, cleanEmail, candidateRolls]);
 
-    // Native-feel pull-to-refresh touch listener for Android & mobile WebView
-    const touchStartRef = useRef(0);
-    const [pullDistance, setPullDistance] = useState(0);
-
-    const handleTouchStart = (e) => {
-        if (typeof window !== "undefined" && (window.scrollY === 0 || document.documentElement.scrollTop === 0)) {
-            touchStartRef.current = e.touches[0].clientY;
-        } else {
-            touchStartRef.current = 0;
-        }
-    };
-
-    const handleTouchMove = (e) => {
-        if (touchStartRef.current > 0 && (window.scrollY === 0 || document.documentElement.scrollTop === 0)) {
-            const currentY = e.touches[0].clientY;
-            const diff = currentY - touchStartRef.current;
-            if (diff > 0 && diff < 120) {
-                setPullDistance(diff);
-            }
-        }
-    };
-
-    const handleTouchEnd = () => {
-        if (pullDistance > 60 && !refreshing) {
-            handleManualRefresh();
-        }
-        touchStartRef.current = 0;
-        setPullDistance(0);
-    };
-
     // Manual Refresh Handler: Re-syncs courses, active attendance sessions, and student records
     const handleManualRefresh = useCallback(async () => {
         setRefreshing(true);
@@ -857,6 +827,36 @@ export default function StudentDashboard() {
             setRefreshing(false);
         }
     }, [user?.uid, cleanEmail, candidateRolls]);
+
+    // Native-feel pull-to-refresh touch listener for Android & mobile WebView
+    const touchStartRef = useRef(0);
+    const [pullDistance, setPullDistance] = useState(0);
+
+    const handleTouchStart = (e) => {
+        if (typeof window !== "undefined" && (window.scrollY === 0 || document.documentElement.scrollTop === 0)) {
+            touchStartRef.current = e.touches[0].clientY;
+        } else {
+            touchStartRef.current = 0;
+        }
+    };
+
+    const handleTouchMove = (e) => {
+        if (touchStartRef.current > 0 && (window.scrollY === 0 || document.documentElement.scrollTop === 0)) {
+            const currentY = e.touches[0].clientY;
+            const diff = currentY - touchStartRef.current;
+            if (diff > 0 && diff < 120) {
+                setPullDistance(diff);
+            }
+        }
+    };
+
+    const handleTouchEnd = () => {
+        if (pullDistance > 60 && !refreshing) {
+            handleManualRefresh();
+        }
+        touchStartRef.current = 0;
+        setPullDistance(0);
+    };
 
     // Auto-refresh when student returns to app on Android native or refocused in browser
     useEffect(() => {
