@@ -116,7 +116,8 @@ function GenerateQR() {
     const [rotationIntervalSec, setRotationIntervalSec] = useState(DEFAULT_ROTATION_INTERVAL);
     const [rotationSecondsLeft, setRotationSecondsLeft] = useState(DEFAULT_ROTATION_INTERVAL);
     const [dynamicQrUrl, setDynamicQrUrl] = useState("");
-    const [locationMode, setLocationMode] = useState("MOBILE"); // "MOBILE" | "LAPTOP" | "NONE"
+    const [locationMode, setLocationMode] = useState("MOBILE");
+    const [preSessionAnchorToken] = useState(() => "anchor_" + Math.random().toString(36).substring(2, 10) + Date.now().toString(36)); // "MOBILE" | "LAPTOP" | "NONE"
     const [showPhoneAnchorModal, setShowPhoneAnchorModal] = useState(false);
     const [geofenceRadius, setGeofenceRadius] = useState(10); // Mandatory default: 10 metres standard, adjustable live by lecturer (0 = disabled)
     const [isCustomGps, setIsCustomGps] = useState(false);
@@ -153,10 +154,10 @@ function GenerateQR() {
                 const data = d.data() || {};
                 if (d.id.length > 20 && !/^\d{2}[A-Za-z]{3}\d+/i.test(d.id)) {
                     // Clean up stray UID doc if found in students collection
-                    deleteDoc(doc(db, "students", d.id)).catch(() => {});
+                    deleteDoc(doc(db, "students", d.id)).catch(() => { });
                 }
                 if (/^[a-z0-9_-]+$/.test(d.id) && /[a-z]/.test(d.id) && /^\d{2}[a-z]{3}\d+/i.test(d.id)) {
-                    deleteDoc(doc(db, "students", d.id)).catch(() => {});
+                    deleteDoc(doc(db, "students", d.id)).catch(() => { });
                 }
                 const cleanRoll = extractCanonicalRoll(data, d.id);
                 if (!cleanRoll || (cleanRoll.length > 20 && !/^\d{2}[A-Za-z]{3}\d+/i.test(cleanRoll))) return;
@@ -318,6 +319,30 @@ function GenerateQR() {
     const otherCourses = useMemo(() => {
         return availableCourses.filter((c) => !myCourses.some((m) => m.id === c.id));
     }, [availableCourses, myCourses]);
+
+    // Real-time listener for pre-session phone anchor
+    useEffect(() => {
+        if (!preSessionAnchorToken) return;
+        const unsub = onSnapshot(doc(db, "pre_session_anchors", preSessionAnchorToken), (snap) => {
+            if (snap.exists()) {
+                const data = snap.data();
+                if (data.latitude && data.longitude) {
+                    const coords = {
+                        latitude: data.latitude,
+                        longitude: data.longitude,
+                        accuracy: Math.round(data.accuracy || 5),
+                        radius: geofenceRadius > 0 ? geofenceRadius : 10,
+                        source: "PHONE_ANCHOR",
+                        timestamp: data.timestamp || Date.now()
+                    };
+                    setClassroomCoords(coords);
+                    setClassroomGpsStatus("ACTIVE");
+                    setShowPhoneAnchorModal(false);
+                }
+            }
+        });
+        return () => unsub();
+    }, [preSessionAnchorToken, geofenceRadius]);
 
     // Auto-close Phone Anchor Modal once phone anchor is detected live
     useEffect(() => {
@@ -513,7 +538,27 @@ function GenerateQR() {
             const effectiveTotalSec = effectiveQr1Sec + effectiveQr2Sec;
             const effectiveDurationMinutes = Math.round((effectiveTotalSec / 60) * 10) / 10;
 
-            // Ensure Lecturer Host GPS is locked before initiating session document
+            // Ensure Lecturer has defined location BEFORE starting session (phone, laptop, or no location)
+            if (locationMode !== "NONE") {
+                const hasDefinedCoords = classroomCoords &&
+                    Number.isFinite(classroomCoords.latitude) &&
+                    Number.isFinite(classroomCoords.longitude);
+
+                if (!hasDefinedCoords) {
+                    setIsGenerating(false);
+                    const msg = locationMode === "MOBILE"
+                        ? (!isMobileDevice
+                            ? "Please define your classroom location first. Scan the QR code with your mobile phone to lock GPS before starting the session, or choose '3. No Location'."
+                            : "Please capture your phone GPS location first before starting the session, or choose '3. No Location'.")
+                        : "Please capture your laptop location before starting the session, or choose '3. No Location'.";
+                    setErrorMessage(msg);
+                    if (locationMode === "MOBILE" && !isMobileDevice) {
+                        setShowPhoneAnchorModal(true);
+                    }
+                    return;
+                }
+            }
+
             let hostCoords = isAccurateLocation(classroomCoords, Date.now(), maxHostAccuracy) ? classroomCoords : null;
             if (!hostCoords && geofenceRadius > 0 && typeof navigator !== "undefined" && navigator.geolocation) {
                 setClassroomGpsStatus("ACQUIRING");
@@ -565,7 +610,7 @@ function GenerateQR() {
                     radius: effectiveGeofenceRadius,
                     accuracy: hostCoords.accuracy || 35,
                     source: hostCoords.source || (isMobileDevice ? "MOBILE_HOST" : "LAPTOP")
-                  }
+                }
                 : null;
 
             const result = await createAttendanceSession(
@@ -659,16 +704,16 @@ function GenerateQR() {
                     }
                     return s;
                 })
-                .filter(Boolean)
-                .map((r) => {
-                    const str = String(r).trim().toUpperCase();
-                    if (str.includes("@") && dbStudentsMap?.has(str.toLowerCase())) {
-                        const info = dbStudentsMap.get(str.toLowerCase());
-                        if (info?.rollNo) return info.rollNo.toUpperCase();
-                    }
-                    return str;
-                })
-                .filter(Boolean)
+                    .filter(Boolean)
+                    .map((r) => {
+                        const str = String(r).trim().toUpperCase();
+                        if (str.includes("@") && dbStudentsMap?.has(str.toLowerCase())) {
+                            const info = dbStudentsMap.get(str.toLowerCase());
+                            if (info?.rollNo) return info.rollNo.toUpperCase();
+                        }
+                        return str;
+                    })
+                    .filter(Boolean)
             ));
 
             if (enrolledRolls.length > 0) {
@@ -776,7 +821,7 @@ function GenerateQR() {
                                 geofenceRadius: radius,
                                 locationMode: "LAPTOP",
                                 updatedAt: Date.now()
-                            }).catch(() => {});
+                            }).catch(() => { });
                         }
                     },
                     (err) => console.warn("Laptop geolocation notice:", err?.message || err),
@@ -806,7 +851,7 @@ function GenerateQR() {
                                     geofenceRadius: radius,
                                     locationMode: "MOBILE",
                                     updatedAt: Date.now()
-                                }).catch(() => {});
+                                }).catch(() => { });
                             }
                         },
                         (err) => console.warn("Mobile GPS notice:", err?.message || err),
@@ -1855,29 +1900,29 @@ function GenerateQR() {
                     </div>
 
                     {/* Location Source 3-Way Selector */}
-                    <div className="qr-form-row" style={{ marginBottom: "16px" }}>
+                    <div className="qr-form-row" style={{ marginBottom: "18px" }}>
                         <div className="qr-form-group" style={{ width: "100%" }}>
                             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
                                 <label style={{ margin: 0, display: "flex", alignItems: "center", gap: "6px", fontWeight: 800, fontSize: "0.92rem", color: "var(--text-main, #0f172a)" }}>
-                                    <FaMapMarkerAlt style={{ color: "#3b82f6" }} /> 🌐 GPS Location Source (Select One)
+                                    <FaMapMarkerAlt style={{ color: "#2563eb" }} /> 🌐 GPS Location Source (Define Before Starting Session)
                                 </label>
                                 <span style={{
                                     fontSize: "0.76rem",
                                     fontWeight: 800,
-                                    padding: "2px 8px",
-                                    borderRadius: "6px",
+                                    padding: "3px 10px",
+                                    borderRadius: "8px",
                                     background: locationMode === "MOBILE" ? "rgba(37, 99, 235, 0.12)" : locationMode === "LAPTOP" ? "rgba(16, 185, 129, 0.12)" : "rgba(239, 68, 68, 0.12)",
                                     color: locationMode === "MOBILE" ? "#1d4ed8" : locationMode === "LAPTOP" ? "#047857" : "#dc2626"
                                 }}>
-                                    {locationMode === "MOBILE" ? "📱 Mobile Satellite GPS" : locationMode === "LAPTOP" ? "💻 Laptop Location" : "🚫 No Location (Off)"}
+                                    {locationMode === "MOBILE" ? "📱 1. Mobile Satellite GPS" : locationMode === "LAPTOP" ? "💻 2. Laptop Location" : "🚫 3. No Location (Off)"}
                                 </span>
                             </div>
 
                             <div style={{
                                 display: "grid",
-                                gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))",
-                                gap: "10px",
-                                marginBottom: "10px"
+                                gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                                gap: "12px",
+                                marginBottom: "12px"
                             }}>
                                 {/* Option 1: Lecturer Mobile GPS */}
                                 <div
@@ -1888,31 +1933,104 @@ function GenerateQR() {
                                     style={{
                                         display: "flex",
                                         flexDirection: "column",
-                                        padding: "12px 14px",
-                                        borderRadius: "12px",
-                                        border: locationMode === "MOBILE" ? "2px solid #2563eb" : "1.5px solid var(--border, #cbd5e1)",
+                                        padding: "14px",
+                                        borderRadius: "14px",
+                                        border: locationMode === "MOBILE" ? "2.5px solid #2563eb" : "1.5px solid var(--border, #cbd5e1)",
                                         background: locationMode === "MOBILE" ? "rgba(37, 99, 235, 0.08)" : "var(--surface, #ffffff)",
                                         cursor: "pointer",
                                         transition: "all 0.2s ease",
-                                        boxShadow: locationMode === "MOBILE" ? "0 2px 8px rgba(37, 99, 235, 0.18)" : "none"
+                                        boxShadow: locationMode === "MOBILE" ? "0 4px 14px rgba(37, 99, 235, 0.2)" : "none"
                                     }}
                                 >
-                                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "4px" }}>
-                                        <div style={{ display: "flex", alignItems: "center", gap: "6px", fontWeight: 800, fontSize: "0.9rem", color: locationMode === "MOBILE" ? "#1d4ed8" : "var(--text-main, #0f172a)" }}>
-                                            <FaMobileAlt style={{ fontSize: "1.05rem" }} /> 1. Lecturer Mobile
+                                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "6px" }}>
+                                        <div style={{ display: "flex", alignItems: "center", gap: "6px", fontWeight: 800, fontSize: "0.92rem", color: locationMode === "MOBILE" ? "#1d4ed8" : "var(--text-main, #0f172a)" }}>
+                                            <FaMobileAlt style={{ fontSize: "1.1rem" }} /> 1. Lecturer Mobile
                                         </div>
                                         {locationMode === "MOBILE" && (
                                             <span style={{ fontSize: "0.68rem", fontWeight: 800, background: "#2563eb", color: "#ffffff", padding: "1px 6px", borderRadius: "8px" }}>
-                                                ACTIVE
+                                                SELECTED
                                             </span>
                                         )}
                                     </div>
                                     <div style={{ fontSize: "0.75rem", color: "var(--text-muted, #64748b)", lineHeight: 1.35 }}>
-                                        High-precision satellite GPS (±3m to ±8m). Strict classroom boundary check.
+                                        High-precision satellite GPS (±3m to ±8m). Strict room boundary enforcement.
                                     </div>
-                                    {!isMobileDevice && (
-                                        <div style={{ marginTop: "6px", fontSize: "0.7rem", color: "#0284c7", fontWeight: 700 }}>
-                                            📲 Laptop: Scans phone QR to lock GPS
+
+                                    {/* Mobile Status / Definition Button */}
+                                    {locationMode === "MOBILE" && (
+                                        <div style={{ marginTop: "10px" }} onClick={(e) => e.stopPropagation()}>
+                                            {classroomCoords && (classroomCoords.source === "PHONE_ANCHOR" || classroomCoords.source === "MOBILE_HOST") ? (
+                                                <div style={{
+                                                    padding: "8px 10px",
+                                                    borderRadius: "8px",
+                                                    background: "rgba(16, 185, 129, 0.15)",
+                                                    border: "1px solid #10b981",
+                                                    color: "#065f46",
+                                                    fontSize: "0.74rem",
+                                                    fontWeight: 750
+                                                }}>
+                                                    <div>✓ GPS Defined: {classroomCoords.latitude?.toFixed(5)}, {classroomCoords.longitude?.toFixed(5)} (±{Math.round(classroomCoords.accuracy || 5)}m)</div>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => !isMobileDevice ? setShowPhoneAnchorModal(true) : handleSelectLocationMode("MOBILE")}
+                                                        style={{ marginTop: "4px", background: "transparent", border: "none", color: "#047857", textDecoration: "underline", fontWeight: 800, fontSize: "0.7rem", cursor: "pointer", padding: 0 }}
+                                                    >
+                                                        🔄 Re-anchor phone
+                                                    </button>
+                                                </div>
+                                            ) : (
+                                                <div>
+                                                    <div style={{ fontSize: "0.72rem", color: "#b45309", fontWeight: 700, marginBottom: "4px" }}>
+                                                        ⚠️ Location not defined yet
+                                                    </div>
+                                                    {!isMobileDevice ? (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setShowPhoneAnchorModal(true)}
+                                                            style={{
+                                                                width: "100%",
+                                                                padding: "8px 12px",
+                                                                borderRadius: "8px",
+                                                                background: "#2563eb",
+                                                                color: "#ffffff",
+                                                                border: "none",
+                                                                fontSize: "0.78rem",
+                                                                fontWeight: 800,
+                                                                cursor: "pointer",
+                                                                display: "flex",
+                                                                alignItems: "center",
+                                                                justifyContent: "center",
+                                                                gap: "6px",
+                                                                boxShadow: "0 2px 6px rgba(37, 99, 235, 0.3)"
+                                                            }}
+                                                        >
+                                                            <FaQrcode /> Scan QR to Define Phone GPS
+                                                        </button>
+                                                    ) : (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleSelectLocationMode("MOBILE")}
+                                                            style={{
+                                                                width: "100%",
+                                                                padding: "8px 12px",
+                                                                borderRadius: "8px",
+                                                                background: "#2563eb",
+                                                                color: "#ffffff",
+                                                                border: "none",
+                                                                fontSize: "0.78rem",
+                                                                fontWeight: 800,
+                                                                cursor: "pointer",
+                                                                display: "flex",
+                                                                alignItems: "center",
+                                                                justifyContent: "center",
+                                                                gap: "6px"
+                                                            }}
+                                                        >
+                                                            <FaMapMarkerAlt /> Capture Phone GPS Now
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            )}
                                         </div>
                                     )}
                                 </div>
@@ -1926,28 +2044,78 @@ function GenerateQR() {
                                     style={{
                                         display: "flex",
                                         flexDirection: "column",
-                                        padding: "12px 14px",
-                                        borderRadius: "12px",
-                                        border: locationMode === "LAPTOP" ? "2px solid #2563eb" : "1.5px solid var(--border, #cbd5e1)",
+                                        padding: "14px",
+                                        borderRadius: "14px",
+                                        border: locationMode === "LAPTOP" ? "2.5px solid #2563eb" : "1.5px solid var(--border, #cbd5e1)",
                                         background: locationMode === "LAPTOP" ? "rgba(37, 99, 235, 0.08)" : "var(--surface, #ffffff)",
                                         cursor: "pointer",
                                         transition: "all 0.2s ease",
-                                        boxShadow: locationMode === "LAPTOP" ? "0 2px 8px rgba(37, 99, 235, 0.18)" : "none"
+                                        boxShadow: locationMode === "LAPTOP" ? "0 4px 14px rgba(37, 99, 235, 0.2)" : "none"
                                     }}
                                 >
-                                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "4px" }}>
-                                        <div style={{ display: "flex", alignItems: "center", gap: "6px", fontWeight: 800, fontSize: "0.9rem", color: locationMode === "LAPTOP" ? "#1d4ed8" : "var(--text-main, #0f172a)" }}>
-                                            <FaLaptop style={{ fontSize: "1.05rem" }} /> 2. Laptop Location
+                                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "6px" }}>
+                                        <div style={{ display: "flex", alignItems: "center", gap: "6px", fontWeight: 800, fontSize: "0.92rem", color: locationMode === "LAPTOP" ? "#1d4ed8" : "var(--text-main, #0f172a)" }}>
+                                            <FaLaptop style={{ fontSize: "1.1rem" }} /> 2. Laptop Location
                                         </div>
                                         {locationMode === "LAPTOP" && (
                                             <span style={{ fontSize: "0.68rem", fontWeight: 800, background: "#2563eb", color: "#ffffff", padding: "1px 6px", borderRadius: "8px" }}>
-                                                ACTIVE
+                                                SELECTED
                                             </span>
                                         )}
                                     </div>
                                     <div style={{ fontSize: "0.75rem", color: "var(--text-muted, #64748b)", lineHeight: 1.35 }}>
-                                        Wi-Fi & browser geolocation (±25m to ±45m). Uses laptop network fix.
+                                        Wi-Fi & browser geolocation (±25m to ±45m). Uses this computer's network fix.
                                     </div>
+
+                                    {/* Laptop Status / Definition Button */}
+                                    {locationMode === "LAPTOP" && (
+                                        <div style={{ marginTop: "10px" }} onClick={(e) => e.stopPropagation()}>
+                                            {classroomCoords && classroomCoords.source === "LAPTOP" ? (
+                                                <div style={{
+                                                    padding: "8px 10px",
+                                                    borderRadius: "8px",
+                                                    background: "rgba(16, 185, 129, 0.15)",
+                                                    border: "1px solid #10b981",
+                                                    color: "#065f46",
+                                                    fontSize: "0.74rem",
+                                                    fontWeight: 750
+                                                }}>
+                                                    <div>✓ Laptop Location Defined: {classroomCoords.latitude?.toFixed(5)}, {classroomCoords.longitude?.toFixed(5)} (±{Math.round(classroomCoords.accuracy || 35)}m)</div>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleSelectLocationMode("LAPTOP")}
+                                                        style={{ marginTop: "4px", background: "transparent", border: "none", color: "#047857", textDecoration: "underline", fontWeight: 800, fontSize: "0.7rem", cursor: "pointer", padding: 0 }}
+                                                    >
+                                                        🔄 Re-capture laptop fix
+                                                    </button>
+                                                </div>
+                                            ) : (
+                                                <div>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleSelectLocationMode("LAPTOP")}
+                                                        style={{
+                                                            width: "100%",
+                                                            padding: "8px 12px",
+                                                            borderRadius: "8px",
+                                                            background: "#2563eb",
+                                                            color: "#ffffff",
+                                                            border: "none",
+                                                            fontSize: "0.78rem",
+                                                            fontWeight: 800,
+                                                            cursor: "pointer",
+                                                            display: "flex",
+                                                            alignItems: "center",
+                                                            justifyContent: "center",
+                                                            gap: "6px"
+                                                        }}
+                                                    >
+                                                        <FaLaptop /> Capture Laptop Location Now
+                                                    </button>
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
                                 </div>
 
                                 {/* Option 3: No Location (Geofence Disabled) */}
@@ -1959,18 +2127,18 @@ function GenerateQR() {
                                     style={{
                                         display: "flex",
                                         flexDirection: "column",
-                                        padding: "12px 14px",
-                                        borderRadius: "12px",
-                                        border: locationMode === "NONE" ? "2px solid #dc2626" : "1.5px solid var(--border, #cbd5e1)",
+                                        padding: "14px",
+                                        borderRadius: "14px",
+                                        border: locationMode === "NONE" ? "2.5px solid #dc2626" : "1.5px solid var(--border, #cbd5e1)",
                                         background: locationMode === "NONE" ? "rgba(239, 68, 68, 0.08)" : "var(--surface, #ffffff)",
                                         cursor: "pointer",
                                         transition: "all 0.2s ease",
-                                        boxShadow: locationMode === "NONE" ? "0 2px 8px rgba(239, 68, 68, 0.18)" : "none"
+                                        boxShadow: locationMode === "NONE" ? "0 4px 14px rgba(239, 68, 68, 0.2)" : "none"
                                     }}
                                 >
-                                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "4px" }}>
-                                        <div style={{ display: "flex", alignItems: "center", gap: "6px", fontWeight: 800, fontSize: "0.9rem", color: locationMode === "NONE" ? "#dc2626" : "var(--text-main, #0f172a)" }}>
-                                            <FaBan style={{ fontSize: "1.05rem" }} /> 3. No Location
+                                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "6px" }}>
+                                        <div style={{ display: "flex", alignItems: "center", gap: "6px", fontWeight: 800, fontSize: "0.92rem", color: locationMode === "NONE" ? "#dc2626" : "var(--text-main, #0f172a)" }}>
+                                            <FaBan style={{ fontSize: "1.1rem" }} /> 3. No Location
                                         </div>
                                         {locationMode === "NONE" && (
                                             <span style={{ fontSize: "0.68rem", fontWeight: 800, background: "#dc2626", color: "#ffffff", padding: "1px 6px", borderRadius: "8px" }}>
@@ -1979,8 +2147,13 @@ function GenerateQR() {
                                         )}
                                     </div>
                                     <div style={{ fontSize: "0.75rem", color: "var(--text-muted, #64748b)", lineHeight: 1.35 }}>
-                                        Geofence off (0m). Allows student check-in anywhere without GPS boundaries.
+                                        Geofence off (0m). Allows students to mark attendance from any location. No location definition needed.
                                     </div>
+                                    {locationMode === "NONE" && (
+                                        <div style={{ marginTop: "10px", padding: "8px 10px", borderRadius: "8px", background: "rgba(239, 68, 68, 0.12)", color: "#b91c1c", fontSize: "0.74rem", fontWeight: 750 }}>
+                                            ✓ Ready to start session without GPS radius check
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         </div>
@@ -2641,15 +2814,15 @@ function GenerateQR() {
                                                             student.isDisqualified
                                                                 ? (
                                                                     (student.violationReason || "").toLowerCase().includes("vpn") ? "Disqualified (VPN Detected)" :
-                                                                    (student.violationReason || "").toLowerCase().includes("mock") || (student.violationReason || "").toLowerCase().includes("fake") ? "Disqualified (Fake GPS)" :
-                                                                    (student.violationReason || "").toLowerCase().includes("geofence") ? "Disqualified (Out of Geofence)" :
-                                                                    (student.violationReason || "").toLowerCase().includes("screen") ? "Disqualified (Screen Capture)" :
-                                                                    "Disqualified (App Switch)"
+                                                                        (student.violationReason || "").toLowerCase().includes("mock") || (student.violationReason || "").toLowerCase().includes("fake") ? "Disqualified (Fake GPS)" :
+                                                                            (student.violationReason || "").toLowerCase().includes("geofence") ? "Disqualified (Out of Geofence)" :
+                                                                                (student.violationReason || "").toLowerCase().includes("screen") ? "Disqualified (Screen Capture)" :
+                                                                                    "Disqualified (App Switch)"
                                                                 )
                                                                 : (
                                                                     (student.violationReason || "").toLowerCase().includes("vpn") ? "⚠️ VPN Detected" :
-                                                                    (student.violationReason || "").toLowerCase().includes("geofence") ? "⚠️ Out of Geofence" :
-                                                                    "⚠️ Flagged Warning"
+                                                                        (student.violationReason || "").toLowerCase().includes("geofence") ? "⚠️ Out of Geofence" :
+                                                                            "⚠️ Flagged Warning"
                                                                 )
                                                         }
                                                     </span>
@@ -3595,7 +3768,7 @@ function GenerateQR() {
                             marginBottom: "14px"
                         }}>
                             <QRCodeCanvas
-                                value={`${typeof window !== "undefined" ? window.location.origin : ""}/lecturer/anchor-gps?session=${sessionId || "active"}`}
+                                value={`${typeof window !== "undefined" ? window.location.origin : ""}/anchor-gps?${sessionId ? "session=" + encodeURIComponent(sessionId) : "anchorId=" + encodeURIComponent(preSessionAnchorToken)}`}
                                 size={190}
                                 level="M"
                                 includeMargin={false}
@@ -3639,7 +3812,7 @@ function GenerateQR() {
                             <button
                                 type="button"
                                 onClick={() => {
-                                    const url = `${window.location.origin}/lecturer/anchor-gps?session=${sessionId || "active"}`;
+                                    const url = `${window.location.origin}/anchor-gps?${sessionId ? "session=" + encodeURIComponent(sessionId) : "anchorId=" + encodeURIComponent(preSessionAnchorToken)}`;
                                     navigator.clipboard?.writeText(url);
                                     alert("Link copied! Open on your mobile phone browser to anchor GPS.");
                                 }}

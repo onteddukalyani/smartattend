@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { useSearchParams, useNavigate, Link } from "react-router-dom";
-import { doc, getDoc, updateDoc } from "firebase/firestore";
+import { doc, getDoc, updateDoc, setDoc } from "firebase/firestore";
 import { db } from "../../../firebase";
 import { useAuth } from "../../authcontext";
 import {
@@ -17,6 +17,7 @@ import {
 export default function AnchorGps() {
     const [searchParams] = useSearchParams();
     const sessionId = searchParams.get("session") || searchParams.get("sessionId") || "";
+    const anchorId = searchParams.get("anchor") || searchParams.get("anchorId") || "";
     const navigate = useNavigate();
     const { user, profile } = useAuth();
 
@@ -26,11 +27,18 @@ export default function AnchorGps() {
     const [coords, setCoords] = useState(null);
     const [accuracy, setAccuracy] = useState(null);
 
-    // 1. Fetch Session details to verify existence & ownership
+    const isPreSession = Boolean(anchorId && !sessionId);
+
+    // 1. Fetch Session details if sessionId is provided
     useEffect(() => {
-        if (!sessionId) {
+        if (!sessionId && !anchorId) {
             setStatus("ERROR");
-            setErrorMessage("No active session ID provided in the link. Please scan the QR code from the projector screen.");
+            setErrorMessage("No active session or anchor ID provided in the link. Please scan the QR code from the lecturer screen.");
+            return;
+        }
+
+        if (anchorId && !sessionId) {
+            // Pre-session mode: directly trigger GPS acquisition
             return;
         }
 
@@ -53,11 +61,11 @@ export default function AnchorGps() {
             });
 
         return () => { isMounted = false; };
-    }, [sessionId]);
+    }, [sessionId, anchorId]);
 
-    // 2. Acquire High-Accuracy Mobile GPS and Anchor to Firestore
+    // 2. Acquire High-Accuracy Mobile GPS and Anchor
     const handleAcquireAndAnchorGps = useCallback(() => {
-        if (!sessionId) return;
+        if (!sessionId && !anchorId) return;
         if (typeof navigator === "undefined" || !navigator.geolocation) {
             setStatus("ERROR");
             setErrorMessage("Geolocation is not supported by your mobile browser. Please allow location permissions in device settings.");
@@ -85,18 +93,28 @@ export default function AnchorGps() {
                         anchoredBy: user?.email || profile?.name || "Lecturer Mobile"
                     };
 
-                    await updateDoc(doc(db, "attendance_sessions", sessionId), {
-                        classroomLocation: anchoredCoords,
-                        geofenceRadius: currentRadius > 0 ? currentRadius : 10,
-                        locationMode: "MOBILE",
-                        updatedAt: Date.now()
-                    });
+                    if (sessionId) {
+                        // Live active session update
+                        await updateDoc(doc(db, "attendance_sessions", sessionId), {
+                            classroomLocation: anchoredCoords,
+                            geofenceRadius: currentRadius > 0 ? currentRadius : 10,
+                            locationMode: "MOBILE",
+                            updatedAt: Date.now()
+                        });
+                    } else if (anchorId) {
+                        // Pre-session draft anchor document
+                        await setDoc(doc(db, "pre_session_anchors", anchorId), {
+                            ...anchoredCoords,
+                            anchorId: anchorId,
+                            updatedAt: Date.now()
+                        });
+                    }
 
                     setCoords(anchoredCoords);
                     setAccuracy(acc);
                     setStatus("SUCCESS");
                 } catch (err) {
-                    console.error("[AnchorGps] Error updating session:", err);
+                    console.error("[AnchorGps] Error updating anchor:", err);
                     setStatus("ERROR");
                     setErrorMessage(`Failed to anchor GPS: ${err.message}`);
                 }
@@ -116,14 +134,14 @@ export default function AnchorGps() {
                 maximumAge: 0
             }
         );
-    }, [sessionId, sessionData?.geofenceRadius, user?.email, profile?.name]);
+    }, [sessionId, anchorId, sessionData?.geofenceRadius, user?.email, profile?.name]);
 
-    // Auto-trigger GPS acquisition once sessionData is ready
+    // Auto-trigger GPS acquisition once ready
     useEffect(() => {
-        if (sessionData && status === "ACQUIRING") {
+        if ((isPreSession || sessionData) && status === "ACQUIRING" && !coords) {
             handleAcquireAndAnchorGps();
         }
-    }, [sessionData, status, handleAcquireAndAnchorGps]);
+    }, [isPreSession, sessionData, status, coords, handleAcquireAndAnchorGps]);
 
     return (
         <div style={{
@@ -178,21 +196,23 @@ export default function AnchorGps() {
                 {/* Title */}
                 <h2 style={{ margin: "0 0 8px", fontSize: "1.35rem", fontWeight: 800 }}>
                     {status === "SUCCESS"
-                        ? "Satellite GPS Anchored!"
+                        ? (isPreSession ? "Phone GPS Defined!" : "Satellite GPS Anchored!")
                         : status === "ERROR"
                             ? "GPS Acquisition Issue"
-                            : "Anchoring Phone GPS..."}
+                            : (isPreSession ? "Capturing Phone GPS..." : "Anchoring Phone GPS...")}
                 </h2>
 
                 <p style={{ margin: "0 0 20px", fontSize: "0.86rem", color: "#94a3b8", lineHeight: 1.5 }}>
                     {status === "SUCCESS"
-                        ? "Your phone's high-precision satellite location is now locked. The laptop projector screen updated in real-time."
+                        ? (isPreSession
+                            ? "Your phone's satellite GPS has been sent to your laptop screen in real time! You can now start the attendance session on your laptop."
+                            : "Your phone's high-precision satellite location is now locked. The laptop projector screen updated in real-time.")
                         : status === "ERROR"
                             ? errorMessage
                             : "Reading precise satellite GPS coordinates from your mobile phone..."}
                 </p>
 
-                {/* Session Card Info */}
+                {/* Session Card Info (if active session) */}
                 {sessionData && (
                     <div style={{
                         background: "rgba(15, 23, 42, 0.7)",
@@ -222,6 +242,26 @@ export default function AnchorGps() {
                     </div>
                 )}
 
+                {/* Pre-Session Card Info */}
+                {isPreSession && (
+                    <div style={{
+                        background: "rgba(15, 23, 42, 0.7)",
+                        border: "1px solid rgba(99, 102, 241, 0.3)",
+                        borderRadius: "14px",
+                        padding: "14px",
+                        marginBottom: "20px",
+                        textAlign: "left",
+                        fontSize: "0.82rem"
+                    }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "8px", color: "#818cf8", fontWeight: 800, marginBottom: "4px" }}>
+                            <FaMobileAlt /> Pre-Session Classroom Anchor
+                        </div>
+                        <div style={{ color: "#94a3b8", fontSize: "0.78rem" }}>
+                            Anchoring satellite coordinates for your upcoming attendance session.
+                        </div>
+                    </div>
+                )}
+
                 {/* Success GPS Telemetry */}
                 {status === "SUCCESS" && coords && (
                     <div style={{
@@ -234,7 +274,7 @@ export default function AnchorGps() {
                         color: "#6ee7b7"
                     }}>
                         <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "6px", fontWeight: 800, marginBottom: "4px" }}>
-                            <FaMapMarkerAlt /> Accuracy: ±{accuracy} metres
+                            <FaMapMarkerAlt /> Accuracy: ±{accuracy} metres (Satellite)
                         </div>
                         <div style={{ fontSize: "0.76rem", opacity: 0.85 }}>
                             Coordinates: {coords.latitude?.toFixed(5)}, {coords.longitude?.toFixed(5)}
@@ -246,28 +286,41 @@ export default function AnchorGps() {
                 <div style={{ display: "flex", flexDirection: "column", gap: "10px", width: "100%" }}>
                     {status === "SUCCESS" ? (
                         <>
-                            <button
-                                type="button"
-                                onClick={() => navigate(`/lecturer/lecturerpage?session=${encodeURIComponent(sessionId)}`)}
-                                style={{
-                                    width: "100%",
+                            {sessionId ? (
+                                <button
+                                    type="button"
+                                    onClick={() => navigate(`/lecturer/lecturerpage?session=${encodeURIComponent(sessionId)}`)}
+                                    style={{
+                                        width: "100%",
+                                        padding: "12px",
+                                        borderRadius: "12px",
+                                        background: "linear-gradient(135deg, #10b981, #059669)",
+                                        color: "#ffffff",
+                                        border: "none",
+                                        fontWeight: 750,
+                                        fontSize: "0.92rem",
+                                        cursor: "pointer",
+                                        display: "flex",
+                                        alignItems: "center",
+                                        justifyContent: "center",
+                                        gap: "8px",
+                                        boxShadow: "0 4px 14px rgba(16, 185, 129, 0.3)"
+                                    }}
+                                >
+                                    <FaMobileAlt /> Go to Active Session Controls
+                                </button>
+                            ) : (
+                                <div style={{
                                     padding: "12px",
                                     borderRadius: "12px",
-                                    background: "linear-gradient(135deg, #10b981, #059669)",
-                                    color: "#ffffff",
-                                    border: "none",
-                                    fontWeight: 750,
-                                    fontSize: "0.92rem",
-                                    cursor: "pointer",
-                                    display: "flex",
-                                    alignItems: "center",
-                                    justifyContent: "center",
-                                    gap: "8px",
-                                    boxShadow: "0 4px 14px rgba(16, 185, 129, 0.3)"
-                                }}
-                            >
-                                <FaMobileAlt /> Go to Active Session Controls
-                            </button>
+                                    background: "rgba(16, 185, 129, 0.15)",
+                                    color: "#6ee7b7",
+                                    fontWeight: 800,
+                                    fontSize: "0.88rem"
+                                }}>
+                                    ✓ Coordinates synced to laptop! Check your laptop screen now.
+                                </div>
+                            )}
                             <button
                                 type="button"
                                 onClick={handleAcquireAndAnchorGps}
@@ -339,4 +392,3 @@ export default function AnchorGps() {
         </div>
     );
 }
-

@@ -489,6 +489,10 @@ service cloud.firestore {
     // ATTENDANCE SESSIONS & SECURITY TOKENS
     // =========================================================================
 
+    match /pre_session_anchors/{anchorId} {
+      allow read, write: if true;
+    }
+
     match /attendance_sessions/{sessionId} {
       allow read: if isSignedIn();
 
