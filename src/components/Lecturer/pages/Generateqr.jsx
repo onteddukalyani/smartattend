@@ -84,6 +84,7 @@ const GEOFENCE_PRESETS = [
 
 function GenerateQR() {
     const { user, profile } = useAuth();
+    const isAdmin = profile?.role === "admin" || profile?.isAdmin;
     const [searchParams] = useSearchParams();
     const navigate = useNavigate();
 
@@ -1648,7 +1649,7 @@ function GenerateQR() {
                             >
                                 <option value="">-- Choose Course or Type Below --</option>
                                 {myCourses.length > 0 && (
-                                    <optgroup label="🌟 My Assigned Courses">
+                                    <optgroup label={isAdmin ? "🏛️ All Institution Courses" : "🌟 My Assigned Courses"}>
                                         {myCourses.map((c) => {
                                             const code = c.courseCode || c.code || "";
                                             const name = c.courseName || c.name || "Curriculum Course";
@@ -3254,7 +3255,7 @@ function GenerateQR() {
             {/* Quick Actions */}
             <div className="qr-action-footer" style={{ width: "100%", maxWidth: "330px", gap: "8px" }}>
                 <Link
-                    to={`/lecturer/attendance-sessions/${sessionId}`}
+                    to={isAdmin ? `/admin/classes/${sessionId}` : `/lecturer/attendance-sessions/${sessionId}`}
                     className="qr-view-live-btn"
                     style={{ fontSize: "0.82rem", padding: "8px 12px" }}
                 >
@@ -3513,7 +3514,7 @@ function GenerateQR() {
 
                 {/* Footer Actions */}
                 <div className="qr-action-footer" style={{ marginTop: "8px", paddingTop: "8px", width: "100%", maxWidth: "460px", gap: "8px" }}>
-                    <Link to={`/lecturer/attendance-sessions/${sessionId}`} className="qr-view-live-btn" style={{ padding: "7px 14px", fontSize: "0.8rem" }}>
+                    <Link to={isAdmin ? `/admin/classes/${sessionId}` : `/lecturer/attendance-sessions/${sessionId}`} className="qr-view-live-btn" style={{ padding: "7px 14px", fontSize: "0.8rem" }}>
                         <FaUsers /> <span>{phase === "CLOSED" ? "Open Final Register" : "View Live Register"}</span>
                     </Link>
                     {phase !== "CLOSED" && (
@@ -3673,7 +3674,7 @@ function GenerateQR() {
             {phase === "NONE" && (
                 <div className="qrpage-header">
                     <div className="qrpage-header-badge">
-                        <FaShieldAlt /> 2-Phase Protocol &bull; {formatMmSs(totalDurationSeconds)} Total Window
+                        <FaShieldAlt /> {isAdmin ? "Administrator Session Control • " : "2-Phase Protocol •"} {formatMmSs(totalDurationSeconds)} Total Window
                     </div>
                     <h1>Create Attendance Session</h1>
                     <p className="qrpage-subtitle">

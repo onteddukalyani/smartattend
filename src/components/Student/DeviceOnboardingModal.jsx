@@ -196,18 +196,90 @@ export function DeviceOnboardingModal({ isOpen, onClose }) {
 
     const handleSaveAndLockDevice = async () => {
         if (isLocked) {
-            onClose();
+            if (onClose) onClose();
             return;
         }
         if (!selectedDevice) return;
         setSaving(true);
         try {
-            if (hasDeviceMismatch && !mismatchReported) {
-                await handleReportDeviceMismatch();
-            }
             const ip = currentIp && currentIp !== "Detecting IP..." ? currentIp : await getClientIpAddress();
+            const runtimeDetected = detectDeviceType();
+            const userName = profile?.name || roll || user?.email || 'Student';
+            const selectedName = getDeviceDisplayName(selectedDevice);
+            const detectedName = getDeviceDisplayName(runtimeDetected);
 
-            // Persist as global variable immediately so no confusion across any component
+            // First-time selection verification: check whether student selected correct or wrong
+            if (runtimeDetected) {
+                if (selectedDevice !== runtimeDetected) {
+                    // WRONG / MISMATCH!
+                    // Do NOT lock. Leave isDeviceLocked = false so student can select again.
+                    setGlobalVariable('isDeviceLocked', false);
+                    try {
+                        localStorage.setItem('smartattend_student_device_locked', 'false');
+                        localStorage.setItem('smartattend_device_locked', 'false');
+                        localStorage.setItem('smartattend_student_device_type', selectedDevice);
+                        localStorage.setItem('smartattend_device_type', selectedDevice);
+                    } catch (_) {}
+
+                    // 1. Authoritatively record un-locked state in Firestore
+                    await registerUserDevice({
+                        role: currentRole,
+                        id: currentRole === 'student' ? roll : (profile?.email || user?.email),
+                        rollNo: currentRole === 'student' ? roll : null,
+                        user,
+                        profile,
+                        platform: selectedDevice,
+                        ip,
+                        lock: false
+                    });
+
+                    // 2. Report fraud/mismatch attempt to higher officials (Faculty & Admin audit)
+                    await sendFacultyNotification(
+                        '🚨 FRAUD ALERT: Student Device Selection Mismatch',
+                        `Student ${userName} (${roll}) falsely claimed phone model ${selectedName}, but physical hardware detection confirmed ${detectedName}. IP: ${ip}. Hardware UserAgent: ${navigator.userAgent}.`,
+                        'DEVICE_MISMATCH_FRAUD',
+                        roll,
+                        userName
+                    ).catch(() => {});
+
+                    // 3. Log into Firestore security_complaints
+                    try {
+                        await setDoc(doc(db, 'security_complaints', `device_mismatch_${roll}_${Date.now()}`), {
+                            type: 'DEVICE_SELECTION_FRAUD',
+                            rollNo: roll,
+                            studentName: userName,
+                            selectedDevice: selectedDevice,
+                            detectedHardware: runtimeDetected,
+                            userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : '',
+                            clientIp: ip,
+                            timestamp: Date.now(),
+                            status: 'REPORTED_TO_OFFICIALS'
+                        });
+                    } catch (_) {}
+
+                    // 4. Send warning notification to student's inbox
+                    await sendStudentNotification(
+                        roll,
+                        '⚠️ Device Verification Mismatch',
+                        `You selected ${selectedName}, but your active phone hardware is detected as ${detectedName}. Your selection was NOT locked and this incident has been reported to higher officials.`,
+                        'SECURITY_WARNING',
+                        'Device Setup'
+                    ).catch(() => {});
+
+                    alert(
+                        `❌ Device Verification Failed!\n\nYou selected ${selectedName}, but your physical device is detected as ${detectedName}.\n\nThis incident has been reported to Faculty & Administrators.\n\nPlease select your genuine device.`
+                    );
+                    setSaving(false);
+                    return; // Return without closing modal so student can select correct device
+                }
+            } else if (!isNativeApp) {
+                // Desktop or unrecognized browser environment
+                alert('📱 Mobile Phone Required!\n\nPlease open SmartAttend on your physical mobile phone (Android APK or iPhone) to register and lock your attendance device.');
+                setSaving(false);
+                return;
+            }
+
+            // CORRECT / MATCH! Lock immediately
             setGlobalVariable('isDeviceLocked', true);
             setGlobalVariable('lockedDeviceType', selectedDevice);
             setGlobalVariable('deviceType', selectedDevice);
@@ -219,7 +291,7 @@ export function DeviceOnboardingModal({ isOpen, onClose }) {
                 sessionStorage.setItem('smartattend_device_prompted', 'true');
             } catch (_) {}
 
-            // Authoritatively persist and link device directly to Firestore database collections
+            // Authoritatively persist and link device directly to Firestore database collections with lock: true
             await registerUserDevice({
                 role: currentRole,
                 id: currentRole === 'student' ? roll : (profile?.email || user?.email),
@@ -227,7 +299,8 @@ export function DeviceOnboardingModal({ isOpen, onClose }) {
                 user,
                 profile,
                 platform: selectedDevice,
-                ip
+                ip,
+                lock: true
             });
 
             if (currentRole === 'student') {
@@ -242,14 +315,13 @@ export function DeviceOnboardingModal({ isOpen, onClose }) {
                 });
             }
 
-            const userName = profile?.name || roll || user?.email || 'User';
             const deviceLabel = selectedDevice === 'android' ? 'Android APK' : 'iPhone (iOS Guided Access)';
 
             if (currentRole === 'student' && roll) {
                 // Notify Faculty & Admin audit stream
                 await sendFacultyNotification(
                     'Device Type Selected & Locked',
-                    `Student ${userName} (${roll}) registered and locked their device preference to ${deviceLabel} (IP: ${ip}, Detected: ${detectedDevice || 'Web'}).`,
+                    `Student ${userName} (${roll}) registered and locked their device preference to ${deviceLabel} (IP: ${ip}, Detected: ${runtimeDetected || 'Web'}).`,
                     'DEVICE_LOCKED',
                     roll,
                     userName
@@ -272,11 +344,13 @@ export function DeviceOnboardingModal({ isOpen, onClose }) {
                     userName
                 ).catch(() => {});
             }
+
+            alert(`🔒 Device Verified & Locked!\n\nYour attendance device is now permanently registered and locked as ${selectedName}.`);
+            if (onClose) onClose();
         } catch (e) {
             console.warn('Error saving device preference:', e);
         } finally {
             setSaving(false);
-            if (onClose) onClose();
         }
     };
 
@@ -624,7 +698,7 @@ export function DeviceOnboardingModal({ isOpen, onClose }) {
                         onClick={handleSaveAndLockDevice}
                         disabled={saving}
                     >
-                        <FaLock /> {saving ? (hasDeviceMismatch ? 'Sending mismatch report...' : 'Saving & Locking...') : (hasDeviceMismatch ? (mismatchReported ? 'Mismatch Report Sent' : 'Report Mismatch') : (isLocked ? 'Close (Device Preference Locked 🔒)' : 'Save Device & Lock Preference 🔒'))}
+                        <FaLock /> {saving ? 'Verifying & Locking...' : (isLocked ? 'Close (Device Preference Locked 🔒)' : 'Verify & Lock Device 🔒')}
                     </button>
                 )}
             </div>

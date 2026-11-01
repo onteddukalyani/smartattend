@@ -545,6 +545,9 @@ function App() {
             }
           >
             <Route index element={<LecturerDashboardView />} />
+            <Route path="generate-qr" element={<LecturerPage />} />
+            <Route path="generateqr" element={<LecturerPage />} />
+            <Route path="create-session" element={<LecturerPage />} />
             <Route path="lecturerpage" element={<LecturerPage />} />
             <Route path="student-form" element={<StudentForm />} />
             <Route path="settings" element={<Settings />} />

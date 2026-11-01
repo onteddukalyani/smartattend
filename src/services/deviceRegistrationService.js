@@ -21,7 +21,8 @@ export async function registerUserDevice({
   user = null,
   profile = null,
   platform = null,
-  ip = null
+  ip = null,
+  lock = false
 }) {
   const normRole = String(role || profile?.role || "student").trim().toLowerCase();
   const uid = user?.uid || profile?.uid || null;
@@ -30,6 +31,7 @@ export async function registerUserDevice({
 
   const detectedPlatform = detectDeviceType();
   const cleanPlatform = String(platform || detectedPlatform || "web").trim().toLowerCase();
+  const shouldLock = Boolean(lock);
 
   // Resolve client IP if not passed
   let clientIp = ip;
@@ -46,13 +48,26 @@ export async function registerUserDevice({
     localStorage.setItem(`smartattend_${normRole}_device_type`, cleanPlatform);
     localStorage.setItem("smartattend_student_device_type", cleanPlatform);
     localStorage.setItem("smartattend_device_type", cleanPlatform);
-    localStorage.setItem("smartattend_device_locked", "true");
-    localStorage.setItem("smartattend_student_device_locked", "true");
-    localStorage.setItem("smartattend_device_registered", "true");
+    if (shouldLock) {
+      localStorage.setItem("smartattend_device_locked", "true");
+      localStorage.setItem("smartattend_student_device_locked", "true");
+      localStorage.setItem("smartattend_device_registered", "true");
+    } else {
+      localStorage.setItem("smartattend_device_locked", "false");
+      localStorage.setItem("smartattend_student_device_locked", "false");
+      localStorage.removeItem("smartattend_device_registered");
+    }
     if (clientIp && clientIp !== "Unknown IP") {
       localStorage.setItem("smartattend_device_ip", clientIp);
     }
   } catch (_) {}
+
+  // Synchronize with globalState store
+  setGlobalVariable("selectedDeviceType", cleanPlatform);
+  setGlobalVariable("isDeviceLocked", shouldLock);
+  if (shouldLock) {
+    setGlobalVariable("lockedDeviceType", cleanPlatform);
+  }
 
   // Payload for Firestore
   const now = Date.now();
@@ -61,7 +76,7 @@ export async function registerUserDevice({
     registeredPlatform: cleanPlatform,
     registeredDeviceType: cleanPlatform,
     deviceTypeLocked: shouldLock,
-    isDeviceRegistered: true,
+    isDeviceRegistered: shouldLock,
     deviceSelectedAt: now,
     platformBoundAt: now,
     deviceIp: clientIp || null,
@@ -141,7 +156,8 @@ export async function registerUserDevice({
     role: normRole,
     platform: cleanPlatform,
     id: cleanId,
-    ip: clientIp
+    ip: clientIp,
+    locked: shouldLock
   };
 }
 

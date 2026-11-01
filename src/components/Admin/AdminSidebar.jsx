@@ -36,6 +36,7 @@ const AdminSidebar = ({ isOpen, onClose }) => {
 
   const menuItems = [
     { path: "/admin", label: "Dashboard", icon: FaHome, end: true },
+    { path: "/admin/generate-qr", label: "Generate QR", icon: FaQrcode },
     { path: "/admin/admins", label: "Manage Admins", icon: FaUserShield },
     { path: "/admin/lecturers", label: "Manage Lecturers", icon: FaChalkboardTeacher },
     { path: "/admin/students", label: "Manage Students", icon: FaUserGraduate },

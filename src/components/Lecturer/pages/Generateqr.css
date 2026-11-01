@@ -2774,3 +2774,86 @@
     }
 }
 
+
+/* =========================================================
+   GENERATE QR PAGE COMPREHENSIVE CSS POLISH & COMPACT STYLING
+   ========================================================= */
+
+/* Smooth Rotation Animation for Icons & Loaders */
+@keyframes spin {
+    from {
+        transform: rotate(0deg);
+    }
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.spin,
+.fa-spin {
+    animation: spin 1s linear infinite;
+    display: inline-block;
+}
+
+/* Live Session Wrapper */
+.qr-live-session-wrapper {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    width: 100%;
+    animation: qrFadeIn 0.25s ease-out;
+}
+
+/* Manual Excuse & Student Reinstate Button */
+.qr-manual-excuse-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 8px 14px;
+    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+    color: #ffffff;
+    border: none;
+    border-radius: 10px;
+    font-size: 0.82rem;
+    font-weight: 750;
+    cursor: pointer;
+    box-shadow: 0 4px 12px rgba(16, 185, 129, 0.25);
+    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.qr-manual-excuse-btn:hover {
+    background: linear-gradient(135deg, #059669 0%, #047857 100%);
+    transform: translateY(-1px);
+    box-shadow: 0 6px 16px rgba(16, 185, 129, 0.35);
+}
+
+.qr-manual-excuse-btn:active {
+    transform: translateY(0);
+}
+
+/* KPI Card Accent Variations */
+.qr-kpi-card.qr-kpi-scanned {
+    border-left: 3.5px solid #6366f1;
+}
+
+.qr-kpi-card.qr-kpi-pending {
+    border-left: 3.5px solid #f59e0b;
+}
+
+.qr-kpi-card.qr-kpi-attended {
+    border-left: 3.5px solid #10b981;
+}
+
+/* Midnight Dark Theme Overrides for KPI cards */
+[data-theme="midnight"] .qr-kpi-card.qr-kpi-scanned {
+    border-left-color: #818cf8;
+}
+
+[data-theme="midnight"] .qr-kpi-card.qr-kpi-pending {
+    border-left-color: #fbbf24;
+}
+
+[data-theme="midnight"] .qr-kpi-card.qr-kpi-attended {
+    border-left-color: #34d399;
+}

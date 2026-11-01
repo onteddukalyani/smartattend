@@ -92,6 +92,9 @@ const AdminDashboard = () => {
             <Route path="attendance-sessions/:sessionId" element={<SessionAttendanceData />} />
             <Route path="attendance-sessions/*" element={<SessionAttendanceData />} />
             <Route path="active-sessions" element={<ActiveSessions />} />
+            <Route path="generate-qr" element={<LecturerPage />} />
+            <Route path="generateqr" element={<LecturerPage />} />
+            <Route path="create-session" element={<LecturerPage />} />
             <Route path="lecturerpage" element={<LecturerPage />} />
             <Route path="facedetection" element={<FaceScanner />} />
             <Route path="scanqr" element={<QrScannerApp />} />

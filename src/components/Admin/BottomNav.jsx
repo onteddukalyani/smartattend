@@ -5,7 +5,8 @@ import {
   FaChalkboardTeacher,
   FaUserGraduate,
   FaClipboardCheck,
-  FaCog
+  FaCog,
+  FaQrcode
 } from "react-icons/fa";
 import "./BottomNav.css";
 
@@ -14,6 +15,7 @@ function BottomNav() {
 
   const items = [
     { path: "/admin", label: "Overview", icon: <FaHome />, end: true },
+    { path: "/admin/generate-qr", label: "QR Gen", icon: <FaQrcode /> },
     { path: "/admin/lecturers", label: "Lecturers", icon: <FaChalkboardTeacher /> },
     { path: "/admin/students", label: "Students", icon: <FaUserGraduate /> },
     { path: "/admin/attendance", label: "Attendance", icon: <FaClipboardCheck /> },

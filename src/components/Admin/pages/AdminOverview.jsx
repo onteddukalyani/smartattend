@@ -307,6 +307,26 @@ const AdminOverview = () => {
           </a>
 
           <button
+            onClick={() => navigate("/admin/generate-qr")}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "0.5rem",
+              padding: "0.6rem 1.2rem",
+              borderRadius: "8px",
+              background: "linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)",
+              color: "#ffffff",
+              border: "none",
+              fontWeight: "600",
+              cursor: "pointer",
+              boxShadow: "0 4px 12px rgba(37, 99, 235, 0.3)"
+            }}
+            title="Launch Attendance QR Generator"
+          >
+            <FaQrcode /> Generate QR
+          </button>
+
+          <button
             onClick={() => navigate("/admin/database")}
             style={{
               display: "inline-flex",

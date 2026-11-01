@@ -16,6 +16,10 @@ import { useAuth } from "../authcontext";
 import { isIOSDevice } from "../../services/guidedAccessService";
 import { getApkDownloadUrl } from "../../utils/apkUrl";
 import { registerStudentDevice } from "../../services/deviceRegistrationService";
+import { detectDeviceType } from "../../utils/deviceDetection";
+import { sendFacultyNotification, sendStudentNotification } from "../../services/notificationsService";
+import { doc, setDoc } from "firebase/firestore";
+import { db } from "../../firebase";
 import { setGlobalVariable, getGlobalVariable } from "../../utils/globalState";
 import { FaLock } from "react-icons/fa";
 import IphoneInstructionsModal from "./IphoneInstructionsModal";
@@ -153,6 +157,105 @@ export default function DeviceSetupPage() {
   const roleHome = getRoleHome(location.pathname);
   const roleName = profile?.role === "admin" ? "Administrator" : profile?.role === "lecturer" ? "Lecturer" : "Student";
   const [showIphoneModal, setShowIphoneModal] = useState(false);
+
+  const handleConfirmStudentDevice = async (targetType) => {
+    setBindingDevice(true);
+    setDeviceSaveSuccess("");
+    try {
+      const roll = (profile?.rollNo || user?.email?.split("@")[0] || "").trim().toUpperCase();
+      const userName = profile?.name || user?.displayName || roll;
+      const detected = detectDeviceType();
+      const targetLabel = targetType === "android" ? "Android Phone" : "iPhone (iOS)";
+      const detectedLabel = detected === "android" ? "Android Phone" : detected === "ios" ? "iPhone (iOS)" : "Desktop/Web";
+
+      if (detected) {
+        if (targetType !== detected) {
+          // MISMATCH / WRONG! Do NOT lock. Student can select again until locked.
+          await registerStudentDevice({
+            id: roll,
+            rollNo: roll,
+            user,
+            profile,
+            platform: targetType,
+            lock: false
+          });
+          setSelectedRoleDevice(targetType);
+          setPlatform(targetType);
+          setIsDeviceLocked(false);
+          setGlobalVariable("isDeviceLocked", false);
+          setGlobalVariable("selectedDeviceType", targetType);
+
+          // Report fraud/mismatch attempt to higher officials: Faculty & Admin
+          await sendFacultyNotification(
+            "🚨 FRAUD ALERT: Student Device Selection Mismatch",
+            `Student ${userName} (${roll}) falsely claimed phone model ${targetLabel}, but active hardware detection confirmed ${detectedLabel}. Hardware UserAgent: ${navigator.userAgent}.`,
+            "DEVICE_MISMATCH_FRAUD",
+            roll,
+            userName
+          ).catch(() => {});
+
+          // Log into security complaints
+          try {
+            await setDoc(doc(db, "security_complaints", `setup_mismatch_${roll}_${Date.now()}`), {
+              type: "DEVICE_SELECTION_FRAUD",
+              rollNo: roll,
+              studentName: userName,
+              selectedDevice: targetType,
+              detectedHardware: detected,
+              userAgent: typeof navigator !== "undefined" ? navigator.userAgent : "",
+              timestamp: Date.now(),
+              status: "REPORTED_TO_OFFICIALS"
+            });
+          } catch (_) {}
+
+          // Send warning notification to student
+          await sendStudentNotification(
+            roll,
+            "⚠️ Device Verification Mismatch",
+            `You selected ${targetLabel}, but your physical phone was detected as ${detectedLabel}. Your selection was NOT locked and this incident has been reported to higher officials.`,
+            "SECURITY_WARNING",
+            "Device Setup"
+          ).catch(() => {});
+
+          alert(
+            `❌ Device Verification Failed!\n\nYou selected ${targetLabel}, but your phone hardware is detected as ${detectedLabel}.\n\nThis incident has been reported to Faculty & Administrators.\n\nPlease select your genuine device.`
+          );
+          return;
+        }
+      }
+
+      // MATCH! Lock device immediately
+      await registerStudentDevice({
+        id: roll,
+        rollNo: roll,
+        user,
+        profile,
+        platform: targetType,
+        lock: true
+      });
+      setSelectedRoleDevice(targetType);
+      setPlatform(targetType);
+      setIsDeviceLocked(true);
+      setGlobalVariable("isDeviceLocked", true);
+      setGlobalVariable("lockedDeviceType", targetType);
+      setGlobalVariable("selectedDeviceType", targetType);
+
+      await sendFacultyNotification(
+        "Device Type Verified & Locked",
+        `Student ${userName} (${roll}) successfully verified and locked genuine ${targetLabel} hardware.`,
+        "DEVICE_LOCKED",
+        roll,
+        userName
+      ).catch(() => {});
+
+      setDeviceSaveSuccess(`🔒 ${targetLabel} Verified & Locked! Your attendance device is now permanently registered. ✓`);
+      alert(`🔒 Device Verified & Locked!\n\nYour attendance device is now permanently registered and locked to this ${targetLabel}.`);
+    } catch (e) {
+      console.warn("Device setup confirmation notice:", e);
+    } finally {
+      setBindingDevice(false);
+    }
+  };
 
   return (
     <main className="device-setup-page">
