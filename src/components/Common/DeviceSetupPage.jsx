@@ -16,6 +16,8 @@ import { useAuth } from "../authcontext";
 import { isIOSDevice } from "../../services/guidedAccessService";
 import { getApkDownloadUrl } from "../../utils/apkUrl";
 import { registerStudentDevice } from "../../services/deviceRegistrationService";
+import { setGlobalVariable, getGlobalVariable } from "../../utils/globalState";
+import { FaLock } from "react-icons/fa";
 import IphoneInstructionsModal from "./IphoneInstructionsModal";
 import "./DeviceSetupPage.css";
 
@@ -218,7 +220,7 @@ export default function DeviceSetupPage() {
           <div className="device-model-card-inner">
             <div className="device-model-card-text">
               <div className={`device-model-kicker ${selectedRoleDevice ? "configured" : "pending"}`}>
-                <FaShieldAlt /> {selectedRoleDevice ? "PHONE MODEL CONFIGURED & LOCKED 🔒" : "ACTION REQUIRED: SELECT PHONE MODEL"}
+                <FaShieldAlt /> {isDeviceLocked ? "PHONE MODEL CONFIGURED & LOCKED 🔒" : (selectedRoleDevice ? "PHONE MODEL SELECTED (CAN CHANGE UNTIL LOCKED)" : "ACTION REQUIRED: SELECT PHONE MODEL")}
               </div>
               <h3 className="device-model-title">
                 {selectedRoleDevice
@@ -241,7 +243,7 @@ export default function DeviceSetupPage() {
               <button
                 type="button"
                 className={`device-model-action-btn ${selectedRoleDevice === "android" ? "selected" : platform === "android" ? "active-platform" : ""}`}
-                disabled={bindingDevice || selectedRoleDevice === "android"}
+                disabled={bindingDevice || (isDeviceLocked && selectedRoleDevice === "android")}
                 onClick={async () => {
                   setBindingDevice(true);
                   try {
@@ -255,7 +257,7 @@ export default function DeviceSetupPage() {
                     });
                     setSelectedRoleDevice("android");
                     setPlatform("android");
-                    setDeviceSaveSuccess("Android Phone model selected and locked successfully! ✓");
+                    setGlobalVariable("selectedDeviceType", "android"); setDeviceSaveSuccess("Android Phone model selected! You can change this selection anytime until it is locked. ✓");
                   } catch (e) {
                     console.warn(e);
                   } finally {
@@ -270,7 +272,7 @@ export default function DeviceSetupPage() {
               <button
                 type="button"
                 className={`device-model-action-btn ${selectedRoleDevice === "ios" ? "selected" : platform === "ios" ? "active-platform" : ""}`}
-                disabled={bindingDevice || selectedRoleDevice === "ios"}
+                disabled={bindingDevice || (isDeviceLocked && selectedRoleDevice === "ios")}
                 onClick={async () => {
                   setBindingDevice(true);
                   try {
@@ -284,7 +286,7 @@ export default function DeviceSetupPage() {
                     });
                     setSelectedRoleDevice("ios");
                     setPlatform("ios");
-                    setDeviceSaveSuccess("iPhone model selected and locked successfully! ✓");
+                    setGlobalVariable("selectedDeviceType", "ios"); setDeviceSaveSuccess("iPhone model selected! You can change this selection anytime until it is locked. ✓");
                   } catch (e) {
                     console.warn(e);
                   } finally {

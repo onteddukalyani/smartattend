@@ -2,7 +2,7 @@
   "version": "1.0.1",
   "versionCode": 1,
   "build": 1,
-  "releaseDate": "2026-11-01T15:02:02.579Z",
+  "releaseDate": "2026-11-01T15:54:00.941Z",
   "minRequiredVersion": "1.0.0",
   "apkUrl": "https://raw.githubusercontent.com/onteddukalyani/smartattend/main/SmartAttend-release.apk",
   "sha256Checksum": "32ac0d5cb27b0a890e74b63259615d93469b06c4a8dfded7e21e8b00be9c95b2",
@@ -28,7 +28,7 @@
       ]
     }
   ],
-  "apkSha256": "64651821b17f9d0163f91fee2c8a0e2572947d2e6dd2263d11a6c7ea75e7f140",
-  "apkSize": 14969550,
+  "apkSha256": "b9160b95e1fc8f7d1e20768519c7ba9fe2ccecd83c726aded434693c2e1a921c",
+  "apkSize": 14969614,
   "apkSizeFormatted": "14.28 MB"
 }

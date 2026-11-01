@@ -56,7 +56,7 @@ import { detectDeviceType, getClientIpAddress, getDeviceDisplayName, isDeviceMat
 import { sendFacultyNotification, sendStudentNotification, reportUserVerificationComplaint } from '../../services/notificationsService';
 import { validateRotatingQrPayload } from '../../utils/qrCrypto';
 import { evaluateGeofence, calculateHaversineDistance, DEFAULT_GEOFENCE_RADIUS_METRES } from '../../utils/geofence';
-import { getGlobalVariable } from '../../utils/globalState';
+import { getGlobalVariable, setGlobalVariable } from '../../utils/globalState';
 import {
     isFreshLocation,
     isAccurateLocation,
@@ -524,7 +524,7 @@ function QrScannerApp() {
                     (primeErr) => {
                         // If user explicitly denied GPS, record it and don't ask again
                         if (primeErr && (primeErr.code === 1 || primeErr.message?.toLowerCase().includes('denied'))) {
-                            try { localStorage.setItem('smartattend_gps_permission_denied', 'true'); } catch (_) {}
+                            try { localStorage.setItem('smartattend_gps_permission_denied', 'true'); } catch (_) { }
                             return; // Stop — don't try fallback if user denied
                         }
                         // Indoor fallback: network/Wi-Fi positioning if GNSS satellite lock is delayed indoors
@@ -983,7 +983,7 @@ function QrScannerApp() {
                     hasFace: isFaceReset ? false : (updated.faceRegistered ?? prev.hasFace),
                     hasHw: isHwReset ? false : (updated.hardwareBiometricEnrolled ?? prev.hasHw),
                     isComplete: (!isFaceReset && (updated.faceRegistered ?? prev.hasFace)) &&
-                                (!isHwReset && (updated.hardwareBiometricEnrolled ?? prev.hasHw))
+                        (!isHwReset && (updated.hardwareBiometricEnrolled ?? prev.hasHw))
                 }));
                 if (isFaceReset) {
                     setVerifiedStudent(null);
@@ -1046,7 +1046,7 @@ function QrScannerApp() {
      * releaseCameraLock — Releases the silently held camera stream.
      * Called before biometric face scan (which opens front camera) and on all exit paths.
      */
-// releaseCameraLock declared at top of component
+    // releaseCameraLock declared at top of component
 
     // Check Device Owner & Anti-Escape Overlay status on launch
     const [overlayStatus, setOverlayStatus] = useState({ checked: false, canDraw: true });
@@ -1409,7 +1409,7 @@ function QrScannerApp() {
     }, [sessionStartAt, kioskEndsAt]);
 
     // Centralized handler: Guaranteed auto-unlock of Kiosk Mode upon session completion, expiry, or lecturer release
-// sessionEndedAutoReleased declared at top of component
+    // sessionEndedAutoReleased declared at top of component
     const handleSessionCompletedAutoUnlock = useCallback(async (reason = 'Session Completed') => {
         console.log(`[Kiosk] handleSessionCompletedAutoUnlock triggered: ${reason}`);
         try { localStorage.removeItem('smartattend_kiosk_session_state'); } catch (_) { }
@@ -1430,6 +1430,9 @@ function QrScannerApp() {
         cameraLockedForSessionRef.current = false;
         qr1AcceptedForSessionRef.current = false;
         setSessionEndedAutoReleased(true);
+        setGlobalVariable('activeSessionId', '');
+        setGlobalVariable('scanState', 'IDLE');
+        setGlobalVariable('qr1Verified', false);
         // Always navigate cleanly to /student upon session completion/release
         navigate('/student', { replace: true });
     }, [activeSessionId, releaseCameraLock, user?.uid, deviceIdentity?.deviceId, navigate]);
@@ -2219,6 +2222,9 @@ function QrScannerApp() {
         const kioskEnd = qrPayload?.kioskEndsAt || (targetQr2 + 180000);
 
         setActiveSessionId(sessionId);
+        setGlobalVariable('activeSessionId', sessionId);
+        setGlobalVariable('scanState', 'KIOSK_WAITING_QR2');
+        setGlobalVariable('qr1Verified', true);
         if (qrPayload?.geo || qrPayload?.classroomLocation) {
             const geo = qrPayload.geo || qrPayload.classroomLocation;
             lecturerLocationRef.current = geo;
@@ -3253,7 +3259,7 @@ function QrScannerApp() {
     }, [handleFaceVerificationChange]);
 
     // Auto-retry countdown for attendance submission if transient error occurs
-// autoRetryCount declared at top of component
+    // autoRetryCount declared at top of component
     useEffect(() => {
         let timer = null;
         if (scanState === 'SUBMITTING_ATTENDANCE' && faceSubmissionFailed && !submittingAttendance) {
@@ -4637,7 +4643,7 @@ function QrScannerApp() {
     }
 
 
-        // =========================================================================
+    // =========================================================================
     // UI VIEW 1.5: DISQUALIFIED LOCKED SCREEN (App switching detected, locked until Lecturer PIN or Session End)
     // =========================================================================
     if (scanState === 'DISQUALIFIED') {
@@ -5340,7 +5346,7 @@ function QrScannerApp() {
                                     {secondsUntilQr2 !== null && secondsUntilQr2 > 0 ? (
                                         <>
                                             {String(Math.floor(secondsUntilQr2 / 60)).padStart(2, '0')}:
-                                             {String(secondsUntilQr2 % 60).padStart(2, '0')}
+                                            {String(secondsUntilQr2 % 60).padStart(2, '0')}
                                         </>
                                     ) : (
                                         '00:00'
@@ -5610,23 +5616,6 @@ function QrScannerApp() {
             <div className="st-camera-viewport-card">
                 {isCameraAllowed ? (
                     <>
-                        {/* Floating Top Status Badge */}
-                        <div className="st-camera-badge-floating">
-                            <span className="st-live-pulse-dot" />
-                            <span>Live Viewfinder · Scan QR 1</span>
-                        </div>
-
-                        {/* Optical Viewfinder Target Frame with Animated Laser Beam */}
-                        <div className="st-viewfinder-overlay">
-                            <div className="st-viewfinder-frame">
-                                <div className="st-corner-tl" />
-                                <div className="st-corner-tr" />
-                                <div className="st-corner-bl" />
-                                <div className="st-corner-br" />
-                                <div className="st-laser-scan-line" />
-                            </div>
-                        </div>
-
                         {scannerActive ? (
                             <NativeQrScanner
                                 key={`${retryKey}-${effectiveFacingMode}`}
@@ -5643,18 +5632,6 @@ function QrScannerApp() {
                             </div>
                         )}
 
-                        {/* Floating Bottom Viewport Controls */}
-                        <div className="st-viewport-controls">
-                            <button
-                                type="button"
-                                onClick={handleToggleFacingMode}
-                                className="st-ctrl-btn"
-                                title="Switch Camera (Front/Rear)"
-                            >
-                                <FaSyncAlt />
-                                <span>{effectiveFacingMode === 'user' ? 'Front' : 'Rear'}</span>
-                            </button>
-                        </div>
                     </>
                 ) : (
                     /* Android Web Browser Camera Blocked - Force Official APK */

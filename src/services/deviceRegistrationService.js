@@ -3,6 +3,7 @@ import { httpsCallable } from "firebase/functions";
 import { db, functions } from "../firebase";
 import { Capacitor } from "@capacitor/core";
 import { detectDeviceType, getClientIpAddress } from "../utils/deviceDetection";
+import { setGlobalVariable, getGlobalVariable } from "../utils/globalState";
 
 /**
  * Authoritatively register and lock device for ANY user role (Student, Lecturer, Admin)
@@ -59,7 +60,7 @@ export async function registerUserDevice({
     deviceType: cleanPlatform,
     registeredPlatform: cleanPlatform,
     registeredDeviceType: cleanPlatform,
-    deviceTypeLocked: true,
+    deviceTypeLocked: shouldLock,
     isDeviceRegistered: true,
     deviceSelectedAt: now,
     platformBoundAt: now,

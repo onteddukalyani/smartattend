@@ -157,6 +157,7 @@ export function DeviceOnboardingModal({ isOpen, onClose }) {
             return;
         }
         setSelectedDevice(deviceType);
+        setGlobalVariable("selectedDeviceType", deviceType);
         setMismatchReported(false);
     };
 
