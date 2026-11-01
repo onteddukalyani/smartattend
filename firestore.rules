@@ -577,16 +577,18 @@ service cloud.firestore {
       }
 
       // Authorizations subcollection: student devices and lecturers
-      // Authorizations subcollection: student devices and lecturers
       match /authorizations/{authDocId} {
         // Students may read only their own authorization record. Staff access is
         // retained for the lecturer's live supervision dashboard.
         allow read: if isStaff() || (
           isSignedIn() && (
             request.auth.uid == authDocId ||
-            resource.data.studentUid == request.auth.uid ||
-            (request.auth.token.email != null && resource.data.studentEmail != null &&
-              resource.data.studentEmail.lower() == request.auth.token.email.lower())
+            resource == null ||
+            (resource.data != null && (
+              resource.data.studentUid == request.auth.uid ||
+              (request.auth.token.email != null && resource.data.studentEmail != null &&
+                resource.data.studentEmail.lower() == request.auth.token.email.lower())
+            ))
           )
         );
         // Authorized student or staff can create authorization record (dual-engine support)
@@ -602,9 +604,11 @@ service cloud.firestore {
         allow update: if isStaff() || (
           isSignedIn() && (
             request.auth.uid == authDocId ||
-            (resource.data.studentUid != null && resource.data.studentUid == request.auth.uid) ||
-            (request.auth.token.email != null && resource.data.studentEmail != null &&
-              resource.data.studentEmail.lower() == request.auth.token.email.lower())
+            (resource != null && resource.data != null && (
+              resource.data.studentUid == request.auth.uid ||
+              (request.auth.token.email != null && resource.data.studentEmail != null &&
+                resource.data.studentEmail.lower() == request.auth.token.email.lower())
+            ))
           )
         );
         match /{document=**} {
@@ -756,11 +760,14 @@ service cloud.firestore {
 
     match /attendance_records/{recordId} {
       allow read: if isStaff() || (isSignedIn() && (
-        resource.data.studentUid == request.auth.uid ||
-        (request.auth.token.email != null && resource.data.studentEmail != null && resource.data.studentEmail.lower() == request.auth.token.email.lower()) ||
-        (request.auth.token.email != null && resource.data.rollNo != null && (
-          resource.data.rollNo.lower() == request.auth.token.email.split('@')[0].lower() ||
-          resource.data.rollNo == request.auth.token.email.split('@')[0].upper()
+        resource == null ||
+        (resource.data != null && (
+          resource.data.studentUid == request.auth.uid ||
+          (request.auth.token.email != null && resource.data.studentEmail != null && resource.data.studentEmail.lower() == request.auth.token.email.lower()) ||
+          (request.auth.token.email != null && resource.data.rollNo != null && (
+            resource.data.rollNo.lower() == request.auth.token.email.split('@')[0].lower() ||
+            resource.data.rollNo == request.auth.token.email.split('@')[0].upper()
+          ))
         ))
       ));
       allow create, update: if isStaff() || (
@@ -776,11 +783,14 @@ service cloud.firestore {
       allow delete: if isStaff();
       match /{document=**} {
         allow read: if isStaff() || (isSignedIn() && (
-          resource.data.studentUid == request.auth.uid ||
-          (request.auth.token.email != null && resource.data.studentEmail != null && resource.data.studentEmail.lower() == request.auth.token.email.lower()) ||
-          (request.auth.token.email != null && resource.data.rollNo != null && (
-            resource.data.rollNo.lower() == request.auth.token.email.split('@')[0].lower() ||
-            resource.data.rollNo == request.auth.token.email.split('@')[0].upper()
+          resource == null ||
+          (resource.data != null && (
+            resource.data.studentUid == request.auth.uid ||
+            (request.auth.token.email != null && resource.data.studentEmail != null && resource.data.studentEmail.lower() == request.auth.token.email.lower()) ||
+            (request.auth.token.email != null && resource.data.rollNo != null && (
+              resource.data.rollNo.lower() == request.auth.token.email.split('@')[0].lower() ||
+              resource.data.rollNo == request.auth.token.email.split('@')[0].upper()
+            ))
           ))
         ));
         allow write: if isStaff();

@@ -368,8 +368,6 @@ function App() {
             />
             <Route path="/anchor-gps" element={<AnchorGps />} />
             <Route path="/anchor" element={<AnchorGps />} />
-            <Route path="/anchor-gps" element={<AnchorGps />} />
-            <Route path="/anchor" element={<AnchorGps />} />
             <Route path="/lecturer/anchor-gps" element={<AnchorGps />} />
             <Route path="/lecturer/anchor" element={<AnchorGps />} />
 

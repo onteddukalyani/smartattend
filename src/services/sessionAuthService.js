@@ -436,12 +436,20 @@ export async function submitVerifiedAttendance(sessionId, qr2Token, biometricDat
     await setDoc(doc(db, "attendance_records", recordId), recordData);
 
     // Update student authorization document
-    await setDoc(doc(db, "attendance_sessions", sessionId, "authorizations", currentUser.uid), {
-      status: "VERIFIED",
-      attendanceMarked: true,
-      recordId,
-      verifiedAt: Date.now()
-    }, { merge: true });
+    try {
+      await setDoc(doc(db, "attendance_sessions", sessionId, "authorizations", currentUser.uid), {
+        studentUid: currentUser.uid,
+        studentEmail: cleanEmail,
+        rollNo,
+        studentName,
+        status: "VERIFIED",
+        attendanceMarked: true,
+        recordId,
+        verifiedAt: Date.now()
+      }, { merge: true });
+    } catch (authDocErr) {
+      console.warn("[sessionAuth] Notice updating student authorization doc:", authDocErr?.message || authDocErr);
+    }
 
     // Append attendee to session doc
     try {
