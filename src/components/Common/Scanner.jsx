@@ -26,8 +26,7 @@ import {
     FaHourglassHalf,
     FaBolt,
     FaApple,
-    FaInfoCircle,
-    FaExpand
+    FaInfoCircle
 } from 'react-icons/fa';
 import { MdQrCodeScanner } from 'react-icons/md';
 import { useAuth } from '../authcontext';
@@ -232,35 +231,14 @@ function QrScannerApp() {
     const [showIosGuideModal, setShowIosGuideModal] = useState(false);
     const [showDeviceOnboarding, setShowDeviceOnboarding] = useState(false);
 
-    // Browser Fullscreen & Kiosk Lock State (All Devices & Web Browsers)
-    const [isBrowserFullscreen, setIsBrowserFullscreen] = useState(() => {
-        return typeof document !== 'undefined' ? Boolean(document.fullscreenElement || document.webkitFullscreenElement) : false;
-    });
-
+    // Kiosk Back-Button Navigation Lock Notification
     useEffect(() => {
-        const handleFsChange = () => {
-            setIsBrowserFullscreen(Boolean(
-                document.fullscreenElement ||
-                document.webkitFullscreenElement ||
-                document.mozFullScreenElement ||
-                document.msFullscreenElement
-            ));
-        };
-        document.addEventListener('fullscreenchange', handleFsChange);
-        document.addEventListener('webkitfullscreenchange', handleFsChange);
-        document.addEventListener('mozfullscreenchange', handleFsChange);
-        document.addEventListener('MSFullscreenChange', handleFsChange);
-
         const handleKioskBackAttempt = () => {
             setErrorMessage('🔒 Kiosk Mode Active: Navigation is locked while attendance is in progress. Please wait for Phase 2 or enter the Lecturer PIN to release.');
         };
         window.addEventListener('smartattend_kiosk_back_attempt', handleKioskBackAttempt);
 
         return () => {
-            document.removeEventListener('fullscreenchange', handleFsChange);
-            document.removeEventListener('webkitfullscreenchange', handleFsChange);
-            document.removeEventListener('mozfullscreenchange', handleFsChange);
-            document.removeEventListener('MSFullscreenChange', handleFsChange);
             window.removeEventListener('smartattend_kiosk_back_attempt', handleKioskBackAttempt);
         };
     }, []);
@@ -5313,14 +5291,7 @@ function QrScannerApp() {
 
                 {!isQr2Released ? (
                     /* Hero Supervised Waiting & Countdown Card: Compact, zero-scroll, directly linked to Lecturer */
-                    <div
-                        className="st-kiosk-hero-card st-compact-transition-card"
-                        onClick={() => {
-                            if (!isNativeApp && !isBrowserFullscreen) {
-                                Kiosk.requestFullscreen().catch(() => { });
-                            }
-                        }}
-                    >
+                    <div className="st-kiosk-hero-card st-compact-transition-card">
                         <div className="st-kiosk-glow-orb" />
 
                         {/* Session & Phase 1 Header Ribbon */}
@@ -5339,33 +5310,6 @@ function QrScannerApp() {
                             </div>
                         </div>
 
-                        {/* Browser Fullscreen Kiosk Mode Expand Banner (Visible on all browsers when not yet fullscreen) */}
-                        {!isNativeApp && !isBrowserFullscreen && (
-                            <button
-                                type="button"
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    Kiosk.requestFullscreen().catch(() => { });
-                                }}
-                                style={{
-                                    margin: '0 auto 10px auto',
-                                    padding: '7px 16px',
-                                    borderRadius: '20px',
-                                    background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.95), rgba(99, 102, 241, 0.95))',
-                                    color: '#ffffff',
-                                    border: '1px solid rgba(255, 255, 255, 0.3)',
-                                    fontSize: '0.76rem',
-                                    fontWeight: 800,
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    gap: '6px',
-                                    cursor: 'pointer',
-                                    boxShadow: '0 4px 14px rgba(59, 130, 246, 0.4)'
-                                }}
-                            >
-                                <FaExpand /> Tap to Expand Immersive Browser Kiosk
-                            </button>
-                        )}
 
                         {/* High-Impact Centered Countdown Ring & Clock */}
                         <div className="st-timer-ring-container st-compact-timer-ring">
@@ -5710,23 +5654,6 @@ function QrScannerApp() {
                                 <FaSyncAlt />
                                 <span>{effectiveFacingMode === 'user' ? 'Front' : 'Rear'}</span>
                             </button>
-                            {!isNativeApp && (
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        if (!isBrowserFullscreen) {
-                                            Kiosk.requestFullscreen().catch(() => {});
-                                        } else {
-                                            Kiosk.exitFullscreen().catch(() => {});
-                                        }
-                                    }}
-                                    className="st-ctrl-btn"
-                                    title="Toggle Fullscreen"
-                                >
-                                    <FaExpand />
-                                    <span>{isBrowserFullscreen ? 'Exit' : 'Fullscreen'}</span>
-                                </button>
-                            )}
                         </div>
                     </>
                 ) : (
