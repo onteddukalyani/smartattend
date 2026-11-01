@@ -12,19 +12,22 @@ import "./AppUpdateModal.css";
  * Shows only once per version (parent must handle "shown" tracking).
  */
 export default function AppUpdateModal({ updateInfo, onClose }) {
-  if (!updateInfo || (!updateInfo.hasUpdate && !updateInfo.isOpen)) return null;
-
-  const isNative = Capacitor.isNativePlatform();
-  const isMandatory = Boolean(updateInfo.isMandatory);
-  const latestVersion = updateInfo.latestVersion || "";
-  const currentVersion = updateInfo.currentVersion || "";
-  const apkUrl = updateInfo.apkUrl || getApkDownloadUrl();
+  const isOpen = Boolean(updateInfo && (updateInfo.hasUpdate || updateInfo.isOpen));
 
   // Trap scroll when open
   useEffect(() => {
+    if (!isOpen) return;
     document.body.style.overflow = "hidden";
     return () => { document.body.style.overflow = ""; };
-  }, []);
+  }, [isOpen]);
+
+  if (!isOpen) return null;
+
+  const isNative = Capacitor.isNativePlatform();
+  const isMandatory = Boolean(updateInfo?.isMandatory);
+  const latestVersion = updateInfo?.latestVersion || "";
+  const currentVersion = updateInfo?.currentVersion || "";
+  const apkUrl = updateInfo?.apkUrl || getApkDownloadUrl();
 
   const handleUpdate = () => {
     if (isNative) {

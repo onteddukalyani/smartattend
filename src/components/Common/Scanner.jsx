@@ -335,19 +335,20 @@ function QrScannerApp() {
             : authQr2StartsAt)) || 0;
 
     // Helper to evaluate if Lecturer has officially released Phase 2 (QR 2)
+    // Only unlocked when lecturer transitions to Phase 2 in Firestore or student taps manual unlock button.
+    // Never auto-open camera purely on timer to prevent camera loop while screen is still showing QR 1.
     const isQr2Released = Boolean(
         forceQr2Unlocked ||
         (sessionData && (
             sessionData.phase === 'PHASE_2' ||
             sessionData.phase === '2' ||
             sessionData.qr2Released === true
-        )) ||
-        (effectiveQr2TargetMs > 0 && effectiveQr2TargetMs <= nowTick)
+        ))
     );
 
     const qr2TargetMs = effectiveQr2TargetMs;
 
-    const secondsUntilQr2 = (effectiveQr2TargetMs > 0 && !isQr2Released)
+    const secondsUntilQr2 = (effectiveQr2TargetMs > 0 && !isQr2Released && effectiveQr2TargetMs > nowTick)
         ? Math.max(0, Math.ceil((effectiveQr2TargetMs - nowTick) / 1000))
         : null;
 
@@ -1399,14 +1400,8 @@ function QrScannerApp() {
         cameraLockedForSessionRef.current = false;
         qr1AcceptedForSessionRef.current = false;
         setSessionEndedAutoReleased(true);
-        if (
-            reason.toLowerCase().includes('dashboard') ||
-            reason.toLowerCase().includes('manual') ||
-            reason.toLowerCase().includes('pin') ||
-            reason.toLowerCase().includes('back')
-        ) {
-            navigate('/student', { replace: true });
-        }
+        // Always navigate cleanly to /student upon session completion/release
+        navigate('/student', { replace: true });
     }, [activeSessionId, releaseCameraLock, user?.uid, deviceIdentity?.deviceId, navigate]);
 
     // Direct exit app handler for Android native and browser
@@ -2266,6 +2261,13 @@ function QrScannerApp() {
         } catch (_) { }
         getClientIpAddress().catch(() => { });
 
+        const isSessionGeofenceDisabled = Boolean(
+            !qrPayload?.geo &&
+            !qrPayload?.classroomLocation &&
+            (!sessionData || sessionData.geofenceRadius === 0 || !sessionData.classroomLocation)
+        );
+        const finalCoords = isSessionGeofenceDisabled ? null : coords;
+
         const studentProfileOverride = {
             rollNo: loggedInRollNo,
             name: loggedInName,
@@ -2274,7 +2276,7 @@ function QrScannerApp() {
             deviceIp: clientIp,
             deviceType: profile?.deviceType || profile?.registeredDeviceType || (typeof window !== 'undefined' ? localStorage.getItem('smartattend_student_device_type') : null),
             isDeviceOwner: deviceOwnerStatus.isDeviceOwner,
-            studentLocation: coords ? {
+            studentLocation: finalCoords ? {
                 latitude: coords.latitude,
                 longitude: coords.longitude,
                 accuracy: coords.accuracy,
@@ -2588,7 +2590,7 @@ function QrScannerApp() {
         }
 
         // 2. Dynamic Geofence, Lecturer Distance Calculation & Fast Location Acquisition
-        const classroomTarget = payload.geo || sessionData?.classroomLocation || lecturerLocationRef.current;
+        const classroomTarget = payload.geo || (sessionData?.geofenceRadius > 0 ? sessionData?.classroomLocation : null);
         if (classroomTarget) {
             lecturerLocationRef.current = classroomTarget;
             setLecturerLocation(classroomTarget);
@@ -2599,7 +2601,14 @@ function QrScannerApp() {
         const selectedGeofence = hasTargetCoords
             ? Number(classroomTarget?.radius ?? classroomTarget?.r ?? sessionData?.geofenceRadius ?? DEFAULT_GEOFENCE_RADIUS_METRES)
             : 0;
-        const isGeofenceDisabled = selectedGeofence === 0 || classroomTarget?.enabled === false || sessionData?.geofenceRadius === 0 || !hasTargetCoords;
+        const isGeofenceDisabled = Boolean(
+            selectedGeofence === 0 ||
+            classroomTarget?.enabled === false ||
+            sessionData?.geofenceRadius === 0 ||
+            !hasTargetCoords ||
+            payload?.geoDisabled ||
+            payload?.noGeo
+        );
 
         // Retrieve student's device location (instant pre-warmer, recent cache, or fast fix)
         // Fast, accurate candidate selection: gather all candidates across memory & local storage
@@ -2755,9 +2764,9 @@ function QrScannerApp() {
             }
 
             if (isQR1) {
-                // QR 1 is explicitly blocked from re-scanning!
+                // QR 1 is explicitly blocked from re-scanning! Silently ignore without error loop.
                 console.log('[Scanner] QR 1 ignored. Student already completed Phase 1 check-in. Waiting for Lecturer to display QR 2.');
-                setErrorMessage('You have already scanned QR 1. Please scan QR 2 displayed on the screen.');
+                return;
             } else if (sessionData?.phase === 'PHASE_2' || isQr2Released || forceQr2Unlocked) {
                 setForceQr2Unlocked(true);
                 handleProcessQR2(payload.sessionId || activeSessionId, payload.qr2Token || payload.sessionId, enhancedPayload);
@@ -2766,8 +2775,8 @@ function QrScannerApp() {
         }
 
         // 4. Initial Phase 1: Mock GPS Check & Geofence Telemetry
-        // 4A. Mock GPS Check: Reject spoofed / fake location
-        if (studentCoords?.isMock || studentCoords?.mocked || studentCoords?.isMockLocation) {
+        // 4A. Mock GPS Check: Reject spoofed / fake location only when geofence is enabled
+        if (!isGeofenceDisabled && (studentCoords?.isMock || studentCoords?.mocked || studentCoords?.isMockLocation)) {
             geofenceAttemptsRef.current += 1;
             const currentAttempts = geofenceAttemptsRef.current;
             setGeofenceAttempts(currentAttempts);
@@ -5312,7 +5321,7 @@ function QrScannerApp() {
                                         }
                                     } catch (_) { }
                                 }
-                                if (sessionData?.phase === 'PHASE_2' || sessionData?.qr2Released === true) {
+                                if (sessionData?.phase === 'PHASE_2' || sessionData?.phase === '2' || sessionData?.qr2Released === true || (effectiveQr2TargetMs > 0 && effectiveQr2TargetMs <= nowTick)) {
                                     setForceQr2Unlocked(true);
                                     if (!cameraLockedForSessionRef.current && scanState === 'KIOSK_WAITING_QR2') setScannerActive(true);
                                 } else {

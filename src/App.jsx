@@ -294,32 +294,6 @@ function App() {
     }
   }, [loading, user, navigate]);
 
-  // 1.6 Ensure student locked in active lecturer kiosk session stays on attendance screen
-  useEffect(() => {
-    if (!loading && user && typeof window !== "undefined") {
-      try {
-        const raw = localStorage.getItem("smartattend_kiosk_session_state");
-        if (raw) {
-          const parsed = JSON.parse(raw);
-          const isOngoing = parsed?.sessionId && (
-            (parsed?.kioskEndsAt && parsed.kioskEndsAt > Date.now()) ||
-            (parsed?.autoReleaseAt && parsed.autoReleaseAt > Date.now())
-          ) && (
-              parsed?.scanState === "KIOSK_WAITING_QR2" ||
-              parsed?.scanState === "VALIDATING_QR2" ||
-              parsed?.scanState === "BIOMETRIC_SCAN" ||
-              parsed?.scanState === "SUBMITTING_ATTENDANCE"
-            );
-          const path = (window.location.pathname || "").toLowerCase();
-          if (isOngoing && !path.includes("mark-attendance") && !path.includes("scanqr")) {
-            console.log("[App] Active supervised session detected with lecturer. Directing to attendance screen.");
-            navigate("/student/mark-attendance", { replace: true });
-          }
-        }
-      } catch (_) { }
-    }
-  }, [loading, user, navigate]);
-
   // 2. Preserve unauthenticated incoming attendance URL in sessionStorage
   useEffect(() => {
     if (!loading && !user && typeof window !== "undefined") {

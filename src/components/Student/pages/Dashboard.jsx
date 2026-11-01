@@ -2516,7 +2516,7 @@ export default function StudentDashboard() {
                         dismissAppUpdate(updateInfo?.latestVersion);
 
                     }
-                    setShowUpdateModal(false);
+                    setUpdateInfo(null);
                 }}
             />
 

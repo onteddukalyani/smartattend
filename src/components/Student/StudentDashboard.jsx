@@ -53,20 +53,14 @@ function StudentDashboard() {
                 );
                 setIsKioskActive(active);
 
-                if (active) {
-                    const currentPath = (location.pathname || '').toLowerCase();
-                    if (!currentPath.includes('mark-attendance') && !currentPath.includes('scanqr')) {
-                        console.log('[StudentDashboard] Student is locked under lecturer session. Redirecting to mark-attendance.');
-                        navigate('/student/mark-attendance', { replace: true });
-                    }
-                }
+                
             } catch (_) {
                 setIsKioskActive(false);
             }
         };
 
         checkKiosk();
-        const interval = setInterval(checkKiosk, 1200);
+        const interval = setInterval(checkKiosk, 2000);
         window.addEventListener('storage', checkKiosk);
         return () => {
             clearInterval(interval);
@@ -128,8 +122,9 @@ function StudentDashboard() {
         return <Login />;
     }
 
-    // When student is in an active session under the lecturer's supervision, render strictly full-screen Kiosk view
-    if (isKioskActive) {
+    // When student is actively scanning attendance, render full-screen Kiosk view
+    const isAttendanceRoute = (location.pathname || '').toLowerCase().includes('mark-attendance') || (location.pathname || '').toLowerCase().includes('scanqr');
+    if (isKioskActive && isAttendanceRoute) {
         return (
             <div className='app kiosk-supervised-fullscreen' style={{ minHeight: '100vh', width: '100vw', margin: 0, padding: 0 }}>
                 <Outlet />
@@ -150,6 +145,45 @@ function StudentDashboard() {
                     unreadCount={unreadCount}
                     onNotifClick={() => setShowNotifModal(true)}
                 />
+                {isKioskActive && !isAttendanceRoute && (
+                    <div style={{
+                        margin: '12px 16px',
+                        padding: '12px 16px',
+                        borderRadius: '12px',
+                        background: 'linear-gradient(135deg, #4f46e5 0%, #3730a3 100%)',
+                        color: '#ffffff',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        boxShadow: '0 4px 12px rgba(79, 70, 229, 0.25)',
+                        gap: '12px'
+                    }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <span style={{ fontSize: '1.1rem' }}>⚡</span>
+                            <div>
+                                <div style={{ fontWeight: 700, fontSize: '0.9rem' }}>Attendance Session In Progress</div>
+                                <div style={{ fontSize: '0.78rem', opacity: 0.88 }}>Phase 1 check-in complete. Return to scanner when lecturer presents Phase 2.</div>
+                            </div>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => navigate('/student/mark-attendance')}
+                            style={{
+                                background: '#ffffff',
+                                color: '#4338ca',
+                                border: 'none',
+                                borderRadius: '8px',
+                                padding: '8px 14px',
+                                fontWeight: 700,
+                                fontSize: '0.82rem',
+                                cursor: 'pointer',
+                                whiteSpace: 'nowrap'
+                            }}
+                        >
+                            Return to Scanner →
+                        </button>
+                    </div>
+                )}
                 <Outlet />
             </div>
             <BottomNav />
