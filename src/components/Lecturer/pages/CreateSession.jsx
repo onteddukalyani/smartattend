@@ -35,7 +35,7 @@ export async function createAttendanceSession(
     const hasValidCoords = timetableOptions?.classroomLocation &&
         Number.isFinite(Number(timetableOptions.classroomLocation.latitude ?? timetableOptions.classroomLocation.lat)) &&
         Number.isFinite(Number(timetableOptions.classroomLocation.longitude ?? timetableOptions.classroomLocation.lng ?? timetableOptions.classroomLocation.lon));
-    const effectiveRadius = hasValidCoords ? parsedRadius : 0;
+    const effectiveRadius = (hasValidCoords || timetableOptions?.locationMode === "MOBILE") ? parsedRadius : 0;
 
     const sessionParams = {
         classCode: finalClassCode,
