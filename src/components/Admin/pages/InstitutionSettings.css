@@ -543,4 +543,128 @@
   background: #7f1d1d;
   color: #fca5a5;
   border-color: #991b1b;
-}
+}
+
+/* =========================================================
+   ATTENDANCE DEVICE & PLATFORM POLICY CARD STYLES
+   ========================================================= */
+.policy-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+  margin-top: 14px;
+}
+
+.policy-option-card {
+  padding: 18px 20px;
+  border-radius: 16px;
+  border: 1.5px solid #e2e8f0;
+  background: #ffffff;
+  cursor: pointer;
+  transition: all 0.22s ease;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+.policy-option-card:hover {
+  border-color: #cbd5e1;
+  background: #f8fafc;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.04);
+}
+
+.policy-option-card.selected {
+  border-color: #6366f1;
+  background: rgba(99, 102, 241, 0.03);
+  box-shadow: 0 0 0 1px #6366f1, 0 8px 24px rgba(99, 102, 241, 0.12);
+}
+
+.policy-card-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.policy-radio-circle {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid #cbd5e1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: all 0.2s ease;
+}
+
+.policy-option-card.selected .policy-radio-circle {
+  border-color: #6366f1;
+}
+
+.policy-radio-inner {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #6366f1;
+}
+
+.policy-badge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 9px;
+  border-radius: 12px;
+  letter-spacing: 0.02em;
+}
+
+.policy-recommended-tag {
+  margin-left: auto;
+  font-size: 10.5px;
+  font-weight: 800;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: rgba(99, 102, 241, 0.12);
+  color: #6366f1;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.policy-title {
+  margin: 0 0 8px;
+  font-size: 15px;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.policy-desc {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #64748b;
+  flex: 1;
+}
+
+[data-theme="midnight"] .policy-option-card {
+  background: #0f172a;
+  border-color: #1e293b;
+}
+
+[data-theme="midnight"] .policy-option-card:hover {
+  background: #1e293b;
+  border-color: #334155;
+}
+
+[data-theme="midnight"] .policy-option-card.selected {
+  background: rgba(99, 102, 241, 0.08);
+  border-color: #818cf8;
+  box-shadow: 0 0 0 1px #818cf8, 0 8px 24px rgba(99, 102, 241, 0.25);
+}
+
+[data-theme="midnight"] .policy-title {
+  color: #f8fafc;
+}
+
+[data-theme="midnight"] .policy-desc {
+  color: #94a3b8;
+}

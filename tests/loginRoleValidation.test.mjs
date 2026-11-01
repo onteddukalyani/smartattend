@@ -711,3 +711,29 @@ test("23. Camera policy: Admins and Lecturers allowed rear and front cameras on 
   assert.strictEqual(isStaffCameraUser(lectProfile), true);
   assert.strictEqual(isStaffCameraUser({ role: "student" }), false);
 });
+
+
+test("24. Institution Setting: Admin can configure attendancePlatformPolicy dynamically across roles", () => {
+  const studentAndroid = { role: "student", deviceType: "android" };
+  const studentIos = { role: "student", deviceType: "ios" };
+  const lecturer = { role: "lecturer", deviceType: "android" };
+
+  // 1. When policy is ALL_WEB: all students can scan and give attendance in web!
+  assert.strictEqual(isBrowserCameraAllowed(studentAndroid, { uid: "s1" }, "qr_scanner", "ALL_WEB").allowed, true);
+  assert.strictEqual(isBrowserCameraAllowed(studentAndroid, { uid: "s1" }, "qr_scanner", "ALL_WEB").reason, "all_web_policy");
+  assert.strictEqual(isBrowserCameraAllowed(studentIos, { uid: "s2" }, "qr_scanner", "ALL_WEB").allowed, true);
+
+  // 2. When policy is HYBRID_SECURITY: Android forced to APK, iPhone allowed on Web
+  assert.strictEqual(isBrowserCameraAllowed(studentAndroid, { uid: "s1" }, "qr_scanner", "HYBRID_SECURITY").allowed, false);
+  assert.strictEqual(isBrowserCameraAllowed(studentAndroid, { uid: "s1" }, "qr_scanner", "HYBRID_SECURITY").reason, "android_web_blocked");
+  assert.strictEqual(isBrowserCameraAllowed(studentIos, { uid: "s2" }, "qr_scanner", "HYBRID_SECURITY").allowed, true);
+
+  // 3. When policy is NATIVE_ONLY: both mobile devices require native app
+  assert.strictEqual(isBrowserCameraAllowed(studentAndroid, { uid: "s1" }, "qr_scanner", "NATIVE_ONLY").allowed, false);
+  assert.strictEqual(isBrowserCameraAllowed(studentIos, { uid: "s2" }, "qr_scanner", "NATIVE_ONLY").allowed, false);
+
+  // 4. Staff / Faculty: Always permitted regardless of policy
+  assert.strictEqual(isBrowserCameraAllowed(lecturer, { uid: "l1" }, "qr_scanner", "ALL_WEB").allowed, true);
+  assert.strictEqual(isBrowserCameraAllowed(lecturer, { uid: "l1" }, "qr_scanner", "HYBRID_SECURITY").allowed, true);
+  assert.strictEqual(isBrowserCameraAllowed(lecturer, { uid: "l1" }, "qr_scanner", "NATIVE_ONLY").allowed, true);
+});

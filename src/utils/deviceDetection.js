@@ -179,7 +179,7 @@ export function isStaffCameraUser(profile = {}, user = {}) {
  * @param {Object} user - Firebase auth user
  * @returns {{ allowed: boolean, reason: string, message?: string }}
  */
-export function isBrowserCameraAllowed(profile = {}, user = {}, context = "qr_scanner") {
+export function isBrowserCameraAllowed(profile = {}, user = {}, context = "qr_scanner", policyOverride = null) {
   // If running inside native mobile app (Capacitor APK), camera is always allowed
   if (Capacitor.isNativePlatform()) {
     return { allowed: true, reason: "native_app" };
@@ -216,16 +216,6 @@ export function isBrowserCameraAllowed(profile = {}, user = {}, context = "qr_sc
     return { allowed: true, reason: isAdmin ? "admin" : "lecturer" };
   }
 
-  // iPhone / iPad (iOS): Camera is allowed in browser for everything (Safari/PWA + Guided Access)
-  const isIOS =
-    detectDeviceType() === "ios" ||
-    (typeof navigator !== "undefined" && (/iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1))) ||
-    profile?.deviceType === "ios" ||
-    (typeof localStorage !== "undefined" && (localStorage.getItem("smartattend_student_device_type") === "ios" || localStorage.getItem("smartattend_device_type") === "ios"));
-
-  if (isIOS) {
-    return { allowed: true, reason: "iphone_user" };
-  }
 
   // Students can use browser for biometric face registration / enrollment!
   const isBiometricRegistration =
@@ -237,7 +227,35 @@ export function isBrowserCameraAllowed(profile = {}, user = {}, context = "qr_sc
     return { allowed: true, reason: "biometric_registration" };
   }
 
-  // Android Web Student: strictly blocked from marking attendance in browser! Must use APK!
+  // Active attendance platform policy configured by institution admin
+  const activePolicy = policyOverride ||
+    (typeof localStorage !== "undefined" ? localStorage.getItem("smartattend_platform_policy") : null) ||
+    "HYBRID_SECURITY";
+
+  // Policy Option: Universal Web Access - all students can scan and give attendance in web!
+  if (activePolicy === "ALL_WEB") {
+    return { allowed: true, reason: "all_web_policy" };
+  }
+
+  // iPhone / iPad (iOS): Camera is allowed in browser under HYBRID_SECURITY and ALL_WEB
+  const isIOS =
+    detectDeviceType() === "ios" ||
+    (typeof navigator !== "undefined" && (/iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1))) ||
+    profile?.deviceType === "ios" ||
+    (typeof localStorage !== "undefined" && (localStorage.getItem("smartattend_student_device_type") === "ios" || localStorage.getItem("smartattend_device_type") === "ios"));
+
+  if (isIOS) {
+    if (activePolicy === "NATIVE_ONLY") {
+      return {
+        allowed: false,
+        reason: "ios_web_blocked",
+        message: "Institution policy requires using the native mobile app for attendance."
+      };
+    }
+    return { allowed: true, reason: "iphone_user" };
+  }
+
+  // Android Web Student: strictly blocked from marking attendance in browser under HYBRID_SECURITY and NATIVE_ONLY!
   const isAndroid =
     detectDeviceType() === "android" ||
     profile?.deviceType === "android" ||

@@ -10,7 +10,8 @@ import {
   FaSyncAlt,
   FaCheckCircle,
   FaExclamationTriangle,
-  FaBullhorn
+  FaBullhorn,
+  FaMobileAlt
 } from "react-icons/fa";
 
 import {
@@ -30,6 +31,7 @@ import {
   publishAppUpdate
 } from "../../../services/appUpdateService";
 import { getApkDownloadUrl } from "../../../utils/apkUrl";
+import { ATTENDANCE_PLATFORM_POLICIES, setCachedAttendancePlatformPolicy } from "../../../services/institutionService";
 
 import "./InstitutionSettings.css";
 
@@ -40,7 +42,8 @@ const InstitutionSettings = () => {
     sessionDuration: 10,
     qrRefreshInterval: 30,
     attendanceWindow: 5,
-    allowLateAttendance: true
+    allowLateAttendance: true,
+    attendancePlatformPolicy: "HYBRID_SECURITY"
   });
 
   const [loading, setLoading] = useState(true);
@@ -184,6 +187,10 @@ const InstitutionSettings = () => {
         { merge: true }
       );
 
+      if (settings.attendancePlatformPolicy) {
+        setCachedAttendancePlatformPolicy(settings.attendancePlatformPolicy);
+      }
+
       await sendFacultyNotification(
         "⚙️ Institutional Parameters Updated",
         `Institutional campus parameters and university identity were updated by ${user?.email || 'Administrator'}.`,
@@ -270,6 +277,73 @@ const InstitutionSettings = () => {
 
         <div className="settings-note">
           Institution identity is controlled by the system and cannot be changed from this page.
+        </div>
+      </section>
+
+      {/* Attendance Device & Platform Scanning Policy (Admin Controlled) */}
+      <section className="settings-card" id="platform-policy">
+        <div className="settings-card-header">
+          <div className="settings-icon" style={{ background: "rgba(14, 165, 233, 0.12)", color: "#0ea5e9" }}>
+            <FaMobileAlt />
+          </div>
+          <div>
+            <h2>Attendance Device &amp; Scanning Policy</h2>
+            <p>Configure which devices and browsers students can use to scan QR codes and submit attendance.</p>
+          </div>
+        </div>
+
+        <div className="policy-cards-grid">
+          {Object.values(ATTENDANCE_PLATFORM_POLICIES).map((policy) => {
+            const isSelected = (settings.attendancePlatformPolicy || "HYBRID_SECURITY") === policy.id;
+            return (
+              <div
+                key={policy.id}
+                onClick={() => {
+                  setSettings((prev) => ({ ...prev, attendancePlatformPolicy: policy.id }));
+                  setMessage("");
+                }}
+                className={`policy-option-card ${isSelected ? "selected" : ""}`}
+              >
+                <div className="policy-card-top">
+                  <div className="policy-radio-circle">
+                    {isSelected && <div className="policy-radio-inner" />}
+                  </div>
+                  <span
+                    className="policy-badge"
+                    style={{
+                      background: isSelected ? policy.badgeColor : "rgba(100, 116, 139, 0.12)",
+                      color: isSelected ? "#ffffff" : "#64748b"
+                    }}
+                  >
+                    {policy.badge}
+                  </span>
+                  {policy.recommended && (
+                    <span className="policy-recommended-tag">Recommended</span>
+                  )}
+                </div>
+                <h3 className="policy-title">{policy.label}</h3>
+                <p className="policy-desc">{policy.description}</p>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="policy-active-summary" style={{
+          marginTop: "18px",
+          padding: "12px 18px",
+          borderRadius: "12px",
+          background: "var(--surface-hover, #f8fafc)",
+          border: "1px solid var(--border, #e2e8f0)",
+          display: "flex",
+          alignItems: "center",
+          gap: "10px",
+          fontSize: "13px"
+        }}>
+          <FaCheckCircle style={{ color: "#10b981", fontSize: "16px", flexShrink: 0 }} />
+          <span>
+            Active Setting: <strong>{ATTENDANCE_PLATFORM_POLICIES[settings.attendancePlatformPolicy || "HYBRID_SECURITY"]?.label}</strong>.
+            When saved, this policy applies in real time across all roles (Students, Lecturers, and Admins).
+          </span>
         </div>
       </section>
 

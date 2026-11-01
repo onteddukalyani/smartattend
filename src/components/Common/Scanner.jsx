@@ -48,6 +48,7 @@ import { doc, getDoc, collection, query, where, getDocs, setDoc, onSnapshot } fr
 import FaceScanner, { releaseAllMediaTracks, loadFaceApiModels } from '../Lecturer/pages/FaceScanner';
 import { isIOSDevice, isGuidedAccessEnabled, addAppSwitchListener, addScreenCaptureListener } from '../../services/guidedAccessService';
 import { getApkDownloadUrl } from '../../utils/apkUrl';
+import { subscribeToInstitutionSettings, getAttendancePlatformPolicy } from '../../services/institutionService';
 import GuidedAccessRequired, { GuidedAccessExitNotice } from '../GuidedAccessRequired';
 import IphoneInstructionsModal from './IphoneInstructionsModal';
 import DeviceOnboardingModal from '../Student/DeviceOnboardingModal';
@@ -107,7 +108,20 @@ function QrScannerApp() {
     const isStaff = isStaffCameraUser(profile, user) ||
         (typeof window !== "undefined" && (window.location.pathname.includes("/lecturer") || window.location.pathname.includes("/admin")));
     const isAndroidWebStudent = !isNativeApp && isAndroidDevice && !isStaff;
-    const browserCameraAuth = isBrowserCameraAllowed(profile, user, 'qr_scanner');
+    const [platformPolicy, setPlatformPolicy] = useState(() => getAttendancePlatformPolicy());
+
+    useEffect(() => {
+        const unsub = subscribeToInstitutionSettings((instSettings) => {
+            if (instSettings?.attendancePlatformPolicy) {
+                setPlatformPolicy(instSettings.attendancePlatformPolicy);
+            }
+        });
+        return () => {
+            if (typeof unsub === 'function') unsub();
+        };
+    }, []);
+
+    const browserCameraAuth = isBrowserCameraAllowed(profile, user, 'qr_scanner', platformPolicy);
     const isCameraAllowed = browserCameraAuth.allowed;
     const [showAppBanner, setShowAppBanner] = useState(false);
     const [dismissedAppBanner, setDismissedAppBanner] = useState(false);
