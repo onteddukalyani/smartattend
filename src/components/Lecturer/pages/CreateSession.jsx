@@ -45,6 +45,7 @@ export async function createAttendanceSession(
         lectureHours: parsedHours,
         geofenceRadius: effectiveRadius,
         classroomLocation: hasValidCoords ? timetableOptions.classroomLocation : null,
+        locationMode: timetableOptions?.locationMode || (effectiveRadius > 0 ? (timetableOptions?.classroomLocation?.source === "LAPTOP" ? "LAPTOP" : "MOBILE") : "NONE"),
         rotationIntervalSec: typeof timetableOptions?.rotationIntervalSec === 'number' ? timetableOptions.rotationIntervalSec : 15,
         durationMinutes: Math.round(((qr1Sec + qr2Sec) / 60) * 10) / 10,
         qr1DurationSeconds: qr1Sec,

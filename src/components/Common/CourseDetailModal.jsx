@@ -24,7 +24,7 @@ import { collection, getDocs } from "firebase/firestore";
 import { db } from "../../firebase";
 import { downloadExcel } from "../../DownloadExcel";
 import { useTableSort, SortIcon } from "./useTableSort";
-import { normalizeCourseDepartment } from "./CoursesManager";
+import { normalizeBranchName as normalizeCourseDepartment } from "../../utils/studentDataHelper";
 import "./StudentDetailModal.css";
 
 export default function CourseDetailModal({

@@ -49,6 +49,7 @@ const ReadOnlyLecturerList = lazy(() => import("./components/Admin/pages/ManageL
 const DeviceSetupPage = lazy(() => import("./components/Common/DeviceSetupPage"));
 const ManageBiometricReRegistration = lazy(() => import("./components/Common/ManageBiometricReRegistration"));
 const IdentifyStudentByFace = lazy(() => import("./components/Common/IdentifyStudentByFace"));
+const AnchorGps = lazy(() => import("./components/Lecturer/pages/AnchorGps"));
 
 // Student lazy imports
 const StudentDashboard = lazy(() => import("./components/Student/StudentDashboard"));
@@ -511,6 +512,8 @@ function App() {
             <Route path="identify-student" element={<IdentifyStudentByFace />} />
             <Route path="face-identification" element={<IdentifyStudentByFace />} />
             <Route path="support" element={<SupportFeedbackPage />} />
+            <Route path="anchor-gps" element={<AnchorGps />} />
+            <Route path="anchor" element={<AnchorGps />} />
             <Route path="feedback" element={<SupportFeedbackPage />} />
             <Route path="contact" element={<SupportFeedbackPage />} />
             <Route path="help" element={<SupportFeedbackPage />} />

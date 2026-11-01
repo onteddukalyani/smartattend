@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { useSearchParams, Link, useNavigate } from "react-router-dom";
 import { QRCodeCanvas } from "qrcode.react";
 import { collection, getDocs, onSnapshot, doc, updateDoc, getDoc, deleteDoc } from "firebase/firestore";
@@ -114,6 +114,8 @@ function GenerateQR() {
     const [rotationIntervalSec, setRotationIntervalSec] = useState(DEFAULT_ROTATION_INTERVAL);
     const [rotationSecondsLeft, setRotationSecondsLeft] = useState(DEFAULT_ROTATION_INTERVAL);
     const [dynamicQrUrl, setDynamicQrUrl] = useState("");
+    const [locationMode, setLocationMode] = useState("MOBILE"); // "MOBILE" | "LAPTOP" | "NONE"
+    const [showPhoneAnchorModal, setShowPhoneAnchorModal] = useState(false);
     const [geofenceRadius, setGeofenceRadius] = useState(10); // Mandatory default: 10 metres standard, adjustable live by lecturer (0 = disabled)
     const [isCustomGps, setIsCustomGps] = useState(false);
     const [customGpsInput, setCustomGpsInput] = useState("10");
@@ -314,6 +316,86 @@ function GenerateQR() {
     const otherCourses = useMemo(() => {
         return availableCourses.filter((c) => !myCourses.some((m) => m.id === c.id));
     }, [availableCourses, myCourses]);
+
+    // Auto-close Phone Anchor Modal once phone anchor is detected live
+    useEffect(() => {
+        if (showPhoneAnchorModal && classroomCoords?.source === "PHONE_ANCHOR") {
+            const timer = setTimeout(() => {
+                setShowPhoneAnchorModal(false);
+            }, 1800);
+            return () => clearTimeout(timer);
+        }
+    }, [showPhoneAnchorModal, classroomCoords?.source]);
+
+    // Handle 3-way Location Mode Selection: 1. Mobile GPS, 2. Laptop Location, 3. No Location
+    const handleSelectLocationMode = useCallback((mode) => {
+        setLocationMode(mode);
+        if (mode === "NONE") {
+            handleUpdateGeofenceRadius(0);
+        } else if (mode === "LAPTOP") {
+            const radius = geofenceRadius > 0 ? geofenceRadius : 25;
+            handleUpdateGeofenceRadius(radius);
+            if (typeof navigator !== "undefined" && navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(
+                    (pos) => {
+                        const coords = {
+                            latitude: pos.coords.latitude,
+                            longitude: pos.coords.longitude,
+                            accuracy: Math.round(pos.coords.accuracy || 35),
+                            radius: radius,
+                            source: "LAPTOP",
+                            timestamp: Date.now()
+                        };
+                        setClassroomCoords(coords);
+                        setClassroomGpsStatus("ACTIVE");
+                        if (sessionId) {
+                            updateDoc(doc(db, "attendance_sessions", sessionId), {
+                                classroomLocation: coords,
+                                geofenceRadius: radius,
+                                locationMode: "LAPTOP",
+                                updatedAt: Date.now()
+                            }).catch(() => {});
+                        }
+                    },
+                    (err) => console.warn("Laptop geolocation notice:", err?.message || err),
+                    { enableHighAccuracy: false, timeout: 8000, maximumAge: 30000 }
+                );
+            }
+        } else if (mode === "MOBILE") {
+            const radius = geofenceRadius > 0 ? geofenceRadius : 10;
+            handleUpdateGeofenceRadius(radius);
+            if (isMobileDevice) {
+                if (typeof navigator !== "undefined" && navigator.geolocation) {
+                    navigator.geolocation.getCurrentPosition(
+                        (pos) => {
+                            const coords = {
+                                latitude: pos.coords.latitude,
+                                longitude: pos.coords.longitude,
+                                accuracy: Math.round(pos.coords.accuracy || 8),
+                                radius: radius,
+                                source: "MOBILE_HOST",
+                                timestamp: Date.now()
+                            };
+                            setClassroomCoords(coords);
+                            setClassroomGpsStatus("ACTIVE");
+                            if (sessionId) {
+                                updateDoc(doc(db, "attendance_sessions", sessionId), {
+                                    classroomLocation: coords,
+                                    geofenceRadius: radius,
+                                    locationMode: "MOBILE",
+                                    updatedAt: Date.now()
+                                }).catch(() => {});
+                            }
+                        },
+                        (err) => console.warn("Mobile GPS notice:", err?.message || err),
+                        { enableHighAccuracy: true, timeout: 10000, maximumAge: 10000 }
+                    );
+                }
+            } else if (sessionId) {
+                setShowPhoneAnchorModal(true);
+            }
+        }
+    }, [geofenceRadius, handleUpdateGeofenceRadius, isMobileDevice, sessionId]);
 
     // 2. Real-time Subscriptions to Session & Authorized Students
     useEffect(() => {
