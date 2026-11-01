@@ -126,7 +126,7 @@ export function acquireAccurateLocation(
     let bestLocation = null;
     const timeoutId = setTimeout(() => finish(bestLocation), timeoutMs);
 
-    const finish = (location) => {
+    function finish(location) {
       if (settled) return;
       settled = true;
       clearTimeout(timeoutId);

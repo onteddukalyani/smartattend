@@ -54,7 +54,7 @@ const ManageLecturers = ({ readOnly = false }) => {
     loadLecturers();
   }, []);
 
-  const loadLecturers = async () => {
+  async function loadLecturers() {
     try {
       setLoading(true);
 

@@ -88,6 +88,17 @@ function QrScannerApp() {
     // Silent camera lock — holds rear camera stream after QR1 to block other apps
     const silentCameraLockRef = useRef(null);
     const [cameraLockActive, setCameraLockActive] = useState(false);
+    const [sessionEndedAutoReleased, setSessionEndedAutoReleased] = useState(false);
+    const [autoRetryCount, setAutoRetryCount] = useState(3);
+
+    const releaseCameraLock = useCallback(() => {
+        if (silentCameraLockRef.current) {
+            console.log('[CameraLock] Releasing silent camera lock.');
+            silentCameraLockRef.current.getTracks().forEach((track) => track.stop());
+            silentCameraLockRef.current = null;
+            setCameraLockActive(false);
+        }
+    }, []);
 
     // Platform & App Detection
     const isNativeApp = Capacitor.isNativePlatform();
@@ -1009,14 +1020,7 @@ function QrScannerApp() {
      * releaseCameraLock — Releases the silently held camera stream.
      * Called before biometric face scan (which opens front camera) and on all exit paths.
      */
-    const releaseCameraLock = useCallback(() => {
-        if (silentCameraLockRef.current) {
-            console.log('[CameraLock] Releasing silent camera lock.');
-            silentCameraLockRef.current.getTracks().forEach((track) => track.stop());
-            silentCameraLockRef.current = null;
-            setCameraLockActive(false);
-        }
-    }, []);
+// releaseCameraLock declared at top of component
 
     // Check Device Owner & Anti-Escape Overlay status on launch
     const [overlayStatus, setOverlayStatus] = useState({ checked: false, canDraw: true });
@@ -1379,7 +1383,7 @@ function QrScannerApp() {
     }, [sessionStartAt, kioskEndsAt]);
 
     // Centralized handler: Guaranteed auto-unlock of Kiosk Mode upon session completion, expiry, or lecturer release
-    const [sessionEndedAutoReleased, setSessionEndedAutoReleased] = useState(false);
+// sessionEndedAutoReleased declared at top of component
     const handleSessionCompletedAutoUnlock = useCallback(async (reason = 'Session Completed') => {
         console.log(`[Kiosk] handleSessionCompletedAutoUnlock triggered: ${reason}`);
         try { localStorage.removeItem('smartattend_kiosk_session_state'); } catch (_) { }
@@ -3223,7 +3227,7 @@ function QrScannerApp() {
     }, [handleFaceVerificationChange]);
 
     // Auto-retry countdown for attendance submission if transient error occurs
-    const [autoRetryCount, setAutoRetryCount] = useState(3);
+// autoRetryCount declared at top of component
     useEffect(() => {
         let timer = null;
         if (scanState === 'SUBMITTING_ATTENDANCE' && faceSubmissionFailed && !submittingAttendance) {

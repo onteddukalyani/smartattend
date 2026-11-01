@@ -49,7 +49,7 @@ const ManageAdmins = ({ readOnly = false }) => {
     loadAdmins();
   }, []);
 
-  const loadAdmins = async () => {
+  async function loadAdmins() {
     try {
       setLoading(true);
 

@@ -145,7 +145,7 @@ function GenerateQR() {
     const [dbStudentsMap, setDbStudentsMap] = useState(new Map());
     const [releasingStudentId, setReleasingStudentId] = useState(null);
     const [excusingStudentId, setExcusingStudentId] = useState(null);
-
+    const [releasingAllStudents, setReleasingAllStudents] = useState(false);
     // Subscribe to students collection to resolve authentic database details (Roll No, Name) for every logged-in email
     useEffect(() => {
         const unsub = onSnapshot(collection(db, "students"), (snap) => {
@@ -748,7 +748,7 @@ function GenerateQR() {
     };
 
     // Live Geofence Update Handler: Allows lecturer to adjust or disable geofence in real time without restarting session
-    const handleUpdateGeofenceRadius = (newRadius) => {
+    function handleUpdateGeofenceRadius(newRadius) {
         const r = Math.max(0, Number(newRadius) || 0);
         setGeofenceRadius(r);
         if (r === 0) {
@@ -1016,8 +1016,6 @@ function GenerateQR() {
             setIsTransitioning(false);
         }
     };
-
-    const [releasingAllStudents, setReleasingAllStudents] = useState(false);
 
     // Release all student devices from Kiosk Mode across the classroom
     const handleReleaseAllStudentsFromKiosk = async () => {

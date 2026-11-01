@@ -206,7 +206,7 @@ export function LiveFaceEnrollment({
     }, [loadAiModels, initialPhoto]);
 
     // 3. Start Camera Stream
-    const startCameraStream = async (requestedFacingMode = cameraFacingMode) => {
+    async function startCameraStream(requestedFacingMode = cameraFacingMode) {
         setCameraError("");
         setCameraLoading(true);
         setCameraActive(false);
@@ -480,7 +480,7 @@ export function LiveFaceEnrollment({
     }, [cameraActive, modelsLoaded, enrolledPhoto, isBiometricVerified]);
 
     // 5. Fast Biometric Vector Capture & Duplicate Verification
-    const handleCaptureFace = async () => {
+    async function handleCaptureFace() {
         if (!videoRef.current || capturing) return;
         setCapturing(true);
         setStatusMessage("⚡ Extracting 128-D biometric vector & verifying...");

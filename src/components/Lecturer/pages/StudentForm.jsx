@@ -156,7 +156,7 @@ function StudentForm() {
     }, [sessionId]);
 
     // Unified lookup across collections with authoritative database name resolution
-    const lookupStudentByRoll = async (rollOverride) => {
+    async function lookupStudentByRoll(rollOverride) {
         const targetRoll = (rollOverride || formData.rollNo || loggedInRollNo || "").trim().toUpperCase();
         if (!targetRoll || targetRoll.length < 2) return;
 

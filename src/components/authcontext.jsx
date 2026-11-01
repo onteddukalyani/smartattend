@@ -52,6 +52,14 @@ export const isAccountTerminated = (userData) => {
   return false;
 };
 
+// Helper to normalize role names (hoisted module scope to prevent TDZ)
+export function normalizeRole(rawRole) {
+  const r = String(rawRole || "").trim().toLowerCase();
+  if (r === "administrator" || r === "superadmin" || r === "admin") return "admin";
+  if (r === "faculty" || r === "professor" || r === "lecturer") return "lecturer";
+  return "student";
+}
+
 const AuthContext = createContext(null);
 
 export const AuthProvider = ({ children }) => {
@@ -524,12 +532,7 @@ export const AuthProvider = ({ children }) => {
 };
 
 // Helper to normalize role names
-const normalizeRole = (rawRole) => {
-  const r = String(rawRole || "").trim().toLowerCase();
-  if (r === "administrator" || r === "superadmin" || r === "admin") return "admin";
-  if (r === "faculty" || r === "professor" || r === "lecturer") return "lecturer";
-  return "student";
-};
+// normalizeRole hoisted to top of module
 
 const buildEnrichedProfile = (registeredUser, currentUser) => {
   if (!registeredUser || !currentUser) return null;

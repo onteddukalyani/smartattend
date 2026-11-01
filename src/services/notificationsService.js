@@ -734,7 +734,7 @@ export function subscribeToStudentNotifications(studentRollNo, callback, student
     unsubs.push(unsubCourses);
   } catch (_) { }
 
-  const mergeAndEmit = () => {
+  function mergeAndEmit() {
     const currentReadSet = getReadNotifIds(primaryKey);
     const currentDeletedSet = getDeletedNotifIds(primaryKey);
 
@@ -1031,7 +1031,7 @@ export function subscribeToFacultyNotifications(callback, roleFilter = "faculty"
   let remoteGlobalNotifs = [];
   let isInitialFacultyLoad = true;
 
-  const mergeAndEmitFaculty = () => {
+  function mergeAndEmitFaculty() {
     const currentReadSet = getReadNotifIds("faculty");
     const currentDeletedSet = getDeletedNotifIds("faculty");
 
