@@ -3086,7 +3086,7 @@ function QrScannerApp() {
                 const selectedGeofence = hasTargetCoords
                     ? Number(classroomTarget?.radius ?? classroomTarget?.r ?? sessionData?.geofenceRadius ?? DEFAULT_GEOFENCE_RADIUS_METRES)
                     : 0;
-                const isGeofenceDisabled = selectedGeofence === 0 || classroomTarget?.enabled === false || sessionData?.geofenceRadius === 0 || !hasTargetCoords;
+                const isGeofenceDisabled = selectedGeofence === 0 || classroomTarget?.enabled === false || sessionData?.geofenceRadius === 0 || !hasTargetCoords || activeQr2Payload?.geoDisabled || activeQr2Payload?.noGeo;
 
                 if (!isGeofenceDisabled && classroomTarget) {
                     let locForSubmit = pickBestStudentLocation([

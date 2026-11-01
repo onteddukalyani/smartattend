@@ -1,17 +1,19 @@
 export function normalizeBranchName(branch) {
-    if (!branch) return "CSE";
+    if (!branch) return "";
     const str = String(branch).trim().toUpperCase();
-    if (!str) return "CSE";
-    if (str === "CSE" || str === "CE" || str === "CSE-A" || str === "CSE-B" || str === "GENERAL") return "CSE";
+    if (!str) return "";
+    if (str === "GENERAL" || str === "ALL") return "GENERAL";
+    if (str === "CSE" || str === "CE" || str === "CSE-A" || str === "CSE-B") return "CSE";
     if (str === "ECE") return "ECE";
     if (str === "DSAI" || str === "DS & AI" || str === "DS/AI" || str === "DS-AI") return "DSAI";
     if (str === "AIC" || str === "AI & COMPUTING" || str === "AI/COMPUTING" || str === "AI-C") return "AIC";
     const clean = str.replace(/[^A-Z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+    if (clean === "GENERAL" || clean === "ALL") return "GENERAL";
     if (clean.includes("DATA SCIENCE") || clean.includes("DSAI") || (clean.includes("DATA") && clean.includes("AI")) || (clean.includes("DS") && clean.includes("AI"))) return "DSAI";
     if (clean.includes("CYBERNETIC") || clean.includes("AIC") || (clean.includes("COMPUTING") && (clean.includes("AI") || clean.includes("ARTIFICIAL"))) || clean.includes("INTELLIGENCE AND COMPUTING") || clean.includes("AI COMPUTING")) return "AIC";
     if (clean.includes("ELECTRONIC") || clean.includes("ECE") || clean.includes("COMMUNICATION")) return "ECE";
     if (clean.includes("COMPUTER") || clean.includes("CSE") || clean.includes("SOFTWARE") || clean.includes("PROGRAMMING") || clean.includes("INFORMATION") || clean.includes("IT")) return "CSE";
-    return "CSE";
+    return str;
 }
 
 /**
@@ -127,7 +129,7 @@ export function getCandidateRolls(user, profile, fetchedStudentData = null) {
         set.add(str.toUpperCase());
         set.add(str.toLowerCase());
         const digits = str.replace(/\D/g, "");
-        if (digits && digits.length >= 2) set.add(digits);
+        if (digits && digits.length >= 4) set.add(digits);
     };
 
     if (activeRollNo) addSafeRoll(activeRollNo);
@@ -168,10 +170,8 @@ export function computeStudentMetrics(coursesDocs = [], sessionsDocs = [], recor
         const session = sessionMap.get(rec.sessionId) || {};
         const rawCourse = rec.courseCode || session.courseCode || rec.classCode || session.classCode || "General";
         const cleanCourse = (rawCourse === "N/A" || !rawCourse) ? "General" : rawCourse.trim();
-        const recordRoll = String(rec.rollNo || rec.rollNumber || "").trim().toUpperCase();
-        const key = rec.sessionId && recordRoll
-            ? `${String(rec.sessionId)}_${recordRoll}`
-            : rec.id || `${rec.sessionId || "session"}_${recordRoll}`;
+        const recordRoll = String(rec.rollNo || rec.rollNumber || (rec.studentEmail ? rec.studentEmail.split("@")[0] : "") || "").trim().toUpperCase();
+        const key = rec.sessionId ? String(rec.sessionId).trim() : (rec.id || `rec_${recordRoll}`);
 
         recordsMap.set(key, {
             ...rec,
@@ -196,9 +196,7 @@ export function computeStudentMetrics(coursesDocs = [], sessionsDocs = [], recor
                     const email = String(attendee.studentEmail || attendee.email || "").split("@")[0].toUpperCase().trim();
                     if ((roll && candidateSet.has(roll)) || (email && candidateSet.has(email))) {
                         const attendeeIdentity = roll || email;
-                        const key = s.id
-                            ? `${String(s.id)}_${attendeeIdentity}`
-                            : attendee.id || `session_${attendeeIdentity}`;
+                        const key = s.id ? String(s.id).trim() : (attendee.id || `session_${attendeeIdentity}`);
                         if (!recordsMap.has(key)) {
                             const rawCourse = s.courseCode || s.classCode || "General";
                             const cleanCourse = (rawCourse === "N/A" || !rawCourse) ? "General" : rawCourse.trim();
@@ -448,11 +446,17 @@ export function computeStudentMetrics(coursesDocs = [], sessionsDocs = [], recor
     });
 
     // 5. Aggregate calculations
-    const totalAttended = enrichedRecords.length;
-
-    // Total conducted is sum of all conducted sessions for courses the student is involved in / registered
     const activeSubjects = coursesWithStats.filter((c) => c.totalConducted > 0);
     const sumConducted = activeSubjects.reduce((acc, c) => acc + c.totalConducted, 0);
+    const sumAttended = activeSubjects.reduce((acc, c) => acc + c.attendedCount, 0);
+
+    const uniqueAttendedSessionIds = new Set();
+    enrichedRecords.forEach((r) => {
+        const sid = String(r.sessionId || r.id || "").trim().toUpperCase();
+        if (sid) uniqueAttendedSessionIds.add(sid);
+    });
+
+    const totalAttended = Math.max(sumAttended, uniqueAttendedSessionIds.size);
     const totalConducted = Math.max(sumConducted, totalAttended);
     const totalMissed = Math.max(0, totalConducted - totalAttended);
 

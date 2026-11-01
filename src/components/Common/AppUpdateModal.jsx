@@ -32,13 +32,13 @@ export default function AppUpdateModal({ updateInfo, onClose }) {
 
   // If already running latest version or newer, do not show update modal
   if (currentVersion && latestVersion && compareVersions(currentVersion, latestVersion) >= 0) {
-    if (!updateInfo.latestVersionCode || !updateInfo.currentVersionCode || updateInfo.latestVersionCode <= updateInfo.currentVersionCode) {
+    if (!updateInfo.latestVersionCode || !updateInfo.currentVersionCode || updateInfo.latestVersionCode <= updateInfo.currentVersionCode || !isNative) {
       return null;
     }
   }
 
-  // If non-mandatory update was already dismissed by user
-  if (!isMandatory && latestVersion && isAppUpdateDismissed(latestVersion)) {
+  // If update was already dismissed by user
+  if (latestVersion && isAppUpdateDismissed(latestVersion)) {
     return null;
   }
 
@@ -70,7 +70,7 @@ export default function AppUpdateModal({ updateInfo, onClose }) {
       dismissAppUpdate(latestVersion);
       markAppUpdateNotificationShown(latestVersion);
     }
-    if (!isMandatory && onClose) onClose();
+    if (onClose) onClose();
   };
 
   return (
@@ -79,7 +79,7 @@ export default function AppUpdateModal({ updateInfo, onClose }) {
       role="dialog"
       aria-modal="true"
       aria-labelledby="update-dialog-title"
-      onClick={!isMandatory ? handleDismiss : undefined}
+      onClick={handleDismiss}
     >
       <div
         className="stu-alert-box"

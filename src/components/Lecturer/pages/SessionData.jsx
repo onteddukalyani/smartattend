@@ -1113,8 +1113,16 @@ export function SessionAttendanceData() {
                         const sMap = new Map();
                         studentsSnap.docs.forEach((docSnap) => {
                             const d = docSnap.data();
+                            const meta = { id: docSnap.id, ...d };
                             const roll = String(d.rollNo || docSnap.id || "").toUpperCase().trim();
-                            if (roll) sMap.set(roll, { id: docSnap.id, ...d });
+                            if (roll) sMap.set(roll, meta);
+                            if (docSnap.id) sMap.set(docSnap.id, meta);
+                            if (d.uid) sMap.set(d.uid, meta);
+                            if (d.email) {
+                                const cleanEm = d.email.toLowerCase().trim();
+                                sMap.set(cleanEm, meta);
+                                sMap.set(cleanEm.split("@")[0].toUpperCase().trim(), meta);
+                            }
                         });
                         setAllStudentsMap(sMap);
 
@@ -1202,9 +1210,13 @@ export function SessionAttendanceData() {
 
         // 2. Authorizations subcollection (Students who scanned QR 1)
         (authorizations || []).forEach((auth) => {
-            const roll = (auth.rollNo || auth.studentUid || auth.id || "").toUpperCase().trim();
+            const rawRoll = (auth.rollNo || (auth.studentEmail ? auth.studentEmail.split("@")[0] : "") || "").toUpperCase().trim();
+            const sMeta = allStudentsMap.get(rawRoll) ||
+                          allStudentsMap.get(auth.studentEmail?.toLowerCase()?.trim()) ||
+                          allStudentsMap.get(auth.studentUid) ||
+                          allStudentsMap.get(auth.id);
+            const roll = (sMeta?.rollNo || rawRoll || auth.studentUid || auth.id || "").toUpperCase().trim();
             if (!roll) return;
-            const sMeta = allStudentsMap.get(roll);
             const existing = map.get(roll);
 
             const isDisq = checkIsDisqualified(auth);
@@ -1271,9 +1283,13 @@ export function SessionAttendanceData() {
 
         // 4. Attendance records & Attendees (Students who reached QR 2 and submitted, or excused)
         (records || []).forEach((rec) => {
-            const roll = (rec.rollNo || "").toUpperCase().trim();
+            const rawRoll = (rec.rollNo || (rec.studentEmail ? rec.studentEmail.split("@")[0] : "") || "").toUpperCase().trim();
+            const sMeta = allStudentsMap.get(rawRoll) ||
+                          allStudentsMap.get(rec.studentEmail?.toLowerCase()?.trim()) ||
+                          allStudentsMap.get(rec.studentUid) ||
+                          allStudentsMap.get(rec.id);
+            const roll = (sMeta?.rollNo || rawRoll || rec.id || "").toUpperCase().trim();
             if (!roll) return;
-            const sMeta = allStudentsMap.get(roll);
             const existing = map.get(roll);
 
             const isExcused = rec.excused === true || existing?.excused === true;

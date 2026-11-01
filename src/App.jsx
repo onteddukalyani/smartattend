@@ -89,19 +89,29 @@ function App() {
     const handleUpdateDetected = async (info) => {
       if (!isMounted || !info || !info.hasUpdate) return;
 
-      // If app is already updated (currentVersion >= latestVersion and no higher versionCode)
       const currentVer = info.currentVersion;
       const latestVer = info.latestVersion;
-      if (currentVer && latestVer && compareVersions(currentVer, latestVer) >= 0) {
-        if (!info.latestVersionCode || !info.currentVersionCode || info.latestVersionCode <= info.currentVersionCode) {
+
+      // Web platform: never prompt APK downloads if web build is current
+      if (!Capacitor.isNativePlatform()) {
+        if (currentVer && latestVer && compareVersions(currentVer, latestVer) >= 0) {
           setUpdateInfo(null);
           setIsUpdateModalOpen(false);
           return;
         }
       }
 
-      // Non-mandatory: only show once per version (never again after dismissed/shown)
-      if (!info.isMandatory && (isAppUpdateDismissed(info.latestVersion) || hasAppUpdateNotificationBeenShown(info.latestVersion))) {
+      // If app is already running latest version
+      if (currentVer && latestVer && compareVersions(currentVer, latestVer) >= 0) {
+        if (!info.latestVersionCode || !info.currentVersionCode || info.latestVersionCode <= info.currentVersionCode || !Capacitor.isNativePlatform()) {
+          setUpdateInfo(null);
+          setIsUpdateModalOpen(false);
+          return;
+        }
+      }
+
+      // If already dismissed or already notified for this version, never show again
+      if (isAppUpdateDismissed(info.latestVersion) || hasAppUpdateNotificationBeenShown(info.latestVersion)) {
         setUpdateInfo(null);
         setIsUpdateModalOpen(false);
         return;

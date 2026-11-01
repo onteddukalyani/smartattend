@@ -389,7 +389,19 @@ export async function submitVerifiedAttendance(sessionId, qr2Token, biometricDat
     }
 
     const cleanEmail = (currentUser.email || "").toLowerCase().trim();
-    const rollNo = (cleanEmail.split("@")[0]).toUpperCase();
+    let rollNo = (cleanEmail.split("@")[0]).toUpperCase();
+    let studentName = currentUser.displayName || rollNo;
+
+    // Check student authorization doc created in Phase 1 to get canonical rollNo and name
+    try {
+      const authDocSnap = await getDoc(doc(db, "attendance_sessions", sessionId, "authorizations", currentUser.uid));
+      if (authDocSnap.exists()) {
+        const authData = authDocSnap.data();
+        if (authData.rollNo) rollNo = String(authData.rollNo).trim().toUpperCase();
+        if (authData.studentName) studentName = authData.studentName;
+      }
+    } catch (_) { }
+
     const recordId = `${sessionId}_${rollNo || currentUser.uid}`;
 
     // Check if already submitted
@@ -409,7 +421,7 @@ export async function submitVerifiedAttendance(sessionId, qr2Token, biometricDat
       studentUid: currentUser.uid,
       studentEmail: cleanEmail,
       rollNo,
-      name: currentUser.displayName || rollNo,
+      name: studentName,
       status: "PRESENT",
       verificationStatus: "VERIFIED",
       verifiedAt: Date.now(),

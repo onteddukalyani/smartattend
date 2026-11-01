@@ -10,10 +10,15 @@ function getStorage(storage) {
   }
 }
 
+export function normalizeVersionStr(v) {
+  return String(v || "").replace(/^v/i, "").trim().toLowerCase();
+}
+
 export function isAppUpdateDismissed(version, storage) {
   if (!version) return false;
   try {
-    return getStorage(storage)?.getItem(DISMISSED_VERSION_KEY) === String(version);
+    const stored = getStorage(storage)?.getItem(DISMISSED_VERSION_KEY);
+    return stored ? normalizeVersionStr(stored) === normalizeVersionStr(version) : false;
   } catch {
     return false;
   }
@@ -24,7 +29,7 @@ export function dismissAppUpdate(version, storage) {
   try {
     const targetStorage = getStorage(storage);
     if (!targetStorage) return false;
-    targetStorage.setItem(DISMISSED_VERSION_KEY, String(version));
+    targetStorage.setItem(DISMISSED_VERSION_KEY, normalizeVersionStr(version));
     targetStorage.removeItem("smartattend_dismissed_update_time");
     return true;
   } catch {
@@ -35,7 +40,8 @@ export function dismissAppUpdate(version, storage) {
 export function hasAppUpdateNotificationBeenShown(version, storage) {
   if (!version) return false;
   try {
-    return getStorage(storage)?.getItem(NOTIFIED_VERSION_KEY) === String(version);
+    const stored = getStorage(storage)?.getItem(NOTIFIED_VERSION_KEY);
+    return stored ? normalizeVersionStr(stored) === normalizeVersionStr(version) : false;
   } catch {
     return false;
   }
@@ -46,7 +52,7 @@ export function markAppUpdateNotificationShown(version, storage) {
   try {
     const targetStorage = getStorage(storage);
     if (!targetStorage) return false;
-    targetStorage.setItem(NOTIFIED_VERSION_KEY, String(version));
+    targetStorage.setItem(NOTIFIED_VERSION_KEY, normalizeVersionStr(version));
     return true;
   } catch {
     return false;

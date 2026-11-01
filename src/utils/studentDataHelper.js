@@ -31,16 +31,18 @@ export const ROLL_PATTERN = /^(\d{2,4}[-_]?[a-zA-Z]{2,5}[-_]?\d{2,4}|\d{5,12})$/
  * - Electronics and Communication Engineering -> ECE
  */
 export function normalizeBranchName(branch) {
-    if (!branch) return "CSE";
+    if (!branch) return "";
     const str = String(branch).trim().toUpperCase();
-    if (!str) return "CSE";
+    if (!str) return "";
+    if (str === "GENERAL" || str === "ALL") return "GENERAL";
 
-    if (str === "CSE" || str === "CE" || str === "CSE-A" || str === "CSE-B" || str === "GENERAL") return "CSE";
+    if (str === "CSE" || str === "CE" || str === "CSE-A" || str === "CSE-B") return "CSE";
     if (str === "ECE") return "ECE";
     if (str === "DSAI" || str === "DS & AI" || str === "DS/AI" || str === "DS-AI") return "DSAI";
     if (str === "AIC" || str === "AI & COMPUTING" || str === "AI/COMPUTING" || str === "AI-C") return "AIC";
 
     const clean = str.replace(/[^A-Z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+    if (clean === "GENERAL" || clean === "ALL") return "GENERAL";
 
     // 1. Check Data Science & AI (DSAI)
     if (clean.includes("DATA SCIENCE") || clean.includes("DSAI") || (clean.includes("DATA") && clean.includes("AI")) || (clean.includes("DS") && clean.includes("AI"))) return "DSAI";
@@ -58,7 +60,7 @@ export function normalizeBranchName(branch) {
     if (clean.includes("DATA")) return "DSAI";
     if (clean.includes("ARTIFICIAL") || clean.includes("INTELLIGENCE") || clean.includes("AI")) return "AIC";
 
-    return "CSE";
+    return str;
 }
 
 export const GENERIC_IDENTIFIERS = new Set([

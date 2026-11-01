@@ -196,6 +196,8 @@ export default function MasterAttendanceMatrix({
             };
           });
           setAllSessions(sessList);
+        }, (err) => {
+          console.warn("[MasterAttendanceMatrix] sessions listener notice:", err.message);
         });
 
         // Real-time listener on attendance_records
@@ -206,12 +208,15 @@ export default function MasterAttendanceMatrix({
             return {
               id: d.id,
               ...data,
-              rollNo: String(data.rollNo || data.rollNumber || "").trim().toUpperCase(),
+              rollNo: String(data.rollNo || data.rollNumber || (data.studentEmail ? data.studentEmail.split("@")[0] : "") || "").trim().toUpperCase(),
               sessionId: String(data.sessionId || data.session_id || "").trim()
             };
           });
           setAllRecords(recList);
           setLoading(false);
+        }, (err) => {
+          console.warn("[MasterAttendanceMatrix] records listener notice:", err.message);
+          if (isMounted) setLoading(false);
         });
       } catch (err) {
         console.error("Error loading master attendance datasets:", err);
@@ -234,7 +239,7 @@ export default function MasterAttendanceMatrix({
     const counts = new Map();
 
     allRecords.forEach((rec) => {
-      const roll = rec.rollNo;
+      const roll = (rec.rollNo || (rec.studentEmail ? rec.studentEmail.split("@")[0] : "") || "").trim().toUpperCase();
       const sessId = rec.sessionId;
       if (roll && sessId) {
         const key1 = `${roll}_${sessId}`;
@@ -250,7 +255,7 @@ export default function MasterAttendanceMatrix({
     allSessions.forEach((sess) => {
       if (Array.isArray(sess.attendees)) {
         sess.attendees.forEach((att) => {
-          const roll = String(att.rollNo || att.rollNumber || (typeof att === "string" ? att : "")).trim().toUpperCase();
+          const roll = String(att.rollNo || att.rollNumber || att.studentId || (att.studentEmail ? att.studentEmail.split("@")[0] : "") || (att.email ? att.email.split("@")[0] : "") || (typeof att === "string" ? att : "")).trim().toUpperCase();
           if (roll) {
             const key1 = `${roll}_${sess.id}`;
             if (!map.has(key1)) {
@@ -356,10 +361,12 @@ export default function MasterAttendanceMatrix({
         let attendedCount = 0;
         let attendedHours = 0;
 
+        const emailRoll = stud.email ? stud.email.split("@")[0].trim().toUpperCase() : "";
         filteredSessions.forEach((sess) => {
           const isPresent = Boolean(
             matrixMap.get(`${cleanRoll}_${sess.id}`) ||
-            matrixMap.get(`${cleanRoll.toLowerCase()}_${sess.id}`)
+            matrixMap.get(`${cleanRoll.toLowerCase()}_${sess.id}`) ||
+            (emailRoll && (matrixMap.get(`${emailRoll}_${sess.id}`) || matrixMap.get(`${emailRoll.toLowerCase()}_${sess.id}`)))
           );
 
           if (isPresent) {
