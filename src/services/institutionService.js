@@ -144,3 +144,4 @@ export async function saveInstitutionSettings(newSettings, user = null) {
   }
   return payload;
 }
+
