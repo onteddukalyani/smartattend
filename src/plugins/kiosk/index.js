@@ -132,12 +132,49 @@ function handleKioskContextMenu(e) {
   return false;
 }
 
+let originalWindowOpen = null;
+
 /**
- * Wake Lock Reacquisition on Visibility Change
+ * Block new tabs/windows and external links during active kiosk session
+ */
+function handleKioskLinkClick(e) {
+  if (!isWebKioskActive) return;
+  const target = e.target && typeof e.target.closest === 'function' ? e.target.closest('a') : null;
+  if (target) {
+    const isTargetBlank = target.target === '_blank' || target.getAttribute('target') === '_blank';
+    const isExternal = target.href && !target.href.startsWith(window.location.origin);
+    if (isTargetBlank || isExternal) {
+      e.preventDefault();
+      e.stopPropagation();
+      console.warn('[Kiosk Shield] Blocked external link/new tab click during attendance session:', target.href);
+      return false;
+    }
+  }
+}
+
+/**
+ * Wake Lock Reacquisition & Auto-Redirect on Visibility Change
+ * If the student was in another app or tab, instantly redirect back to the attendance page
  */
 function handleKioskVisibilityChange() {
-  if (document.visibilityState === 'visible' && isWebKioskActive) {
+  if (!isWebKioskActive) return;
+  if (document.visibilityState === 'visible') {
     acquireBrowserWakeLock();
+    requestBrowserFullscreen();
+    document.title = 'SmartAttend';
+    // Automatically redirect back to attendance scanner if on any other page
+    if (typeof window !== 'undefined' && window.location) {
+      const p = (window.location.pathname || '').toLowerCase();
+      if (!p.includes('mark-attendance') && !p.includes('scanqr')) {
+        console.log('[Kiosk Engine] Returning from background: automatically redirecting to attendance page');
+        window.location.replace('/student/mark-attendance');
+      }
+    }
+  } else if (document.visibilityState === 'hidden') {
+    document.title = '🚨 ATTENDANCE IN PROGRESS · RETURN TO SMARTATTEND!';
+    if (typeof navigator !== 'undefined' && navigator.vibrate) {
+      try { navigator.vibrate([250, 100, 250, 100, 250]); } catch (_) {}
+    }
   }
 }
 
@@ -200,9 +237,22 @@ const NativeKioskPlugin = registerPlugin('KioskPlugin', {
       // 2. Request Fullscreen across all browser vendors
       await requestBrowserFullscreen();
 
-      // 3. History Back-Button Trapping
+      // 3. Intercept window.open & link clicks to prevent opening new tabs/apps
       if (typeof window !== 'undefined') {
         try {
+          if (!originalWindowOpen) {
+            originalWindowOpen = window.open;
+            window.open = function(...args) {
+              if (isWebKioskActive) {
+                console.warn('[Kiosk Shield] Blocked attempt to open new tab/window during attendance session:', args);
+                return null;
+              }
+              return originalWindowOpen.apply(this, args);
+            };
+          }
+          document.removeEventListener('click', handleKioskLinkClick, true);
+          document.addEventListener('click', handleKioskLinkClick, true);
+
           window.history.pushState({ smartattend_kiosk: true }, document.title, window.location.href);
           window.removeEventListener('popstate', handleKioskPopState);
           window.addEventListener('popstate', handleKioskPopState);
@@ -214,6 +264,8 @@ const NativeKioskPlugin = registerPlugin('KioskPlugin', {
           window.addEventListener('contextmenu', handleKioskContextMenu, true);
           document.removeEventListener('visibilitychange', handleKioskVisibilityChange);
           document.addEventListener('visibilitychange', handleKioskVisibilityChange);
+          window.removeEventListener('focus', handleKioskVisibilityChange);
+          window.addEventListener('focus', handleKioskVisibilityChange);
         } catch (_) {}
       }
 
@@ -257,14 +309,20 @@ const NativeKioskPlugin = registerPlugin('KioskPlugin', {
       // 2. Exit Fullscreen across all browser vendors
       await exitBrowserFullscreen();
 
-      // 3. Remove window listeners
+      // 3. Restore window.open and remove window listeners
       if (typeof window !== 'undefined') {
         try {
+          if (originalWindowOpen) {
+            window.open = originalWindowOpen;
+            originalWindowOpen = null;
+          }
+          document.removeEventListener('click', handleKioskLinkClick, true);
           window.removeEventListener('popstate', handleKioskPopState);
           window.removeEventListener('beforeunload', handleKioskBeforeUnload);
           window.removeEventListener('keydown', handleKioskKeyDown, true);
           window.removeEventListener('contextmenu', handleKioskContextMenu, true);
           document.removeEventListener('visibilitychange', handleKioskVisibilityChange);
+          window.removeEventListener('focus', handleKioskVisibilityChange);
         } catch (_) {}
       }
 

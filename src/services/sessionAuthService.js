@@ -406,9 +406,13 @@ export async function submitVerifiedAttendance(sessionId, qr2Token, biometricDat
     const recordId = `${sessionId}_${rollNo || currentUser.uid}`;
 
     // Check if already submitted
-    const existingRec = await getDoc(doc(db, "attendance_records", recordId));
-    if (existingRec.exists()) {
-      return { success: true, alreadyRecorded: true, message: "Attendance for this session has already been recorded." };
+    try {
+      const existingRec = await getDoc(doc(db, "attendance_records", recordId));
+      if (existingRec && typeof existingRec.exists === "function" && existingRec.exists()) {
+        return { success: true, alreadyRecorded: true, message: "Attendance for this session has already been recorded." };
+      }
+    } catch (checkErr) {
+      console.warn("[sessionAuth] Notice checking existing record:", checkErr?.message || checkErr);
     }
 
     const recordData = {
@@ -437,7 +441,7 @@ export async function submitVerifiedAttendance(sessionId, qr2Token, biometricDat
 
     // Update student authorization document
     try {
-      await setDoc(doc(db, "attendance_sessions", sessionId, "authorizations", currentUser.uid), {
+      const authUpdate = {
         studentUid: currentUser.uid,
         studentEmail: cleanEmail,
         rollNo,
@@ -446,7 +450,11 @@ export async function submitVerifiedAttendance(sessionId, qr2Token, biometricDat
         attendanceMarked: true,
         recordId,
         verifiedAt: Date.now()
-      }, { merge: true });
+      };
+      await setDoc(doc(db, "attendance_sessions", sessionId, "authorizations", currentUser.uid), authUpdate, { merge: true });
+      if (rollNo && rollNo !== currentUser.uid) {
+        await setDoc(doc(db, "attendance_sessions", sessionId, "authorizations", rollNo), authUpdate, { merge: true }).catch(() => {});
+      }
     } catch (authDocErr) {
       console.warn("[sessionAuth] Notice updating student authorization doc:", authDocErr?.message || authDocErr);
     }

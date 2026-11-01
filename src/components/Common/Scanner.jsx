@@ -3931,7 +3931,8 @@ function QrScannerApp() {
     // UI COMPONENT: ANDROID WEB BROWSER ADVISORY BANNER (Non-blocking)
     // =========================================================================
     const renderAndroidWebBanner = () => {
-        if (isNativeApp || !isAndroidDevice || isStaff || dismissedAppBanner) return null;
+        const isKioskSession = scanState !== 'IDLE' || Boolean(activeSessionId);
+        if (isNativeApp || !isAndroidDevice || isStaff || dismissedAppBanner || isKioskSession) return null;
         return (
             <div style={{
                 maxWidth: '640px',

@@ -53,18 +53,29 @@ function StudentDashboard() {
                 );
                 setIsKioskActive(active);
 
-                
+                // If kiosk session is active, automatically redirect student to the attendance scanner
+                if (active) {
+                    const isAttendance = (location.pathname || '').toLowerCase().includes('mark-attendance') || (location.pathname || '').toLowerCase().includes('scanqr');
+                    if (!isAttendance) {
+                        console.log('[StudentDashboard] Active kiosk attendance in progress: automatically redirecting to scanner.');
+                        navigate('/student/mark-attendance', { replace: true });
+                    }
+                }
             } catch (_) {
                 setIsKioskActive(false);
             }
         };
 
         checkKiosk();
-        const interval = setInterval(checkKiosk, 2000);
+        const interval = setInterval(checkKiosk, 1000);
         window.addEventListener('storage', checkKiosk);
+        window.addEventListener('focus', checkKiosk);
+        document.addEventListener('visibilitychange', checkKiosk);
         return () => {
             clearInterval(interval);
             window.removeEventListener('storage', checkKiosk);
+            window.removeEventListener('focus', checkKiosk);
+            document.removeEventListener('visibilitychange', checkKiosk);
         };
     }, [location.pathname, navigate]);
 
@@ -122,9 +133,8 @@ function StudentDashboard() {
         return <Login />;
     }
 
-    // When student is actively scanning attendance, render full-screen Kiosk view
-    const isAttendanceRoute = (location.pathname || '').toLowerCase().includes('mark-attendance') || (location.pathname || '').toLowerCase().includes('scanqr');
-    if (isKioskActive && isAttendanceRoute) {
+    // When student is in an active Kiosk session, lock out all navigation/tabs and render exclusively the Attendance Scanner
+    if (isKioskActive) {
         return (
             <div className='app kiosk-supervised-fullscreen' style={{ minHeight: '100vh', width: '100vw', margin: 0, padding: 0 }}>
                 <Outlet />

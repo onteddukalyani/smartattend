@@ -303,6 +303,53 @@ function App() {
     };
   }, [navigate]);
 
+  // 1.9 Universal Active Kiosk Session Redirection Watchdog (Web & Native)
+  // Ensures that whenever an attendance session is active, the student is locked
+  // strictly to the attendance scanner — automatically redirecting them back if
+  // they navigate elsewhere or return from another app or tab.
+  useEffect(() => {
+    if (loading || !user) return;
+
+    const enforceActiveKioskRoute = () => {
+      try {
+        const raw = localStorage.getItem("smartattend_kiosk_session_state");
+        if (!raw) return;
+        const parsed = JSON.parse(raw);
+        const isActiveKiosk = Boolean(
+          parsed?.sessionId &&
+          (Number(parsed?.kioskEndsAt) > Date.now() || Number(parsed?.autoReleaseAt) > Date.now()) &&
+          (
+            parsed?.scanState === "KIOSK_WAITING_QR2" ||
+            parsed?.scanState === "VALIDATING_QR2" ||
+            parsed?.scanState === "BIOMETRIC_SCAN" ||
+            parsed?.scanState === "SUBMITTING_ATTENDANCE"
+          )
+        );
+        if (isActiveKiosk) {
+          const path = (window.location.pathname || "").toLowerCase();
+          const isAttendanceScreen = path.includes("mark-attendance") || path.includes("scanqr");
+          if (!isAttendanceScreen) {
+            console.log("[App Kiosk Watchdog] Active attendance session in progress. Automatically redirecting to scanner from:", path);
+            navigate("/student/mark-attendance", { replace: true });
+          }
+        }
+      } catch (_) {}
+    };
+
+    enforceActiveKioskRoute();
+    const interval = setInterval(enforceActiveKioskRoute, 1000);
+    window.addEventListener("storage", enforceActiveKioskRoute);
+    window.addEventListener("focus", enforceActiveKioskRoute);
+    document.addEventListener("visibilitychange", enforceActiveKioskRoute);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener("storage", enforceActiveKioskRoute);
+      window.removeEventListener("focus", enforceActiveKioskRoute);
+      document.removeEventListener("visibilitychange", enforceActiveKioskRoute);
+    };
+  }, [loading, user, navigate]);
+
   // 1.5 Restore preserved attendance deep-link once user auth is resolved
   useEffect(() => {
     if (!loading && user && typeof window !== "undefined") {
