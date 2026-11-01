@@ -5252,6 +5252,29 @@ function QrScannerApp() {
                     </div>
                 )}
 
+                {/* Attendance Progress Stepper */}
+                <div className="st-attendance-stepper">
+                    <div className="st-step completed">
+                        <span className="st-step-num">✓</span>
+                        <span className="st-step-label">QR 1 Check-In</span>
+                    </div>
+                    <div className="st-step-line completed" />
+                    <div className="st-step active">
+                        <span className="st-step-num">2</span>
+                        <span className="st-step-label">QR 2 Code</span>
+                    </div>
+                    <div className="st-step-line" />
+                    <div className="st-step">
+                        <span className="st-step-num">3</span>
+                        <span className="st-step-label">3D Face</span>
+                    </div>
+                    <div className="st-step-line" />
+                    <div className="st-step">
+                        <span className="st-step-num">4</span>
+                        <span className="st-step-label">Confirmed</span>
+                    </div>
+                </div>
+
                 {/* Supervised Bar with Dynamic Session Timer */}
                 <div className="st-supervised-bar">
                     <div className="st-supervised-bar-left">
@@ -5568,208 +5591,158 @@ function QrScannerApp() {
     }
 
     // =========================================================================
-    // UI VIEW 4: INITIAL IDLE SCANNER (Student Scans QR 1)
+    // UI VIEW 4: INITIAL IDLE SCANNER (Restructured Modern Kiosk Experience)
     // =========================================================================
     return (
         <div className="st-scanner-container">
             {/* Header Navigation */}
             <div className="st-scanner-header">
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <button
-                        type="button"
-                        onClick={() => navigate('/student')}
-                        className="st-scanner-back-btn"
-                    >
-                        <FaArrowLeft /> Dashboard
-                    </button>
+                <button
+                    type="button"
+                    onClick={() => navigate('/student')}
+                    className="st-scanner-back-btn"
+                >
+                    <FaArrowLeft /> Dashboard
+                </button>
 
-                    {isIOSDevice() && (
-                        <button
-                            type="button"
-                            onClick={() => setShowIosGuideModal(true)}
-                            className="st-scanner-back-btn"
-                            style={{
-                                background: '#eff6ff',
-                                color: '#1d4ed8',
-                                border: '1.5px solid #bfdbfe',
-                                fontWeight: 700
-                            }}
-                        >
-                            <FaApple /> iPhone Guide
-                        </button>
-                    )}
-                </div>
-
-                {/* Student Badge */}
+                {/* Student Identity Badge */}
                 {user && (
                     <div className="st-scanner-student-chip">
+                        <span className="st-live-status-dot" />
                         <FaUserCheck className="chip-icon" />
                         <span><strong>{loggedInRollNo}</strong> ({loggedInName})</span>
                     </div>
                 )}
             </div>
 
-            {/* Title & Status */}
-            <div className="st-scanner-title-section">
-                <h2 className="st-scanner-title">
-                    Scan Class QR Code
-                </h2>
-                <p className="st-scanner-subtitle">
-                    Point your camera at the attendance QR code displayed by your lecturer
-                </p>
-                <div className="st-scanner-supervised-pill">
-                    <FaShieldAlt style={{ color: '#10b981' }} />
-                    <span>Supervised Session Active · Keep in view</span>
+            {/* Attendance Progress Stepper */}
+            <div className="st-attendance-stepper">
+                <div className="st-step active">
+                    <span className="st-step-num">1</span>
+                    <span className="st-step-label">QR 1 Check-In</span>
+                </div>
+                <div className="st-step-line" />
+                <div className="st-step">
+                    <span className="st-step-num">2</span>
+                    <span className="st-step-label">QR 2 Code</span>
+                </div>
+                <div className="st-step-line" />
+                <div className="st-step">
+                    <span className="st-step-num">3</span>
+                    <span className="st-step-label">3D Face</span>
+                </div>
+                <div className="st-step-line" />
+                <div className="st-step">
+                    <span className="st-step-num">4</span>
+                    <span className="st-step-label">Confirmed</span>
                 </div>
             </div>
 
-            {renderAndroidWebBanner()}
+            {/* Title & Guidance */}
+            <div className="st-scanner-title-section">
+                <h2 className="st-scanner-title">
+                    Class Attendance Scanner
+                </h2>
+                <p className="st-scanner-subtitle">
+                    Align the rotating QR code on your lecturer's screen inside the viewfinder
+                </p>
+            </div>
 
-            {/* Interactive iPhone Guide Banner */}
-            {!isNativeApp && isIOSDevice() && !isStaff && (
-                <div style={{
-                    maxWidth: '640px',
-                    margin: '0 auto 16px',
-                    padding: '12px 18px',
-                    background: 'linear-gradient(135deg, rgba(37, 99, 235, 0.08) 0%, rgba(59, 130, 246, 0.12) 100%)',
-                    border: '1.5px solid #bfdbfe',
-                    borderRadius: '16px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    gap: '12px',
-                    textAlign: 'left'
-                }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                        <div style={{
-                            width: '36px',
-                            height: '36px',
-                            borderRadius: '10px',
-                            background: '#2563eb',
-                            color: '#ffffff',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            fontSize: '18px',
-                            flexShrink: 0
-                        }}>
-                            <FaApple />
-                        </div>
-                        <div>
-                            <div style={{ fontWeight: 800, fontSize: '0.88rem', color: '#1e3a8a' }}>
-                                iPhone Safari &amp; Guided Access Mode
-                            </div>
-                            <div style={{ fontSize: '0.78rem', color: '#3b82f6', marginTop: '2px' }}>
-                                Camera allowed · Tap for setup &amp; exit instructions
-                            </div>
-                        </div>
-                    </div>
-                    <button
-                        type="button"
-                        onClick={() => setShowIosGuideModal(true)}
-                        style={{
-                            background: '#2563eb',
-                            color: '#ffffff',
-                            border: 'none',
-                            padding: '8px 14px',
-                            borderRadius: '10px',
-                            fontWeight: 800,
-                            fontSize: '0.82rem',
-                            cursor: 'pointer',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '6px',
-                            boxShadow: '0 2px 8px rgba(37, 99, 235, 0.3)',
-                            whiteSpace: 'nowrap'
-                        }}
-                    >
-                        <FaInfoCircle /> Instructions
-                    </button>
+            {/* Camera Viewport with Targeting Overlay & Floating Controls */}
+            <div className="st-camera-viewport-card">
+                {/* Floating Top Status Badge */}
+                <div className="st-camera-badge-floating">
+                    <span className="st-live-pulse-dot" />
+                    <span>Live Viewfinder · Scan QR 1</span>
                 </div>
-            )}
 
-            {isStaff && (
-                <div style={{
-                    maxWidth: '640px',
-                    margin: '0 auto 16px',
-                    padding: '12px 18px',
-                    background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.08) 0%, rgba(79, 70, 229, 0.12) 100%)',
-                    border: '1.5px solid #a5b4fc',
-                    borderRadius: '14px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    gap: '12px',
-                    textAlign: 'left'
-                }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                        <div style={{
-                            width: '34px',
-                            height: '34px',
-                            borderRadius: '8px',
-                            background: '#6366f1',
-                            color: '#ffffff',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            fontSize: '1rem',
-                            flexShrink: 0
-                        }}>
-                            <FaShieldAlt />
-                        </div>
-                        <div>
-                            <div style={{ fontSize: '0.86rem', fontWeight: 800, color: '#312e81' }}>
-                                Staff Camera Access Active
-                            </div>
-                            <div style={{ fontSize: '0.76rem', color: '#4338ca' }}>
-                                Lecturers and Admins have unrestricted camera access (Front &amp; Rear) across all devices.
-                            </div>
-                        </div>
+                {/* Optical Viewfinder Target Frame with Animated Laser Beam */}
+                <div className="st-viewfinder-overlay">
+                    <div className="st-viewfinder-frame">
+                        <div className="st-corner-tl" />
+                        <div className="st-corner-tr" />
+                        <div className="st-corner-bl" />
+                        <div className="st-corner-br" />
+                        <div className="st-laser-scan-line" />
                     </div>
+                </div>
+
+                {scannerActive ? (
+                    <NativeQrScanner
+                        key={`${retryKey}-${effectiveFacingMode}`}
+                        onScan={handleCameraScan}
+                        onError={handleCameraError}
+                        facingMode={effectiveFacingMode}
+                        onToggleFacingMode={handleToggleFacingMode}
+                        active={scannerActive}
+                    />
+                ) : (
+                    <div style={{ padding: '48px 20px', textAlign: 'center', color: '#64748b' }}>
+                        <FaSpinner className="fa-spin" style={{ fontSize: '2.4rem', color: '#6366f1', marginBottom: '14px' }} />
+                        <p style={{ margin: 0, fontWeight: 700, fontSize: '0.95rem' }}>Initializing attendance camera...</p>
+                    </div>
+                )}
+
+                {/* Floating Bottom Viewport Controls */}
+                <div className="st-viewport-controls">
                     <button
                         type="button"
                         onClick={handleToggleFacingMode}
-                        style={{
-                            padding: '8px 14px',
-                            borderRadius: '8px',
-                            background: '#6366f1',
-                            color: '#ffffff',
-                            border: 'none',
-                            fontWeight: 800,
-                            fontSize: '0.78rem',
-                            cursor: 'pointer',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '6px',
-                            flexShrink: 0,
-                            boxShadow: '0 2px 8px rgba(99, 102, 241, 0.3)'
-                        }}
+                        className="st-ctrl-btn"
+                        title="Switch Camera (Front/Rear)"
                     >
                         <FaSyncAlt />
-                        <span>{effectiveFacingMode === 'user' ? 'Switch to Rear' : 'Switch to Front'}</span>
+                        <span>{effectiveFacingMode === 'user' ? 'Front' : 'Rear'}</span>
+                    </button>
+                    {!isNativeApp && (
+                        <button
+                            type="button"
+                            onClick={() => {
+                                if (!isBrowserFullscreen) {
+                                    Kiosk.requestFullscreen().catch(() => {});
+                                } else {
+                                    Kiosk.exitFullscreen().catch(() => {});
+                                }
+                            }}
+                            className="st-ctrl-btn"
+                            title="Toggle Fullscreen"
+                        >
+                            <FaExpand />
+                            <span>{isBrowserFullscreen ? 'Exit' : 'Fullscreen'}</span>
+                        </button>
+                    )}
+                </div>
+            </div>
+
+            {/* Bottom Info Strip: GPS Telemetry & Quick Device Setup Pills */}
+            <div className="st-scanner-bottom-strip">
+                <div className="st-bottom-chip gps">
+                    <FaMapMarkerAlt />
+                    <span>
+                        {gpsTelemetry?.distance !== undefined
+                            ? `GPS: ${gpsTelemetry.distance}m away`
+                            : (sessionData?.geofenceRadius > 0 ? `GPS Limit: ≤${sessionData.geofenceRadius}m` : 'GPS Ready')}
+                    </span>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    {isIOSDevice() && !isNativeApp && (
+                        <button
+                            type="button"
+                            onClick={() => setShowIosGuideModal(true)}
+                            className="st-bottom-chip help"
+                        >
+                            <FaApple /> iPhone Guide
+                        </button>
+                    )}
+                    <button
+                        type="button"
+                        onClick={() => setShowDeviceOnboarding(true)}
+                        className="st-bottom-chip help"
+                    >
+                        <FaMobileAlt /> Device Setup
                     </button>
                 </div>
-            )}
-
-            {/* Camera Viewport (Spacious, rounded card) */}
-            <div className="st-camera-viewport-card">
-                {
-                    scannerActive ? (
-                        <NativeQrScanner
-                            key={`${retryKey}-${effectiveFacingMode}`}
-                            onScan={handleCameraScan}
-                            onError={handleCameraError}
-                            facingMode={effectiveFacingMode}
-                            onToggleFacingMode={handleToggleFacingMode}
-                            active={scannerActive}
-                        />
-                    ) : (
-                        <div style={{ padding: '36px 20px', textAlign: 'center', color: '#64748b' }}>
-                            <FaSpinner className="fa-spin" style={{ fontSize: '2rem', color: '#6366f1', marginBottom: '12px' }} />
-                            <p style={{ margin: 0, fontWeight: 700 }}>Starting attendance camera...</p>
-                        </div>
-                    )
-                }
             </div>
 
             {/* Loading or Error States */}

@@ -540,81 +540,36 @@ function GenerateQR() {
             const effectiveTotalSec = effectiveQr1Sec + effectiveQr2Sec;
             const effectiveDurationMinutes = Math.round((effectiveTotalSec / 60) * 10) / 10;
 
-            // Ensure Lecturer has defined location BEFORE starting session (phone, laptop, or no location)
-            if (locationMode !== "NONE") {
-                const hasDefinedCoords = classroomCoords &&
-                    Number.isFinite(classroomCoords.latitude) &&
-                    Number.isFinite(classroomCoords.longitude);
-
-                if (!hasDefinedCoords) {
-                    setIsGenerating(false);
-                    const msg = locationMode === "MOBILE"
-                        ? (!isMobileDevice
-                            ? "Please define your classroom location first. Scan the QR code with your mobile phone to lock GPS before starting the session, or choose '3. No Location'."
-                            : "Please capture your phone GPS location first before starting the session, or choose '3. No Location'.")
-                        : "Please capture your laptop location before starting the session, or choose '3. No Location'.";
-                    setErrorMessage(msg);
-                    if (locationMode === "MOBILE" && !isMobileDevice) {
-                        setShowPhoneAnchorModal(true);
-                    }
-                    return;
-                }
-            }
-
+            // Respect lecturer selected distance option (0 = Disabled, >0 = distance limit in metres)
             let hostCoords = isAccurateLocation(classroomCoords, Date.now(), maxHostAccuracy) ? classroomCoords : null;
             if (!hostCoords && geofenceRadius > 0 && typeof navigator !== "undefined" && navigator.geolocation) {
                 setClassroomGpsStatus("ACQUIRING");
                 try {
                     const location = await acquireAccurateLocation(navigator.geolocation, {
-                        timeoutMs: isMobileDevice ? 10000 : 4000,
+                        timeoutMs: 3000,
                         maxAccuracy: maxHostAccuracy,
                         maximumAge: 30000
                     });
-                    hostCoords = location ? { ...location, radius: geofenceRadius } : null;
-                    if (hostCoords) {
+                    if (location) {
+                        hostCoords = { ...location, radius: geofenceRadius };
                         setClassroomCoords(hostCoords);
-                        setClassroomGpsStatus(isAccurateLocation(hostCoords, Date.now(), maxHostAccuracy) ? "ACTIVE" : "UNAVAILABLE");
+                        setClassroomGpsStatus("ACTIVE");
                     }
                 } catch (error) {
-                    console.warn("[Generateqr] Lecturer device GPS acquisition notice:", error?.message || error);
-                    if (!isMobileDevice) {
-                        console.info("[Generateqr] Laptop location unavailable. Proceeding with geofence disabled for this session.");
-                    } else {
-                        setClassroomGpsStatus("UNAVAILABLE");
-                        throw new Error(`Could not read the lecturer device's GPS location: ${error.message || error}`);
-                    }
+                    console.warn("[Generateqr] Device GPS notice:", error?.message || error);
                 }
             }
 
-            if (geofenceRadius > 0 && !isAccurateLocation(hostCoords, Date.now(), maxHostAccuracy)) {
-                if (!isMobileDevice) {
-                    if (hostCoords && Number.isFinite(hostCoords.latitude) && Number.isFinite(hostCoords.longitude)) {
-                        console.info("[Generateqr] Laptop Wi-Fi location used as initial anchor. Lecturer can anchor phone GPS anytime.");
-                        hostCoords = { ...hostCoords, source: "LAPTOP" };
-                    } else {
-                        console.warn("[Generateqr] Laptop location completely unavailable. Launching session with Geofence 0m (Off) until anchored by phone.");
-                        hostCoords = null;
-                    }
-                } else {
-                    setClassroomGpsStatus("UNAVAILABLE");
-                    const accuracy = Number(hostCoords?.accuracy);
-                    if (Number.isFinite(accuracy) && accuracy > 0) {
-                        throw new Error(`The lecturer device's GPS is currently accurate to about ${Math.round(accuracy)}m; attendance requires ${MAX_CLASSROOM_LOCATION_ACCURACY_METERS}m or better. Keep Location enabled, move near a window or outdoors, then retry (or select '0m (Off)' under Geofence).`);
-                    }
-                    throw new Error("Could not get a fresh classroom GPS fix. Enable Location and allow browser location access, then retry (or select '0m (Off)' under Geofence).");
-                }
-            }
-
-            const effectiveGeofenceRadius = hostCoords ? geofenceRadius : 0;
-            const activeClassroomCoords = effectiveGeofenceRadius > 0
+            // Maintain lecturer's chosen distance radius without forcing to 0
+            const effectiveGeofenceRadius = geofenceRadius;
+            const activeClassroomCoords = (effectiveGeofenceRadius > 0 && hostCoords)
                 ? {
                     ...hostCoords,
                     radius: effectiveGeofenceRadius,
                     accuracy: hostCoords.accuracy || 35,
                     source: hostCoords.source || (isMobileDevice ? "MOBILE_HOST" : "LAPTOP")
                 }
-                : null;
-
+                : (classroomCoords && effectiveGeofenceRadius > 0 ? { ...classroomCoords, radius: effectiveGeofenceRadius } : null);
             const result = await createAttendanceSession(
                 finalClassCode,
                 courseCode.trim(),

@@ -1002,3 +1002,256 @@
     margin: 6px auto 14px;
 }
 
+
+
+/* ==========================================================================
+   Restructured Modern Attendance Stepper & Viewfinder Overlay
+   ========================================================================== */
+.st-attendance-stepper {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin: 0 auto 20px auto;
+    max-width: 540px;
+    padding: 10px 16px;
+    background: var(--surface-soft, rgba(248, 250, 252, 0.85));
+    border: 1px solid var(--border, #e2e8f0);
+    border-radius: 16px;
+    backdrop-filter: blur(8px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);
+}
+
+[data-theme="dark"] .st-attendance-stepper,
+[data-theme="midnight"] .st-attendance-stepper {
+    background: rgba(15, 23, 42, 0.8);
+    border-color: rgba(99, 102, 241, 0.25);
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+}
+
+.st-step {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: var(--text-muted, #94a3b8);
+    transition: all 0.25s ease;
+}
+
+.st-step.active {
+    color: var(--accent, #6366f1);
+}
+
+.st-step.completed {
+    color: #10b981;
+}
+
+.st-step-num {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.74rem;
+    font-weight: 800;
+    background: rgba(148, 163, 184, 0.18);
+    color: var(--text-muted, #94a3b8);
+    transition: all 0.25s ease;
+}
+
+.st-step.active .st-step-num {
+    background: #6366f1;
+    color: #ffffff;
+    box-shadow: 0 0 10px rgba(99, 102, 241, 0.45);
+}
+
+.st-step.completed .st-step-num {
+    background: #10b981;
+    color: #ffffff;
+    box-shadow: 0 0 10px rgba(16, 185, 129, 0.35);
+}
+
+.st-step-line {
+    flex: 1;
+    height: 2px;
+    background: var(--border, rgba(148, 163, 184, 0.2));
+    margin: 0 8px;
+    border-radius: 999px;
+    transition: background 0.25s ease;
+}
+
+.st-step-line.active {
+    background: #6366f1;
+}
+
+.st-step-line.completed {
+    background: #10b981;
+}
+
+/* Targeting Viewfinder Overlay */
+.st-viewfinder-overlay {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 5;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.st-viewfinder-frame {
+    width: 210px;
+    height: 210px;
+    position: relative;
+    border-radius: 16px;
+    box-shadow: 0 0 0 9999px rgba(2, 6, 23, 0.42);
+}
+
+.st-corner-tl, .st-corner-tr, .st-corner-bl, .st-corner-br {
+    position: absolute;
+    width: 24px;
+    height: 24px;
+    border-color: #6366f1;
+    border-style: solid;
+    filter: drop-shadow(0 0 6px rgba(99, 102, 241, 0.6));
+}
+
+.st-corner-tl { top: -2px; left: -2px; border-width: 4px 0 0 4px; border-top-left-radius: 12px; }
+.st-corner-tr { top: -2px; right: -2px; border-width: 4px 4px 0 0; border-top-right-radius: 12px; }
+.st-corner-bl { bottom: -2px; left: -2px; border-width: 0 0 4px 4px; border-bottom-left-radius: 12px; }
+.st-corner-br { bottom: -2px; right: -2px; border-width: 0 4px 4px 0; border-bottom-right-radius: 12px; }
+
+.st-laser-scan-line {
+    position: absolute;
+    top: 0;
+    left: 4px;
+    right: 4px;
+    height: 3px;
+    background: linear-gradient(90deg, transparent, #6366f1, #38bdf8, #6366f1, transparent);
+    box-shadow: 0 0 14px #38bdf8;
+    border-radius: 999px;
+    animation: stLaserMove 2.2s infinite ease-in-out;
+}
+
+@keyframes stLaserMove {
+    0% { top: 4%; opacity: 0.8; }
+    50% { top: 96%; opacity: 1; }
+    100% { top: 4%; opacity: 0.8; }
+}
+
+/* Floating Controls Bar */
+.st-viewport-controls {
+    position: absolute;
+    bottom: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(15, 23, 42, 0.8);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    padding: 5px 14px;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
+}
+
+.st-ctrl-btn {
+    background: transparent;
+    border: none;
+    color: #ffffff;
+    font-size: 0.82rem;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    padding: 4px 10px;
+    border-radius: 8px;
+    transition: all 0.2s ease;
+}
+
+.st-ctrl-btn:hover {
+    background: rgba(255, 255, 255, 0.18);
+    transform: translateY(-1px);
+}
+
+/* Bottom Strip */
+.st-scanner-bottom-strip {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 14px;
+    padding: 6px 2px;
+}
+
+.st-bottom-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.78rem;
+    font-weight: 700;
+    padding: 6px 12px;
+    border-radius: 10px;
+    border: 1px solid var(--border, #e2e8f0);
+    background: var(--surface-soft, #f8fafc);
+    color: var(--text-main, #334155);
+    transition: all 0.2s ease;
+}
+
+.st-bottom-chip.gps {
+    background: rgba(16, 185, 129, 0.08);
+    color: #059669;
+    border-color: rgba(16, 185, 129, 0.25);
+}
+
+.st-bottom-chip.help {
+    cursor: pointer;
+    color: var(--accent, #6366f1);
+    border-color: rgba(99, 102, 241, 0.25);
+}
+
+.st-bottom-chip.help:hover {
+    background: rgba(99, 102, 241, 0.08);
+}
+
+.st-live-status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #10b981;
+    display: inline-block;
+    box-shadow: 0 0 6px #10b981;
+}
+
+.st-live-pulse-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #34d399;
+    display: inline-block;
+    animation: stDotPulse 1.5s infinite;
+}
+
+@keyframes stDotPulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.4; transform: scale(0.8); }
+}
+
+@media (max-width: 520px) {
+    .st-step-label {
+        display: none;
+    }
+    .st-attendance-stepper {
+        padding: 8px 12px;
+    }
+    .st-viewfinder-frame {
+        width: 180px;
+        height: 180px;
+    }
+}
