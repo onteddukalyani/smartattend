@@ -1,6 +1,145 @@
 import { registerPlugin, Capacitor } from '@capacitor/core';
 
+// =========================================================================
+// UNIVERSAL WEB BROWSER KIOSK & SUPERVISION ENGINE (All Browsers & Devices)
+// Supported: Android (Chrome, Firefox, Samsung), iOS (Safari, Chrome), Desktop
+// =========================================================================
+
+let isWebKioskActive = false;
 let webWakeLock = null;
+let savedBrowserStyles = null;
+
+/**
+ * Cross-browser Fullscreen Invoker with vendor prefix fallbacks
+ */
+function requestBrowserFullscreen(element) {
+  const el = element || (typeof document !== 'undefined' ? document.documentElement : null);
+  if (!el) return Promise.resolve(false);
+  try {
+    if (el.requestFullscreen) {
+      return el.requestFullscreen().then(() => true).catch((e) => {
+        console.warn('[Kiosk Web] requestFullscreen notice:', e?.message || e);
+        return false;
+      });
+    } else if (el.webkitRequestFullscreen) {
+      return Promise.resolve(el.webkitRequestFullscreen()).then(() => true).catch(() => false);
+    } else if (el.mozRequestFullScreen) {
+      return Promise.resolve(el.mozRequestFullScreen()).then(() => true).catch(() => false);
+    } else if (el.msRequestFullscreen) {
+      return Promise.resolve(el.msRequestFullscreen()).then(() => true).catch(() => false);
+    }
+  } catch (err) {
+    console.warn('[Kiosk Web] Fullscreen invoke notice:', err?.message || err);
+  }
+  return Promise.resolve(false);
+}
+
+/**
+ * Cross-browser Fullscreen Exiter with vendor prefix fallbacks
+ */
+function exitBrowserFullscreen() {
+  if (typeof document === 'undefined') return Promise.resolve();
+  try {
+    if (document.fullscreenElement && document.exitFullscreen) {
+      return document.exitFullscreen().catch(() => {});
+    } else if (document.webkitFullscreenElement && document.webkitExitFullscreen) {
+      return Promise.resolve(document.webkitExitFullscreen()).catch(() => {});
+    } else if (document.mozFullScreenElement && document.mozCancelFullScreen) {
+      return Promise.resolve(document.mozCancelFullScreen()).catch(() => {});
+    } else if (document.msFullscreenElement && document.msExitFullscreen) {
+      return Promise.resolve(document.msExitFullscreen()).catch(() => {});
+    }
+  } catch (_) {}
+  return Promise.resolve();
+}
+
+/**
+ * Cross-browser Fullscreen Detector
+ */
+function isBrowserFullscreen() {
+  if (typeof document === 'undefined') return false;
+  return Boolean(
+    document.fullscreenElement ||
+    document.webkitFullscreenElement ||
+    document.mozFullScreenElement ||
+    document.msFullscreenElement
+  );
+}
+
+/**
+ * Screen WakeLock Helper with auto-recovery
+ */
+async function acquireBrowserWakeLock() {
+  try {
+    if (typeof navigator !== 'undefined' && 'wakeLock' in navigator && !webWakeLock) {
+      webWakeLock = await navigator.wakeLock.request('screen');
+      webWakeLock.addEventListener('release', () => {
+        webWakeLock = null;
+      });
+      console.log('[Kiosk Web] Screen wake-lock acquired.');
+    }
+  } catch (err) {
+    console.warn('[Kiosk Web] WakeLock acquisition notice:', err?.message || err);
+  }
+}
+
+/**
+ * Navigation & Tab Close Guard
+ */
+function handleKioskBeforeUnload(e) {
+  if (!isWebKioskActive) return;
+  e.preventDefault();
+  e.returnValue = '⚠️ Attendance session is currently active. Leaving or refreshing this page will forfeit your attendance.';
+  return e.returnValue;
+}
+
+/**
+ * History PopState / Back Button Trap
+ */
+function handleKioskPopState() {
+  if (!isWebKioskActive) return;
+  try {
+    window.history.pushState({ smartattend_kiosk: true }, document.title, window.location.href);
+  } catch (_) {}
+  window.dispatchEvent(new CustomEvent('smartattend_kiosk_back_attempt'));
+}
+
+/**
+ * Keyboard Shortcuts Shield (DevTools, Reload, Close, Print, Source)
+ */
+function handleKioskKeyDown(e) {
+  if (!isWebKioskActive) return;
+  const key = e.key;
+  const ctrl = e.ctrlKey || e.metaKey;
+  const shift = e.shiftKey;
+  if (
+    key === 'F5' ||
+    key === 'F12' ||
+    (ctrl && (key === 'r' || key === 'R' || key === 'w' || key === 'W' || key === 't' || key === 'T' || key === 'n' || key === 'N' || key === 'u' || key === 'U' || key === 'p' || key === 'P' || key === 's' || key === 'S')) ||
+    (ctrl && shift && (key === 'i' || key === 'I' || key === 'j' || key === 'J' || key === 'c' || key === 'C'))
+  ) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+}
+
+/**
+ * Right-Click Context Menu Shield
+ */
+function handleKioskContextMenu(e) {
+  if (!isWebKioskActive) return;
+  e.preventDefault();
+  return false;
+}
+
+/**
+ * Wake Lock Reacquisition on Visibility Change
+ */
+function handleKioskVisibilityChange() {
+  if (document.visibilityState === 'visible' && isWebKioskActive) {
+    acquireBrowserWakeLock();
+  }
+}
 
 /**
  * Native Capacitor KioskPlugin Registration with Web Fallback
@@ -45,43 +184,69 @@ const NativeKioskPlugin = registerPlugin('KioskPlugin', {
         isDeviceOwner: false,
         canDrawOverlays: false,
         isAccessibilityActive: false,
-        isKioskEnforced: false,
-        lockTaskModeState: 0,
-        securityLevel: 'WEB_BROWSER',
+        isKioskEnforced: isWebKioskActive,
+        lockTaskModeState: isWebKioskActive ? 1 : 0,
+        securityLevel: 'WEB_SUPERVISED',
         isWebFallback: true
       };
     },
     startKiosk: async () => {
-      console.log('[KioskPlugin Web] Starting web supervised session');
-      
-      // 1. Attempt Screen Wake Lock on modern mobile browsers
-      try {
-        if (typeof navigator !== 'undefined' && 'wakeLock' in navigator && !webWakeLock) {
-          webWakeLock = await navigator.wakeLock.request('screen');
-          webWakeLock.addEventListener('release', () => {
-            webWakeLock = null;
-          });
-        }
-      } catch (wakeErr) {
-        console.warn('[Kiosk Web] WakeLock notice:', wakeErr);
+      console.log('[KioskPlugin Web] Starting web supervised session on all browser devices');
+      isWebKioskActive = true;
+
+      // 1. Acquire Screen Wake Lock to prevent screen sleep while waiting for QR 2
+      await acquireBrowserWakeLock();
+
+      // 2. Request Fullscreen across all browser vendors
+      await requestBrowserFullscreen();
+
+      // 3. History Back-Button Trapping
+      if (typeof window !== 'undefined') {
+        try {
+          window.history.pushState({ smartattend_kiosk: true }, document.title, window.location.href);
+          window.removeEventListener('popstate', handleKioskPopState);
+          window.addEventListener('popstate', handleKioskPopState);
+          window.removeEventListener('beforeunload', handleKioskBeforeUnload);
+          window.addEventListener('beforeunload', handleKioskBeforeUnload);
+          window.removeEventListener('keydown', handleKioskKeyDown, true);
+          window.addEventListener('keydown', handleKioskKeyDown, true);
+          window.removeEventListener('contextmenu', handleKioskContextMenu, true);
+          window.addEventListener('contextmenu', handleKioskContextMenu, true);
+          document.removeEventListener('visibilitychange', handleKioskVisibilityChange);
+          document.addEventListener('visibilitychange', handleKioskVisibilityChange);
+        } catch (_) {}
       }
 
-      // 2. Attempt Fullscreen if user gesture is available
-      if (typeof document !== 'undefined' && document.documentElement.requestFullscreen) {
+      // 4. Lock page overscroll and selection styles to prevent accidental pull-to-refresh
+      if (typeof document !== 'undefined') {
         try {
-          if (!document.fullscreenElement) {
-            await document.documentElement.requestFullscreen();
+          if (!savedBrowserStyles) {
+            savedBrowserStyles = {
+              htmlOverscroll: document.documentElement.style.overscrollBehavior,
+              bodyOverscroll: document.body.style.overscrollBehavior,
+              userSelect: document.body.style.userSelect,
+              webkitUserSelect: document.body.style.webkitUserSelect
+            };
           }
-        } catch (e) {
-          console.warn('[Kiosk Web] Fullscreen notice (requires direct user tap):', e.message);
-        }
+          document.documentElement.style.overscrollBehavior = 'none';
+          document.body.style.overscrollBehavior = 'none';
+          document.body.style.userSelect = 'none';
+          document.body.style.webkitUserSelect = 'none';
+        } catch (_) {}
       }
-      return { active: true, isWebFallback: true, message: 'Web supervised mode active' };
+
+      return {
+        active: true,
+        isWebFallback: true,
+        isFullscreen: isBrowserFullscreen(),
+        message: 'Web supervised kiosk mode active on all devices'
+      };
     },
     stopKiosk: async () => {
       console.log('[KioskPlugin Web] Stopping web supervised session');
+      isWebKioskActive = false;
 
-      // Release Wake Lock
+      // 1. Release Wake Lock
       if (webWakeLock) {
         try {
           await webWakeLock.release();
@@ -89,19 +254,36 @@ const NativeKioskPlugin = registerPlugin('KioskPlugin', {
         webWakeLock = null;
       }
 
-      // Exit Fullscreen
-      if (typeof document !== 'undefined' && document.fullscreenElement) {
+      // 2. Exit Fullscreen across all browser vendors
+      await exitBrowserFullscreen();
+
+      // 3. Remove window listeners
+      if (typeof window !== 'undefined') {
         try {
-          await document.exitFullscreen();
-        } catch (e) {
-          console.warn('[Kiosk Web] Exit fullscreen notice:', e.message);
-        }
+          window.removeEventListener('popstate', handleKioskPopState);
+          window.removeEventListener('beforeunload', handleKioskBeforeUnload);
+          window.removeEventListener('keydown', handleKioskKeyDown, true);
+          window.removeEventListener('contextmenu', handleKioskContextMenu, true);
+          document.removeEventListener('visibilitychange', handleKioskVisibilityChange);
+        } catch (_) {}
       }
+
+      // 4. Restore original styles
+      if (typeof document !== 'undefined' && savedBrowserStyles) {
+        try {
+          document.documentElement.style.overscrollBehavior = savedBrowserStyles.htmlOverscroll || '';
+          document.body.style.overscrollBehavior = savedBrowserStyles.bodyOverscroll || '';
+          document.body.style.userSelect = savedBrowserStyles.userSelect || '';
+          document.body.style.webkitUserSelect = savedBrowserStyles.webkitUserSelect || '';
+          savedBrowserStyles = null;
+        } catch (_) {}
+      }
+
       return { active: false, isWebFallback: true, message: 'Web supervised mode ended' };
     },
     isKioskActive: async () => {
-      const isFs = typeof document !== 'undefined' && Boolean(document.fullscreenElement);
-      return { active: isFs || Boolean(webWakeLock), isWebFallback: true };
+      const isFs = isBrowserFullscreen();
+      return { active: isWebKioskActive || isFs || Boolean(webWakeLock), isWebFallback: true };
     },
     isVpnActive: async () => {
       return { isVpn: false, details: 'WEB_FALLBACK', isWebFallback: true };
@@ -250,6 +432,27 @@ export const Kiosk = {
   },
 
   /**
+   * Check if application is in full screen mode across all browsers & native
+   */
+  isFullscreen() {
+    return isBrowserFullscreen();
+  },
+
+  /**
+   * Request manual fullscreen on user button tap or interaction
+   */
+  async requestFullscreen(element) {
+    return await requestBrowserFullscreen(element);
+  },
+
+  /**
+   * Exit browser fullscreen
+   */
+  async exitFullscreen() {
+    return await exitBrowserFullscreen();
+  },
+
+  /**
    * Check if the application is provisioned as Android Device Owner
    */
   async isDeviceOwner() {
@@ -360,9 +563,9 @@ export const Kiosk = {
           isDeviceOwner: false,
           canDrawOverlays: false,
           isAccessibilityActive: false,
-          isKioskEnforced: false,
-          lockTaskModeState: 0,
-          securityLevel: 'WEB_BROWSER'
+          isKioskEnforced: isWebKioskActive,
+          lockTaskModeState: isWebKioskActive ? 1 : 0,
+          securityLevel: 'WEB_SUPERVISED'
         };
       }
       return await NativeKioskPlugin.getSecurityDiagnostics();
@@ -384,23 +587,6 @@ export const Kiosk = {
       console.warn('[Kiosk] isVpnActive notice:', err);
       return { isVpn: false, error: err.message };
     }
-  },
-
-  /**
-   * Request manual fullscreen on user button tap
-   */
-  async requestFullscreen() {
-    if (typeof document !== 'undefined' && document.documentElement.requestFullscreen) {
-      try {
-        if (!document.fullscreenElement) {
-          await document.documentElement.requestFullscreen();
-          return true;
-        }
-      } catch (err) {
-        console.warn('[Kiosk] Fullscreen request rejected:', err);
-      }
-    }
-    return false;
   }
 };
 
