@@ -28,11 +28,12 @@
       ]
     }
   ],
-  "apkSha256": "1e8e45c107e451b702572c7966494be770029b72ff3fb073a46b99c15abce8d1",
+  "apkSha256": "0cb715c42bc6142e0d7628793e24889863831db852a9fa775d083b055eb849bb",
   "apkSize": 14972517,
   "apkSizeFormatted": "14.28 MB",
   "sha256": "1e8e45c107e451b702572c7966494be770029b72ff3fb073a46b99c15abce8d1",
   "size": 14972517,
   "sizeFormatted": "14.28 MB",
-  "updatedAt": "2026-11-02T22:01:00.000Z"
+  "updatedAt": "2026-11-02T22:01:00.000Z",
+  "apkSizeBytes": 14974458
 }

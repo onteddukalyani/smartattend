@@ -815,17 +815,8 @@ export function SessionAttendanceData() {
             return;
         }
 
-        if (!faceVerified) {
-            setPendingFaceExcuse({
-                student: typeof studentOrRoll === "string"
-                    ? { rollNo: cleanRoll, name: studentName }
-                    : { ...studentOrRoll, rollNo: cleanRoll, name: studentName },
-                reason
-            });
-            return;
-        }
-
-        if (!window.confirm(`Excuse violation and reinstate attendance for ${studentName} (${cleanRoll}) as Present?`)) {
+        const confirmMsg = `Excuse violation and reinstate attendance for ${studentName} (${cleanRoll}) as Present?\n\nNote: Only you as the assigned lecturer can excuse this student.`;
+        if (!window.confirm(confirmMsg)) {
             return;
         }
 
@@ -1795,7 +1786,14 @@ export function SessionAttendanceData() {
                                                         alignItems: "center",
                                                         gap: "4px"
                                                     }}>
-                                                        <FaExclamationTriangle /> Disqualified (App Switch)
+                                                        <FaExclamationTriangle /> {
+                                                            (member.violationReason || "").toLowerCase().includes("vpn") ? "🚨 VIOLATED · VPN Detected" :
+                                                            (member.violationReason || "").toLowerCase().includes("mock") || (member.violationReason || "").toLowerCase().includes("fake") ? "🚨 VIOLATED · Fake GPS" :
+                                                            (member.violationReason || "").toLowerCase().includes("geofence") ? "🚨 VIOLATED · Out of Geofence" :
+                                                            (member.violationReason || "").toLowerCase().includes("face") || (member.violationReason || "").toLowerCase().includes("proxy") ? "🚨 VIOLATED · Face Mismatch (Proxy)" :
+                                                            (member.violationReason || "").toLowerCase().includes("screen") ? "🚨 VIOLATED · Screen Capture" :
+                                                            `🚨 VIOLATED · ${member.violationReason || "Security Violation"}`
+                                                        }
                                                     </span>
                                                     {member.violationReason && (
                                                         <span style={{ fontSize: "0.72rem", color: "#9f1239" }}>

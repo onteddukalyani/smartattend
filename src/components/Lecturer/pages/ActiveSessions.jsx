@@ -92,14 +92,14 @@ function ActiveSessions() {
 
         const isMySession = (data) => {
             if (isAdmin) return true;
-            const ownerId = String(data.ownerId || "").toLowerCase().trim();
-            const ownerEmail = String(data.ownerEmail || data.lecturerEmail || "").toLowerCase().trim();
-            const sessLectName = String(data.lecturerName || "").toLowerCase().trim();
+            const ownerId = String(data.ownerId || data.userId || data.lecturerId || data.createdBy || "").toLowerCase().trim();
+            const ownerEmail = String(data.ownerEmail || data.lecturerEmail || data.email || "").toLowerCase().trim();
+            const sessLectName = String(data.lecturerName || data.name || "").toLowerCase().trim();
 
             if (userUid && (ownerId === userUid.toLowerCase() || ownerEmail === userUid.toLowerCase())) return true;
             if (userEmail && (ownerEmail === userEmail || ownerId === userEmail)) return true;
-            if (userPrefix && userPrefix.length >= 3 && (ownerId === userPrefix || ownerEmail === `${userPrefix}@iiitdwd.ac.in` || ownerEmail === `${userPrefix}@gmail.com`)) return true;
-            if (isNamedProperly && sessLectName && sessLectName === userName) return true;
+            if (userPrefix && userPrefix.length >= 3 && (ownerId === userPrefix || ownerEmail === `${userPrefix}@iiitdwd.ac.in` || ownerEmail === `${userPrefix}@gmail.com` || ownerEmail.startsWith(userPrefix))) return true;
+            if (isNamedProperly && sessLectName && (sessLectName === userName || sessLectName.includes(userName) || userName.includes(sessLectName))) return true;
             return false;
         };
 
@@ -111,7 +111,12 @@ function ActiveSessions() {
                     .filter((session) => isMySession(session))
                     .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
 
-                const live = allMy.filter((s) => s.active !== false && (s.expiresAt || 0) > now);
+                const isSessionLive = (s) => {
+                    if (s.active === false || s.status === "COMPLETED" || s.status === "CLOSED" || s.status === "EXPIRED") return false;
+                    const exp = Number(s.expiresAt || s.kioskEndsAt || s.sessionExpiresAt || s.qr1ExpiresAt || 0);
+                    return exp > now || s.phase === "PHASE_1" || s.phase === "PHASE_2" || s.status === "ACTIVE";
+                };
+                const live = allMy.filter(isSessionLive);
                 const recent = allMy.slice(0, 8);
 
                 setActiveSessions(live);

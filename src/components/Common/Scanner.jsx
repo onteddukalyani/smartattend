@@ -1698,7 +1698,7 @@ function QrScannerApp() {
 
     // Multi-Platform Guardian Supervision & Lifecycle Monitoring
     useEffect(() => {
-        const isSessionActive = scanState === 'KIOSK_WAITING_QR2' || scanState === 'BIOMETRIC_SCAN';
+        const isSessionActive = scanState === 'KIOSK_WAITING_QR2' || scanState === 'BIOMETRIC_SCAN' || scanState === 'ATTENDANCE_SUCCESS';
         if (!isSessionActive) {
             setSupervisionViolation(false);
             setInterruptionWarning(false);
@@ -1728,6 +1728,46 @@ function QrScannerApp() {
             interruptedRef.current = true;
 
             console.warn(`[Kiosk Guardian] Lifecycle interruption detected via ${source}!`);
+
+            // If student already completed attendance and attempts to switch/leave:
+            if (scanState === 'ATTENDANCE_SUCCESS') {
+                const postSubmitReason = `Left session / tab switched after attendance submission (via ${source})`;
+                console.error(`[Kiosk Guardian] Post-attendance violation triggered: ${postSubmitReason}`);
+                setErrorMessage(`❌ Attendance Disqualified & Revoked: You left the session or switched tabs after submitting attendance. Attendance has been forfeited and marked as VIOLATED on the lecturer's roster.`);
+                setScanState('DISQUALIFIED');
+                setSupervisionViolation(true);
+
+                if (activeSessionId) {
+                    const postViolPayload = {
+                        hasViolation: true,
+                        disqualified: true,
+                        status: "FLAGGED_DISQUALIFIED",
+                        violation: 1,
+                        violationCount: 1,
+                        lastViolationAt: Date.now(),
+                        lastViolationReason: postSubmitReason,
+                        violationReason: postSubmitReason,
+                        disqualifiedAfterAttendance: true
+                    };
+                    if (user?.uid) {
+                        setDoc(doc(db, "attendance_sessions", activeSessionId, "authorizations", user.uid), postViolPayload, { merge: true }).catch(() => { });
+                    }
+                    if (loggedInRollNo && loggedInRollNo !== user?.uid) {
+                        setDoc(doc(db, "attendance_sessions", activeSessionId, "authorizations", loggedInRollNo), postViolPayload, { merge: true }).catch(() => { });
+                    }
+                    const cleanRoll = (loggedInRollNo || user?.uid || "").toUpperCase().trim();
+                    const recordDocId = `${activeSessionId}_${cleanRoll}`;
+                    setDoc(doc(db, "attendance_records", recordDocId), {
+                        disqualified: true,
+                        hasViolation: true,
+                        status: "FLAGGED_DISQUALIFIED",
+                        violationReason: postSubmitReason,
+                        lastViolationAt: Date.now()
+                    }, { merge: true }).catch(() => { });
+                    recordSessionViolation(activeSessionId, user?.uid, loggedInRollNo, 'CONFIRMED_KIOSK_ESCAPE').catch(() => { });
+                }
+                return;
+            }
 
             const isAndroidNative = isNativeApp && !isIOSDevice();
             const maxAllowed = isAndroidNative 
@@ -1759,8 +1799,31 @@ function QrScannerApp() {
             console.error(`[Kiosk Guardian] Security violation threshold reached via ${source} (Strike ${nextCount}/${maxAllowed}). Disqualifying attendance session.`);
             try { localStorage.removeItem(`smartattend_qr1_auth_${activeSessionId}`); } catch (_) { }
             try { sessionStorage.removeItem(`smartattend_qr1_auth_${activeSessionId}`); } catch (_) { }
+            const violReasonText = `Security violation (${isAndroidNative ? 'Native app switch' : 'Browser tab/window minimized'} via ${source})`;
             setErrorMessage(`❌ Attendance Disqualified: ${nextCount}/${maxAllowed} security violation(s) detected (${isAndroidNative ? 'native app switch' : 'browser background/tab switch'}). Attendance forfeited.`);
             setScanState('DISQUALIFIED');
+
+            // Immediate authoritative sync to Lecturer Roster via direct Firestore write
+            if (activeSessionId) {
+                const directViolPayload = {
+                    hasViolation: true,
+                    disqualified: true,
+                    status: "FLAGGED_DISQUALIFIED",
+                    violation: 1,
+                    violationCount: nextCount,
+                    confirmedKioskViolations: nextCount,
+                    lastViolationAt: Date.now(),
+                    lastViolationReason: violReasonText,
+                    violationReason: violReasonText,
+                    platform: isAndroidNative ? 'android' : (isIOSDevice() ? 'ios' : 'web')
+                };
+                if (user?.uid) {
+                    setDoc(doc(db, "attendance_sessions", activeSessionId, "authorizations", user.uid), directViolPayload, { merge: true }).catch(() => { });
+                }
+                if (loggedInRollNo && loggedInRollNo !== user?.uid) {
+                    setDoc(doc(db, "attendance_sessions", activeSessionId, "authorizations", loggedInRollNo), directViolPayload, { merge: true }).catch(() => { });
+                }
+            }
 
             window.setTimeout(() => {
                 releaseAllMediaTracks();
@@ -1783,9 +1846,6 @@ function QrScannerApp() {
                     } catch (err) {
                         console.warn('[Kiosk Guardian] Backend event report notice:', err);
                     }
-
-                    // No direct Firestore fallback: lifecycle records are server-authoritative.
-                    // A failed callable remains unconfirmed and is logged above.
                 })();
             }, 0);
         };
@@ -1842,6 +1902,13 @@ function QrScannerApp() {
             handleReturnToApp('WINDOW_FOCUS');
         };
 
+        const handleBeforeUnload = (e) => {
+            handleViolationTrigger('PAGE_LEAVE_OR_RELOAD');
+            e.preventDefault();
+            e.returnValue = 'Leaving or reloading this page is a security violation and will forfeit your attendance.';
+            return e.returnValue;
+        };
+        window.addEventListener('beforeunload', handleBeforeUnload);
         document.addEventListener('visibilitychange', handleVisibilityChange);
         window.addEventListener('focus', handleFocus);
 
@@ -1917,6 +1984,7 @@ function QrScannerApp() {
             if (typeof iosAppSwitchCleanup === 'function') iosAppSwitchCleanup();
             if (typeof iosScreenCaptureCleanup === 'function') iosScreenCaptureCleanup();
             if (devToolsCheckInterval) clearInterval(devToolsCheckInterval);
+            window.removeEventListener('beforeunload', handleBeforeUnload);
             document.removeEventListener('visibilitychange', handleVisibilityChange);
             window.removeEventListener('blur', handleBlur);
             window.removeEventListener('focus', handleFocus);
@@ -2632,8 +2700,21 @@ function QrScannerApp() {
                 setErrorMessage('❌ Attendance Rejected: Maximum security attempts (3/3) exceeded. Active VPN detected on device. Attendance forfeited.');
                 setScanState('DISQUALIFIED');
                 setSupervisionViolation(true);
-                if (activeSessionId || payload.sessionId) {
-                    recordSessionViolation(activeSessionId || payload.sessionId, user?.uid, loggedInRollNo, 'VPN_DETECTED');
+                const targetSid = activeSessionId || payload.sessionId;
+                if (targetSid) {
+                    const vpnPayload = {
+                        hasViolation: true,
+                        disqualified: true,
+                        status: "FLAGGED_DISQUALIFIED",
+                        violation: 1,
+                        violationCount: currentAttempts,
+                        lastViolationAt: Date.now(),
+                        lastViolationReason: "VPN tunnel / proxy detected",
+                        violationReason: "VPN tunnel / proxy detected"
+                    };
+                    if (user?.uid) setDoc(doc(db, "attendance_sessions", targetSid, "authorizations", user.uid), vpnPayload, { merge: true }).catch(() => { });
+                    if (loggedInRollNo && loggedInRollNo !== user?.uid) setDoc(doc(db, "attendance_sessions", targetSid, "authorizations", loggedInRollNo), vpnPayload, { merge: true }).catch(() => { });
+                    recordSessionViolation(targetSid, user?.uid, loggedInRollNo, 'VPN_DETECTED').catch(() => { });
                 }
             } else {
                 setErrorMessage(`❌ VPN Detected: VPNs and network proxies are strictly prohibited during attendance. Please disconnect your VPN and try again (Attempt ${currentAttempts}/3).`);
@@ -2846,8 +2927,21 @@ function QrScannerApp() {
                 setErrorMessage('❌ Attendance Rejected: Maximum attempts (3/3) exceeded. Mock GPS / Fake location detected. Attendance forfeited.');
                 setScanState('DISQUALIFIED');
                 setSupervisionViolation(true);
-                if (activeSessionId || payload.sessionId) {
-                    recordSessionViolation(activeSessionId || payload.sessionId, user?.uid, loggedInRollNo, 'MOCK_LOCATION_DETECTED');
+                const targetSid = activeSessionId || payload.sessionId;
+                if (targetSid) {
+                    const mockPayload = {
+                        hasViolation: true,
+                        disqualified: true,
+                        status: "FLAGGED_DISQUALIFIED",
+                        violation: 1,
+                        violationCount: currentAttempts,
+                        lastViolationAt: Date.now(),
+                        lastViolationReason: "Mock / Fake GPS detected",
+                        violationReason: "Mock / Fake GPS detected"
+                    };
+                    if (user?.uid) setDoc(doc(db, "attendance_sessions", targetSid, "authorizations", user.uid), mockPayload, { merge: true }).catch(() => { });
+                    if (loggedInRollNo && loggedInRollNo !== user?.uid) setDoc(doc(db, "attendance_sessions", targetSid, "authorizations", loggedInRollNo), mockPayload, { merge: true }).catch(() => { });
+                    recordSessionViolation(targetSid, user?.uid, loggedInRollNo, 'MOCK_LOCATION_DETECTED').catch(() => { });
                 }
             } else {
                 setErrorMessage(`🚨 Mock GPS Detected: Spoofed location detected. Please disable mock location apps (Attempt ${currentAttempts}/3).`);
@@ -2888,8 +2982,21 @@ function QrScannerApp() {
                     setErrorMessage(`❌ Attendance Rejected: Maximum attempts (3/3) exceeded. You are ${displayDist}m away from the classroom (allowed radius: ≤ ${selectedGeofence}m). Attendance forfeited.`);
                     setScanState('DISQUALIFIED');
                     setSupervisionViolation(true);
-                    if (activeSessionId || payload.sessionId) {
-                        recordSessionViolation(activeSessionId || payload.sessionId, user?.uid, loggedInRollNo, 'GEOFENCE_EXCEEDED_MAX_ATTEMPTS');
+                    const targetSid = activeSessionId || payload.sessionId;
+                    if (targetSid) {
+                        const geoMaxPayload = {
+                            hasViolation: true,
+                            disqualified: true,
+                            status: "FLAGGED_DISQUALIFIED",
+                            violation: 1,
+                            violationCount: currentAttempts,
+                            lastViolationAt: Date.now(),
+                            lastViolationReason: `Outside classroom geofence (${displayDist}m > ${selectedGeofence}m)`,
+                            violationReason: `Outside classroom geofence (${displayDist}m > ${selectedGeofence}m)`
+                        };
+                        if (user?.uid) setDoc(doc(db, "attendance_sessions", targetSid, "authorizations", user.uid), geoMaxPayload, { merge: true }).catch(() => { });
+                        if (loggedInRollNo && loggedInRollNo !== user?.uid) setDoc(doc(db, "attendance_sessions", targetSid, "authorizations", loggedInRollNo), geoMaxPayload, { merge: true }).catch(() => { });
+                        recordSessionViolation(targetSid, user?.uid, loggedInRollNo, 'GEOFENCE_EXCEEDED_MAX_ATTEMPTS').catch(() => { });
                     }
                     return;
                 } else {
@@ -3109,6 +3216,35 @@ function QrScannerApp() {
 
     // 3. Handle Live Face Biometric Verification change & submit attendance
     const handleFaceVerificationChange = useCallback(async (res) => {
+        if (res && !res.verified && (res.reason === "BIOMETRIC_IDENTITY_MISMATCH" || res.reason === "MISMATCH")) {
+            console.error('[Face Verification] Face mismatch detected - proxy attempt blocked.');
+            const mismatchReason = "Biometric face mismatch (Proxy attempt detected)";
+            setErrorMessage(`❌ Attendance Disqualified: Face does not match registered student profile (${loggedInRollNo || 'student'}). Proxy attendance is strictly prohibited.`);
+            setScanState('DISQUALIFIED');
+            setSupervisionViolation(true);
+            releaseAllMediaTracks();
+            releaseCameraLock();
+            if (activeSessionId) {
+                const mismatchPayload = {
+                    hasViolation: true,
+                    disqualified: true,
+                    status: "FLAGGED_DISQUALIFIED",
+                    violation: 1,
+                    violationCount: 1,
+                    lastViolationAt: Date.now(),
+                    lastViolationReason: mismatchReason,
+                    violationReason: mismatchReason
+                };
+                if (user?.uid) {
+                    setDoc(doc(db, "attendance_sessions", activeSessionId, "authorizations", user.uid), mismatchPayload, { merge: true }).catch(() => { });
+                }
+                if (loggedInRollNo && loggedInRollNo !== user?.uid) {
+                    setDoc(doc(db, "attendance_sessions", activeSessionId, "authorizations", loggedInRollNo), mismatchPayload, { merge: true }).catch(() => { });
+                }
+            }
+            return;
+        }
+
         if (res && res.verified) {
             lastVerifiedFaceRef.current = res;
             setFaceSubmissionFailed(false);
@@ -3243,12 +3379,12 @@ function QrScannerApp() {
                         autoReleaseAt: autoReleaseMs
                     });
 
-                    // Attendance successfully recorded! Release camera hardware & stop kiosk lock immediately
+                    // Attendance successfully recorded! Release camera hardware
                     releaseCameraLock();
                     releaseAllMediaTracks();
-                    Kiosk.stopKioskMode().catch(() => { });
-                    Kiosk.clearAttendanceRestrictions().catch(() => { });
-
+                    if (isAndroidNative) {
+                        Kiosk.startKioskMode().catch(() => { });
+                    }
                     setFaceSubmissionFailed(false);
                     setScanState('ATTENDANCE_SUCCESS');
                 } catch (subErr) {
@@ -4421,6 +4557,31 @@ function QrScannerApp() {
                 <div className="st-success-kiosk-status">
                     <FaShieldAlt style={{ color: '#10b981' }} />
                     <span>{isIOSDevice() ? 'Guided Access Active' : 'Lock Task Mode Active'} · Awaiting Release</span>
+                </div>
+
+                {/* Strict Anti-Leave Instruction Banner (After Attendance Submission) */}
+                <div style={{
+                    background: "#fef2f2",
+                    border: "2px solid #ef4444",
+                    borderRadius: "12px",
+                    padding: "14px 16px",
+                    margin: "16px auto",
+                    maxWidth: "460px",
+                    boxShadow: "0 4px 12px rgba(220, 38, 38, 0.12)",
+                    textAlign: "left",
+                    display: "flex",
+                    gap: "12px",
+                    alignItems: "flex-start"
+                }}>
+                    <FaExclamationTriangle style={{ color: "#dc2626", fontSize: "1.5rem", flexShrink: 0, marginTop: "2px" }} />
+                    <div>
+                        <strong style={{ display: "block", color: "#b91c1c", fontSize: "0.95rem", marginBottom: "4px" }}>
+                            ⚠️ REMAIN ON THIS PAGE — DO NOT LEAVE OR OPEN OTHER TABS
+                        </strong>
+                        <p style={{ margin: 0, fontSize: "0.84rem", color: "#7f1d1d", lineHeight: "1.45" }}>
+                            You MUST remain on this screen until your lecturer announces the PIN or dismisses the session. If you switch apps, minimize, open another tab, or close this window, your attendance will be <strong>IMMEDIATELY REVOKED, marked as VIOLATED</strong> on the lecturer's live roster, and forfeited!
+                        </p>
+                    </div>
                 </div>
 
                 {/* On iOS: Guided Access Exit Guidance Notice */}
@@ -5644,6 +5805,29 @@ function QrScannerApp() {
                 <p className="st-scanner-subtitle">
                     Align the rotating QR code on your lecturer's screen inside the viewfinder
                 </p>
+            </div>
+
+            {/* Strict Anti-Escape Security Warning Banner (Before Attendance) */}
+            <div style={{
+                background: "linear-gradient(135deg, #fef2f2, #fff1f2)",
+                border: "1.5px solid #f87171",
+                borderRadius: "10px",
+                padding: "12px 14px",
+                margin: "0 auto 16px auto",
+                maxWidth: "520px",
+                boxShadow: "0 2px 8px rgba(239, 68, 68, 0.08)",
+                display: "flex",
+                alignItems: "flex-start",
+                gap: "10px",
+                textAlign: "left"
+            }}>
+                <FaExclamationTriangle style={{ color: "#dc2626", fontSize: "1.25rem", flexShrink: 0, marginTop: "2px" }} />
+                <div style={{ fontSize: "0.82rem", lineHeight: "1.4", color: "#991b1b" }}>
+                    <strong style={{ display: "block", color: "#b91c1c", fontSize: "0.88rem", marginBottom: "3px" }}>
+                        ⚠️ STRICT SECURITY POLICY: DO NOT LEAVE OR SWITCH TABS
+                    </strong>
+                    Do NOT leave this page, minimize your browser, switch apps, or open other tabs at any point. If you attempt to leave or switch tabs <strong>before, during, or even after submitting attendance</strong>, an immediate <strong>SECURITY VIOLATION</strong> will be recorded and your attendance <strong>will NOT be taken or considered Present</strong>!
+                </div>
             </div>
 
             {/* Camera Viewport with Targeting Overlay & Floating Controls */}

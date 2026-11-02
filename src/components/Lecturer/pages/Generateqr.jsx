@@ -1080,18 +1080,8 @@ function GenerateQR() {
         const studentId = student.studentUid || student.id || rollNo;
         const studentName = student.studentName || student.fullName || rollNo;
 
-        if (!faceVerified) {
-            if (!window.confirm(`Verify ${studentName} (${rollNo}) by live face scan before excusing and marking Present?`)) return;
-            setPendingFaceExcuse({
-                student: { ...student, rollNo, studentName },
-                reason,
-                isManual
-            });
-            setIsExcusingManual(isManual);
-            return;
-        }
-
-        if (!window.confirm(`Excuse violation & mark ${studentName} (${rollNo}) as Present (Approved)?`)) {
+        const confirmMsg = `Excuse violation for ${studentName} (${rollNo}) and mark Present (Approved)?\n\nNote: Only you as the session lecturer can excuse this student.`;
+        if (!window.confirm(confirmMsg)) {
             setIsExcusingManual(false);
             return;
         }
@@ -2780,16 +2770,17 @@ function GenerateQR() {
                                                         <FaExclamationTriangle /> {
                                                             student.isDisqualified
                                                                 ? (
-                                                                    (student.violationReason || "").toLowerCase().includes("vpn") ? "Disqualified (VPN Detected)" :
-                                                                        (student.violationReason || "").toLowerCase().includes("mock") || (student.violationReason || "").toLowerCase().includes("fake") ? "Disqualified (Fake GPS)" :
-                                                                            (student.violationReason || "").toLowerCase().includes("geofence") ? "Disqualified (Out of Geofence)" :
-                                                                                (student.violationReason || "").toLowerCase().includes("screen") ? "Disqualified (Screen Capture)" :
-                                                                                    "Disqualified (App Switch)"
+                                                                    (student.violationReason || "").toLowerCase().includes("vpn") ? "🚨 VIOLATED · VPN Detected" :
+                                                                        (student.violationReason || "").toLowerCase().includes("mock") || (student.violationReason || "").toLowerCase().includes("fake") ? "🚨 VIOLATED · Fake GPS" :
+                                                                            (student.violationReason || "").toLowerCase().includes("geofence") ? "🚨 VIOLATED · Out of Geofence" :
+                                                                                (student.violationReason || "").toLowerCase().includes("screen") ? "🚨 VIOLATED · Screen Capture" :
+                                                                                    (student.violationReason || "").toLowerCase().includes("face") || (student.violationReason || "").toLowerCase().includes("proxy") ? "🚨 VIOLATED · Face Mismatch (Proxy)" :
+                                                                                        `🚨 VIOLATED · ${student.violationReason || "Security Violation"}`
                                                                 )
                                                                 : (
-                                                                    (student.violationReason || "").toLowerCase().includes("vpn") ? "⚠️ VPN Detected" :
-                                                                        (student.violationReason || "").toLowerCase().includes("geofence") ? "⚠️ Out of Geofence" :
-                                                                            "⚠️ Flagged Warning"
+                                                                    (student.violationReason || "").toLowerCase().includes("vpn") ? "⚠️ VIOLATION · VPN Detected" :
+                                                                        (student.violationReason || "").toLowerCase().includes("geofence") ? "⚠️ VIOLATION · Out of Geofence" :
+                                                                            "⚠️ VIOLATION WARNING (Strike 1)"
                                                                 )
                                                         }
                                                     </span>

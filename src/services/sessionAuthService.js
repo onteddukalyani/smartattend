@@ -115,6 +115,7 @@ export async function initiateSession(sessionParams) {
       sessionStartAt: now,
       qr1ExpiresAt,
       kioskEndsAt,
+      expiresAt: kioskEndsAt,
       totalDurationSeconds: totalSec,
       qr1DurationSeconds: qr1Sec,
       qr2DurationSeconds: qr2Sec,
@@ -793,10 +794,11 @@ export async function excuseAndReinstateAttendance(sessionId, studentInfo, lectu
       excuseReason: excuseReason
     };
 
-    const targetDocId = studentUid || rollNo;
-    if (targetDocId) {
-      const authRef = doc(db, "attendance_sessions", sessionId, "authorizations", targetDocId);
-      await setDoc(authRef, authPayload, { merge: true }).catch(() => { });
+    if (studentUid) {
+      await setDoc(doc(db, "attendance_sessions", sessionId, "authorizations", studentUid), authPayload, { merge: true }).catch(() => { });
+    }
+    if (rollNo && rollNo !== studentUid) {
+      await setDoc(doc(db, "attendance_sessions", sessionId, "authorizations", rollNo), authPayload, { merge: true }).catch(() => { });
     }
 
     // 5. Notify Student in real-time
