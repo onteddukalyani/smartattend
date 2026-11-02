@@ -125,6 +125,25 @@ export async function registerUserDevice({
         setDoc(doc(db, "students", targetDocId), devicePayload, { merge: true })
           .catch((err) => console.warn("Student device registration notice:", err.message))
       );
+      if (uid) {
+        writePromises.push(
+          setDoc(doc(db, "users", uid), devicePayload, { merge: true })
+            .catch(() => { })
+        );
+        try {
+          const cacheKey = `smartattend-cached-profile-${uid}`;
+          const rawCached = localStorage.getItem(cacheKey);
+          if (rawCached) {
+            const parsed = JSON.parse(rawCached);
+            parsed.deviceType = cleanPlatform;
+            parsed.registeredDeviceType = cleanPlatform;
+            parsed.registeredPlatform = cleanPlatform;
+            parsed.deviceTypeLocked = shouldLock;
+            parsed.isDeviceRegistered = shouldLock;
+            localStorage.setItem(cacheKey, JSON.stringify(parsed));
+          }
+        } catch (_) { }
+      }
       // Clean up any stray student document previously created under raw user.uid (hash/salt)
       const strayUid = user?.uid || profile?.uid || (cleanId && cleanId.length > 20 ? cleanId : null);
       if (strayUid && strayUid !== targetDocId) {

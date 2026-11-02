@@ -29,10 +29,74 @@ const checkReRegStatusCallable = httpsCallable(functions, "checkStudentReRegistr
 export async function registerStudentFace(rollNo, faceDescriptor) {
   const cleanRoll = String(rollNo || "").trim().toUpperCase();
   if (!cleanRoll) throw new Error("A valid roll number is required.");
-  const rawVector = Array.isArray(faceDescriptor) ? faceDescriptor : Array.from(faceDescriptor || []);
+  const rawVector = normalizeDescriptor(faceDescriptor) || (Array.isArray(faceDescriptor) ? faceDescriptor : Array.from(faceDescriptor || []));
+  if (!rawVector || rawVector.length !== 128) {
+    throw new Error("Invalid face vector: must contain 128 biometric values.");
+  }
   const now = Date.now();
 
+  // 1. DUPLICATE CHECK: Verify that NO OTHER student in the database is already registered with this face!
+  // Benchmark: Euclidean distance <= 0.46 indicates the same person
+  try {
+    const studentsSnap = await getDocs(collection(db, "students")).catch(() => null);
+    if (studentsSnap && !studentsSnap.empty) {
+      for (const sDoc of studentsSnap.docs) {
+        const otherRoll = String(sDoc.data()?.rollNo || sDoc.id || "").trim().toUpperCase();
+        if (otherRoll === cleanRoll) continue; // Skip same student identity
+        const otherDesc = normalizeDescriptor(sDoc.data()?.faceDescriptor) || normalizeDescriptor(sDoc.data()?.descriptor);
+        if (otherDesc && otherDesc.length === 128) {
+          let sum = 0;
+          for (let i = 0; i < 128; i++) {
+            const diff = Number(rawVector[i]) - Number(otherDesc[i]);
+            sum += diff * diff;
+          }
+          const dist = Math.sqrt(sum);
+          if (dist <= 0.46) {
+            throw new Error(`Duplicate Face Detected: This facial biometric matches already-enrolled student ${otherRoll}. A student cannot be registered under multiple roll numbers.`);
+          }
+        }
+      }
+    }
+  } catch (dupErr) {
+    if (dupErr.message && dupErr.message.includes("Duplicate Face Detected")) {
+      throw dupErr;
+    }
+  }
+
+  // 2. RE-REGISTRATION CHECK: If current student is already registered, require authorized permission
+  try {
+    const existingSnap = await getDoc(doc(db, "students", cleanRoll)).catch(() => null);
+    if (existingSnap && existingSnap.exists()) {
+      const existingData = existingSnap.data() || {};
+      const alreadyRegistered = Boolean(existingData.faceRegistered || existingData.biometricEnrolled || existingData.hasFaceRegistered);
+      const isFaceReset = Boolean(existingData.faceRemovedAt);
+      if (alreadyRegistered && !isFaceReset) {
+        const permSnap = await getDoc(doc(db, "biometric_reregistration_permissions", cleanRoll)).catch(() => null);
+        let hasActivePerm = false;
+        if (permSnap && permSnap.exists()) {
+          const perm = permSnap.data() || {};
+          const isPermValid = perm.status === "active" &&
+            (!perm.expiresAt || perm.expiresAt > now) &&
+            (perm.remainingUses === undefined || perm.remainingUses === null || perm.remainingUses > 0);
+          const type = String(perm.registrationType || "both").toLowerCase();
+          if (isPermValid && (type === "face" || type === "both")) {
+            hasActivePerm = true;
+          }
+        }
+
+        if (!hasActivePerm) {
+          throw new Error(`Face biometrics are already enrolled for ${cleanRoll}. Re-registration requires faculty or administrator permission.`);
+        }
+      }
+    }
+  } catch (reRegErr) {
+    if (reRegErr.message && reRegErr.message.includes("already enrolled")) {
+      throw reRegErr;
+    }
+  }
+
   const enrollPayload = {
+    rollNo: cleanRoll,
     faceRegistered: true,
     biometricEnrolled: true,
     hasFaceRegistered: true,
@@ -42,14 +106,22 @@ export async function registerStudentFace(rollNo, faceDescriptor) {
     registrationCompletedAt: now,
     faceEnrolledAt: now,
     faceRemovedAt: null,
+    faceDescriptor: rawVector,
+    descriptor: rawVector,
     updatedAt: now
   };
-  if (rawVector.length === 128) {
-    enrollPayload.faceDescriptor = rawVector;
-  }
 
   // 1. Instantly save face enrollment directly to the student's canonical document in students collection
   await setDoc(doc(db, "students", cleanRoll), enrollPayload, { merge: true });
+
+  // Synchronize face_enrollments collection for cross-collection queries
+  await setDoc(doc(db, "face_enrollments", cleanRoll), {
+    rollNo: cleanRoll,
+    studentUid: auth.currentUser?.uid || "",
+    faceDescriptor: rawVector,
+    faceRegistered: true,
+    updatedAt: now
+  }, { merge: true }).catch(() => {});
 
   if (typeof window !== "undefined") {
     try {
@@ -429,7 +501,130 @@ export async function checkStudentReRegistrationStatus(rollNo = "") {
 }
 
 export async function identifyStudentByFace(faceDescriptor) {
-  return identifyStudentCallable({ faceDescriptor }).then((response) => response.data);
+  const rawVector = normalizeDescriptor(faceDescriptor) || (Array.isArray(faceDescriptor) ? faceDescriptor : Array.from(faceDescriptor || []));
+  if (!rawVector || rawVector.length !== 128) {
+    throw new Error("Invalid face descriptor: must contain 128 values.");
+  }
+
+  // 1. Authoritative direct Firestore identification across enrolled students
+  try {
+    const studentsSnap = await getDocs(collection(db, "students")).catch(() => null);
+    const faceEnrollmentsSnap = await getDocs(collection(db, "face_enrollments")).catch(() => null);
+
+    const candidateMap = new Map();
+
+    if (studentsSnap && !studentsSnap.empty) {
+      studentsSnap.forEach((docSnap) => {
+        const d = docSnap.data() || {};
+        const roll = String(d.rollNo || docSnap.id || "").trim().toUpperCase();
+        if (!roll) return;
+        const desc = normalizeDescriptor(d.faceDescriptor) || normalizeDescriptor(d.descriptor);
+        if (desc && desc.length === 128) {
+          candidateMap.set(roll, { rollNo: roll, faceDescriptor: desc, data: d });
+        }
+      });
+    }
+
+    if (faceEnrollmentsSnap && !faceEnrollmentsSnap.empty) {
+      faceEnrollmentsSnap.forEach((docSnap) => {
+        const d = docSnap.data() || {};
+        const roll = String(d.rollNo || docSnap.id || "").trim().toUpperCase();
+        if (!roll) return;
+        const desc = normalizeDescriptor(d.faceDescriptor) || normalizeDescriptor(d.descriptor);
+        if (desc && desc.length === 128 && !candidateMap.has(roll)) {
+          candidateMap.set(roll, { rollNo: roll, faceDescriptor: desc, data: d });
+        }
+      });
+    }
+
+    if (candidateMap.size > 0) {
+      const matches = [];
+      for (const candidate of candidateMap.values()) {
+        const stored = candidate.faceDescriptor;
+        let sum = 0;
+        for (let i = 0; i < 128; i++) {
+          const diff = Number(rawVector[i]) - Number(stored[i]);
+          sum += diff * diff;
+        }
+        const dist = Math.sqrt(sum);
+        matches.push({ candidate, distance: dist });
+      }
+
+      matches.sort((a, b) => a.distance - b.distance);
+      const best = matches[0];
+      const second = matches[1];
+
+      // Threshold: FACE_MATCH_DISTANCE = 0.52
+      if (best && best.distance <= 0.52) {
+        // Ambiguity check
+        if (second && (second.distance - best.distance) < 0.05 && second.distance <= 0.52) {
+          return {
+            status: "UNCERTAIN_MATCH",
+            matched: false,
+            ambiguous: true,
+            distance: best.distance,
+            confidence: Math.round(Math.max(0, Math.min(100, (1 - (best.distance / 0.62)) * 100))),
+            message: "Uncertain face match. Multiple enrolled candidates found within similar distance."
+          };
+        }
+
+        const sData = best.candidate.data || {};
+        return {
+          status: "MATCH",
+          matched: true,
+          confidence: Math.round(Math.max(0, Math.min(100, (1 - (best.distance / 0.62)) * 100))),
+          distance: best.distance,
+          student: {
+            rollNo: best.candidate.rollNo,
+            name: sData.name || sData.fullName || best.candidate.rollNo,
+            email: sData.email || "",
+            branch: sData.branch || sData.department || "CSE",
+            semester: sData.semester || "1",
+            section: sData.section || "",
+            batch: sData.batch || "",
+            photoURL: sData.photoURL || sData.photo || sData.image || null,
+            courses: Array.isArray(sData.courses) ? sData.courses : []
+          }
+        };
+      }
+
+      if (best && best.distance <= 0.60) {
+        return {
+          status: "UNCERTAIN_MATCH",
+          matched: false,
+          ambiguous: true,
+          distance: best.distance,
+          confidence: Math.round(Math.max(0, Math.min(100, (1 - (best.distance / 0.62)) * 100))),
+          message: "Uncertain face match. Facial similarity is close to review threshold."
+        };
+      }
+
+      return {
+        status: "NO_MATCH",
+        matched: false,
+        distance: best?.distance || null,
+        message: "No enrolled student found matching this face (distance > 0.52)."
+      };
+    }
+  } catch (directErr) {
+    console.warn("Direct face identification notice:", directErr);
+  }
+
+  // 2. Cloud Function & API Fallback
+  try {
+    const apiRes = await callFaceApi("/api/face/match", { faceDescriptor: rawVector });
+    if (apiRes) return apiRes;
+  } catch (_) {}
+
+  return identifyStudentCallable({ faceDescriptor: rawVector })
+    .then((response) => response.data)
+    .catch((cloudErr) => {
+      return {
+        status: "NO_MATCH",
+        matched: false,
+        message: cloudErr.message || "Failed to identify student face. Please ensure student is enrolled."
+      };
+    });
 }
 
 /**

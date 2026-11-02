@@ -17,7 +17,8 @@ import {
   FaQrcode,
   FaHeadset,
   FaDatabase,
-  FaUniversity
+  FaUniversity,
+  FaUserCheck
 } from "react-icons/fa";
 import { useAuth } from "../authcontext";
 
@@ -40,6 +41,7 @@ const AdminSidebar = ({ isOpen, onClose }) => {
     { path: "/admin/admins", label: "Manage Admins", icon: FaUserShield },
     { path: "/admin/lecturers", label: "Manage Lecturers", icon: FaChalkboardTeacher },
     { path: "/admin/students", label: "Manage Students", icon: FaUserGraduate },
+    { path: "/admin/identify-student", label: "Identify by Face", icon: FaUserCheck },
     { path: "/admin/courses", label: "Courses", icon: FaBookOpen },
     { path: "/admin/attendance", label: "Attendance Logs", icon: FaClipboardCheck },
     { path: "/admin/database", label: "Database Hub", icon: FaDatabase },

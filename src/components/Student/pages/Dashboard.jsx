@@ -77,7 +77,13 @@ export default function StudentDashboard() {
             return "android";
         }
         try {
-            return localStorage.getItem('smartattend_student_device_type') || '';
+            return (
+                localStorage.getItem('smartattend_student_device_type') ||
+                localStorage.getItem('smartattend_device_type') ||
+                getGlobalVariable('selectedDeviceType') ||
+                getGlobalVariable('lockedDeviceType') ||
+                ''
+            );
         } catch (_) {
             return '';
         }
@@ -349,8 +355,8 @@ export default function StudentDashboard() {
                         registeredGlobally: Boolean(hasFace || d.registeredGlobally || prev?.registeredGlobally),
                         registrationStatus: hasFace ? "registered" : (d.registrationStatus || prev?.registrationStatus || "pending"),
                         hardwareBiometricEnrolled: hasHw,
-                        deviceTypeLocked: isDocHwReset ? false : (d.deviceTypeLocked ?? prev?.deviceTypeLocked ?? false),
-                        deviceType: isDocHwReset ? null : (d.deviceType || prev?.deviceType || null),
+                        deviceTypeLocked: isDocHwReset ? false : (d.deviceTypeLocked ?? d.isDeviceRegistered ?? prev?.deviceTypeLocked ?? false),
+                        deviceType: isDocHwReset ? null : (d.deviceType || d.registeredDeviceType || d.registeredPlatform || d.platform || prev?.deviceType || null),
                         faceRemovedAt: docFaceRemoved ? (d.faceRemovedAt || Date.now()) : null,
                         faceDescriptor: null,
                         descriptor: null
@@ -546,8 +552,28 @@ export default function StudentDashboard() {
     );
 
     // Device Resolution & Mismatch Guard
-    const registeredDevice = isDeviceReset ? null : (fetchedStudentData?.deviceType || fetchedStudentData?.registeredDeviceType || profile?.deviceType || profile?.registeredDeviceType || currentDeviceType);
-    const isDeviceConfigured = Boolean(registeredDevice || Capacitor.isNativePlatform());
+    const registeredDevice = isDeviceReset ? null : (
+        fetchedStudentData?.deviceType ||
+        fetchedStudentData?.registeredDeviceType ||
+        fetchedStudentData?.registeredPlatform ||
+        fetchedStudentData?.platform ||
+        profile?.deviceType ||
+        profile?.registeredDeviceType ||
+        profile?.registeredPlatform ||
+        profile?.platform ||
+        currentDeviceType ||
+        (typeof localStorage !== 'undefined' ? (localStorage.getItem('smartattend_student_device_type') || localStorage.getItem('smartattend_device_type')) : null) ||
+        getGlobalVariable('selectedDeviceType') ||
+        getGlobalVariable('lockedDeviceType')
+    );
+    const isDeviceConfigured = Boolean(
+        registeredDevice ||
+        fetchedStudentData?.deviceTypeLocked ||
+        profile?.deviceTypeLocked ||
+        (typeof localStorage !== 'undefined' && (localStorage.getItem('smartattend_student_device_locked') === 'true' || localStorage.getItem('smartattend_device_locked') === 'true')) ||
+        getGlobalVariable('isDeviceLocked') === true ||
+        Capacitor.isNativePlatform()
+    );
     const detectedPlatform = detectDeviceType();
     const isDeviceMismatch = Boolean(!isDeviceReset && registeredDevice && !isDeviceMatching(registeredDevice, detectedPlatform));
 

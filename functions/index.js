@@ -5658,18 +5658,36 @@ exports.identifyStudentByFace = onCall(async (request) => {
 
   let enrollmentDocs = [];
   if (isAdmin) {
-    const snap = await db.collection("face_enrollments").get();
-    enrollmentDocs = snap.docs;
+    const [snap1, snap2] = await Promise.all([
+      db.collection("face_enrollments").get(),
+      db.collection("students").get()
+    ]);
+    const docMap = new Map();
+    for (const d of snap1.docs) docMap.set(d.id, d);
+    for (const d of snap2.docs) {
+      if (!docMap.has(d.id) && (d.data()?.faceDescriptor || d.data()?.descriptor)) {
+        docMap.set(d.id, d);
+      }
+    }
+    enrollmentDocs = Array.from(docMap.values());
   } else {
     const rollList = Array.from(authorizedRolls);
     const chunks = [];
     for (let i = 0; i < rollList.length; i += 30) {
       chunks.push(rollList.slice(i, i + 30));
     }
-    const snaps = await Promise.all(
-      chunks.map(chunk => db.collection("face_enrollments").where(FieldPath.documentId(), "in", chunk).get())
-    );
-    enrollmentDocs = snaps.flatMap(s => s.docs);
+    const [snaps1, snaps2] = await Promise.all([
+      Promise.all(chunks.map(chunk => db.collection("face_enrollments").where(FieldPath.documentId(), "in", chunk).get())),
+      Promise.all(chunks.map(chunk => db.collection("students").where(FieldPath.documentId(), "in", chunk).get()))
+    ]);
+    const docMap = new Map();
+    for (const s of snaps1.flatMap(x => x.docs)) docMap.set(s.id, s);
+    for (const s of snaps2.flatMap(x => x.docs)) {
+      if (!docMap.has(s.id) && (s.data()?.faceDescriptor || s.data()?.descriptor)) {
+        docMap.set(s.id, s);
+      }
+    }
+    enrollmentDocs = Array.from(docMap.values());
   }
 
   const matches = [];
@@ -5677,7 +5695,7 @@ exports.identifyStudentByFace = onCall(async (request) => {
     const data = docSnap.data() || {};
     const rollNo = data.rollNo || docSnap.id;
     if (!isAdmin && authorizedRolls && !authorizedRolls.has(rollNo.toUpperCase())) continue;
-    const descriptor = data.faceDescriptor;
+    const descriptor = data.faceDescriptor || data.descriptor;
     if (!descriptor) continue;
     let candidateVector;
     try {

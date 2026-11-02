@@ -217,9 +217,16 @@ export class RandomizedChallengeEngine {
             return ["CENTER", "BLINK"];
         }
 
-        // Attendance mode: Natural human blink or interactive response
-        // Fast, ultra-smooth (1-2s), stops photo & video replay while avoiding head-turn landmark dropouts
-        return ["CENTER", "BLINK"];
+        // Attendance mode: Dynamic randomized challenge sequence
+        // Randomly requires interactive human gesture (head turn, smile, or blink)
+        // Defeats pre-recorded video playback attacks which cannot predict prompt order
+        const challengeSets = [
+            ["CENTER", "BLINK"],
+            ["CENTER", "TURN_LEFT", "BLINK"],
+            ["CENTER", "TURN_RIGHT", "BLINK"],
+            ["CENTER", "SMILE", "BLINK"]
+        ];
+        return challengeSets[Math.floor(Math.random() * challengeSets.length)];
     }
 
     reset() {
@@ -425,15 +432,14 @@ export class RandomizedChallengeEngine {
                 challengeSatisfied = true;
             }
         } else if (target === "BLINK") {
+            // Genuine biological eye blink verification
+            // Loose movement/variance was removed so shaking a photo or playing a video does NOT count as a blink
             if (
                 justBlinked ||
                 this.blinkCount >= 1 ||
-                avgEAR < 0.235 ||
-                (this.baselineEAR - avgEAR) > 0.03 ||
-                isSmiling ||
-                Math.abs(yawRatio - 1.0) > 0.07 ||
-                Math.abs(pitchRatio - 1.0) > 0.07 ||
-                (this.ratioHistory.length >= 6 && variance >= STATIC_VARIANCE_THRESHOLD)
+                avgEAR < 0.230 ||
+                (this.baselineEAR - avgEAR) > 0.035 ||
+                (isSmiling && mar > MAR_SMILE_THRESHOLD)
             ) {
                 challengeSatisfied = true;
             }

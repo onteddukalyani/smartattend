@@ -2,21 +2,22 @@
   "version": "1.0.1",
   "versionCode": 1,
   "build": 1,
-  "releaseDate": "2026-11-01T15:54:00.941Z",
+  "releaseDate": "2026-11-02T18:18:00.000Z",
   "minRequiredVersion": "1.0.0",
   "apkUrl": "https://raw.githubusercontent.com/onteddukalyani/smartattend/main/SmartAttend-release.apk",
-  "sha256Checksum": "1e8e45c107e451b702572c7966494be770029b72ff3fb073a46b99c15abce8d1",
-  "fileSizeBytes": 14972517,
+  "sha256Checksum": "df224d68a69bf6095c0f8e2977833466498fd48cc28f379d5aae8e68e6e543c0",
+  "fileSizeBytes": 14976687,
   "platform": "android",
   "isMandatory": false,
   "mandatoryReason": "",
   "title": "SmartAttend Official Release (v1.0.1 build 1)",
   "releaseNotes": [
     "v1.0.1 build 1 official release",
-    "Dynamic Lecturer Phone GPS anchor with real-time projector update",
-    "Persistent device lock (Android & iPhone) with global variable synchronization",
-    "Enhanced indoor classroom GPS tolerance model",
-    "Strict roll number canonicalization and duplicate prevention"
+    "Identify student face real-time Euclidean recognition across students database",
+    "Anti-duplicate face registration preventing duplicate accounts",
+    "Dynamic anti-spoofing challenge randomization against video playback",
+    "6-digit Session PIN consistency across generation and scanner entry",
+    "Persistent student phone model registration across Firestore and local profile"
   ],
   "history": [
     {
@@ -28,12 +29,12 @@
       ]
     }
   ],
-  "apkSha256": "ba5eb0cc310f458e2de7c4a28e7cc93b2920ce140dc7ef48b9c4ecfe6ce00338",
-  "apkSize": 14972517,
+  "apkSha256": "df224d68a69bf6095c0f8e2977833466498fd48cc28f379d5aae8e68e6e543c0",
+  "apkSize": 14976687,
   "apkSizeFormatted": "14.28 MB",
-  "sha256": "1e8e45c107e451b702572c7966494be770029b72ff3fb073a46b99c15abce8d1",
-  "size": 14972517,
+  "sha256": "df224d68a69bf6095c0f8e2977833466498fd48cc28f379d5aae8e68e6e543c0",
+  "size": 14976687,
   "sizeFormatted": "14.28 MB",
-  "updatedAt": "2026-11-02T22:01:00.000Z",
-  "apkSizeBytes": 14974466
+  "updatedAt": "2026-11-02T18:36:00.000Z",
+  "apkSizeBytes": 14976687
 }

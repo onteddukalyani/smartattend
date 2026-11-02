@@ -61,7 +61,7 @@ export async function initiateSession(sessionParams) {
     const qr2Token = generateRandomHex(16);
     const qr1TokenHash = await sha256(qr1Token);
     const qr2TokenHash = await sha256(qr2Token);
-    const sessionPin = String(Math.floor(1000 + Math.random() * 9000));
+    const sessionPin = String(Math.floor(100000 + Math.random() * 900000));
     const releaseCodeHash = await sha256(sessionPin);
 
     const now = Date.now();

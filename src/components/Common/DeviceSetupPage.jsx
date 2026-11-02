@@ -18,7 +18,7 @@ import { getApkDownloadUrl } from "../../utils/apkUrl";
 import { registerStudentDevice } from "../../services/deviceRegistrationService";
 import { detectDeviceType } from "../../utils/deviceDetection";
 import { sendFacultyNotification, sendStudentNotification } from "../../services/notificationsService";
-import { doc, setDoc } from "firebase/firestore";
+import { doc, setDoc, onSnapshot } from "firebase/firestore";
 import { db } from "../../firebase";
 import { setGlobalVariable, getGlobalVariable } from "../../utils/globalState";
 import { FaLock } from "react-icons/fa";
@@ -134,12 +134,29 @@ export default function DeviceSetupPage() {
       return (
         profile?.deviceType ||
         profile?.registeredDeviceType ||
+        profile?.registeredPlatform ||
+        profile?.platform ||
+        getGlobalVariable("selectedDeviceType") ||
+        getGlobalVariable("lockedDeviceType") ||
         localStorage.getItem("smartattend_student_device_type") ||
         localStorage.getItem("smartattend_device_type") ||
         ""
       );
     } catch {
       return "";
+    }
+  });
+  const [isDeviceLocked, setIsDeviceLocked] = useState(() => {
+    try {
+      return Boolean(
+        getGlobalVariable("isDeviceLocked") === true ||
+        profile?.deviceTypeLocked === true ||
+        profile?.isDeviceRegistered === true ||
+        localStorage.getItem("smartattend_student_device_locked") === "true" ||
+        localStorage.getItem("smartattend_device_locked") === "true"
+      );
+    } catch {
+      return false;
     }
   });
   const [bindingDevice, setBindingDevice] = useState(false);
@@ -157,6 +174,28 @@ export default function DeviceSetupPage() {
   const roleHome = getRoleHome(location.pathname);
   const roleName = profile?.role === "admin" ? "Administrator" : profile?.role === "lecturer" ? "Lecturer" : "Student";
   const [showIphoneModal, setShowIphoneModal] = useState(false);
+
+  useEffect(() => {
+    const roll = (profile?.rollNo || user?.email?.split("@")[0] || "").trim().toUpperCase();
+    if (!roll) return;
+    const unsub = onSnapshot(doc(db, "students", roll), (snap) => {
+      if (snap.exists()) {
+        const d = snap.data();
+        const dType = d.deviceType || d.registeredDeviceType || d.registeredPlatform || d.platform;
+        if (dType) {
+          setSelectedRoleDevice(dType);
+          setPlatform(dType);
+          setGlobalVariable("selectedDeviceType", dType);
+          if (d.deviceTypeLocked || d.isDeviceRegistered) {
+            setIsDeviceLocked(true);
+            setGlobalVariable("isDeviceLocked", true);
+            setGlobalVariable("lockedDeviceType", dType);
+          }
+        }
+      }
+    }, () => {});
+    return () => unsub();
+  }, [profile?.rollNo, user?.email]);
 
   const handleConfirmStudentDevice = async (targetType) => {
     setBindingDevice(true);
@@ -347,58 +386,20 @@ export default function DeviceSetupPage() {
                 type="button"
                 className={`device-model-action-btn ${selectedRoleDevice === "android" ? "selected" : platform === "android" ? "active-platform" : ""}`}
                 disabled={bindingDevice || (isDeviceLocked && selectedRoleDevice === "android")}
-                onClick={async () => {
-                  setBindingDevice(true);
-                  try {
-                    const roll = (profile?.rollNo || user?.email?.split("@")[0] || "").trim().toUpperCase();
-                    await registerStudentDevice({
-                      id: roll,
-                      rollNo: roll,
-                      user,
-                      profile,
-                      platform: "android"
-                    });
-                    setSelectedRoleDevice("android");
-                    setPlatform("android");
-                    setGlobalVariable("selectedDeviceType", "android"); setDeviceSaveSuccess("Android Phone model selected! You can change this selection anytime until it is locked. ✓");
-                  } catch (e) {
-                    console.warn(e);
-                  } finally {
-                    setBindingDevice(false);
-                  }
-                }}
+                onClick={() => handleConfirmStudentDevice("android")}
               >
                 {bindingDevice && platform === "android" ? <FaSpinner className="fa-spin" /> : (selectedRoleDevice === "android" ? <FaCheckCircle /> : <FaAndroid />)}
-                <span>{selectedRoleDevice === "android" ? "Android Selected ✓" : "Confirm Android Model"}</span>
+                <span>{selectedRoleDevice === "android" ? (isDeviceLocked ? "Android Locked 🔒 ✓" : "Android Selected ✓") : "Confirm Android Model"}</span>
               </button>
 
               <button
                 type="button"
                 className={`device-model-action-btn ${selectedRoleDevice === "ios" ? "selected" : platform === "ios" ? "active-platform" : ""}`}
                 disabled={bindingDevice || (isDeviceLocked && selectedRoleDevice === "ios")}
-                onClick={async () => {
-                  setBindingDevice(true);
-                  try {
-                    const roll = (profile?.rollNo || user?.email?.split("@")[0] || "").trim().toUpperCase();
-                    await registerStudentDevice({
-                      id: roll,
-                      rollNo: roll,
-                      user,
-                      profile,
-                      platform: "ios"
-                    });
-                    setSelectedRoleDevice("ios");
-                    setPlatform("ios");
-                    setGlobalVariable("selectedDeviceType", "ios"); setDeviceSaveSuccess("iPhone model selected! You can change this selection anytime until it is locked. ✓");
-                  } catch (e) {
-                    console.warn(e);
-                  } finally {
-                    setBindingDevice(false);
-                  }
-                }}
+                onClick={() => handleConfirmStudentDevice("ios")}
               >
                 {bindingDevice && platform === "ios" ? <FaSpinner className="fa-spin" /> : (selectedRoleDevice === "ios" ? <FaCheckCircle /> : <FaApple />)}
-                <span>{selectedRoleDevice === "ios" ? "iPhone Selected ✓" : "Confirm iPhone Model"}</span>
+                <span>{selectedRoleDevice === "ios" ? (isDeviceLocked ? "iPhone Locked 🔒 ✓" : "iPhone Selected ✓") : "Confirm iPhone Model"}</span>
               </button>
             </div>
           </div>

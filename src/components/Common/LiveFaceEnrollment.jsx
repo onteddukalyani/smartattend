@@ -727,55 +727,55 @@ export function LiveFaceEnrollment({
                         {!cameraActive && (
                             <div className="lfe-camera-placeholder">
                                 <>
-                                        <div className="lfe-placeholder-icon-wrap">
-                                            <FaIdCard className="lfe-camera-placeholder-icon" />
-                                        </div>
-                                        <h5>Fast Facial Biometric Registration</h5>
-                                        <p>Position your face inside the frame. The scanner will capture and verify your facial profile in ~2 seconds.</p>
-                                        <div className="lfe-placeholder-btn-group">
+                                    <div className="lfe-placeholder-icon-wrap">
+                                        <FaIdCard className="lfe-camera-placeholder-icon" />
+                                    </div>
+                                    <h5>Fast Facial Biometric Registration</h5>
+                                    <p>Position your face inside the frame. The scanner will capture and verify your facial profile in ~2 seconds.</p>
+                                    <div className="lfe-placeholder-btn-group">
+                                        <button
+                                            type="button"
+                                            className="lfe-primary-cam-btn"
+                                            onClick={startCameraStream}
+                                            disabled={cameraLoading}
+                                            style={{ width: "100%", justifyContent: "center" }}
+                                        >
+                                            {cameraLoading ? (
+                                                <><FaSpinner className="fa-spin" /> Starting Camera...</>
+                                            ) : (
+                                                <><FaVideo /> Start Live Biometric Scan</>
+                                            )}
+                                        </button>
+                                        {canSwitchCamera && (
                                             <button
                                                 type="button"
-                                                className="lfe-primary-cam-btn"
-                                                onClick={startCameraStream}
+                                                className="lfe-switch-camera-btn"
+                                                onClick={handleCameraSwitch}
                                                 disabled={cameraLoading}
-                                                style={{ width: "100%", justifyContent: "center" }}
+                                                aria-label={`Switch to ${cameraFacingMode === "user" ? "rear" : "front"} camera`}
                                             >
-                                                {cameraLoading ? (
-                                                    <><FaSpinner className="fa-spin" /> Starting Camera...</>
-                                                ) : (
-                                                    <><FaVideo /> Start Live Biometric Scan</>
-                                                )}
+                                                <FaSyncAlt />
+                                                {cameraFacingMode === "user" ? "Start with rear camera" : "Start with front camera"}
                                             </button>
-                                            {canSwitchCamera && (
-                                                <button
-                                                    type="button"
-                                                    className="lfe-switch-camera-btn"
-                                                    onClick={handleCameraSwitch}
-                                                    disabled={cameraLoading}
-                                                    aria-label={`Switch to ${cameraFacingMode === "user" ? "rear" : "front"} camera`}
-                                                >
-                                                    <FaSyncAlt />
-                                                    {cameraFacingMode === "user" ? "Start with rear camera" : "Start with front camera"}
-                                                </button>
-                                            )}
+                                        )}
+                                    </div>
+
+                                    {permissionStatus === "denied" && (
+                                        <div className="lfe-perm-denied-guide">
+                                            <div style={{ fontWeight: 800, marginBottom: "4px", display: "flex", alignItems: "center", gap: "6px" }}>
+                                                <FaLock /> Camera Blocked in Browser
+                                            </div>
+                                            <div>
+                                                Click the <strong>Lock / Camera icon 🔒</strong> in your address bar and set <strong>Camera</strong> to <strong>Allow</strong>.
+                                            </div>
                                         </div>
+                                    )}
 
-                                        {permissionStatus === "denied" && (
-                                            <div className="lfe-perm-denied-guide">
-                                                <div style={{ fontWeight: 800, marginBottom: "4px", display: "flex", alignItems: "center", gap: "6px" }}>
-                                                    <FaLock /> Camera Blocked in Browser
-                                                </div>
-                                                <div>
-                                                    Click the <strong>Lock / Camera icon 🔒</strong> in your address bar and set <strong>Camera</strong> to <strong>Allow</strong>.
-                                                </div>
-                                            </div>
-                                        )}
-
-                                        {cameraError && permissionStatus !== "denied" && (
-                                            <div className="lfe-error-tip">
-                                                <FaInfoCircle /> {cameraError}
-                                            </div>
-                                        )}
+                                    {cameraError && permissionStatus !== "denied" && (
+                                        <div className="lfe-error-tip">
+                                            <FaInfoCircle /> {cameraError}
+                                        </div>
+                                    )}
                                 </>
                             </div>
                         )}
@@ -860,7 +860,7 @@ export function LiveFaceEnrollment({
                             {capturing ? (
                                 <><FaSpinner className="fa-spin" /> Enrolling Biometrics...</>
                             ) : (
-                                <><FaCamera /> Capture Face Biometrics</>
+                                <><FaCamera /> Identify Face Biometrics</>
                             )}
                         </button>
                     </div>

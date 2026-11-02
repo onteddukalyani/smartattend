@@ -781,6 +781,18 @@ function QrScannerApp() {
                     } catch (_) { }
                 }
 
+                if (data.deviceType || data.registeredDeviceType || data.registeredPlatform || data.platform) {
+                    const dType = data.deviceType || data.registeredDeviceType || data.registeredPlatform || data.platform;
+                    try {
+                        localStorage.setItem('smartattend_student_device_type', dType);
+                        localStorage.setItem('smartattend_device_type', dType);
+                        if (data.deviceTypeLocked || data.isDeviceRegistered) {
+                            localStorage.setItem('smartattend_student_device_locked', 'true');
+                            localStorage.setItem('smartattend_device_locked', 'true');
+                        }
+                    } catch (_) { }
+                }
+
                 setStudentBioStatus((prev) => {
                     const nextFace = hasRemoval ? false : (hasFace || prev.hasFace);
                     const nextHw = isHwReset ? false : (hasHw || prev.hasHw);
@@ -2180,7 +2192,20 @@ function QrScannerApp() {
 
     // Dual Verification: Auto-detect device and verify against registered device preference
     const verifyDeviceIntegrity = useCallback(async (targetSessionId = '') => {
-        const registeredType = profile?.deviceType || profile?.registeredDeviceType || (typeof window !== 'undefined' ? localStorage.getItem('smartattend_student_device_type') : null);
+        const registeredType = (
+            profile?.deviceType ||
+            profile?.registeredDeviceType ||
+            profile?.registeredPlatform ||
+            profile?.platform ||
+            dbStudent?.deviceType ||
+            dbStudent?.registeredDeviceType ||
+            dbStudent?.registeredPlatform ||
+            dbStudent?.platform ||
+            verifiedStudent?.deviceType ||
+            (typeof window !== 'undefined' ? (localStorage.getItem('smartattend_student_device_type') || localStorage.getItem('smartattend_device_type')) : null) ||
+            getGlobalVariable('selectedDeviceType') ||
+            getGlobalVariable('lockedDeviceType')
+        );
         const detectedType = detectDeviceType();
 
         // If a device type is registered for this student, verify against current runtime
@@ -2241,6 +2266,8 @@ function QrScannerApp() {
             getGlobalVariable('isDeviceLocked') === true ||
             profile?.deviceTypeLocked === true ||
             profile?.isDeviceRegistered === true ||
+            dbStudent?.deviceTypeLocked === true ||
+            dbStudent?.isDeviceRegistered === true ||
             localStorage.getItem('smartattend_student_device_locked') === 'true' ||
             localStorage.getItem('smartattend_device_locked') === 'true' ||
             registeredType ||
