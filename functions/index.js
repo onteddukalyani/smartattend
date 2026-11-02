@@ -3607,9 +3607,12 @@ exports.recordAttendanceLifecycleEvent = onCall(async (request) => {
   const userAgent = String(request.rawRequest?.headers?.["user-agent"] || "").toLowerCase();
   const lifecycleStudentSnap = rollNo ? await db.collection("students").doc(rollNo).get() : null;
   const lifecycleStudent = lifecycleStudentSnap?.exists ? lifecycleStudentSnap.data() : {};
-  const isAndroidClient = lifecycleStudent?.registeredPlatform === "android" || userAgent.includes("android");
-  const violationThreshold = isAndroidClient ? 2 : Number.MAX_SAFE_INTEGER;
-  const isDisqualified = isConfirmedViolation && isAndroidClient && nextCount >= violationThreshold;
+  const isAndroidNative = (lifecycleStudent?.registeredPlatform === "android" || userAgent.includes("android")) && (userAgent.includes("wv") || userAgent.includes("capacitor") || platform === "android");
+  const isWebClient = platform === "web" || !isAndroidNative;
+  const webThreshold = Number(session.webMaxViolations) > 0 ? Number(session.webMaxViolations) : 1;
+  const androidThreshold = Number(session.androidMaxViolations) > 0 ? Number(session.androidMaxViolations) : 2;
+  const violationThreshold = isWebClient ? webThreshold : androidThreshold;
+  const isDisqualified = isConfirmedViolation && nextCount >= violationThreshold;
 
   const violationEntry = {
     type: eventType || "CONFIRMED_KIOSK_ESCAPE",

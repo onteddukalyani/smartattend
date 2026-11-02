@@ -348,7 +348,7 @@ function FaceScanner({
     } catch (camErr) {
       console.error("Camera access error:", camErr);
       const isDenied = camErr.name === "NotAllowedError" || camErr.name === "PermissionDeniedError";
-      const isInUse = camErr.name === "NotReadableError" || camErr.name === "TrackStartError";
+      const isInUse = camErr.name === "NotReadableError" || camErr.name === "TrackStartError" || String(camErr.message || '').toLowerCase().includes('in use') || String(camErr.message || '').toLowerCase().includes('concurrent') || String(camErr.message || '').toLowerCase().includes('could not start');
 
       // If rear camera was requested on a device without a rear camera (e.g. laptop webcam), smoothly revert to front camera
       if (activeFacing === "environment" && !isDenied) {
@@ -363,11 +363,11 @@ function FaceScanner({
       if (isDenied) {
         setCameraError("Camera permission denied. Please allow camera access in your browser / app settings.");
       } else if (isInUse) {
-        setCameraError("Camera is in use by another feature. Retrying connection...");
+        setCameraError("🚨 Camera In Use: An active video call (WhatsApp, Meet, Zoom) or another application is using your camera. Please end all video calls to mark attendance.");
         // Auto retry once after brief delay
         setTimeout(() => {
           initCameraAndModels(activeFacing);
-        }, 600);
+        }, 1200);
       } else if (camErr.message?.includes("INSECURE_CONTEXT")) {
         setCameraError("Camera requires HTTPS. Please open via HTTPS or localhost.");
       } else {
@@ -700,7 +700,7 @@ function FaceScanner({
                 setConfidence(conf);
               }
 
-              const isMatch = (hasLocalMatch && dist <= 0.52) || (hasFreshServerMatch && serverMatch.matched === true);
+              const isMatch = (hasLocalMatch && dist <= 0.48) || (hasFreshServerMatch && serverMatch.matched === true && Number(serverMatch.distance || 1) <= 0.48);
               if (isMatch) {
                 consecutiveMatchesRef.current += 1;
               } else {
@@ -791,15 +791,15 @@ function FaceScanner({
                 consecutiveMatchesRef.current = 0;
                 mismatchFramesRef.current += 1;
 
-                // Require at least 5 consecutive non-matching frames before declaring mismatch to avoid transient angle jitter
-                if (mismatchFramesRef.current >= 5) {
+                // Fast mismatch detection: flag proxy face after 2 consecutive frames or strong mismatch (dist > 0.52)
+                if (mismatchFramesRef.current >= 2 || (hasLocalMatch && dist > 0.52)) {
                   updateStatus("mismatch");
                   updateFeedback(`❌ Face does NOT match registered student ${verifiedStudent.name} (${verifiedStudent.rollNo})! Proxy attendance is strictly prohibited.`);
                   onVerificationChange({
                     verified: false,
                     confidence: 0,
                     distance: dist,
-                    reason: "MISMATCH"
+                    reason: "BIOMETRIC_IDENTITY_MISMATCH"
                   });
                 } else {
                   updateStatus("scanning");

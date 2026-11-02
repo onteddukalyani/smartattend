@@ -41,15 +41,15 @@ function exitBrowserFullscreen() {
   if (typeof document === 'undefined') return Promise.resolve();
   try {
     if (document.fullscreenElement && document.exitFullscreen) {
-      return document.exitFullscreen().catch(() => {});
+      return document.exitFullscreen().catch(() => { });
     } else if (document.webkitFullscreenElement && document.webkitExitFullscreen) {
-      return Promise.resolve(document.webkitExitFullscreen()).catch(() => {});
+      return Promise.resolve(document.webkitExitFullscreen()).catch(() => { });
     } else if (document.mozFullScreenElement && document.mozCancelFullScreen) {
-      return Promise.resolve(document.mozCancelFullScreen()).catch(() => {});
+      return Promise.resolve(document.mozCancelFullScreen()).catch(() => { });
     } else if (document.msFullscreenElement && document.msExitFullscreen) {
-      return Promise.resolve(document.msExitFullscreen()).catch(() => {});
+      return Promise.resolve(document.msExitFullscreen()).catch(() => { });
     }
-  } catch (_) {}
+  } catch (_) { }
   return Promise.resolve();
 }
 
@@ -69,6 +69,41 @@ function isBrowserFullscreen() {
 /**
  * Screen WakeLock Helper with auto-recovery
  */
+let webAudioCtx = null;
+
+async function acquireBrowserAudioFocus() {
+  try {
+    if (typeof window === 'undefined') return;
+    if (typeof document !== 'undefined') {
+      const mediaElements = document.querySelectorAll('audio, video');
+      mediaElements.forEach((m) => {
+        try { if (!m.paused) m.pause(); } catch (_) { }
+      });
+      if (document.pictureInPictureElement && typeof document.exitPictureInPicture === 'function') {
+        document.exitPictureInPicture().catch(() => { });
+      }
+    }
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (AudioContextClass && !webAudioCtx) {
+      webAudioCtx = new AudioContextClass();
+      if (webAudioCtx.state === 'suspended') {
+        webAudioCtx.resume().catch(() => { });
+      }
+    }
+  } catch (err) {
+    console.warn('[Kiosk Web] Audio focus acquisition notice:', err?.message || err);
+  }
+}
+
+function releaseBrowserAudioFocus() {
+  try {
+    if (webAudioCtx) {
+      webAudioCtx.close().catch(() => { });
+      webAudioCtx = null;
+    }
+  } catch (_) { }
+}
+
 async function acquireBrowserWakeLock() {
   try {
     if (typeof navigator !== 'undefined' && 'wakeLock' in navigator && !webWakeLock) {
@@ -100,7 +135,7 @@ function handleKioskPopState() {
   if (!isWebKioskActive) return;
   try {
     window.history.pushState({ smartattend_kiosk: true }, document.title, window.location.href);
-  } catch (_) {}
+  } catch (_) { }
   window.dispatchEvent(new CustomEvent('smartattend_kiosk_back_attempt'));
 }
 
@@ -165,7 +200,7 @@ function handleKioskVisibilityChange() {
     // Automatically redirect back to attendance scanner if on any other page
     if (typeof window !== 'undefined' && window.location) {
       const p = (window.location.pathname || '').toLowerCase();
-      if (!p.includes('mark-attendance') && !p.includes('scanqr')) {
+      if (!p.includes('mark-attendance') && !p.includes('scanqr') && !p.includes('scanner')) {
         console.log('[Kiosk Engine] Returning from background: automatically redirecting to attendance page');
         window.location.replace('/student/mark-attendance');
       }
@@ -173,9 +208,125 @@ function handleKioskVisibilityChange() {
   } else if (document.visibilityState === 'hidden') {
     document.title = '🚨 ATTENDANCE IN PROGRESS · RETURN TO SMARTATTEND!';
     if (typeof navigator !== 'undefined' && navigator.vibrate) {
-      try { navigator.vibrate([250, 100, 250, 100, 250]); } catch (_) {}
+      try { navigator.vibrate([250, 100, 250, 100, 250]); } catch (_) { }
     }
   }
+}
+
+async function startKioskInternal() {
+  console.log('[KioskPlugin Web] Starting web supervised session on all browser devices');
+  isWebKioskActive = true;
+
+  // 1. Acquire Screen Wake Lock to prevent screen sleep while waiting for QR 2
+  await acquireBrowserWakeLock();
+
+  // 2. Request Fullscreen across all browser vendors
+  await requestBrowserFullscreen();
+  await acquireBrowserAudioFocus();
+
+  // 3. Intercept window.open & link clicks to prevent opening new tabs/apps
+  if (typeof window !== 'undefined') {
+    try {
+      if (!originalWindowOpen) {
+        originalWindowOpen = window.open;
+        window.open = function (...args) {
+          if (isWebKioskActive) {
+            console.warn('[Kiosk Shield] Blocked attempt to open new tab/window during attendance session:', args);
+            return null;
+          }
+          return originalWindowOpen.apply(this, args);
+        };
+      }
+      document.removeEventListener('click', handleKioskLinkClick, true);
+      document.addEventListener('click', handleKioskLinkClick, true);
+
+      window.history.pushState({ smartattend_kiosk: true }, document.title, window.location.href);
+      window.removeEventListener('popstate', handleKioskPopState);
+      window.addEventListener('popstate', handleKioskPopState);
+      window.removeEventListener('beforeunload', handleKioskBeforeUnload);
+      window.addEventListener('beforeunload', handleKioskBeforeUnload);
+      window.removeEventListener('keydown', handleKioskKeyDown, true);
+      window.addEventListener('keydown', handleKioskKeyDown, true);
+      window.removeEventListener('contextmenu', handleKioskContextMenu, true);
+      window.addEventListener('contextmenu', handleKioskContextMenu, true);
+      document.removeEventListener('visibilitychange', handleKioskVisibilityChange);
+      document.addEventListener('visibilitychange', handleKioskVisibilityChange);
+      window.removeEventListener('focus', handleKioskVisibilityChange);
+      window.addEventListener('focus', handleKioskVisibilityChange);
+    } catch (_) { }
+  }
+
+  // 4. Lock page overscroll and selection styles to prevent accidental pull-to-refresh
+  if (typeof document !== 'undefined') {
+    try {
+      if (!savedBrowserStyles) {
+        savedBrowserStyles = {
+          htmlOverscroll: document.documentElement.style.overscrollBehavior,
+          bodyOverscroll: document.body.style.overscrollBehavior,
+          userSelect: document.body.style.userSelect,
+          webkitUserSelect: document.body.style.webkitUserSelect
+        };
+      }
+      document.documentElement.style.overscrollBehavior = 'none';
+      document.body.style.overscrollBehavior = 'none';
+      document.body.style.userSelect = 'none';
+      document.body.style.webkitUserSelect = 'none';
+    } catch (_) { }
+  }
+
+  return {
+    active: true,
+    isWebFallback: true,
+    isFullscreen: isBrowserFullscreen(),
+    message: 'Web supervised kiosk mode active on all devices'
+  };
+}
+
+async function stopKioskInternal() {
+  console.log('[KioskPlugin Web] Stopping web supervised session');
+  isWebKioskActive = false;
+
+  // 1. Release Wake Lock
+  if (webWakeLock) {
+    try {
+      await webWakeLock.release();
+    } catch (_) { }
+    webWakeLock = null;
+  }
+
+  // 2. Exit Fullscreen across all browser vendors
+  await exitBrowserFullscreen();
+  releaseBrowserAudioFocus();
+
+  // 3. Restore window.open and remove window listeners
+  if (typeof window !== 'undefined') {
+    try {
+      if (originalWindowOpen) {
+        window.open = originalWindowOpen;
+        originalWindowOpen = null;
+      }
+      document.removeEventListener('click', handleKioskLinkClick, true);
+      window.removeEventListener('popstate', handleKioskPopState);
+      window.removeEventListener('beforeunload', handleKioskBeforeUnload);
+      window.removeEventListener('keydown', handleKioskKeyDown, true);
+      window.removeEventListener('contextmenu', handleKioskContextMenu, true);
+      document.removeEventListener('visibilitychange', handleKioskVisibilityChange);
+      window.removeEventListener('focus', handleKioskVisibilityChange);
+    } catch (_) { }
+  }
+
+  // 4. Restore original styles
+  if (typeof document !== 'undefined' && savedBrowserStyles) {
+    try {
+      document.documentElement.style.overscrollBehavior = savedBrowserStyles.htmlOverscroll || '';
+      document.body.style.overscrollBehavior = savedBrowserStyles.bodyOverscroll || '';
+      document.body.style.userSelect = savedBrowserStyles.userSelect || '';
+      document.body.style.webkitUserSelect = savedBrowserStyles.webkitUserSelect || '';
+      savedBrowserStyles = null;
+    } catch (_) { }
+  }
+
+  return { active: false, isWebFallback: true, message: 'Web supervised mode ended' };
 }
 
 /**
@@ -183,12 +334,10 @@ function handleKioskVisibilityChange() {
  */
 const NativeKioskPlugin = registerPlugin('KioskPlugin', {
   web: {
-    startKioskMode: async () => {
-      return NativeKioskPlugin.startKiosk();
-    },
-    stopKioskMode: async () => {
-      return NativeKioskPlugin.stopKiosk();
-    },
+    startKioskMode: startKioskInternal,
+    stopKioskMode: stopKioskInternal,
+    startKiosk: startKioskInternal,
+    stopKiosk: stopKioskInternal,
     setAttendanceRestrictions: async () => {
       return { success: true, isWebFallback: true, message: 'Web attendance restrictions active' };
     },
@@ -226,118 +375,6 @@ const NativeKioskPlugin = registerPlugin('KioskPlugin', {
         securityLevel: 'WEB_SUPERVISED',
         isWebFallback: true
       };
-    },
-    startKiosk: async () => {
-      console.log('[KioskPlugin Web] Starting web supervised session on all browser devices');
-      isWebKioskActive = true;
-
-      // 1. Acquire Screen Wake Lock to prevent screen sleep while waiting for QR 2
-      await acquireBrowserWakeLock();
-
-      // 2. Request Fullscreen across all browser vendors
-      await requestBrowserFullscreen();
-
-      // 3. Intercept window.open & link clicks to prevent opening new tabs/apps
-      if (typeof window !== 'undefined') {
-        try {
-          if (!originalWindowOpen) {
-            originalWindowOpen = window.open;
-            window.open = function(...args) {
-              if (isWebKioskActive) {
-                console.warn('[Kiosk Shield] Blocked attempt to open new tab/window during attendance session:', args);
-                return null;
-              }
-              return originalWindowOpen.apply(this, args);
-            };
-          }
-          document.removeEventListener('click', handleKioskLinkClick, true);
-          document.addEventListener('click', handleKioskLinkClick, true);
-
-          window.history.pushState({ smartattend_kiosk: true }, document.title, window.location.href);
-          window.removeEventListener('popstate', handleKioskPopState);
-          window.addEventListener('popstate', handleKioskPopState);
-          window.removeEventListener('beforeunload', handleKioskBeforeUnload);
-          window.addEventListener('beforeunload', handleKioskBeforeUnload);
-          window.removeEventListener('keydown', handleKioskKeyDown, true);
-          window.addEventListener('keydown', handleKioskKeyDown, true);
-          window.removeEventListener('contextmenu', handleKioskContextMenu, true);
-          window.addEventListener('contextmenu', handleKioskContextMenu, true);
-          document.removeEventListener('visibilitychange', handleKioskVisibilityChange);
-          document.addEventListener('visibilitychange', handleKioskVisibilityChange);
-          window.removeEventListener('focus', handleKioskVisibilityChange);
-          window.addEventListener('focus', handleKioskVisibilityChange);
-        } catch (_) {}
-      }
-
-      // 4. Lock page overscroll and selection styles to prevent accidental pull-to-refresh
-      if (typeof document !== 'undefined') {
-        try {
-          if (!savedBrowserStyles) {
-            savedBrowserStyles = {
-              htmlOverscroll: document.documentElement.style.overscrollBehavior,
-              bodyOverscroll: document.body.style.overscrollBehavior,
-              userSelect: document.body.style.userSelect,
-              webkitUserSelect: document.body.style.webkitUserSelect
-            };
-          }
-          document.documentElement.style.overscrollBehavior = 'none';
-          document.body.style.overscrollBehavior = 'none';
-          document.body.style.userSelect = 'none';
-          document.body.style.webkitUserSelect = 'none';
-        } catch (_) {}
-      }
-
-      return {
-        active: true,
-        isWebFallback: true,
-        isFullscreen: isBrowserFullscreen(),
-        message: 'Web supervised kiosk mode active on all devices'
-      };
-    },
-    stopKiosk: async () => {
-      console.log('[KioskPlugin Web] Stopping web supervised session');
-      isWebKioskActive = false;
-
-      // 1. Release Wake Lock
-      if (webWakeLock) {
-        try {
-          await webWakeLock.release();
-        } catch (_) {}
-        webWakeLock = null;
-      }
-
-      // 2. Exit Fullscreen across all browser vendors
-      await exitBrowserFullscreen();
-
-      // 3. Restore window.open and remove window listeners
-      if (typeof window !== 'undefined') {
-        try {
-          if (originalWindowOpen) {
-            window.open = originalWindowOpen;
-            originalWindowOpen = null;
-          }
-          document.removeEventListener('click', handleKioskLinkClick, true);
-          window.removeEventListener('popstate', handleKioskPopState);
-          window.removeEventListener('beforeunload', handleKioskBeforeUnload);
-          window.removeEventListener('keydown', handleKioskKeyDown, true);
-          window.removeEventListener('contextmenu', handleKioskContextMenu, true);
-          document.removeEventListener('visibilitychange', handleKioskVisibilityChange);
-          window.removeEventListener('focus', handleKioskVisibilityChange);
-        } catch (_) {}
-      }
-
-      // 4. Restore original styles
-      if (typeof document !== 'undefined' && savedBrowserStyles) {
-        try {
-          document.documentElement.style.overscrollBehavior = savedBrowserStyles.htmlOverscroll || '';
-          document.body.style.overscrollBehavior = savedBrowserStyles.bodyOverscroll || '';
-          document.body.style.userSelect = savedBrowserStyles.userSelect || '';
-          document.body.style.webkitUserSelect = savedBrowserStyles.webkitUserSelect || '';
-          savedBrowserStyles = null;
-        } catch (_) {}
-      }
-
-      return { active: false, isWebFallback: true, message: 'Web supervised mode ended' };
     },
     isKioskActive: async () => {
       const isFs = isBrowserFullscreen();

@@ -48,6 +48,8 @@ export async function createAttendanceSession(
         classroomLocation: hasValidCoords ? timetableOptions.classroomLocation : (timetableOptions?.classroomLocation || null),
         locationMode: timetableOptions?.locationMode || (effectiveRadius > 0 ? (timetableOptions?.classroomLocation?.source === "LAPTOP" ? "LAPTOP" : "MOBILE") : "NONE"),
         rotationIntervalSec: typeof timetableOptions?.rotationIntervalSec === 'number' ? timetableOptions.rotationIntervalSec : 15,
+        webMaxViolations: Number(timetableOptions?.webMaxViolations) > 0 ? Number(timetableOptions.webMaxViolations) : ((typeof localStorage !== 'undefined' && Number(localStorage.getItem('smartattend_web_max_violations')) > 0) ? Number(localStorage.getItem('smartattend_web_max_violations')) : 1),
+        androidMaxViolations: Number(timetableOptions?.androidMaxViolations) > 0 ? Number(timetableOptions.androidMaxViolations) : ((typeof localStorage !== 'undefined' && Number(localStorage.getItem('smartattend_android_max_violations')) > 0) ? Number(localStorage.getItem('smartattend_android_max_violations')) : 2),
         durationMinutes: Math.round(((qr1Sec + qr2Sec) / 60) * 10) / 10,
         qr1DurationSeconds: qr1Sec,
         qr2DurationSeconds: qr2Sec,

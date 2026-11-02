@@ -95,6 +95,38 @@ function Settings() {
     // Device Setup Modal State
     const [showDeviceModal, setShowDeviceModal] = useState(false);
 
+    // Attendance Security & Platform Violation Limits State (Lecturers & Admins)
+    const [webMaxViolations, setWebMaxViolations] = useState(() => {
+        try {
+            const v = localStorage.getItem("smartattend_web_max_violations");
+            return v !== null && Number(v) > 0 ? Number(v) : 1;
+        } catch {
+            return 1;
+        }
+    });
+    const [androidMaxViolations, setAndroidMaxViolations] = useState(() => {
+        try {
+            const v = localStorage.getItem("smartattend_android_max_violations");
+            return v !== null && Number(v) > 0 ? Number(v) : 2;
+        } catch {
+            return 2;
+        }
+    });
+    const [securitySuccessMsg, setSecuritySuccessMsg] = useState("");
+
+    const handleApplyViolationSetting = (webVal, androidVal) => {
+        const cleanWeb = Math.max(1, Number(webVal) || 1);
+        const cleanAndroid = Math.max(1, Number(androidVal) || 2);
+        setWebMaxViolations(cleanWeb);
+        setAndroidMaxViolations(cleanAndroid);
+        try {
+            localStorage.setItem("smartattend_web_max_violations", String(cleanWeb));
+            localStorage.setItem("smartattend_android_max_violations", String(cleanAndroid));
+        } catch (_) {}
+        setSecuritySuccessMsg(`Security limits updated: Web = ${cleanWeb} violation(s), Android = ${cleanAndroid} violation(s).`);
+        setTimeout(() => setSecuritySuccessMsg(""), 4000);
+    };
+
     // Support & Feedback Modal State
     const [showSupportModal, setShowSupportModal] = useState(false);
     const [supportModalTab, setSupportModalTab] = useState("feedback");
@@ -902,6 +934,129 @@ function Settings() {
                         </div>
                     )}
                 </section>
+
+                {/* Middle Card: Lecturer & Admin Attendance Security Controls */}
+                {(rawRole === "lecturer" || rawRole === "faculty" || rawRole === "teacher" || rawRole === "admin" || rawRole === "administrator" || rawRole === "superadmin") && (
+                    <section className="st-card st-details-card" style={{ gridColumn: "1 / -1", border: "1.5px solid rgba(99, 102, 241, 0.25)" }}>
+                        <div className="st-card-header">
+                            <div className="st-card-header-icon blue">
+                                <FaShieldAlt />
+                            </div>
+                            <div>
+                                <h2 className="st-card-title">Attendance Security &amp; Violation Thresholds</h2>
+                                <p className="st-card-subtitle">Configure strict anti-cheating disqualification limits per platform for your attendance sessions</p>
+                            </div>
+                        </div>
+
+                        <div style={{ padding: "0 24px 24px" }}>
+                            {securitySuccessMsg && (
+                                <div style={{ background: "rgba(16, 185, 129, 0.12)", color: "#059669", padding: "12px 16px", borderRadius: "12px", border: "1px solid rgba(16, 185, 129, 0.3)", fontWeight: 700, marginBottom: "16px", fontSize: "0.92rem", display: "flex", alignItems: "center", gap: "8px" }}>
+                                    <FaCheckCircle /> {securitySuccessMsg}
+                                </div>
+                            )}
+
+                            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "16px", marginBottom: "20px" }}>
+                                {/* Preset Option A: Standard Default */}
+                                <div
+                                    onClick={() => handleApplyViolationSetting(1, 2)}
+                                    style={{
+                                        border: (webMaxViolations === 1 && androidMaxViolations === 2) ? "2px solid #6366f1" : "1px solid var(--border, #e2e8f0)",
+                                        background: (webMaxViolations === 1 && androidMaxViolations === 2) ? "rgba(99, 102, 241, 0.08)" : "var(--card-bg, #ffffff)",
+                                        borderRadius: "14px",
+                                        padding: "16px",
+                                        cursor: "pointer",
+                                        transition: "all 0.2s ease"
+                                    }}
+                                >
+                                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "6px" }}>
+                                        <span style={{ fontWeight: 800, fontSize: "0.95rem", color: "var(--text-primary, #0f172a)" }}>Standard Security (Default)</span>
+                                        {(webMaxViolations === 1 && androidMaxViolations === 2) && <FaCheckCircle style={{ color: "#6366f1" }} />}
+                                    </div>
+                                    <p style={{ margin: 0, fontSize: "0.84rem", color: "var(--text-muted, #64748b)", lineHeight: 1.4 }}>
+                                        <strong>Web: 1 violation</strong> (immediate forfeit)<br />
+                                        <strong>Android: 2 violations</strong> (Strike 1 warning, Strike 2 forfeit)
+                                    </p>
+                                </div>
+
+                                {/* Preset Option B: Strict Zero-Tolerance */}
+                                <div
+                                    onClick={() => handleApplyViolationSetting(1, 1)}
+                                    style={{
+                                        border: (webMaxViolations === 1 && androidMaxViolations === 1) ? "2px solid #ef4444" : "1px solid var(--border, #e2e8f0)",
+                                        background: (webMaxViolations === 1 && androidMaxViolations === 1) ? "rgba(239, 68, 68, 0.08)" : "var(--card-bg, #ffffff)",
+                                        borderRadius: "14px",
+                                        padding: "16px",
+                                        cursor: "pointer",
+                                        transition: "all 0.2s ease"
+                                    }}
+                                >
+                                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "6px" }}>
+                                        <span style={{ fontWeight: 800, fontSize: "0.95rem", color: "var(--text-primary, #0f172a)" }}>Strict Zero-Tolerance</span>
+                                        {(webMaxViolations === 1 && androidMaxViolations === 1) && <FaCheckCircle style={{ color: "#ef4444" }} />}
+                                    </div>
+                                    <p style={{ margin: 0, fontSize: "0.84rem", color: "var(--text-muted, #64748b)", lineHeight: 1.4 }}>
+                                        <strong>Web: 1 violation</strong> (immediate forfeit)<br />
+                                        <strong>Android: 1 violation</strong> (immediate forfeit)
+                                    </p>
+                                </div>
+
+                                {/* Preset Option C: Lenient */}
+                                <div
+                                    onClick={() => handleApplyViolationSetting(2, 3)}
+                                    style={{
+                                        border: (webMaxViolations === 2 && androidMaxViolations === 3) ? "2px solid #10b981" : "1px solid var(--border, #e2e8f0)",
+                                        background: (webMaxViolations === 2 && androidMaxViolations === 3) ? "rgba(16, 185, 129, 0.08)" : "var(--card-bg, #ffffff)",
+                                        borderRadius: "14px",
+                                        padding: "16px",
+                                        cursor: "pointer",
+                                        transition: "all 0.2s ease"
+                                    }}
+                                >
+                                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "6px" }}>
+                                        <span style={{ fontWeight: 800, fontSize: "0.95rem", color: "var(--text-primary, #0f172a)" }}>Lenient Classroom</span>
+                                        {(webMaxViolations === 2 && androidMaxViolations === 3) && <FaCheckCircle style={{ color: "#10b981" }} />}
+                                    </div>
+                                    <p style={{ margin: 0, fontSize: "0.84rem", color: "var(--text-muted, #64748b)", lineHeight: 1.4 }}>
+                                        <strong>Web: 2 violations</strong> (1 warning strike)<br />
+                                        <strong>Android: 3 violations</strong> (2 warning strikes)
+                                    </p>
+                                </div>
+                            </div>
+
+                            {/* Manual Adjustment Form */}
+                            <div style={{ background: "rgba(99, 102, 241, 0.04)", borderRadius: "14px", padding: "16px", border: "1px dashed rgba(99, 102, 241, 0.3)", display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: "16px" }}>
+                                <div>
+                                    <span style={{ fontWeight: 700, fontSize: "0.92rem", color: "var(--text-primary, #0f172a)", display: "block" }}>Custom Violation Limits (Manual)</span>
+                                    <span style={{ fontSize: "0.82rem", color: "var(--text-muted, #64748b)" }}>Specify exact violation thresholds to apply when creating future sessions</span>
+                                </div>
+                                <div style={{ display: "flex", alignItems: "center", gap: "14px", flexWrap: "wrap" }}>
+                                    <label style={{ fontSize: "0.86rem", fontWeight: 700, color: "var(--text-primary, #0f172a)", display: "flex", alignItems: "center", gap: "8px" }}>
+                                        Web Max:
+                                        <input
+                                            type="number"
+                                            min="1"
+                                            max="5"
+                                            value={webMaxViolations}
+                                            onChange={(e) => handleApplyViolationSetting(Number(e.target.value) || 1, androidMaxViolations)}
+                                            style={{ width: "64px", padding: "6px 10px", borderRadius: "8px", border: "1px solid var(--border, #cbd5e1)", textAlign: "center", fontWeight: 800 }}
+                                        />
+                                    </label>
+                                    <label style={{ fontSize: "0.86rem", fontWeight: 700, color: "var(--text-primary, #0f172a)", display: "flex", alignItems: "center", gap: "8px" }}>
+                                        Android Max:
+                                        <input
+                                            type="number"
+                                            min="1"
+                                            max="5"
+                                            value={androidMaxViolations}
+                                            onChange={(e) => handleApplyViolationSetting(webMaxViolations, Number(e.target.value) || 2)}
+                                            style={{ width: "64px", padding: "6px 10px", borderRadius: "8px", border: "1px solid var(--border, #cbd5e1)", textAlign: "center", fontWeight: 800 }}
+                                        />
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+                )}
 
                 {/* Right Card: Appearance & Preferences */}
                 <section className="st-card st-appearance-card">

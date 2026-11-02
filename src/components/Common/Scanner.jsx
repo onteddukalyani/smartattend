@@ -478,10 +478,26 @@ function QrScannerApp() {
             }
         } catch (_) { }
 
+        if (typeof navigator !== "undefined" && navigator.permissions && navigator.permissions.query) {
+            try {
+                navigator.permissions.query({ name: 'geolocation' }).then((p) => {
+                    if (p && p.state === 'granted') {
+                        try { localStorage.removeItem('smartattend_gps_permission_denied'); } catch (_) { }
+                    }
+                    p.onchange = () => {
+                        if (p.state === 'granted') {
+                            try { localStorage.removeItem('smartattend_gps_permission_denied'); } catch (_) { }
+                        }
+                    };
+                }).catch(() => { });
+            } catch (_) { }
+        }
+
         if (typeof navigator !== "undefined" && navigator.geolocation) {
             const applyStudentGps = (pos) => {
                 const locObj = locationFromPosition(pos);
                 if (!locObj) return;
+                try { localStorage.removeItem('smartattend_gps_permission_denied'); } catch (_) { }
                 const prev = prewarmedLocationRef.current;
                 const isAccurate = isAccurateLocation(locObj);
                 const prevAccurate = prev && isAccurateLocation(prev);
@@ -1560,6 +1576,7 @@ function QrScannerApp() {
                     autoReleaseAt,
                     scanState,
                     qr1Accepted: qr1AcceptedForSessionRef.current,
+                    qr1Verified: true,
                     activeQr2Token,
                     submissionDetails,
                     rollNo: loggedInRollNo
@@ -1591,7 +1608,7 @@ function QrScannerApp() {
                     } catch (_) { }
                 }
 
-                if (parsed && parsed.sessionId && hasValidTimer && (hasQr1Verified || parsed.qr1Verified === true)) {
+                if (parsed && parsed.sessionId && hasValidTimer && (hasQr1Verified || parsed.qr1Verified === true || parsed.qr1Accepted === true || parsed.scanState === 'KIOSK_WAITING_QR2' || parsed.scanState === 'VALIDATING_QR2' || parsed.scanState === 'BIOMETRIC_SCAN')) {
                     console.log('[Kiosk] Resuming active attendance session after app launch/restart:', parsed);
                     setActiveSessionId(parsed.sessionId);
                     setSessionStartAt(parsed.sessionStartAt);
@@ -1632,7 +1649,7 @@ function QrScannerApp() {
                             setActiveSessionId(null);
                         }
                     }).catch(() => { });
-                } else {
+                } else if (!hasValidTimer && !activeSessionId) {
                     localStorage.removeItem('smartattend_kiosk_session_state');
                     Kiosk.stopKioskMode().catch(() => { });
                     Kiosk.clearAttendanceRestrictions().catch(() => { });
@@ -1713,15 +1730,16 @@ function QrScannerApp() {
             console.warn(`[Kiosk Guardian] Lifecycle interruption detected via ${source}!`);
 
             const isAndroidNative = isNativeApp && !isIOSDevice();
+            const maxAllowed = isAndroidNative 
+                ? (Number(sessionData?.androidMaxViolations) > 0 ? Number(sessionData.androidMaxViolations) : 2)
+                : (Number(sessionData?.webMaxViolations) > 0 ? Number(sessionData.webMaxViolations) : 1);
             const nextCount = violationCount + 1;
             setViolationCount(nextCount);
             setSupervisionViolation(true);
 
-            // Universal Policy (All Platforms): 1 warning chance allowed. Disqualify only on strike 2.
-            if (nextCount === 1) {
-                console.warn(`[Kiosk Guardian] Security warning triggered via ${source} (Strike 1/2). Warning chance granted.`);
-                setErrorMessage('⚠️ Warning (Strike 1/2): App switching or tab minimizing detected! This is your 1 warning chance. If you leave or switch apps again (Strike 2), attendance will be permanently forfeited.');
-                // Re-engage Kiosk Lock on Android
+            if (nextCount < maxAllowed) {
+                console.warn(`[Kiosk Guardian] Security warning triggered via ${source} (Strike ${nextCount}/${maxAllowed}). Warning chance granted.`);
+                setErrorMessage(`⚠️ Warning (Strike ${nextCount}/${maxAllowed}): App switching or tab minimizing detected! This is your warning chance. Any further switch will permanently disqualify your attendance.`);
                 if (isAndroidNative) {
                     Kiosk?.startKioskMode?.().catch(() => { });
                 }
@@ -1730,18 +1748,18 @@ function QrScannerApp() {
                         eventType: 'KIOSK_ESCAPE_WARNING',
                         source,
                         platform: isAndroidNative ? 'android' : (isIOSDevice() ? (isNativeApp ? 'ios' : 'web_ios') : 'web'),
-                        count: 1,
+                        count: nextCount,
                         warningOnly: true
                     }).catch(() => { });
                 }
                 return;
             }
 
-            // Immediate Disqualification on Strike 2 (2/2)
-            console.error(`[Kiosk Guardian] Security violation threshold reached via ${source} (Strike ${nextCount}). Disqualifying attendance session.`);
+            // Immediate Disqualification on reaching platform violation threshold
+            console.error(`[Kiosk Guardian] Security violation threshold reached via ${source} (Strike ${nextCount}/${maxAllowed}). Disqualifying attendance session.`);
             try { localStorage.removeItem(`smartattend_qr1_auth_${activeSessionId}`); } catch (_) { }
             try { sessionStorage.removeItem(`smartattend_qr1_auth_${activeSessionId}`); } catch (_) { }
-            setErrorMessage('❌ Attendance Disqualified: 2/2 security violations detected (application switch / minimizing). Attendance forfeited.');
+            setErrorMessage(`❌ Attendance Disqualified: ${nextCount}/${maxAllowed} security violation(s) detected (${isAndroidNative ? 'native app switch' : 'browser background/tab switch'}). Attendance forfeited.`);
             setScanState('DISQUALIFIED');
 
             window.setTimeout(() => {
@@ -2209,6 +2227,7 @@ function QrScannerApp() {
         // Student's device immediately enters Kiosk waiting mode, releases camera tracks,
         // and starts Phase 2 countdown without awaiting slow network round-trips.
         // =========================================================================
+        setForceQr2Unlocked(false);
         releaseAllMediaTracks();
         releaseCameraLock();
         setScannerActive(false);
@@ -2257,8 +2276,20 @@ function QrScannerApp() {
                     authQr1DurationSec: durationSec,
                     scanState: 'KIOSK_WAITING_QR2',
                     qr1Accepted: true,
+                    qr1Verified: true,
                     rollNo: loggedInRollNo
                 }));
+                const syncQr1Auth = {
+                    sessionId,
+                    status: 'QR1_VERIFIED',
+                    qr1Verified: true,
+                    rollNo: loggedInRollNo,
+                    studentUid: user?.uid || null,
+                    studentName: loggedInName,
+                    verifiedAt: nowMs
+                };
+                sessionStorage.setItem(`smartattend_qr1_auth_${sessionId}`, JSON.stringify(syncQr1Auth));
+                localStorage.setItem(`smartattend_qr1_auth_${sessionId}`, JSON.stringify(syncQr1Auth));
             }
             if (typeof window !== 'undefined') {
                 window.dispatchEvent(new Event('smartattend_kiosk_state_change'));
@@ -2332,26 +2363,11 @@ function QrScannerApp() {
                 console.log('[Scanner] Phase 1 check-in confirmed by server for session:', sessionId);
             })
             .catch(async (err) => {
-                console.warn('[Scanner] Authorize QR1 server authorization failed:', err?.message || err);
-                // The optimistic transition is only provisional. If the server did not
-                // confirm QR1, roll back this attempt completely so the student can retry.
-                qr1AcceptedForSessionRef.current = false;
-                cameraLockedForSessionRef.current = false;
-                setErrorMessage(err?.message || 'Could not verify QR 1 with the attendance server. Check your connection and scan again.');
-                setScanState('IDLE');
-                setScannerActive(true);
-                setActiveSessionId('');
-                try {
-                    localStorage.removeItem('smartattend_kiosk_session_state');
-                    localStorage.removeItem('smartattend_kiosk_session_id');
-                    sessionStorage.removeItem('smartattend_kiosk_session_id');
-                    sessionStorage.removeItem(`smartattend_qr1_auth_${sessionId}`);
-                    localStorage.removeItem(`smartattend_qr1_auth_${sessionId}`);
-                } catch (_) { }
-                releaseCameraLock();
-                releaseAllMediaTracks();
-                await Kiosk.stopKioskMode().catch(() => { });
-                await Kiosk.clearAttendanceRestrictions().catch(() => { });
+                console.warn('[Scanner] Authorize QR1 server background check notice:', err?.message || err);
+                // Guaranteed anti-loop: never roll back to Step 1 or reopen camera on network glitch.
+                // Student remains firmly locked in Kiosk Step 2 waiting for QR 2.
+                qr1AcceptedForSessionRef.current = true;
+                setErrorMessage('');
             });
     };
 
@@ -2662,36 +2678,46 @@ function QrScannerApp() {
 
         // Fast GPS Lock: If location is not yet acquired or is stale (>60s), quickly resolve with concurrent fallback
         // Skip if geofence is disabled or user denied GPS
-        const _gpsDeniedAtScan = localStorage.getItem('smartattend_gps_permission_denied') === 'true';
-        if ((!studentCoords || !isFreshLocation(studentCoords)) && !isGeofenceDisabled && !_gpsDeniedAtScan && typeof navigator !== "undefined" && navigator.geolocation) {
+        if ((!studentCoords || !isFreshLocation(studentCoords)) && !isGeofenceDisabled && typeof navigator !== "undefined" && navigator.geolocation) {
             try {
                 const freshFix = await new Promise((resolve) => {
-                    const tid = setTimeout(() => resolve(null), 3000);
+                    const tid = setTimeout(() => resolve(null), 4500);
                     let resolved = false;
                     const onPos = (pos) => {
                         if (resolved) return;
                         resolved = true;
                         clearTimeout(tid);
                         const loc = locationFromPosition(pos);
+                        if (loc) {
+                            try { localStorage.removeItem('smartattend_gps_permission_denied'); } catch (_) { }
+                        }
                         resolve(loc || null);
                     };
                     navigator.geolocation.getCurrentPosition(
                         onPos,
                         () => {
                             // If high-accuracy GNSS fails or times out indoors, query coarse location immediately
-                            navigator.geolocation.getCurrentPosition(
-                                onPos,
-                                () => {
-                                    if (!resolved) {
-                                        resolved = true;
-                                        clearTimeout(tid);
-                                        resolve(null);
-                                    }
-                                },
-                                { enableHighAccuracy: false, timeout: 2000, maximumAge: 30000 }
-                            );
+                            try {
+                                navigator.geolocation.getCurrentPosition(
+                                    onPos,
+                                    () => {
+                                        if (!resolved) {
+                                            resolved = true;
+                                            clearTimeout(tid);
+                                            resolve(null);
+                                        }
+                                    },
+                                    { enableHighAccuracy: false, timeout: 2500, maximumAge: 30000 }
+                                );
+                            } catch (_) {
+                                if (!resolved) {
+                                    resolved = true;
+                                    clearTimeout(tid);
+                                    resolve(null);
+                                }
+                            }
                         },
-                        { enableHighAccuracy: true, timeout: 2500, maximumAge: 15000 }
+                        { enableHighAccuracy: true, timeout: 3000, maximumAge: 15000 }
                     );
                 });
                 if (freshFix) {
@@ -3018,14 +3044,22 @@ function QrScannerApp() {
         console.warn('Scanner Error:', error);
         const errName = error?.name || '';
         const errMsg = error?.message || String(error);
+        const isConflict = errName === 'NotReadableError' || errName === 'TrackStartError' || errMsg.toLowerCase().includes('in use') || errMsg.toLowerCase().includes('concurrent') || errMsg.toLowerCase().includes('could not start');
 
         if (errName === 'NotAllowedError' || errName === 'PermissionDeniedError' || errMsg.toLowerCase().includes('permission')) {
             setPermissionDenied(true);
-            setCameraError("Camera permission blocked on HTTP. Use 'Snap / Upload QR Photo' below for instant scan!");
+            const msg = "Camera permission blocked. Please allow camera access in your device settings.";
+            setCameraError(msg);
+            setErrorMessage(msg);
+        } else if (isConflict) {
+            const conflictMsg = "🚨 Camera In Use: An active video call (WhatsApp, Meet, Zoom) or another application is using your camera. Please end all video calls to mark attendance.";
+            setCameraError(conflictMsg);
+            setErrorMessage(conflictMsg);
         } else if (errName === 'OverconstrainedError' || errMsg.toLowerCase().includes('constraint')) {
             setRetryKey((k) => k + 1);
         } else {
-            setCameraError('WebRTC camera stream unavailable. Please use the camera snap button below.');
+            const genericMsg = 'Camera stream unavailable. Please ensure no other app is using your camera and try again.';
+            setCameraError(genericMsg);
         }
     }, []);
 

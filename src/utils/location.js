@@ -9,7 +9,10 @@ export function locationFromPosition(position) {
   const latitude = Number(position?.coords?.latitude);
   const longitude = Number(position?.coords?.longitude);
   const accuracy = Number(position?.coords?.accuracy);
-  const timestamp = Number(position?.timestamp);
+  let timestamp = Number(position?.timestamp);
+  if (Number.isFinite(timestamp) && timestamp > 0 && timestamp < 1e11) {
+    timestamp *= 1000;
+  }
 
   if (
     !Number.isFinite(latitude) ||

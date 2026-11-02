@@ -35,7 +35,7 @@ export const TOTAL_SESSION_DURATION_MS = 180 * 1000; // 3 minutes total (180s)
  */
 export async function initiateSession(sessionParams) {
   if (!auth.currentUser) throw new Error("Authentication required to initiate an attendance session.");
-  
+
   try {
     const fn = httpsCallable(functions, "initiateAttendanceSession", { timeout: 15000 });
     const result = await fn(sessionParams);
@@ -76,6 +76,24 @@ export async function initiateSession(sessionParams) {
     const sessionRef = doc(db, "attendance_sessions", sessionId);
     const securityRef = doc(db, "attendance_sessions", sessionId, "security", "tokens");
 
+    let cleanClassroomLocation = null;
+    if (sessionParams.classroomLocation && typeof sessionParams.classroomLocation === 'object') {
+      const cLat = sessionParams.classroomLocation.latitude ?? sessionParams.classroomLocation.lat;
+      const cLon = sessionParams.classroomLocation.longitude ?? sessionParams.classroomLocation.lng ?? sessionParams.classroomLocation.lon;
+      if (Number.isFinite(Number(cLat)) && Number.isFinite(Number(cLon))) {
+        cleanClassroomLocation = {
+          latitude: Number(cLat),
+          longitude: Number(cLon),
+          lat: Number(cLat),
+          lng: Number(cLon),
+          accuracy: Number.isFinite(Number(sessionParams.classroomLocation.accuracy)) ? Number(sessionParams.classroomLocation.accuracy) : 35,
+          radius: Number(sessionParams.classroomLocation.radius) > 0 ? Number(sessionParams.classroomLocation.radius) : (typeof sessionParams.geofenceRadius === 'number' ? sessionParams.geofenceRadius : 10),
+          source: sessionParams.classroomLocation.source || "MOBILE_HOST",
+          timestamp: Number.isFinite(Number(sessionParams.classroomLocation.timestamp)) ? Number(sessionParams.classroomLocation.timestamp) : Date.now()
+        };
+      }
+    }
+
     const sessionData = {
       id: sessionId,
       sessionId,
@@ -85,9 +103,11 @@ export async function initiateSession(sessionParams) {
       batch: batchYear,
       lectureHours: Number(sessionParams.lectureHours) || 1.0,
       geofenceRadius: typeof sessionParams.geofenceRadius === "number" ? sessionParams.geofenceRadius : 10,
-      classroomLocation: sessionParams.classroomLocation || null,
+      classroomLocation: cleanClassroomLocation,
       locationMode: sessionParams.locationMode || (sessionParams.geofenceRadius === 0 ? "NONE" : "MOBILE"),
       rotationIntervalSec: Number(sessionParams.rotationIntervalSec) || 15,
+      webMaxViolations: Number(sessionParams.webMaxViolations) > 0 ? Number(sessionParams.webMaxViolations) : 1,
+      androidMaxViolations: Number(sessionParams.androidMaxViolations) > 0 ? Number(sessionParams.androidMaxViolations) : 2,
       phase: "PHASE_1",
       active: true,
       status: "ACTIVE",
@@ -123,6 +143,8 @@ export async function initiateSession(sessionParams) {
       lecturerPin: sessionPin,
       releaseCodeHash,
       rotationIntervalSec: Number(sessionParams.rotationIntervalSec) || 15,
+      webMaxViolations: Number(sessionParams.webMaxViolations) > 0 ? Number(sessionParams.webMaxViolations) : 1,
+      androidMaxViolations: Number(sessionParams.androidMaxViolations) > 0 ? Number(sessionParams.androidMaxViolations) : 2,
       sessionStartAt: now,
       qr1ExpiresAt,
       kioskEndsAt,
@@ -227,17 +249,27 @@ export async function authorizeStudentQR1(sessionId, qr1Token, studentProfileOve
       lastHeartbeat: Date.now(),
       platform: isAndroid ? "android" : (isIOS ? "ios" : "web"),
       deviceId: studentProfileOverride?.deviceId || "",
-      studentLocation: studentProfileOverride?.studentLocation || null
+      studentLocation: studentProfileOverride?.studentLocation ? {
+        latitude: Number(studentProfileOverride.studentLocation.latitude ?? studentProfileOverride.studentLocation.lat ?? 0),
+        longitude: Number(studentProfileOverride.studentLocation.longitude ?? studentProfileOverride.studentLocation.lng ?? 0),
+        accuracy: Number.isFinite(Number(studentProfileOverride.studentLocation.accuracy)) ? Number(studentProfileOverride.studentLocation.accuracy) : null,
+        timestamp: Number.isFinite(Number(studentProfileOverride.studentLocation.timestamp)) ? Number(studentProfileOverride.studentLocation.timestamp) : Date.now(),
+        distanceToLecturer: Number.isFinite(Number(studentProfileOverride.studentLocation.distanceToLecturer)) ? Number(studentProfileOverride.studentLocation.distanceToLecturer) : null
+      } : null
     };
 
-    await setDoc(doc(db, "attendance_sessions", sessionId, "authorizations", currentUser.uid), authRecord, { merge: true });
+    const sanitizedAuthRecord = {};
+    Object.keys(authRecord).forEach((k) => {
+      if (authRecord[k] !== undefined) sanitizedAuthRecord[k] = authRecord[k];
+    });
+    await setDoc(doc(db, "attendance_sessions", sessionId, "authorizations", currentUser.uid), sanitizedAuthRecord, { merge: true });
 
     try {
-      if (typeof sessionStorage !== "undefined") sessionStorage.setItem(`smartattend_qr1_auth_${sessionId}`, JSON.stringify(authRecord));
-      if (typeof localStorage !== "undefined") localStorage.setItem(`smartattend_qr1_auth_${sessionId}`, JSON.stringify(authRecord));
+      if (typeof sessionStorage !== "undefined") sessionStorage.setItem(`smartattend_qr1_auth_${sessionId}`, JSON.stringify(sanitizedAuthRecord));
+      if (typeof localStorage !== "undefined") localStorage.setItem(`smartattend_qr1_auth_${sessionId}`, JSON.stringify(sanitizedAuthRecord));
     } catch (_) { }
 
-    return authRecord;
+    return sanitizedAuthRecord;
   } catch (err) {
     console.error("[sessionAuth] Direct QR1 authorization failed:", err);
     throw new Error(err?.message || "Could not authorize QR 1. Please try again.");
@@ -249,7 +281,7 @@ export async function authorizeStudentQR1(sessionId, qr1Token, studentProfileOve
  */
 export async function transitionSessionToPhase2(sessionId) {
   if (!sessionId) throw new Error("Session ID is required to release QR 2.");
-  
+
   try {
     const fn = httpsCallable(functions, "transitionToPhase2", { timeout: 15000 });
     const result = await fn({ sessionId });
@@ -453,7 +485,7 @@ export async function submitVerifiedAttendance(sessionId, qr2Token, biometricDat
       };
       await setDoc(doc(db, "attendance_sessions", sessionId, "authorizations", currentUser.uid), authUpdate, { merge: true });
       if (rollNo && rollNo !== currentUser.uid) {
-        await setDoc(doc(db, "attendance_sessions", sessionId, "authorizations", rollNo), authUpdate, { merge: true }).catch(() => {});
+        await setDoc(doc(db, "attendance_sessions", sessionId, "authorizations", rollNo), authUpdate, { merge: true }).catch(() => { });
       }
     } catch (authDocErr) {
       console.warn("[sessionAuth] Notice updating student authorization doc:", authDocErr?.message || authDocErr);

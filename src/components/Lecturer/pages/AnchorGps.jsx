@@ -3,6 +3,7 @@ import { useSearchParams, useNavigate, Link } from "react-router-dom";
 import { doc, getDoc, updateDoc, setDoc } from "firebase/firestore";
 import { db } from "../../../firebase";
 import { useAuth } from "../../authcontext";
+import { acquireAccurateLocation } from "../../../utils/location";
 import {
     FaMapMarkerAlt,
     FaCheckCircle,
@@ -75,65 +76,86 @@ export default function AnchorGps() {
         setStatus("ACQUIRING");
         setErrorMessage("");
 
-        navigator.geolocation.getCurrentPosition(
-            async (pos) => {
-                try {
-                    const lat = pos.coords.latitude;
-                    const lng = pos.coords.longitude;
-                    const acc = Math.round(pos.coords.accuracy || 5);
-                    const currentRadius = sessionData?.geofenceRadius || 10;
+        const saveAnchoredLocation = async (lat, lng, acc) => {
+            try {
+                const currentRadius = sessionData?.geofenceRadius || 10;
+                const anchoredCoords = {
+                    latitude: Number(lat),
+                    longitude: Number(lng),
+                    lat: Number(lat),
+                    lng: Number(lng),
+                    accuracy: acc,
+                    radius: currentRadius > 0 ? currentRadius : 10,
+                    source: "PHONE_ANCHOR",
+                    timestamp: Date.now(),
+                    anchoredBy: user?.email || profile?.name || "Lecturer Mobile"
+                };
 
-                    const anchoredCoords = {
-                        latitude: lat,
-                        longitude: lng,
-                        accuracy: acc,
-                        radius: currentRadius > 0 ? currentRadius : 10,
-                        source: "PHONE_ANCHOR",
-                        timestamp: Date.now(),
-                        anchoredBy: user?.email || profile?.name || "Lecturer Mobile"
-                    };
-
-                    if (sessionId) {
-                        // Live active session update
-                        await updateDoc(doc(db, "attendance_sessions", sessionId), {
-                            classroomLocation: anchoredCoords,
-                            geofenceRadius: currentRadius > 0 ? currentRadius : 10,
-                            locationMode: "MOBILE",
-                            updatedAt: Date.now()
-                        });
-                    } else if (anchorId) {
-                        // Pre-session draft anchor document
-                        await setDoc(doc(db, "pre_session_anchors", anchorId), {
-                            ...anchoredCoords,
-                            anchorId: anchorId,
-                            updatedAt: Date.now()
-                        });
-                    }
-
-                    setCoords(anchoredCoords);
-                    setAccuracy(acc);
-                    setStatus("SUCCESS");
-                } catch (err) {
-                    console.error("[AnchorGps] Error updating anchor:", err);
-                    setStatus("ERROR");
-                    setErrorMessage(`Failed to anchor GPS: ${err.message}`);
+                if (sessionId) {
+                    await updateDoc(doc(db, "attendance_sessions", sessionId), {
+                        classroomLocation: anchoredCoords,
+                        geofenceRadius: currentRadius > 0 ? currentRadius : 10,
+                        locationMode: "MOBILE",
+                        updatedAt: Date.now()
+                    });
+                } else if (anchorId) {
+                    await setDoc(doc(db, "pre_session_anchors", anchorId), {
+                        ...anchoredCoords,
+                        anchorId: anchorId,
+                        updatedAt: Date.now()
+                    });
                 }
-            },
-            (err) => {
-                console.warn("[AnchorGps] Geolocation error:", err);
+
+                setCoords(anchoredCoords);
+                setAccuracy(acc);
+                setStatus("SUCCESS");
+            } catch (err) {
+                console.error("[AnchorGps] Error updating anchor:", err);
                 setStatus("ERROR");
-                setErrorMessage(
-                    err.code === 1
-                        ? "Location permission was denied. Please allow Location Access in browser/phone settings, then tap Re-Try."
-                        : `GPS acquisition failed (${err.message}). Ensure Location/GPS is turned ON and retry.`
-                );
-            },
-            {
-                enableHighAccuracy: true,
-                timeout: 15000,
-                maximumAge: 0
+                setErrorMessage(`Failed to anchor GPS: ${err.message}`);
             }
-        );
+        };
+
+        acquireAccurateLocation(navigator.geolocation, {
+            timeoutMs: 10000,
+            maxAccuracy: 80,
+            maximumAge: 10000
+        }).then(async (loc) => {
+            if (loc && Number.isFinite(loc.latitude) && Number.isFinite(loc.longitude)) {
+                await saveAnchoredLocation(loc.latitude, loc.longitude, Math.round(loc.accuracy || 10));
+            } else {
+                // Indoor fallback to fast network positioning
+                navigator.geolocation.getCurrentPosition(
+                    async (pos) => {
+                        await saveAnchoredLocation(pos.coords.latitude, pos.coords.longitude, Math.round(pos.coords.accuracy || 35));
+                    },
+                    (err) => {
+                        setStatus("ERROR");
+                        setErrorMessage(
+                            err.code === 1
+                                ? "Location permission was denied. Please allow Location Access in browser/phone settings, then tap Re-Try."
+                                : `GPS acquisition failed (${err.message}). Ensure Location/GPS is turned ON and retry.`
+                        );
+                    },
+                    { enableHighAccuracy: false, timeout: 6000, maximumAge: 30000 }
+                );
+            }
+        }).catch(() => {
+            navigator.geolocation.getCurrentPosition(
+                async (pos) => {
+                    await saveAnchoredLocation(pos.coords.latitude, pos.coords.longitude, Math.round(pos.coords.accuracy || 35));
+                },
+                (err) => {
+                    setStatus("ERROR");
+                    setErrorMessage(
+                        err.code === 1
+                            ? "Location permission was denied. Please allow Location Access in browser/phone settings, then tap Re-Try."
+                            : `GPS acquisition failed (${err.message}). Ensure Location/GPS is turned ON and retry.`
+                    );
+                },
+                { enableHighAccuracy: false, timeout: 6000, maximumAge: 30000 }
+            );
+        });
     }, [sessionId, anchorId, sessionData?.geofenceRadius, user?.email, profile?.name]);
 
     // Auto-trigger GPS acquisition once ready
