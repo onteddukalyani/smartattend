@@ -104,6 +104,7 @@ function QrScannerApp() {
     // Platform & App Detection
     const isNativeApp = Capacitor.isNativePlatform();
     const isAndroidDevice = typeof navigator !== 'undefined' && (/Android/i.test(navigator.userAgent) || detectDeviceType() === 'android');
+    const isAndroidNative = isNativeApp && !isIOSDevice();
     const isStaff = isStaffCameraUser(profile, user) ||
         (typeof window !== "undefined" && (window.location.pathname.includes("/lecturer") || window.location.pathname.includes("/admin")));
     const isAndroidWebStudent = !isNativeApp && isAndroidDevice && !isStaff;
@@ -3394,8 +3395,9 @@ function QrScannerApp() {
                     if (msg.includes('already recorded') || msg.includes('already-exists') || msg.includes('already been recorded') || msg.includes('already submitted')) {
                         releaseCameraLock();
                         releaseAllMediaTracks();
-                        Kiosk.stopKioskMode().catch(() => { });
-                        Kiosk.clearAttendanceRestrictions().catch(() => { });
+                        if (isAndroidNative) {
+                            Kiosk.startKioskMode().catch(() => { });
+                        }
                         setErrorMessage('');
                         setFaceSubmissionFailed(false);
                         setScanState('ATTENDANCE_SUCCESS');
