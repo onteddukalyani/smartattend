@@ -28,7 +28,6 @@ function Sidebar({ hidden, onClose }) {
         { icon: <FaBookOpen />, text: "My Courses", path: "/lecturer/courses" },
         { icon: <FaUserGraduate />, text: "Students", path: "/lecturer/students" },
         { icon: <FaUserCheck />, text: "Identify by Face", path: "/lecturer/identify-student" },
-        { icon: <FaChalkboardTeacher />, text: "Faculty List", path: "/lecturer/lecturers" },
         { icon: <FaUserShield />, text: "Admin List", path: "/lecturer/admins" },
         { icon: <FaHeadset />, text: "Help & Support", path: "/lecturer/support" },
         { icon: <FaCog />, text: "Settings", path: "/lecturer/settings" }
