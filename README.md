@@ -156,4 +156,5 @@ Scan the generated terminal QR code with your phone to instantly download and in
 
 Developed with ❤️ for **Indian Institute of Information Technology (IIIT) Dharwad**.
 
-Licensed under the [MIT License](LICENSE).
+Licensed under the [MIT License](LICENSE).#   s m a r t a t t e n d - a p p  
+ 
