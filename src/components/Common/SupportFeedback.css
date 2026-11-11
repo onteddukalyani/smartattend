@@ -19,6 +19,7 @@
     opacity: 0;
     transform: translateY(12px);
   }
+
   to {
     opacity: 1;
     transform: translateY(0);
@@ -579,6 +580,25 @@
   line-height: 1.55;
 }
 
+.sf-email-warning {
+  color: #92400e;
+  background: #fffbeb;
+  border: 1px solid #fcd34d;
+  border-radius: 10px;
+  padding: 10px 14px;
+  margin: 0 auto 1rem;
+  max-width: 520px;
+}
+
+.sf-form-error {
+  color: #b91c1c;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 10px;
+  padding: 10px 14px;
+  margin: 0 0 1rem;
+}
+
 .sf-ticket-id-chip {
   display: inline-flex;
   align-items: center;
@@ -1022,9 +1042,11 @@
   0% {
     box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
   }
+
   70% {
     box-shadow: 0 0 0 8px rgba(16, 185, 129, 0);
   }
+
   100% {
     box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
   }
@@ -1032,20 +1054,24 @@
 
 @media (max-width: 768px) {
   .sf-floating-btn {
-    bottom: 74px; /* avoid bottom nav overlap */
+    bottom: 74px;
+    /* avoid bottom nav overlap */
     right: 16px;
     padding: 10px 16px;
     font-size: 0.85rem;
   }
+
   .sf-hero-banner {
     flex-direction: column;
     align-items: flex-start;
     padding: 1.5rem;
   }
+
   .sf-hero-quick-stats {
     width: 100%;
     justify-content: space-between;
   }
+
   .sf-stat-pill {
     flex: 1;
   }

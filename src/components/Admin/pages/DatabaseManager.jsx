@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import {
   FaDatabase,
@@ -29,14 +29,20 @@ import {
   FaLayerGroup,
   FaArrowRight,
   FaUniversity,
-  FaInfoCircle
+  FaInfoCircle,
+  FaBell,
+  FaUndo
 } from "react-icons/fa";
 import {
   collection,
+  collectionGroup,
   getDocs,
   doc,
   setDoc,
-  deleteDoc
+  deleteDoc,
+  writeBatch,
+  runTransaction,
+  Timestamp
 } from "firebase/firestore";
 import { db } from "../../../firebase";
 import { useAuth } from "../../authcontext";
@@ -45,6 +51,10 @@ import {
   resetStudentDeviceLockGlobally,
   broadcastStudentUpdate
 } from "../../../utils/studentDataHelper";
+import {
+  purgeUserCompletelyFromAllDatabases,
+  deduplicateUsersCollection
+} from "../../../utils/userManagementService";
 import "./DatabaseManager.css";
 
 // Available Collections in SmartAttend
@@ -52,14 +62,124 @@ const COLLECTIONS = [
   { id: "students", label: "Students", icon: FaUserGraduate },
   { id: "lecturers", label: "Lecturers", icon: FaChalkboardTeacher },
   { id: "admins", label: "Admins", icon: FaUserShield },
+  { id: "users", label: "Users Auth Index", icon: FaDatabase },
+  { id: "authorizedUsers", label: "Authorized Users", icon: FaUserShield },
   { id: "courses", label: "Courses", icon: FaBookOpen },
   { id: "attendance_sessions", label: "Sessions", icon: FaClipboardList },
   { id: "attendance_records", label: "Attendance Logs", icon: FaClipboardList },
   { id: "reregistration_requests", label: "Biometric Requests", icon: FaKey },
   { id: "support_tickets", label: "Support Tickets", icon: FaTools },
+  { id: "devices", label: "Registered Devices", icon: FaMobileAlt },
   { id: "institution", label: "Settings", icon: FaUniversity },
   { id: "app_updates", label: "App Releases", icon: FaDatabase }
 ];
+
+const CLEANUP_TARGETS = [
+  {
+    id: "users_duplicates",
+    label: "Duplicate User Accounts & Legacy UIDs",
+    description: "Detects and cleans email-prefix duplicates (e.g. 'onteddukalyani' when 'onteddukalyani@gmail.com' exists) and raw Auth UID documents across users, lecturers, admins, and authorizedUsers.",
+    collection: "users",
+    icon: FaDatabase,
+    confirmText: "CLEAN DUPLICATES",
+    isDeduplication: true
+  },
+  {
+    id: "students",
+    label: "Student list",
+    description: "Delete student profile documents only. Firebase Authentication accounts and student notifications are not deleted.",
+    collection: "students",
+    icon: FaUserGraduate,
+    confirmText: "DELETE STUDENT LIST"
+  },
+  {
+    id: "lecturers",
+    label: "Lecturers",
+    description: "Delete lecturer profile documents only. Lecturer notification data is a separate action.",
+    collection: "lecturers",
+    icon: FaChalkboardTeacher,
+    confirmText: "DELETE LECTURERS"
+  },
+  {
+    id: "support_tickets",
+    label: "Support tickets",
+    description: "Permanently delete all support ticket documents.",
+    collection: "support_tickets",
+    icon: FaTools,
+    confirmText: "DELETE SUPPORT TICKETS"
+  },
+  {
+    id: "student_notifications",
+    label: "Student notifications",
+    description: "Delete student-only notification records. Shared broadcasts are kept.",
+    notificationRole: "student",
+    notificationAliases: ["student", "students"],
+    nestedRoots: ["students", "student_notifications"],
+    globalRoots: ["notifications", "broadcast_notifications", "announcements"],
+    icon: FaBell,
+    confirmText: "DELETE STUDENT NOTIFICATIONS"
+  },
+  {
+    id: "lecturer_notifications",
+    label: "Lecturer notifications",
+    description: "Delete lecturer-only notification records and lecturer notification subcollections. Shared broadcasts are kept.",
+    notificationRole: "lecturer",
+    notificationAliases: ["lecturer", "lecturers", "faculty", "professor", "professors"],
+    nestedRoots: ["lecturers"],
+    globalRoots: ["lecturer_notifications", "faculty_notifications", "notifications", "broadcast_notifications", "announcements"],
+    icon: FaBell,
+    confirmText: "DELETE LECTURER NOTIFICATIONS"
+  },
+  {
+    id: "admin_notifications",
+    label: "Admin notifications",
+    description: "Delete admin-only notification records and admin notification subcollections. Shared broadcasts are kept.",
+    notificationRole: "admin",
+    notificationAliases: ["admin", "admins"],
+    nestedRoots: ["admins"],
+    globalRoots: ["admin_notifications", "faculty_notifications", "notifications", "broadcast_notifications", "announcements"],
+    icon: FaBell,
+    confirmText: "DELETE ADMIN NOTIFICATIONS"
+  }
+];
+
+const isExclusiveNotificationForRole = (data, aliases) => {
+  const rawTargets = Array.isArray(data.targetRoles) && data.targetRoles.length
+    ? data.targetRoles
+    : [data.targetRole || data.recipientRole].filter(Boolean);
+  const targets = new Set(rawTargets.map((role) => String(role).toLowerCase().trim()));
+  return targets.size > 0 && [...targets].every((role) => aliases.includes(role));
+};
+
+const getCleanupTargetRefs = async (target) => {
+  if (!target.notificationRole) {
+    const snapshot = await getDocs(collection(db, target.collection));
+    return snapshot.docs.map((item) => ({ ref: item.ref, data: item.data() }));
+  }
+
+  const records = new Map();
+  const [nestedSnapshot, ...globalSnapshots] = await Promise.all([
+    getDocs(collectionGroup(db, "notifications")),
+    ...target.globalRoots.map((root) => getDocs(collection(db, root)))
+  ]);
+
+  nestedSnapshot.docs.forEach((item) => {
+    const path = item.ref.path.split("/");
+    if (path.length === 4 && target.nestedRoots.includes(path[0])) {
+      records.set(item.ref.path, { ref: item.ref, data: item.data() });
+    }
+  });
+
+  globalSnapshots.forEach((snapshot) => {
+    snapshot.docs.forEach((item) => {
+      if (isExclusiveNotificationForRole(item.data(), target.notificationAliases)) {
+        records.set(item.ref.path, { ref: item.ref, data: item.data() });
+      }
+    });
+  });
+
+  return [...records.values()];
+};
 
 // Visual Architecture & Schema Blueprint (Replaces raw JSON)
 const SCHEMA_BLUEPRINTS = [
@@ -89,7 +209,7 @@ const SCHEMA_BLUEPRINTS = [
   {
     id: "lecturers",
     title: "Faculty & Instructors",
-    docIdRule: "/lecturers/{email} and /lecturers/{prefix}",
+    docIdRule: "/lecturers/{email} (Canonical lowercase email address)",
     description: "Authorized faculty instructors permitted to launch classroom attendance sessions, generate rolling dual QR codes, and review attendance stats.",
     primaryKey: "email",
     icon: FaChalkboardTeacher,
@@ -106,7 +226,7 @@ const SCHEMA_BLUEPRINTS = [
   {
     id: "admins",
     title: "System Administrators",
-    docIdRule: "/admins/{email} and /admins/{prefix}",
+    docIdRule: "/admins/{email} (Canonical lowercase email address)",
     description: "System administrators with universal permissions to manage student and faculty rosters, audit attendance records, and configure institution parameters.",
     primaryKey: "email",
     icon: FaUserShield,
@@ -217,6 +337,9 @@ const DatabaseManager = () => {
   const [activeTab, setActiveTab] = useState(initialTab);
   const [selectedCollection, setSelectedCollection] = useState(initialColl);
   const [loading, setLoading] = useState(false);
+  const [cleanupTargetInProgress, setCleanupTargetInProgress] = useState("");
+  const [recoveryGroups, setRecoveryGroups] = useState([]);
+  const [loadingRecovery, setLoadingRecovery] = useState(false);
   const [feedback, setFeedback] = useState({ type: "", text: "" });
 
   // Data & Counts
@@ -238,13 +361,14 @@ const DatabaseManager = () => {
   const [newLecturerEmail, setNewLecturerEmail] = useState("");
   const [newLecturerName, setNewLecturerName] = useState("");
   const [newLecturerDept, setNewLecturerDept] = useState("Computer Science");
+  const [deduplicating, setDeduplicating] = useState(false);
 
-  const showFeedback = (type, text) => {
+  const showFeedback = useCallback((type, text) => {
     setFeedback({ type, text });
     setTimeout(() => {
       setFeedback({ type: "", text: "" });
     }, 6000);
-  };
+  }, []);
 
   // Sync tab with URL
   const handleTabSwitch = (newTab) => {
@@ -264,7 +388,57 @@ const DatabaseManager = () => {
     setLoading(true);
     try {
       const snap = await getDocs(collection(db, collId));
-      const docs = snap.docs.map((d) => ({ _id: d.id, ...d.data() }));
+      let docs = snap.docs.map((d) => ({ _id: d.id, ...d.data() }));
+
+      // For Staff (Lecturers & Admins): Deduplicate by canonical email so double entries never appear in app,
+      // and auto-purge redundant prefix documents from Firestore in the background.
+      if (collId === "lecturers" || collId === "admins") {
+        const canonicalMap = new Map();
+        const redundantDocIdsToDelete = [];
+
+        snap.docs.forEach((d) => {
+          const data = d.data() || {};
+          const email = (data.email || (d.id.includes("@") ? d.id : "")).toLowerCase().trim();
+          const key = email || d.id.toLowerCase().trim();
+          const isCanonical = d.id.includes("@");
+
+          if (!canonicalMap.has(key)) {
+            canonicalMap.set(key, { _id: d.id, ...data });
+          } else {
+            const existing = canonicalMap.get(key);
+            if (isCanonical && !existing._id.includes("@")) {
+              // Current doc is the canonical email document; mark previous prefix doc for cleanup
+              redundantDocIdsToDelete.push(existing._id);
+              canonicalMap.set(key, { ...existing, ...data, _id: d.id });
+            } else if (!isCanonical) {
+              // Current doc is a redundant prefix document
+              redundantDocIdsToDelete.push(d.id);
+            }
+          }
+        });
+
+        // Additional heuristic check: if a doc has a prefix ID (e.g. 'kalyani2k08'),
+        // and its email document ('kalyani2k08@gmail.com') already exists, schedule it for deletion
+        for (const [, item] of canonicalMap.entries()) {
+          if (!item._id.includes("@") && item.email && item.email.includes("@")) {
+            const canonicalExists = snap.docs.some((sd) => sd.id.toLowerCase() === item.email.toLowerCase());
+            if (canonicalExists) {
+              redundantDocIdsToDelete.push(item._id);
+            }
+          }
+        }
+
+        docs = Array.from(canonicalMap.values());
+
+        // Background auto-purge: delete redundant prefix duplicates directly from Firestore
+        if (redundantDocIdsToDelete.length > 0) {
+          const uniqueIdsToDelete = [...new Set(redundantDocIdsToDelete)];
+          console.log(`[DatabaseManager] Auto-purging ${uniqueIdsToDelete.length} redundant duplicate prefix docs from ${collId}:`, uniqueIdsToDelete);
+          uniqueIdsToDelete.forEach((dupId) => {
+            deleteDoc(doc(db, collId, dupId)).catch((e) => console.warn(`Notice: Could not auto-purge ${collId}/${dupId}:`, e?.message || e));
+          });
+        }
+      }
 
       docs.sort((a, b) => {
         if (collId === "students") {
@@ -291,6 +465,14 @@ const DatabaseManager = () => {
       const countPromises = COLLECTIONS.map(async (c) => {
         try {
           const s = await getDocs(collection(db, c.id));
+          if (c.id === "lecturers" || c.id === "admins") {
+            const uniqueKeys = new Set();
+            s.docs.forEach((d) => {
+              const email = (d.data()?.email || (d.id.includes("@") ? d.id : "")).toLowerCase().trim();
+              uniqueKeys.add(email || d.id.toLowerCase().trim());
+            });
+            return { id: c.id, count: uniqueKeys.size };
+          }
           return { id: c.id, count: s.docs.length };
         } catch (_) {
           return { id: c.id, count: 0 };
@@ -311,6 +493,55 @@ const DatabaseManager = () => {
     loadActiveCollection(selectedCollection);
     setSearchQuery("");
   }, [selectedCollection]);
+
+  const loadRecoveryGroups = useCallback(async () => {
+    setLoadingRecovery(true);
+    try {
+      const snapshot = await getDocs(collection(db, "database_recovery"));
+      const groups = new Map();
+      const now = Timestamp.now().toMillis();
+
+      snapshot.docs.forEach((item) => {
+        const record = item.data();
+        const expiresAt = record.expiresAt?.toMillis?.() || 0;
+        if (!record.operationId || expiresAt <= now) return;
+
+        if (!groups.has(record.operationId)) {
+          groups.set(record.operationId, {
+            operationId: record.operationId,
+            targetId: record.targetId,
+            label: record.label,
+            deletedAt: record.deletedAt,
+            expiresAt: record.expiresAt,
+            records: []
+          });
+        }
+        groups.get(record.operationId).records.push({
+          id: item.id,
+          originalPath: record.originalPath,
+          originalData: record.originalData,
+          expiresAt: record.expiresAt
+        });
+      });
+
+      setRecoveryGroups(
+        [...groups.values()].sort(
+          (a, b) => (b.deletedAt?.toMillis?.() || 0) - (a.deletedAt?.toMillis?.() || 0)
+        )
+      );
+    } catch (err) {
+      console.error("Failed to load deleted data recovery entries:", err);
+      showFeedback("error", `Failed to load recovery data: ${err.message || "Unknown error"}`);
+    } finally {
+      setLoadingRecovery(false);
+    }
+  }, [showFeedback]);
+
+  useEffect(() => {
+    if (activeTab === "cleanup") {
+      loadRecoveryGroups();
+    }
+  }, [activeTab, loadRecoveryGroups]);
 
   // =========================================================
   // 2. SEARCH & FILTERING
@@ -463,19 +694,19 @@ const DatabaseManager = () => {
     const displayName = docItem.name || docItem.fullName || docItem.courseName || targetId;
 
     const confirmed = window.confirm(
-      `Are you sure you want to permanently delete '${displayName}' (${targetId}) from '${selectedCollection}'?\n\nIf this user is currently logged in, they will be automatically logged out immediately!`
+      `Are you sure you want to permanently delete '${displayName}' (${targetId}) from '${selectedCollection}'?\n\nThis will purge all corresponding records across all database collections and unassign any related courses.`
     );
     if (!confirmed) return;
 
     setLoading(true);
     try {
-      if (selectedCollection === "students") {
-        await deleteStudentRecordCompletely({ id: targetId, rollNo: docItem.rollNo || targetId, email: docItem.email });
+      if (["students", "lecturers", "admins", "users", "authorizedUsers"].includes(selectedCollection)) {
+        await purgeUserCompletelyFromAllDatabases(docItem, selectedCollection);
       } else {
         await deleteDoc(doc(db, selectedCollection, targetId));
       }
 
-      showFeedback("success", `Successfully deleted '${displayName}' from '${selectedCollection}'.`);
+      showFeedback("success", `Successfully deleted '${displayName}' across the entire database.`);
       setInspectingDoc(null);
       setCollectionDocs((prev) => prev.filter((d) => d._id !== targetId));
       setCounts((prev) => ({ ...prev, [selectedCollection]: Math.max((prev[selectedCollection] || 1) - 1, 0) }));
@@ -484,6 +715,169 @@ const DatabaseManager = () => {
       showFeedback("error", "Failed to delete: " + err.message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleDeleteCleanupTarget = async (target) => {
+    if (cleanupTargetInProgress) return;
+
+    if (target.isDeduplication) {
+      const confirmation = window.prompt(
+        `This will scan users, lecturers, admins, and authorizedUsers to merge and purge all email-prefix duplicates and raw Auth UID documents.\n\nType exactly: ${target.confirmText}`
+      );
+      if (confirmation !== target.confirmText) {
+        if (confirmation !== null) {
+          showFeedback("error", "Confirmation did not match. Nothing was cleaned.");
+        }
+        return;
+      }
+
+      setCleanupTargetInProgress(target.id);
+      try {
+        const res = await deduplicateUsersCollection();
+        if (res.success) {
+          showFeedback("success", `✅ Deduplication complete! Purged ${res.removedCount} duplicate documents and merged ${res.mergedCount} profiles successfully.`);
+          await loadActiveCollection(selectedCollection);
+          await fetchAllCounts();
+        } else {
+          showFeedback("error", `Deduplication encountered warnings: ${res.error || "Check console"}`);
+        }
+      } catch (err) {
+        showFeedback("error", `Deduplication failed: ${err.message}`);
+      } finally {
+        setCleanupTargetInProgress("");
+      }
+      return;
+    }
+
+    let deletedCount = 0;
+    setCleanupTargetInProgress(target.id);
+    try {
+      const records = await getCleanupTargetRefs(target);
+      if (!records.length) {
+        showFeedback("success", `No ${target.label.toLowerCase()} data was found to delete.`);
+        return;
+      }
+
+      const typedConfirmation = window.prompt(
+        `This moves ${records.length} ${target.label.toLowerCase()} record(s) to recovery for 3 days. After that, recovery is unavailable and Firestore permanently removes the backups.\n\nType exactly: ${target.confirmText}`
+      );
+      if (typedConfirmation !== target.confirmText) {
+        if (typedConfirmation !== null) {
+          showFeedback("error", "Confirmation did not match. Nothing was deleted.");
+        }
+        return;
+      }
+
+      const operationId = `${target.id}_${doc(collection(db, "database_recovery")).id}`;
+      const deletedAtMs = Timestamp.now().toMillis();
+      const expiresAt = Timestamp.fromMillis(deletedAtMs + 3 * 24 * 60 * 60 * 1000);
+      for (let offset = 0; offset < records.length; offset += 250) {
+        const batch = writeBatch(db);
+        records.slice(offset, offset + 250).forEach((record, index) => {
+          const recoveryRef = doc(db, "database_recovery", `${operationId}_${offset + index}`);
+          batch.set(recoveryRef, {
+            operationId,
+            targetId: target.id,
+            label: target.label,
+            originalPath: record.ref.path,
+            originalData: record.data,
+            deletedAt: Timestamp.fromMillis(deletedAtMs),
+            expiresAt
+          });
+          batch.delete(record.ref);
+        });
+        await batch.commit();
+        deletedCount += Math.min(250, records.length - offset);
+      }
+
+      showFeedback("success", `Moved ${deletedCount} ${target.label.toLowerCase()} record(s) to recovery. They can be restored for 3 days.`);
+      if (target.collection) {
+        setCounts((prev) => ({ ...prev, [target.collection]: 0 }));
+        if (selectedCollection === target.collection) {
+          await loadActiveCollection(target.collection);
+        }
+      }
+      await fetchAllCounts();
+      await loadRecoveryGroups();
+    } catch (err) {
+      console.error(`Failed to delete ${target.label}:`, err);
+      const partialMessage = deletedCount ? ` ${deletedCount} record(s) were deleted before the failure.` : "";
+      showFeedback("error", `Failed to delete ${target.label.toLowerCase()}: ${err.message || "Unknown error"}.${partialMessage}`);
+    } finally {
+      setCleanupTargetInProgress("");
+    }
+  };
+
+  const handleRestoreRecoveryGroup = async (group) => {
+    if (cleanupTargetInProgress) return;
+
+    if (!group.records.length || group.expiresAt?.toMillis?.() <= Timestamp.now().toMillis()) {
+      showFeedback("error", "This recovery window has expired. The data can no longer be restored.");
+      await loadRecoveryGroups();
+      return;
+    }
+
+    const confirmation = window.prompt(
+      `Restore ${group.records.length} ${group.label.toLowerCase()} record(s)? Existing records will not be overwritten.\n\nType exactly: RESTORE ${group.label.toUpperCase()}`
+    );
+    if (confirmation !== `RESTORE ${group.label.toUpperCase()}`) {
+      if (confirmation !== null) {
+        showFeedback("error", "Confirmation did not match. Nothing was restored.");
+      }
+      return;
+    }
+
+    setCleanupTargetInProgress(group.operationId);
+    try {
+      let restoredCount = 0;
+      let conflictCount = 0;
+      let expiredCount = 0;
+
+      for (let offset = 0; offset < group.records.length; offset += 20) {
+        const results = await Promise.all(group.records.slice(offset, offset + 20).map(async (record) => {
+          if (record.expiresAt?.toMillis?.() <= Timestamp.now().toMillis()) return "expired";
+
+          const recoveryRef = doc(db, "database_recovery", record.id);
+          const originalRef = doc(db, record.originalPath);
+          return runTransaction(db, async (transaction) => {
+            const [recoverySnapshot, originalSnapshot] = await Promise.all([
+              transaction.get(recoveryRef),
+              transaction.get(originalRef)
+            ]);
+            if (!recoverySnapshot.exists()) return "expired";
+            if ((recoverySnapshot.data().expiresAt?.toMillis?.() || 0) <= Timestamp.now().toMillis()) return "expired";
+            if (originalSnapshot.exists()) return "conflict";
+
+            transaction.set(originalRef, recoverySnapshot.data().originalData);
+            transaction.delete(recoveryRef);
+            return "restored";
+          });
+        }));
+
+        results.forEach((result) => {
+          if (result === "restored") restoredCount += 1;
+          else if (result === "conflict") conflictCount += 1;
+          else expiredCount += 1;
+        });
+      }
+
+      const messages = [`Restored ${restoredCount} record(s).`];
+      if (conflictCount) messages.push(`${conflictCount} existing record(s) were left unchanged.`);
+      if (expiredCount) messages.push(`${expiredCount} record(s) had expired and could not be restored.`);
+      showFeedback(conflictCount || expiredCount ? "info" : "success", messages.join(" "));
+
+      const target = CLEANUP_TARGETS.find((item) => item.id === group.targetId);
+      if (target?.collection && selectedCollection === target.collection) {
+        await loadActiveCollection(target.collection);
+      }
+      await fetchAllCounts();
+      await loadRecoveryGroups();
+    } catch (err) {
+      console.error("Failed to restore deleted data:", err);
+      showFeedback("error", `Failed to restore data: ${err.message || "Unknown error"}`);
+    } finally {
+      setCleanupTargetInProgress("");
     }
   };
 
@@ -616,12 +1010,21 @@ const DatabaseManager = () => {
         updatedAt: Date.now()
       };
 
+      // Save strictly to canonical email document across collections
       await Promise.all([
         setDoc(doc(db, "lecturers", email), lecturerData, { merge: true }),
-        setDoc(doc(db, "lecturers", prefix), lecturerData, { merge: true })
+        setDoc(doc(db, "users", email), lecturerData, { merge: true }),
+        setDoc(doc(db, "authorizedUsers", email), lecturerData, { merge: true })
       ]);
 
-      showFeedback("success", `Lecturer '${email}' registered and authorized successfully!`);
+      // Remove any legacy prefix duplicate document
+      if (prefix && prefix !== email) {
+        deleteDoc(doc(db, "lecturers", prefix)).catch(() => { });
+        deleteDoc(doc(db, "users", prefix)).catch(() => { });
+        deleteDoc(doc(db, "authorizedUsers", prefix)).catch(() => { });
+      }
+
+      showFeedback("success", `Lecturer '${email}' registered and authorized successfully with single canonical key!`);
       setNewLecturerEmail("");
       setNewLecturerName("");
       loadActiveCollection("lecturers");
@@ -630,6 +1033,33 @@ const DatabaseManager = () => {
       showFeedback("error", "Failed to create lecturer: " + err.message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const runDeduplication = async () => {
+    const confirmed = window.confirm(
+      "🧹 Clean & Deduplicate User Accounts?\n\nThis will scan Firestore (users, lecturers, admins, authorizedUsers):\n1. Merge and delete redundant email-prefix duplicates (e.g. 'onteddukalyani' when 'onteddukalyani@gmail.com' exists).\n2. Remove raw Firebase Auth UID duplicate documents.\n3. Retain single canonical documents for every staff and student.\n\nProceed?"
+    );
+    if (!confirmed) return;
+
+    setDeduplicating(true);
+    try {
+      const res = await deduplicateUsersCollection();
+      if (res.success) {
+        showFeedback(
+          "success",
+          `✅ Deduplication complete! Purged ${res.removedCount} duplicate documents and merged ${res.mergedCount} profiles.`
+        );
+        loadActiveCollection(selectedCollection);
+        fetchAllCounts();
+      } else {
+        showFeedback("error", "Deduplication finished with warnings: " + (res.error || "Check console"));
+      }
+    } catch (err) {
+      console.error("Deduplication error:", err);
+      showFeedback("error", "Failed to deduplicate: " + err.message);
+    } finally {
+      setDeduplicating(false);
     }
   };
 
@@ -647,6 +1077,17 @@ const DatabaseManager = () => {
           </p>
         </div>
         <div className="db-header-actions">
+          <button
+            type="button"
+            className="db-btn db-btn-warning"
+            onClick={runDeduplication}
+            disabled={deduplicating || loading}
+            style={{ background: "#f59e0b", color: "#fff", borderColor: "#d97706" }}
+            title="Scan and remove redundant prefix and UID duplicates across all collections"
+          >
+            <FaSyncAlt className={deduplicating ? "spin-icon" : ""} />
+            {deduplicating ? "Cleaning..." : "🧹 Clean Duplicates"}
+          </button>
           <button
             type="button"
             className="db-btn db-btn-primary"
@@ -683,10 +1124,10 @@ const DatabaseManager = () => {
         </button>
         <button
           type="button"
-          className={`db-tab-btn ${activeTab === "schema" ? "active" : ""}`}
-          onClick={() => handleTabSwitch("schema")}
+          className={`db-tab-btn ${activeTab === "cleanup" ? "active" : ""}`}
+          onClick={() => handleTabSwitch("cleanup")}
         >
-          <FaBookOpen /> Database Architecture &amp; Schema Blueprint
+          <FaTrashAlt /> Delete Data
         </button>
         <button
           type="button"
@@ -747,6 +1188,18 @@ const DatabaseManager = () => {
               </h2>
 
               <div style={{ display: "flex", gap: "10px" }}>
+                {["users", "lecturers", "admins"].includes(selectedCollection) && (
+                  <button
+                    type="button"
+                    className="db-btn db-btn-warning"
+                    onClick={runDeduplication}
+                    disabled={deduplicating || loading}
+                    style={{ background: "#f59e0b", color: "#fff", borderColor: "#d97706" }}
+                    title="Scan and remove redundant prefix and UID duplicates"
+                  >
+                    <FaSyncAlt className={deduplicating ? "fa-spin" : ""} /> {deduplicating ? "Cleaning..." : "🧹 Clean Duplicates"}
+                  </button>
+                )}
                 <button
                   type="button"
                   className="db-btn db-btn-success"
@@ -1018,6 +1471,74 @@ const DatabaseManager = () => {
                     </>
                   )}
 
+                  {/* USERS AUTH INDEX TABLE */}
+                  {selectedCollection === "users" && (
+                    <>
+                      <thead>
+                        <tr>
+                          <th>User Identifier / Email</th>
+                          <th>Full Name</th>
+                          <th>Role</th>
+                          <th>Status</th>
+                          <th>Device / Hardware</th>
+                          <th style={{ textAlign: "right" }}>Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredDocs.map((u) => {
+                          const isEmail = u._id.includes("@");
+                          const status = String(u.status || (u.approved !== false ? "active" : "disabled")).toLowerCase();
+                          return (
+                            <tr key={u._id}>
+                              <td style={{ fontWeight: 800, color: isEmail ? "var(--accent, #6366f1)" : "#f59e0b" }}>
+                                {u._id}
+                                {!isEmail && (
+                                  <span className="db-badge db-badge-amber" style={{ marginLeft: "8px", fontSize: "11px" }}>
+                                    Duplicate / Legacy
+                                  </span>
+                                )}
+                              </td>
+                              <td style={{ fontWeight: 700 }}>{u.name || u.fullName || "—"}</td>
+                              <td>
+                                <span className={`db-badge ${u.role === "admin" ? "db-badge-red" : u.role === "lecturer" ? "db-badge-blue" : "db-badge-green"}`}>
+                                  {(u.role || (u.isAdmin ? "admin" : "user")).toUpperCase()}
+                                </span>
+                              </td>
+                              <td>
+                                {status === "active" ? (
+                                  <span className="db-badge db-badge-green"><FaCheck /> Active</span>
+                                ) : (
+                                  <span className="db-badge db-badge-red"><FaBan /> {status.toUpperCase()}</span>
+                                )}
+                              </td>
+                              <td style={{ fontSize: "12px", color: "var(--text-muted, #64748b)" }}>
+                                {u.deviceType || u.registeredPlatform || (u.hardwareBiometricEnrolled ? "Hardware Biometric" : "—")}
+                              </td>
+                              <td style={{ textAlign: "right" }}>
+                                <div className="db-row-actions" style={{ justifyContent: "flex-end" }}>
+                                  <button type="button" className="db-row-btn" onClick={() => setInspectingDoc(u)}>
+                                    <FaEye /> Inspect
+                                  </button>
+                                  <button type="button" className="db-row-btn" onClick={() => handleOpenEdit(u)}>
+                                    <FaEdit /> Edit
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="db-row-btn db-row-btn-danger"
+                                    onClick={() => handleDeleteRecord(u)}
+                                    title="Delete user and purge all records across entire database"
+                                  >
+                                    <FaTrashAlt />
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </>
+                  )}
+
                   {/* COURSES TABLE */}
                   {selectedCollection === "courses" && (
                     <>
@@ -1162,7 +1683,7 @@ const DatabaseManager = () => {
                   )}
 
                   {/* FALLBACK / GENERIC TABLE */}
-                  {!["students", "lecturers", "admins", "courses", "attendance_sessions", "attendance_records"].includes(selectedCollection) && (
+                  {!["students", "lecturers", "admins", "users", "courses", "attendance_sessions", "attendance_records"].includes(selectedCollection) && (
                     <>
                       <thead>
                         <tr>
@@ -1205,99 +1726,103 @@ const DatabaseManager = () => {
         </div>
       )}
 
-      {/* =====================================================
-          TAB 2: DATABASE ARCHITECTURE & SCHEMA BLUEPRINT (NO JSON)
-          ===================================================== */}
-      {activeTab === "schema" && (
-        <div className="db-schema-grid">
-          <div className="db-card" style={{ background: "linear-gradient(135deg, rgba(99, 102, 241, 0.08) 0%, rgba(16, 185, 129, 0.04) 100%)", border: "1px solid rgba(99, 102, 241, 0.25)" }}>
-            <h2 style={{ margin: "0 0 8px", fontSize: "20px", display: "flex", alignItems: "center", gap: "10px" }}>
-              <FaLayerGroup style={{ color: "#6366f1" }} /> Canonical Database Architecture
-            </h2>
-            <p style={{ margin: 0, fontSize: "14px", color: "var(--text-muted, #64748b)" }}>
-              The SmartAttend system enforces clean, unified Document ID conventions to guarantee 0 permission errors, prevent document fragmentation, and keep hardware security strictly enforced.
+      {activeTab === "cleanup" && (
+        <div>
+          <div className="db-card">
+            <div className="db-card-header">
+              <h2><FaExclamationTriangle /> Delete data by category</h2>
+            </div>
+            <p style={{ color: "var(--text-muted, #64748b)", fontSize: "14px", margin: "0" }}>
+              Each button affects only its named Firestore data group. Deleted records can be restored for 3 days, after which recovery is unavailable and Firestore permanently removes the backups.
+              Student and lecturer Firebase Authentication accounts are not deleted. Admin records are intentionally excluded.
             </p>
           </div>
 
-          {SCHEMA_BLUEPRINTS.map((schema) => {
-            const Icon = schema.icon;
-            const liveCount = counts[schema.id] ?? 0;
-
-            return (
-              <div key={schema.id} className="db-schema-card">
-                <div className="db-schema-header">
-                  <div className="db-schema-title-group">
-                    <h3>
-                      <Icon style={{ color: "#6366f1" }} />
-                      <span>{schema.title}</span>
-                      <span className="db-badge db-badge-blue">{liveCount} Live Records</span>
-                    </h3>
-                    <div className="db-schema-docid">
-                      Primary Key Pattern: {schema.docIdRule}
-                    </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(270px, 1fr))", gap: "16px" }}>
+            {CLEANUP_TARGETS.map((target) => {
+              const Icon = target.icon;
+              const isDeleting = cleanupTargetInProgress === target.id;
+              return (
+                <section className="db-card" key={target.id} style={{ marginBottom: 0 }}>
+                  <div className="db-card-header">
+                    <h2><Icon /> {target.label}</h2>
                   </div>
+                  <p style={{ minHeight: "58px", color: "var(--text-muted, #64748b)", fontSize: "13px" }}>
+                    {target.description}
+                  </p>
+                  <button
+                    type="button"
+                    className="db-btn db-btn-danger"
+                    disabled={Boolean(cleanupTargetInProgress) || loading}
+                    onClick={() => handleDeleteCleanupTarget(target)}
+                  >
+                    {isDeleting ? <FaSyncAlt className="spin-icon" /> : <FaTrashAlt />}
+                    {isDeleting ? "Deleting..." : `Delete ${target.label}`}
+                  </button>
+                </section>
+              );
+            })}
+          </div>
 
-                  <div style={{ display: "flex", gap: "8px" }}>
-                    <button
-                      type="button"
-                      className="db-btn db-btn-secondary"
-                      onClick={() => {
-                        handleCollectionSwitch(schema.id);
-                        handleTabSwitch("explorer");
+          <div className="db-card" style={{ marginTop: "24px" }}>
+            <div className="db-card-header">
+              <h2><FaUndo /> Recover recently deleted data</h2>
+              <button
+                type="button"
+                className="db-btn db-btn-secondary"
+                onClick={loadRecoveryGroups}
+                disabled={loadingRecovery || Boolean(cleanupTargetInProgress)}
+              >
+                <FaSyncAlt className={loadingRecovery ? "spin-icon" : ""} /> Refresh
+              </button>
+            </div>
+            {loadingRecovery ? (
+              <p style={{ color: "var(--text-muted, #64748b)" }}>Loading available recoveries...</p>
+            ) : recoveryGroups.length === 0 ? (
+              <p style={{ color: "var(--text-muted, #64748b)", margin: 0 }}>
+                There are no deleted records available to recover.
+              </p>
+            ) : (
+              <div style={{ display: "grid", gap: "12px" }}>
+                {recoveryGroups.map((group) => {
+                  const expiresAt = group.expiresAt?.toDate?.();
+                  const isRestoring = cleanupTargetInProgress === group.operationId;
+                  return (
+                    <div
+                      key={group.operationId}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        gap: "16px",
+                        flexWrap: "wrap",
+                        padding: "14px 16px",
+                        border: "1px solid var(--border, #e2e8f0)",
+                        borderRadius: "12px"
                       }}
                     >
-                      <FaDatabase /> Browse Live Records ({liveCount})
-                    </button>
-                    <button
-                      type="button"
-                      className="db-btn db-btn-success"
-                      onClick={() => handleOpenAdd(schema.id)}
-                    >
-                      <FaPlus /> Add {schema.id === "students" ? "Student" : (schema.id === "lecturers" ? "Faculty" : "Item")}
-                    </button>
-                  </div>
-                </div>
-
-                <p className="db-schema-desc">{schema.description}</p>
-
-                {/* Field Dictionary Table */}
-                <div className="db-table-wrapper">
-                  <table className="db-table">
-                    <thead>
-                      <tr>
-                        <th style={{ width: "20%" }}>Field Name</th>
-                        <th style={{ width: "15%" }}>Data Type</th>
-                        <th style={{ width: "15%" }}>Requirement</th>
-                        <th style={{ width: "50%" }}>Field Description &amp; Usage</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {schema.fields.map((f) => (
-                        <tr key={f.name}>
-                          <td style={{ fontWeight: 800, fontFamily: "monospace", color: "var(--accent, #6366f1)" }}>
-                            {f.name}
-                          </td>
-                          <td>
-                            <span className={`db-type-pill db-type-${f.type.startsWith("array") ? "array" : f.type}`}>
-                              {f.type}
-                            </span>
-                          </td>
-                          <td>
-                            {f.required ? (
-                              <span className="db-badge db-badge-amber">Required</span>
-                            ) : (
-                              <span className="db-badge db-badge-gray">Optional</span>
-                            )}
-                          </td>
-                          <td style={{ color: "var(--text-main, #334155)" }}>{f.desc}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                      <div>
+                        <strong>{group.label}</strong>
+                        <div style={{ color: "var(--text-muted, #64748b)", fontSize: "13px", marginTop: "4px" }}>
+                          {group.records.length} record(s)
+                          {expiresAt ? ` · Recovery ends ${expiresAt.toLocaleString()}` : ""}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        className="db-btn db-btn-success"
+                        disabled={Boolean(cleanupTargetInProgress) || loadingRecovery}
+                        onClick={() => handleRestoreRecoveryGroup(group)}
+                      >
+                        {isRestoring ? <FaSyncAlt className="spin-icon" /> : <FaUndo />}
+                        {isRestoring ? "Restoring..." : "Restore"}
+                      </button>
+                    </div>
+                  );
+                })}
               </div>
-            );
-          })}
+            )}
+          </div>
         </div>
       )}
 
@@ -1390,6 +1915,26 @@ const DatabaseManager = () => {
           </div>
 
           {/* 3. System Repair */}
+          {/* 3. Deduplicate Users & Staff Accounts */}
+          <div className="db-card" style={{ borderLeft: "4px solid #f59e0b" }}>
+            <div className="db-card-header">
+              <h2><FaSyncAlt /> Deduplicate &amp; Clean Users Collection</h2>
+            </div>
+            <p style={{ color: "var(--text-muted, #64748b)", fontSize: "14px", margin: "0 0 16px" }}>
+              Removes redundant username/prefix duplicate entries (e.g. <code>onteddukalyani</code> when <code>onteddukalyani@gmail.com</code> exists) and stray Firebase Auth UID records from the <code>users</code> collection, merging any orphaned profile data into single canonical documents.
+            </p>
+            <button
+              type="button"
+              className="db-btn db-btn-warning"
+              onClick={runDeduplication}
+              disabled={deduplicating || loading}
+              style={{ background: "#f59e0b", color: "#fff", borderColor: "#d97706" }}
+            >
+              <FaSyncAlt className={deduplicating ? "fa-spin" : ""} /> {deduplicating ? "Cleaning Duplicates..." : "🧹 Clean & Deduplicate Users Collection"}
+            </button>
+          </div>
+
+          {/* 4. System Repair */}
           <div className="db-card">
             <div className="db-card-header">
               <h2><FaTools /> System Documents Repair &amp; Auto-Bootstrap</h2>

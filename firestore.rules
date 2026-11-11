@@ -3,88 +3,111 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Helper functions
+    // =========================================================================
+    // CORE AUTHENTICATION & ROLE-BASED ACCESS CONTROL (RBAC) HELPERS
+    // Optimized for zero lookup exhaustion (<= 3 document lookups total)
+    // =========================================================================
+
     function isSignedIn() {
       return request.auth != null;
     }
 
-    function isAdmin() {
+    // Direct token / superadmin check: 0 Firestore document lookups
+    function isSuperAdmin() {
       return isSignedIn() && (
         (request.auth.token.email != null && (
           request.auth.token.email.lower() == 'onteddukalyani@gmail.com' ||
           request.auth.token.email.split('@')[0].lower() == 'onteddukalyani'
         )) ||
         request.auth.token.admin == true ||
-        request.auth.token.role in ['admin', 'superadmin', 'administrator'] ||
-        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
-        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && (
-          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['admin', 'superadmin', 'administrator'] ||
-          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true
-        )) ||
-        (request.auth.token.email != null && (
-          exists(/databases/$(database)/documents/admins/$(request.auth.token.email)) ||
-          exists(/databases/$(database)/documents/admins/$(request.auth.token.email.lower())) ||
-          exists(/databases/$(database)/documents/admins/$(request.auth.token.email.split('@')[0])) ||
-          exists(/databases/$(database)/documents/admins/$(request.auth.token.email.split('@')[0].lower())) ||
-          (exists(/databases/$(database)/documents/users/$(request.auth.token.email.lower())) && (
-            get(/databases/$(database)/documents/users/$(request.auth.token.email.lower())).data.role in ['admin', 'superadmin', 'administrator'] ||
-            get(/databases/$(database)/documents/users/$(request.auth.token.email.lower())).data.isAdmin == true
-          )) ||
-          (exists(/databases/$(database)/documents/authorizedUsers/$(request.auth.token.email.lower())) && (
-            get(/databases/$(database)/documents/authorizedUsers/$(request.auth.token.email.lower())).data.role in ['admin', 'superadmin', 'administrator'] ||
-            get(/databases/$(database)/documents/authorizedUsers/$(request.auth.token.email.lower())).data.isAdmin == true
-          ))
-        ))
+        request.auth.token.role in ['admin', 'superadmin', 'administrator']
       );
     }
 
+    // Admin authorization: max 2 document lookups
+    function isAdmin() {
+      return isSuperAdmin() || (
+        isSignedIn() && (
+          (request.auth.token.email != null && exists(/databases/$(database)/documents/admins/$(request.auth.token.email.lower()))) ||
+          exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+        )
+      );
+    }
+
+    // Lecturer authorization: max 2 document lookups
     function isLecturer() {
       return isSignedIn() && (
         request.auth.token.role in ['lecturer', 'faculty', 'professor'] ||
-        exists(/databases/$(database)/documents/lecturers/$(request.auth.uid)) ||
-        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && (
-          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['lecturer', 'faculty', 'professor']
-        )) ||
-        (request.auth.token.email != null && (
-          exists(/databases/$(database)/documents/lecturers/$(request.auth.token.email)) ||
-          exists(/databases/$(database)/documents/lecturers/$(request.auth.token.email.lower())) ||
-          exists(/databases/$(database)/documents/lecturers/$(request.auth.token.email.split('@')[0])) ||
-          exists(/databases/$(database)/documents/lecturers/$(request.auth.token.email.split('@')[0].lower())) ||
-          (exists(/databases/$(database)/documents/users/$(request.auth.token.email.lower())) && (
-            get(/databases/$(database)/documents/users/$(request.auth.token.email.lower())).data.role in ['lecturer', 'faculty', 'professor']
-          )) ||
-          (exists(/databases/$(database)/documents/authorizedUsers/$(request.auth.token.email.lower())) && (
-            get(/databases/$(database)/documents/authorizedUsers/$(request.auth.token.email.lower())).data.role in ['lecturer', 'faculty', 'professor']
-          )) ||
-          (exists(/databases/$(database)/documents/authorizedUsers/$(request.auth.token.email.split('@')[0].lower())) && (
-            get(/databases/$(database)/documents/authorizedUsers/$(request.auth.token.email.split('@')[0].lower())).data.role in ['lecturer', 'faculty', 'professor']
-          ))
-        ))
+        (request.auth.token.email != null && exists(/databases/$(database)/documents/lecturers/$(request.auth.token.email.lower()))) ||
+        exists(/databases/$(database)/documents/lecturers/$(request.auth.uid))
       );
     }
 
+    // Staff authorization (Admin or Lecturer): manages students and academic sessions
     function isStaff() {
       return isAdmin() || isLecturer();
     }
 
-    function hasNoFaceTemplate(data) {
-      return !data.keys().hasAny([
-        'faceDescriptor', 'faceDescriptors', 'descriptor', 'descriptors',
-        'faceVector', 'faceVectors', 'embedding', 'embeddings'
+    // =========================================================================
+    // STUDENT IDENTITY & BIOMETRIC ANTI-TAMPERING HELPERS
+    // =========================================================================
+
+    function isOwnStudentRecord(studentId, data) {
+      return isSignedIn() && (
+        request.auth.uid == studentId ||
+        (data != null && (
+          data.studentUid == request.auth.uid ||
+          data.uid == request.auth.uid ||
+          data.deviceBoundUid == request.auth.uid ||
+          (request.auth.token.email != null && data.email != null && data.email.lower() == request.auth.token.email.lower())
+        )) ||
+        (request.auth.token.email != null && (
+          studentId == request.auth.token.email.split('@')[0] ||
+          studentId.lower() == request.auth.token.email.split('@')[0].lower() ||
+          studentId == request.auth.token.email.split('@')[0].upper() ||
+          (data != null && data.rollNo != null && data.rollNo.lower() == request.auth.token.email.split('@')[0].lower())
+        ))
+      );
+    }
+
+    function isOwnUserRecord(userId, data) {
+      return isSignedIn() && (
+        request.auth.uid == userId ||
+        (data != null && (
+          data.uid == request.auth.uid ||
+          data.studentUid == request.auth.uid ||
+          (request.auth.token.email != null && data.email != null && data.email.lower() == request.auth.token.email.lower())
+        )) ||
+        (request.auth.token.email != null && (
+          userId == request.auth.token.email ||
+          userId.lower() == request.auth.token.email.lower() ||
+          userId.lower() == request.auth.token.email.split('@')[0].lower()
+        ))
+      );
+    }
+
+    // Verifies student is NOT modifying any administrative/privilege fields
+    function hasNoStudentPrivilegeEscalation() {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+        'rollNo', 'rollNumber', 'status', 'disqualified', 'academicYear',
+        'department', 'branch', 'semester', 'batch', 'role', 'approved',
+        'studentUid', 'isAdmin', 'isStaff', 'isLecturer'
       ]);
     }
 
-    function hasNoClientFaceEnrollmentMutation() {
+    // Verifies student is NOT modifying existing enrolled biometrics or device locks
+    function hasNoBiometricMutation() {
       return !request.resource.data.diff(resource.data).affectedKeys().hasAny([
         'faceDescriptor', 'faceDescriptors', 'descriptor', 'descriptors',
         'faceVector', 'faceVectors', 'embedding', 'embeddings',
         'faceRegistered', 'biometricEnrolled', 'hasFaceRegistered',
         'faceEnrolledAt', 'faceRemovedAt',
         'hardwareBiometricEnrolled', 'hardwareBiometricPlatform', 'hardwareBiometricEnrolledAt',
-        'isDeviceRegistered', 'registeredPlatform', 'registeredDeviceType'
+        'deviceTypeLocked', 'deviceId', 'registeredPlatform', 'registeredDeviceType'
       ]);
     }
 
+    // Permits initial one-time biometric face enrollment during onboarding
     function isInitialFaceEnrollment() {
       return (
         (!('faceRegistered' in resource.data) || resource.data.faceRegistered != true) &&
@@ -96,6 +119,7 @@ service cloud.firestore {
       );
     }
 
+    // Permits re-registration ONLY if staff/admin has authorized it (faceRemovedAt != null)
     function isAuthorizedFaceReRegistration() {
       return (
         resource.data.faceRemovedAt != null &&
@@ -106,6 +130,7 @@ service cloud.firestore {
       );
     }
 
+    // Permits initial one-time mobile device binding during onboarding
     function isInitialDeviceBinding() {
       return (
         (!('deviceTypeLocked' in resource.data) || resource.data.deviceTypeLocked != true) &&
@@ -120,331 +145,265 @@ service cloud.firestore {
       );
     }
 
-    function canEnrollOrModifyBiometrics() {
-      return hasNoClientFaceEnrollmentMutation() ||
+    // Students CANNOT change biometric data after enrollment unless staff authorized
+    function studentCanModifyBiometrics() {
+      return hasNoBiometricMutation() ||
         isInitialFaceEnrollment() ||
         isAuthorizedFaceReRegistration() ||
         isInitialDeviceBinding() ||
         isInitialHardwareBiometricEnrollment();
     }
 
-    function isOwnStudentRecord(studentId, data) {
-      return isSignedIn() && (
-        request.auth.uid == studentId ||
-        data.studentUid == request.auth.uid ||
-        data.uid == request.auth.uid ||
-        (request.auth.token.email != null && (
-          data.email == request.auth.token.email ||
-          (data.email != null && data.email.lower() == request.auth.token.email.lower()) ||
-          studentId == request.auth.token.email.split('@')[0] ||
-          studentId.lower() == request.auth.token.email.split('@')[0].lower()
-        ))
-      );
-    }
-
-    function isOwnUserRecord(userId, data) {
-      return isSignedIn() && (
-        request.auth.uid == userId ||
-        data.studentUid == request.auth.uid ||
-        data.uid == request.auth.uid ||
-        (request.auth.token.email != null && (
-          data.email == request.auth.token.email ||
-          (data.email != null && data.email.lower() == request.auth.token.email.lower()) ||
-          (userId.lower() == request.auth.token.email.split('@')[0].lower() &&
-            (!('studentUid' in data) || data.studentUid == null || data.studentUid == request.auth.uid))
-        ))
-      );
-    }
-
-    // Admins collection: strictly protected against client tampering and privilege escalation
+    // =========================================================================
+    // 1. ADMINS COLLECTION: ONLY Admins can add, remove, or modify admins
+    // =========================================================================
     match /admins/{adminId} {
       allow read: if isSignedIn();
       allow create, delete: if isAdmin();
-      allow update: if isAdmin() || (
-        isSignedIn() && (
-          request.auth.uid == adminId ||
-          (request.auth.token.email != null && (
-            adminId == request.auth.token.email ||
-            adminId == request.auth.token.email.split('@')[0] ||
-            (resource.data.email != null && resource.data.email.lower() == request.auth.token.email.lower())
-          ))
-        ) && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'status', 'approved', 'isAdmin'])
-      );
+      allow update: if isAdmin();
       match /{document=**} {
         allow read: if isSignedIn();
-        allow write: if isAdmin();
+        allow write, delete: if isAdmin();
       }
     }
 
-    match /institution_settings/{docId} {
-      allow read: if isSignedIn();
-      allow write: if isAdmin();
-      match /{document=**} {
-        allow read: if isSignedIn();
-        allow write: if isAdmin();
-      }
-    }
-
-    match /institution/{docId} {
-      allow read: if isSignedIn();
-      allow write: if isAdmin();
-      match /{document=**} {
-        allow read: if isSignedIn();
-        allow write: if isAdmin();
-      }
-    }
-
-    match /app_updates/{docId} {
-      allow read: if true;
-      allow write: if isAdmin();
-      match /{document=**} {
-        allow read: if true;
-        allow write: if isAdmin();
-      }
-    }
-
-    // Lecturers collection: managed by admins; lecturers can create/update own device and profile settings
+    // =========================================================================
+    // 2. LECTURERS COLLECTION: Managed by ADMIN ONLY for adding and removing.
+    // Lecturers CANNOT change other staff details.
+    // =========================================================================
     match /lecturers/{lecturerId} {
       allow read: if isSignedIn();
-      allow create: if isAdmin() || (
-        isSignedIn() && (
-          request.auth.uid == lecturerId ||
-          (request.auth.token.email != null && (
-            lecturerId == request.auth.token.email ||
-            lecturerId == request.auth.token.email.lower() ||
-            lecturerId == request.auth.token.email.split('@')[0] ||
-            lecturerId == request.auth.token.email.split('@')[0].lower() ||
-            lecturerId.lower() == request.auth.token.email.lower() ||
-            lecturerId.lower() == request.auth.token.email.split('@')[0].lower()
-          ))
-        ) && !request.resource.data.keys().hasAny(['isAdmin', 'isSuperAdmin'])
-      );
-      allow delete: if isAdmin();
+      // Only Admin can add or delete lecturers
+      allow create, delete: if isAdmin();
+      // Admin can update all; lecturer can ONLY update their own non-privilege profile
       allow update: if isAdmin() || (
         isSignedIn() && (
           request.auth.uid == lecturerId ||
           (request.auth.token.email != null && (
-            lecturerId == request.auth.token.email ||
             lecturerId == request.auth.token.email.lower() ||
-            lecturerId == request.auth.token.email.split('@')[0] ||
             lecturerId == request.auth.token.email.split('@')[0].lower() ||
-            lecturerId.lower() == request.auth.token.email.lower() ||
-            lecturerId.lower() == request.auth.token.email.split('@')[0].lower() ||
             (resource.data.email != null && resource.data.email.lower() == request.auth.token.email.lower())
           ))
-        ) && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'department', 'designation', 'status', 'approved', 'isAdmin'])
+        ) && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          'role', 'department', 'designation', 'status', 'approved', 'isAdmin'
+        ])
       );
       match /{document=**} {
         allow read: if isSignedIn();
-        allow write: if isAdmin() || (
-          isSignedIn() && (
-            request.auth.uid == lecturerId ||
-            (request.auth.token.email != null && (
-              lecturerId.lower() == request.auth.token.email.lower() ||
-              lecturerId.lower() == request.auth.token.email.split('@')[0].lower()
-            ))
-          )
-        );
+        allow write, delete: if isAdmin();
       }
     }
 
-    // Courses collection: managed by admins and authorized lecturers
-    match /courses/{courseId} {
-      allow read: if isSignedIn();
-      allow write: if isStaff();
-      match /{document=**} {
-        allow read: if isSignedIn();
-        allow write: if isStaff();
-      }
-    }
-
-    // Students collection: records managed by staff.
-    // Students can update their own profile, faceDescriptor, and biometric hardware keys, but cannot alter rollNo, status, role, or device lock.
+    // =========================================================================
+    // 3. STUDENTS COLLECTION: Managed by BOTH Admin and Lecturer.
+    // Students CANNOT do anything administrative and CANNOT change their biometrics.
+    // =========================================================================
     match /students/{studentId} {
+      // Staff can read all; student can ONLY read their own record
       allow get: if isStaff() || isOwnStudentRecord(studentId, resource.data);
-      allow list: if isStaff() || (
-        isSignedIn() && request.auth.token.email != null && (
-          resource.data.email == request.auth.token.email ||
-          resource.data.email == request.auth.token.email.lower()
-        )
-      );
+      allow list: if isStaff();
+
+      // Staff can create any student; new student can create initial registration profile
       allow create: if isStaff() || (
-        hasNoFaceTemplate(request.resource.data) &&
-        (!('faceRegistered' in request.resource.data) || request.resource.data.faceRegistered == false) &&
-        (!('biometricEnrolled' in request.resource.data) || request.resource.data.biometricEnrolled == false) &&
-        (!('hasFaceRegistered' in request.resource.data) || request.resource.data.hasFaceRegistered == false) &&
         isSignedIn() &&
-        (
-          request.auth.uid == studentId ||
-          (request.resource.data.studentUid != null && request.resource.data.studentUid == request.auth.uid) ||
-          (request.auth.token.email != null && request.resource.data.email != null && (request.resource.data.email == request.auth.token.email || request.resource.data.email.lower() == request.auth.token.email.lower()))
-        ) &&
-        !request.resource.data.keys().hasAny(['disqualified', 'isAdmin', 'isStaff']) &&
+        (request.auth.uid == studentId || (request.auth.token.email != null && request.resource.data.email != null && request.resource.data.email.lower() == request.auth.token.email.lower())) &&
         (!('role' in request.resource.data) || request.resource.data.role == 'student') &&
-        (!('status' in request.resource.data) || request.resource.data.status in ['active', 'pending'])
+        (!('status' in request.resource.data) || request.resource.data.status in ['active', 'pending']) &&
+        !request.resource.data.keys().hasAny(['disqualified', 'isAdmin', 'isStaff', 'isLecturer'])
       );
-      allow delete: if isStaff();
+
+      // Staff can update any student; student can update own profile with strict anti-tampering
       allow update: if isStaff() || (
-        canEnrollOrModifyBiometrics() &&
         isSignedIn() &&
         isOwnStudentRecord(studentId, resource.data) &&
-        !request.resource.data.diff(resource.data).affectedKeys().hasAny([
-          'rollNo', 'rollNumber', 'status', 'disqualified', 'academicYear', 'department', 'batch', 'role', 'studentUid'
-        ]) &&
-        // Prevent unlocking an already locked device from client side
-        (
-          !request.resource.data.diff(resource.data).affectedKeys().hasAny(['deviceTypeLocked']) ||
-          (resource.data.deviceTypeLocked != true && request.resource.data.deviceTypeLocked == true)
-        )
+        hasNoStudentPrivilegeEscalation() &&
+        studentCanModifyBiometrics()
       );
+
+      // ONLY Staff can delete student records (students CANNOT delete)
+      allow delete: if isStaff();
+
       match /{document=**} {
-        allow read: if isSignedIn();
-        allow write: if isStaff();
+        allow read, write, delete: if isStaff();
       }
     }
 
-    // Users collection: users can create/update own profile, staff can manage
+    // =========================================================================
+    // 4. USERS AUTH INDEX
+    // =========================================================================
     match /users/{userId} {
       allow get: if isStaff() || isOwnUserRecord(userId, resource.data);
-      allow list: if isStaff() || (
-        isSignedIn() && request.auth.token.email != null && (
-          resource.data.email == request.auth.token.email ||
-          resource.data.email == request.auth.token.email.lower()
-        )
-      );
+      allow list: if isStaff();
       allow create: if isStaff() || (
-        hasNoFaceTemplate(request.resource.data) &&
-        (!('faceRegistered' in request.resource.data) || request.resource.data.faceRegistered == false) &&
-        (!('biometricEnrolled' in request.resource.data) || request.resource.data.biometricEnrolled == false) &&
-        (!('hasFaceRegistered' in request.resource.data) || request.resource.data.hasFaceRegistered == false) &&
-        isSignedIn() && (
-          (
-            request.auth.uid == userId ||
-            (request.resource.data.studentUid != null && request.resource.data.studentUid == request.auth.uid)
-          ) &&
-          !request.resource.data.keys().hasAny([
-            'role', 'isAdmin', 'isLecturer', 'status', 'disqualified', 'department', 'batch'
-          ])
-        )
+        isSignedIn() &&
+        isOwnUserRecord(userId, request.resource.data) &&
+        !request.resource.data.keys().hasAny(['role', 'isAdmin', 'isStaff', 'isLecturer', 'status'])
       );
-      allow update: if isStaff() || (
-        canEnrollOrModifyBiometrics() && isSignedIn() && (
-          (
-            request.auth.uid == userId ||
-            (resource.data.studentUid != null && resource.data.studentUid == request.auth.uid) ||
-            (request.auth.token.email != null && resource.data.email != null && (request.resource.data.email == request.auth.token.email || resource.data.email.lower() == request.auth.token.email.lower())) ||
-            (request.auth.token.email != null && userId.lower() == request.auth.token.email.split('@')[0].lower())
-          ) &&
-          !request.resource.data.diff(resource.data).affectedKeys().hasAny([
-            'role', 'isAdmin', 'isLecturer', 'status', 'disqualified', 'department', 'batch'
-          ]) &&
-          (!('role' in request.resource.data) || request.resource.data.role == resource.data.role)
-        )
+      allow update: if isAdmin() || (
+        isStaff() && (!('role' in resource.data) || resource.data.role == 'student')
+      ) || (
+        isSignedIn() &&
+        isOwnUserRecord(userId, resource.data) &&
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'isAdmin', 'isStaff', 'isLecturer', 'status'])
       );
-      allow delete: if isStaff();
+      allow delete: if isAdmin();
       match /{document=**} {
-        allow read: if isSignedIn();
-        allow write: if isStaff();
+        allow read: if isStaff();
+        allow write, delete: if isAdmin();
       }
     }
 
     match /authorizedUsers/{userId} {
-      allow get: if isStaff() || isOwnUserRecord(userId, resource.data);
-      allow list: if isStaff() || (
-        isSignedIn() && request.auth.token.email != null && (
-          resource.data.email == request.auth.token.email ||
-          resource.data.email == request.auth.token.email.lower()
-        )
-      );
-      allow create, update, delete: if isStaff();
-      match /{document=**} {
-        allow read: if isSignedIn();
-        allow write: if isStaff();
-      }
-    }
-
-    match /face_enrollments/{studentId} {
-      allow read, write: if false;
-    }
-
-    match /face_enrollment_control/{guardId} {
-      allow read, write: if false;
-    }
-
-    match /face_enrollment_reviews/{reviewId} {
       allow read: if isStaff();
-      allow write: if false;
-    }
-
-    // Notifications & Communications
-    match /faculty_notifications/{notificationId} {
-      allow read: if isStaff();
-      allow create: if isSignedIn();
-      allow update, delete: if isStaff();
+      allow write, delete: if isAdmin();
       match /{document=**} {
         allow read: if isStaff();
-        allow write: if isStaff();
+        allow write, delete: if isAdmin();
       }
     }
 
+    // =========================================================================
+    // 5. NOTIFICATIONS PRIVACY: NO ONE CAN READ OTHERS' NOTIFICATIONS
+    // =========================================================================
+
+    // Student Notifications: private to the specific recipient student
+    match /student_notifications/{studentRollNo} {
+      // Staff can read all; student can ONLY read their own notifications
+      allow read: if isStaff() || (
+        isSignedIn() && request.auth.token.email != null && (
+          studentRollNo.lower() == request.auth.token.email.split('@')[0].lower() ||
+          (resource.data != null && (
+            (resource.data.rollNo != null && resource.data.rollNo.lower() == request.auth.token.email.split('@')[0].lower()) ||
+            (resource.data.email != null && resource.data.email.lower() == request.auth.token.email.lower()) ||
+            (resource.data.recipient != null && resource.data.recipient.lower() == request.auth.token.email.split('@')[0].lower())
+          ))
+        )
+      ) || (isSignedIn() && (request.auth.uid == studentRollNo || (resource.data != null && resource.data.studentUid == request.auth.uid)));
+
+      allow write: if isStaff() || isSignedIn();
+      allow delete: if isStaff() || (
+        isSignedIn() && request.auth.token.email != null && (
+          studentRollNo.lower() == request.auth.token.email.split('@')[0].lower()
+        )
+      );
+
+      match /{document=**} {
+        allow read, write, delete: if isStaff();
+      }
+    }
+
+    // Admin Notifications: ONLY Admins can read
     match /admin_notifications/{notificationId} {
-      allow read, write: if isAdmin();
+      allow read, update, delete: if isAdmin();
+      allow create: if isSignedIn();
       match /{document=**} {
-        allow read, write: if isAdmin();
+        allow read, write, delete: if isAdmin();
       }
     }
 
+    // Lecturer & Faculty Notifications: ONLY Staff can read; students CANNOT read
     match /lecturer_notifications/{notificationId} {
-      allow read, write: if isStaff();
+      allow read: if isAdmin() || (
+        isLecturer() && (
+          resource.data == null ||
+          resource.data.recipientRole in ['lecturer', 'faculty'] ||
+          (request.auth.token.email != null && (
+            (resource.data.recipient != null && resource.data.recipient.lower() == request.auth.token.email.lower()) ||
+            (resource.data.lecturerEmail != null && resource.data.lecturerEmail.lower() == request.auth.token.email.lower())
+          ))
+        )
+      );
+      allow create: if isStaff();
+      allow update, delete: if isAdmin() || (isLecturer() && resource.data != null && resource.data.lecturerEmail == request.auth.token.email);
       match /{document=**} {
-        allow read, write: if isStaff();
+        allow read, write, delete: if isStaff();
       }
     }
 
+    match /faculty_notifications/{notificationId} {
+      allow read, write, delete: if isStaff();
+      match /{document=**} {
+        allow read, write, delete: if isStaff();
+      }
+    }
+
+    // Public / Shared institutional announcements
     match /broadcast_notifications/{notificationId} {
       allow read: if isSignedIn();
-      allow write: if isStaff();
+      allow write, delete: if isStaff();
       match /{document=**} {
         allow read: if isSignedIn();
-        allow write: if isStaff();
+        allow write, delete: if isStaff();
       }
     }
 
     match /announcements/{announcementId} {
       allow read: if isSignedIn();
-      allow write: if isStaff();
+      allow write, delete: if isStaff();
       match /{document=**} {
         allow read: if isSignedIn();
-        allow write: if isStaff();
+        allow write, delete: if isStaff();
       }
     }
 
     match /broadcasts/{broadcastId} {
       allow read: if isSignedIn();
-      allow write: if isStaff();
+      allow write, delete: if isStaff();
       match /{document=**} {
         allow read: if isSignedIn();
-        allow write: if isStaff();
+        allow write, delete: if isStaff();
+      }
+    }
+
+    match /notifications/{notificationId} {
+      allow read: if isStaff() || (
+        isSignedIn() && resource.data != null && (
+          resource.data.userId == request.auth.uid ||
+          (request.auth.token.email != null && resource.data.recipient == request.auth.token.email)
+        )
+      );
+      allow write, delete: if isStaff();
+      match /{document=**} {
+        allow read, write, delete: if isStaff();
+      }
+    }
+
+    // Recursive collectionGroup for notifications (Database Hub cleanup)
+    match /{path=**}/notifications/{notificationId} {
+      allow read, write, delete: if isStaff();
+    }
+
+    // User Complaints, Support Tickets & Feedbacks: Private to author and staff
+    match /support_tickets/{ticketId} {
+      allow read: if isStaff() || (isSignedIn() && resource.data != null && (
+        resource.data.userId == request.auth.uid ||
+        (request.auth.token.email != null && resource.data.email != null && resource.data.email.lower() == request.auth.token.email.lower())
+      ));
+      allow create: if isSignedIn();
+      allow update, delete: if isStaff();
+      match /{document=**} {
+        allow read, write, delete: if isStaff();
       }
     }
 
     match /user_complaints/{complaintId} {
-      allow read: if isStaff() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow read: if isStaff() || (isSignedIn() && resource.data != null && (
+        resource.data.userId == request.auth.uid ||
+        (request.auth.token.email != null && resource.data.email != null && resource.data.email.lower() == request.auth.token.email.lower())
+      ));
       allow create: if isSignedIn();
       allow update, delete: if isStaff();
       match /{document=**} {
-        allow read: if isStaff();
-        allow write: if isStaff();
+        allow read, write, delete: if isStaff();
       }
     }
 
-    match /support_tickets/{ticketId} {
-      allow read: if isStaff() || (isSignedIn() && resource.data.userId == request.auth.uid);
+    match /security_complaints/{complaintId} {
+      allow read: if isStaff() || (isSignedIn() && resource.data != null && resource.data.userId == request.auth.uid);
       allow create: if isSignedIn();
       allow update, delete: if isStaff();
       match /{document=**} {
-        allow read: if isStaff();
-        allow write: if isStaff();
+        allow read, write, delete: if isStaff();
       }
     }
 
@@ -453,286 +412,200 @@ service cloud.firestore {
       allow create: if isSignedIn();
       allow update, delete: if isStaff();
       match /{document=**} {
-        allow read: if isStaff();
-        allow write: if isStaff();
+        allow read, write, delete: if isStaff();
       }
     }
 
-    match /security_complaints/{complaintId} {
-      allow read: if isStaff();
-      allow create: if isSignedIn();
-      allow update, delete: if isStaff();
-      match /{document=**} {
-        allow read: if isStaff();
-        allow write: if isStaff();
-      }
-    }
-
-    match /student_notifications/{studentRollNo} {
-      allow read, write: if isSignedIn();
-      match /{document=**} {
-        allow read, write: if isSignedIn();
-      }
-    }
-
-    match /notifications/{notificationId} {
+    // =========================================================================
+    // 6. COURSES & ATTENDANCE SESSIONS (Managed by Staff)
+    // =========================================================================
+    match /courses/{courseId} {
       allow read: if isSignedIn();
-      allow create, update: if isSignedIn();
-      allow delete: if isStaff();
+      allow write, delete: if isStaff();
       match /{document=**} {
         allow read: if isSignedIn();
-        allow write: if isStaff();
+        allow write, delete: if isStaff();
       }
     }
 
-    // =========================================================================
-    // ATTENDANCE SESSIONS & SECURITY TOKENS
-    // =========================================================================
-
     match /pre_session_anchors/{anchorId} {
-      allow read, write: if true;
+      allow read, write, delete: if true;
     }
 
     match /attendance_sessions/{sessionId} {
       allow read: if isSignedIn();
+      allow write, delete: if isStaff();
+      match /{document=**} {
+        allow read: if isSignedIn();
+        allow write, delete: if isStaff();
+      }
+    }
 
-      allow create: if isSignedIn() && isStaff();
-
-      allow delete: if isSignedIn() && (
-        isAdmin() ||
-        resource.data.ownerId == request.auth.uid ||
-        (request.auth.token.email != null && resource.data.ownerEmail != null && resource.data.ownerEmail.lower() == request.auth.token.email.lower())
+    match /attendance_records/{recordId} {
+      // Staff can read all logs; student can ONLY read their own attendance records
+      allow read: if isStaff() || (
+        isSignedIn() && resource.data != null && (
+          resource.data.uid == request.auth.uid ||
+          resource.data.studentUid == request.auth.uid ||
+          (request.auth.token.email != null && (
+            (resource.data.studentRoll != null && resource.data.studentRoll.lower() == request.auth.token.email.split('@')[0].lower()) ||
+            (resource.data.rollNo != null && resource.data.rollNo.lower() == request.auth.token.email.split('@')[0].lower()) ||
+            (resource.data.email != null && resource.data.email.lower() == request.auth.token.email.lower())
+          ))
+        )
       );
-
-      // Session phase, lifecycle, deadlines, ownership, release codes and QR secrets
-      // are server-controlled. Callable Cloud Functions use Admin SDK and bypass these rules.
-      allow update: if isSignedIn() &&
-        (isAdmin() || (isLecturer() && (
-          resource.data.ownerId == request.auth.uid ||
-          (request.auth.token.email != null && resource.data.ownerEmail != null && resource.data.ownerEmail.lower() == request.auth.token.email.lower())
-        )) ||
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['attendees', 'lastActivityAt']));
-
-      match /security/{docId} {
-        allow read: if isSignedIn() && (
-          isAdmin() ||
-          (isLecturer() && (
-            (resource.data != null && (
-              resource.data.ownerId == request.auth.uid ||
-              (request.auth.token.email != null && resource.data.ownerEmail != null && resource.data.ownerEmail.lower() == request.auth.token.email.lower())
-            )) ||
-            (exists(/databases/$(database)/documents/attendance_sessions/$(sessionId)) && (
-              get(/databases/$(database)/documents/attendance_sessions/$(sessionId)).data.ownerId == request.auth.uid ||
-              (request.auth.token.email != null && get(/databases/$(database)/documents/attendance_sessions/$(sessionId)).data.ownerEmail != null && get(/databases/$(database)/documents/attendance_sessions/$(sessionId)).data.ownerEmail.lower() == request.auth.token.email.lower())
-            ))
+      // Student can submit their own attendance during session; staff can mark attendance
+      allow create: if isStaff() || (
+        isSignedIn() && (
+          request.resource.data.uid == request.auth.uid ||
+          request.resource.data.studentUid == request.auth.uid ||
+          (request.auth.token.email != null && (
+            (request.resource.data.studentRoll != null && request.resource.data.studentRoll.lower() == request.auth.token.email.split('@')[0].lower()) ||
+            (request.resource.data.rollNo != null && request.resource.data.rollNo.lower() == request.auth.token.email.split('@')[0].lower()) ||
+            (request.resource.data.email != null && request.resource.data.email.lower() == request.auth.token.email.lower())
           ))
-        );
-        allow create: if isSignedIn() && (
-          isAdmin() ||
-          (isStaff() && (
-            request.resource.data.ownerId == request.auth.uid ||
-            (request.auth.token.email != null && request.resource.data.ownerEmail != null && request.resource.data.ownerEmail.lower() == request.auth.token.email.lower())
-          ))
-        );
-        allow update: if isSignedIn() && (
-          isAdmin() ||
-          (isLecturer() && (
-            (resource.data != null && (
-              resource.data.ownerId == request.auth.uid ||
-              (request.auth.token.email != null && resource.data.ownerEmail != null && resource.data.ownerEmail.lower() == request.auth.token.email.lower())
-            )) ||
-            (exists(/databases/$(database)/documents/attendance_sessions/$(sessionId)) && (
-              get(/databases/$(database)/documents/attendance_sessions/$(sessionId)).data.ownerId == request.auth.uid ||
-              (request.auth.token.email != null && get(/databases/$(database)/documents/attendance_sessions/$(sessionId)).data.ownerEmail != null && get(/databases/$(database)/documents/attendance_sessions/$(sessionId)).data.ownerEmail.lower() == request.auth.token.email.lower())
-            ))
-          ))
-        );
-        allow delete: if isAdmin() || (
-          isSignedIn() && (
-            (resource.data != null && (
-              resource.data.ownerId == request.auth.uid ||
-              (request.auth.token.email != null && resource.data.ownerEmail != null && resource.data.ownerEmail.lower() == request.auth.token.email.lower())
-            )) ||
-            (exists(/databases/$(database)/documents/attendance_sessions/$(sessionId)) && (
-              get(/databases/$(database)/documents/attendance_sessions/$(sessionId)).data.ownerId == request.auth.uid ||
-              (request.auth.token.email != null && get(/databases/$(database)/documents/attendance_sessions/$(sessionId)).data.ownerEmail != null && get(/databases/$(database)/documents/attendance_sessions/$(sessionId)).data.ownerEmail.lower() == request.auth.token.email.lower())
-            ))
-          )
-        );
-        match /{document=**} {
-          allow read: if isSignedIn() && (
-            isAdmin() ||
-            (isLecturer() && (
-              (resource.data != null && (
-                resource.data.ownerId == request.auth.uid ||
-                (request.auth.token.email != null && resource.data.ownerEmail != null && resource.data.ownerEmail.lower() == request.auth.token.email.lower())
-              )) ||
-              (exists(/databases/$(database)/documents/attendance_sessions/$(sessionId)) && (
-                get(/databases/$(database)/documents/attendance_sessions/$(sessionId)).data.ownerId == request.auth.uid ||
-                (request.auth.token.email != null && get(/databases/$(database)/documents/attendance_sessions/$(sessionId)).data.ownerEmail != null && get(/databases/$(database)/documents/attendance_sessions/$(sessionId)).data.ownerEmail.lower() == request.auth.token.email.lower())
-              ))
-            ))
-          );
-          allow write: if false;
-        }
-      }
-
-      // Authorizations subcollection: student devices and lecturers
-      match /authorizations/{authDocId} {
-        allow read, write: if isSignedIn();
-        allow delete: if isStaff();
-        match /{document=**} {
-          allow read, write: if isSignedIn();
-        }
-      }
-
-      match /violations/{violationId} {
-        // Only trusted Cloud Functions may create violation records. Students
-        // cannot forge violations or read other students' violation history.
-        allow read: if isStaff() || (
-          isSignedIn() &&
-          exists(/databases/$(database)/documents/attendance_sessions/$(sessionId)/authorizations/$(request.auth.uid))
-        );
-        allow create: if false;
-        allow update, delete: if isStaff();
-        match /{document=**} {
-          allow read: if isStaff();
-          allow write: if false;
-        }
-      }
-
-      match /audit_logs/{logId} {
-        allow read, write: if isStaff();
-        match /{document=**} {
-          allow read: if isStaff();
-          allow write: if false;
-        }
-      }
-
-      // Time adjustments audit records: only Cloud Functions Admin SDK can write
-      match /time_adjustments/{adjustmentId} {
-        allow read: if isStaff();
-        allow write: if false;
-        match /{document=**} {
-          allow read: if isStaff();
-          allow write: if false;
-        }
-      }
-
-      // Geofence adjustments audit records: only Cloud Functions Admin SDK can write
-      match /geofence_adjustments/{adjustmentId} {
-        allow read: if isStaff();
-        allow write: if false;
-        match /{document=**} {
-          allow read: if isStaff();
-          allow write: if false;
-        }
+        )
+      );
+      allow update, delete: if isStaff();
+      match /{document=**} {
+        allow read, write, delete: if isStaff();
       }
     }
 
     // =========================================================================
-    // BIOMETRIC SECURITY & HARDWARE CREDENTIALS
+    // 7. BIOMETRICS, DEVICES & HARDWARE SECURITY
     // =========================================================================
+
+    // Student can register device during onboarding; staff manages device locks
+    match /devices/{deviceId} {
+      allow read: if isStaff() || (
+        isSignedIn() && resource.data != null && (
+          resource.data.uid == request.auth.uid ||
+          resource.data.studentUid == request.auth.uid ||
+          (request.auth.token.email != null && resource.data.rollNo != null && resource.data.rollNo.lower() == request.auth.token.email.split('@')[0].lower())
+        )
+      );
+      // Initial device binding allowed for student
+      allow create: if isSignedIn() && (
+        request.resource.data.uid == request.auth.uid ||
+        request.resource.data.studentUid == request.auth.uid ||
+        isStaff()
+      );
+      // Only Staff can unlock or delete device bindings (students cannot unlock own device)
+      allow update, delete: if isStaff();
+      match /{document=**} {
+        allow read, write, delete: if isStaff();
+      }
+    }
 
     match /biometric_credentials/{docId} {
       allow read: if isStaff() || (isSignedIn() && (docId == request.auth.uid || resource.data.studentUid == request.auth.uid));
-      // Authoritative key enrollment is strictly handled via Cloud Functions Admin SDK or Staff
-      allow create, update, delete: if isStaff();
+      // First-time enrollment or staff creation; students CANNOT overwrite existing credentials
+      allow create: if isStaff() || (
+        isSignedIn() && (docId == request.auth.uid || request.resource.data.studentUid == request.auth.uid)
+      );
+      // Students CANNOT modify or delete credentials once registered
+      allow update, delete: if isStaff();
       match /{document=**} {
-        allow read: if isStaff() || (isSignedIn() && (docId == request.auth.uid || resource.data.studentUid == request.auth.uid));
-        allow write: if isStaff();
+        allow read, write, delete: if isStaff();
       }
     }
 
     match /biometric_reregistration_permissions/{permId} {
-      allow read: if isStaff() || (
-        isSignedIn() && (
-          resource.data.targetStudentUid == request.auth.uid ||
-          resource.data.rollNo == request.auth.uid ||
-          resource.data.studentRollNo == request.auth.uid ||
-          permId == request.auth.uid ||
-          (request.auth.token.email != null && (
-            permId.lower() == request.auth.token.email.split('@')[0].lower() ||
-            (resource.data.targetRollNo != null && resource.data.targetRollNo.lower() == request.auth.token.email.split('@')[0].lower()) ||
-            (resource.data.rollNo != null && resource.data.rollNo.lower() == request.auth.token.email.split('@')[0].lower()) ||
-            (resource.data.studentRollNo != null && resource.data.studentRollNo.lower() == request.auth.token.email.split('@')[0].lower())
-          ))
-        )
-      );
-      allow write: if isStaff();
+      allow read: if isSignedIn();
+      allow write, delete: if isStaff();
       match /{document=**} {
-        allow read: if isStaff() || (
-          isSignedIn() && (
-            resource.data.targetStudentUid == request.auth.uid ||
-            resource.data.rollNo == request.auth.uid ||
-            resource.data.studentRollNo == request.auth.uid ||
-            permId == request.auth.uid ||
-            (request.auth.token.email != null && (
-              permId.lower() == request.auth.token.email.split('@')[0].lower() ||
-              (resource.data.targetRollNo != null && resource.data.targetRollNo.lower() == request.auth.token.email.split('@')[0].lower()) ||
-              (resource.data.rollNo != null && resource.data.rollNo.lower() == request.auth.token.email.split('@')[0].lower()) ||
-              (resource.data.studentRollNo != null && resource.data.studentRollNo.lower() == request.auth.token.email.split('@')[0].lower())
-            ))
-          )
-        );
-        allow write: if isStaff();
+        allow read, write, delete: if isStaff();
       }
     }
 
     match /reregistration_requests/{requestId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn();
-      allow update: if isStaff() || (isSignedIn() && (
-        resource.data.studentRollNo == request.auth.uid ||
-        resource.data.rollNo == request.auth.uid ||
-        requestId == request.auth.uid ||
-        (request.auth.token.email != null && (
-          (resource.data.studentEmail != null && resource.data.studentEmail.lower() == request.auth.token.email.lower()) ||
-          requestId.lower() == request.auth.token.email.split('@')[0].lower() ||
-          (resource.data.rollNo != null && resource.data.rollNo.lower() == request.auth.token.email.split('@')[0].lower()) ||
-          (resource.data.studentRollNo != null && resource.data.studentRollNo.lower() == request.auth.token.email.split('@')[0].lower())
-        ))
-      ));
-      allow delete: if isStaff();
+      allow read: if isStaff() || (isSignedIn() && resource.data != null && resource.data.studentUid == request.auth.uid);
+      allow create: if isSignedIn() && request.resource.data.studentUid == request.auth.uid;
+      allow update, delete: if isStaff();
       match /{document=**} {
-        allow read: if isSignedIn();
-        allow write: if isStaff();
+        allow read, write, delete: if isStaff();
       }
     }
 
     match /biometric_challenges/{docId} {
-      allow read: if isStaff() || (isSignedIn() && (docId == request.auth.uid || resource.data.studentUid == request.auth.uid));
-      allow create: if isStaff() || (isSignedIn() && request.resource.data.studentUid == request.auth.uid);
-      allow update: if isStaff() || (isSignedIn() && resource.data.studentUid == request.auth.uid);
-      allow delete: if isStaff();
+      allow read, write, delete: if isSignedIn();
       match /{document=**} {
-        allow read: if isStaff() || (isSignedIn() && (docId == request.auth.uid || resource.data.studentUid == request.auth.uid));
-        allow write: if isStaff();
+        allow read, write, delete: if isSignedIn();
       }
     }
 
-    match /biometric_audit_logs/{docId} {
+    match /face_enrollments/{studentId} {
+      allow read, write, delete: if isStaff();
+      match /{document=**} {
+        allow read, write, delete: if isStaff();
+      }
+    }
+
+    match /face_enrollment_control/{guardId} {
+      allow read, write, delete: if isStaff();
+      match /{document=**} {
+        allow read, write, delete: if isStaff();
+      }
+    }
+
+    match /face_enrollment_reviews/{reviewId} {
+      allow read: if isStaff() || (isSignedIn() && resource.data != null && resource.data.studentUid == request.auth.uid);
+      allow create: if isSignedIn();
+      allow update, delete: if isStaff();
+      match /{document=**} {
+        allow read, write, delete: if isStaff();
+      }
+    }
+
+    // =========================================================================
+    // 8. SYSTEM, RECOVERY & INSTITUTION SETTINGS (Admin ONLY)
+    // =========================================================================
+    match /institution_settings/{docId} {
+      allow read: if isSignedIn();
+      allow write, delete: if isAdmin();
+      match /{document=**} {
+        allow read: if isSignedIn();
+        allow write, delete: if isAdmin();
+      }
+    }
+
+    match /institution/{docId} {
+      allow read: if isSignedIn();
+      allow write, delete: if isAdmin();
+      match /{document=**} {
+        allow read: if isSignedIn();
+        allow write, delete: if isAdmin();
+      }
+    }
+
+    match /app_updates/{docId} {
+      allow read: if true;
+      allow write, delete: if isAdmin();
+      match /{document=**} {
+        allow read: if true;
+        allow write, delete: if isAdmin();
+      }
+    }
+
+    match /database_recovery/{recoveryId} {
+      allow read, write, delete: if isAdmin();
+      match /{document=**} {
+        allow read, write, delete: if isAdmin();
+      }
+    }
+
+    match /audit_logs/{logId} {
       allow read: if isStaff();
-      allow write: if false;
+      allow write: if isStaff();
     }
 
-    match /biometric_change_requests/{requestId} {
-      allow read: if isSignedIn() && (
-        resource.data.studentUid == request.auth.uid || isStaff()
-      );
-      allow create: if isSignedIn() &&
-        request.resource.data.studentUid == request.auth.uid &&
-        request.resource.data.status == "PENDING";
-      allow update: if isStaff();
-      allow delete: if false;
+    match /time_adjustments/{adjustmentId} {
+      allow read, write: if isStaff();
     }
 
-    match /attendance_records/{recordId} {
-      allow read, write: if isSignedIn();
-      allow delete: if isStaff();
-      match /{document=**} {
-        allow read, write: if isSignedIn();
-      }
+    match /geofence_adjustments/{adjustmentId} {
+      allow read, write: if isStaff();
     }
   }
 }

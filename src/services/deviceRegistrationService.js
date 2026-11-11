@@ -60,7 +60,7 @@ export async function registerUserDevice({
     if (clientIp && clientIp !== "Unknown IP") {
       localStorage.setItem("smartattend_device_ip", clientIp);
     }
-  } catch (_) {}
+  } catch (_) { }
 
   // Synchronize with globalState store
   setGlobalVariable("selectedDeviceType", cleanPlatform);
@@ -121,71 +121,81 @@ export async function registerUserDevice({
     const targetDocId = cleanRoll || (isIdAStudentRoll ? cleanId : emailPrefix);
 
     if (targetDocId) {
+      // Update canonical student document
       writePromises.push(
         setDoc(doc(db, "students", targetDocId), devicePayload, { merge: true })
           .catch((err) => console.warn("Student device registration notice:", err.message))
       );
-      if (uid) {
-        writePromises.push(
-          setDoc(doc(db, "users", uid), devicePayload, { merge: true })
-            .catch(() => { })
-        );
-        try {
-          const cacheKey = `smartattend-cached-profile-${uid}`;
-          const rawCached = localStorage.getItem(cacheKey);
-          if (rawCached) {
-            const parsed = JSON.parse(rawCached);
-            parsed.deviceType = cleanPlatform;
-            parsed.registeredDeviceType = cleanPlatform;
-            parsed.registeredPlatform = cleanPlatform;
-            parsed.deviceTypeLocked = shouldLock;
-            parsed.isDeviceRegistered = shouldLock;
-            localStorage.setItem(cacheKey, JSON.stringify(parsed));
-          }
-        } catch (_) { }
-      }
-      // Clean up any stray student document previously created under raw user.uid (hash/salt)
-      const strayUid = user?.uid || profile?.uid || (cleanId && cleanId.length > 20 ? cleanId : null);
-      if (strayUid && strayUid !== targetDocId) {
-        deleteDoc(doc(db, "students", strayUid)).catch(() => { });
+
+        // Also sync device lock to canonical student user doc if already present, but never create raw UID docs
+        if (cleanEmail) {
+          writePromises.push(
+          setDoc(doc(db, "users", cleanEmail), devicePayload, { merge: true }).catch(() => { })
+          );
+        }
+
+        if (uid) {
+          try {
+            const cacheKey = `smartattend-cached-profile-${uid}`;
+            const rawCached = localStorage.getItem(cacheKey);
+            if (rawCached) {
+              const parsed = JSON.parse(rawCached);
+              parsed.deviceType = cleanPlatform;
+              parsed.registeredDeviceType = cleanPlatform;
+              parsed.registeredPlatform = cleanPlatform;
+              parsed.deviceTypeLocked = shouldLock;
+              parsed.isDeviceRegistered = shouldLock;
+              localStorage.setItem(cacheKey, JSON.stringify(parsed));
+            }
+          } catch (_) { }
+
+          // Clean up any stray document previously created under raw user.uid in users or students
+          deleteDoc(doc(db, "users", uid)).catch(() => { });
+        }
+
+        // Clean up any stray student document previously created under raw user.uid (hash/salt)
+        const strayUid = user?.uid || profile?.uid || (cleanId && cleanId.length > 20 ? cleanId : null);
+        if (strayUid && strayUid !== targetDocId) {
+          deleteDoc(doc(db, "students", strayUid)).catch(() => { });
+          deleteDoc(doc(db, "users", strayUid)).catch(() => { });
+        }
       }
     }
-  }
 
-  await Promise.allSettled(writePromises);
+    await Promise.allSettled(writePromises);
 
-  // 3. Optional Cloud Function platform binding for students
-  if (
-    normRole === "student" &&
-    Capacitor.isNativePlatform() &&
-    (cleanPlatform === "android" || cleanPlatform === "ios")
-  ) {
-    try {
-      const bindFn = httpsCallable(functions, "bindStudentDevicePlatform");
-      bindFn({ platform: cleanPlatform }).catch((err) => {
+    // 3. Optional Cloud Function platform binding for students
+    if (
+      normRole === "student" &&
+      Capacitor.isNativePlatform() &&
+      (cleanPlatform === "android" || cleanPlatform === "ios")
+    ) {
+      try {
+        const bindFn = httpsCallable(functions, "bindStudentDevicePlatform");
+        bindFn({ platform: cleanPlatform }).catch((err) => {
+          console.warn("Student device platform binding notice:", err.message || err);
+        });
+      } catch (err) {
         console.warn("Student device platform binding notice:", err.message || err);
-      });
-    } catch (err) {
-      console.warn("Student device platform binding notice:", err.message || err);
+      }
     }
+
+    return {
+      success: true,
+      role: normRole,
+      platform: cleanPlatform,
+      id: cleanId,
+      ip: clientIp,
+      locked: shouldLock
+    };
   }
 
-  return {
-    success: true,
-    role: normRole,
-    platform: cleanPlatform,
-    id: cleanId,
-    ip: clientIp,
-    locked: shouldLock
-  };
-}
-
-/**
- * Backward compatibility alias for registerStudentDevice
- */
-export async function registerStudentDevice(params) {
-  return registerUserDevice({
-    ...params,
-    role: "student"
-  });
-}
+  /**
+   * Backward compatibility alias for registerStudentDevice
+   */
+  export async function registerStudentDevice(params) {
+    return registerUserDevice({
+      ...params,
+      role: "student"
+    });
+  }

@@ -142,28 +142,25 @@ const AddLecturer = () => {
         createdAt: Date.now()
       };
 
-      // 1. Save to dedicated lecturers collection
-      await setDoc(doc(db, "lecturers", prefix), lecturerData, { merge: true });
-      if (prefix !== cleanEmail) {
-        await setDoc(doc(db, "lecturers", cleanEmail), lecturerData, { merge: true });
-      }
+      // 1. Save to dedicated lecturers collection under canonical email
+      await setDoc(doc(db, "lecturers", cleanEmail), lecturerData, { merge: true });
 
-      // 2. Authorize lecturer for Google Login in authorizedUsers
-      await setDoc(doc(db, "authorizedUsers", prefix), lecturerData, { merge: true });
-      if (prefix !== cleanEmail) {
-        await setDoc(doc(db, "authorizedUsers", cleanEmail), lecturerData, { merge: true });
-      }
+      // 2. Authorize lecturer for Google Login in authorizedUsers under canonical email
+      await setDoc(doc(db, "authorizedUsers", cleanEmail), lecturerData, { merge: true });
 
-      // 3. Register profile in users collection
-      await setDoc(doc(db, "users", prefix), {
+      // 3. Register profile in users collection under canonical email
+      await setDoc(doc(db, "users", cleanEmail), {
         ...lecturerData,
         createdAt: serverTimestamp()
       }, { merge: true });
-      if (prefix !== cleanEmail) {
-        await setDoc(doc(db, "users", cleanEmail), {
-          ...lecturerData,
-          createdAt: serverTimestamp()
-        }, { merge: true });
+
+      // 4. Ensure legacy prefix duplicate documents are purged from all collections
+      if (prefix && prefix !== cleanEmail) {
+        await Promise.allSettled([
+          deleteDoc(doc(db, "lecturers", prefix)),
+          deleteDoc(doc(db, "authorizedUsers", prefix)),
+          deleteDoc(doc(db, "users", prefix))
+        ]);
       }
 
       // 4. Notify Admins and Faculty
@@ -375,28 +372,23 @@ const AddLecturer = () => {
             createdAt: Date.now()
           };
 
-          // 1. Save to lecturers collection under prefix and email
-          batch.set(doc(db, "lecturers", prefix), lecturerPayload, { merge: true });
-          if (prefix !== lecturer.email) {
-            batch.set(doc(db, "lecturers", lecturer.email), lecturerPayload, { merge: true });
-          }
+          // 1. Save to lecturers collection under canonical email
+          batch.set(doc(db, "lecturers", lecturer.email), lecturerPayload, { merge: true });
 
-          // 2. Authorize in authorizedUsers under prefix and email
-          batch.set(doc(db, "authorizedUsers", prefix), lecturerPayload, { merge: true });
-          if (prefix !== lecturer.email) {
-            batch.set(doc(db, "authorizedUsers", lecturer.email), lecturerPayload, { merge: true });
-          }
+          // 2. Authorize in authorizedUsers under canonical email
+          batch.set(doc(db, "authorizedUsers", lecturer.email), lecturerPayload, { merge: true });
 
-          // 3. Register profile in users collection under prefix and email
-          batch.set(doc(db, "users", prefix), {
+          // 3. Register profile in users collection under canonical email
+          batch.set(doc(db, "users", lecturer.email), {
             ...lecturerPayload,
             createdAt: serverTimestamp()
           }, { merge: true });
-          if (prefix !== lecturer.email) {
-            batch.set(doc(db, "users", lecturer.email), {
-              ...lecturerPayload,
-              createdAt: serverTimestamp()
-            }, { merge: true });
+
+          // 4. Clean up any legacy prefix duplicate document
+          if (prefix && prefix !== lecturer.email) {
+            batch.delete(doc(db, "lecturers", prefix));
+            batch.delete(doc(db, "authorizedUsers", prefix));
+            batch.delete(doc(db, "users", prefix));
           }
         }
 

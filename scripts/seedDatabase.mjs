@@ -39,14 +39,13 @@ async function seed() {
       approved: true,
       department: "Administration",
       designation: "System Administrator",
-      phone: "+91 9876543210",
+      phone: "+91 XXXXX XXXXX",
       cabin: "Admin Office",
       createdAt: NOW,
       updatedAt: NOW
     };
-    await setDoc(doc(db, "admins", "onteddukalyani"), adminData, { merge: true });
     await setDoc(doc(db, "admins", "onteddukalyani@gmail.com"), adminData, { merge: true });
-    console.log("   ✅ admins/onteddukalyani & admins/onteddukalyani@gmail.com created.");
+    console.log("   ✅ admins/onteddukalyani@gmail.com created.");
 
     // 2. INSTITUTION SETTINGS
     console.log("\n2️⃣ Seeding Institution Settings...");
@@ -55,12 +54,12 @@ async function seed() {
       shortName: "IIIT Dharwad",
       domain: "iiitdwd.ac.in",
       sessionDuration: 10,
-      qrRefreshInterval: 10,
+      qrRefreshInterval: 5,
       attendanceWindow: 5,
       allowLateAttendance: true,
       defaultGeofenceRadius: 10,
-      qr1Interval: 10,
-      qr2Interval: 10,
+      qr1Interval: 5,
+      qr2Interval: 5,
       updatedAt: NOW
     };
     await setDoc(doc(db, "institution", "settings"), institutionSettings, { merge: true });
@@ -105,9 +104,8 @@ async function seed() {
       createdAt: NOW,
       updatedAt: NOW
     };
-    await setDoc(doc(db, "lecturers", lecturerPrefix), lecturerData, { merge: true });
     await setDoc(doc(db, "lecturers", lecturerEmail), lecturerData, { merge: true });
-    console.log(`   ✅ lecturers/${lecturerPrefix} & lecturers/${lecturerEmail} created.`);
+    console.log(`   ✅ lecturers/${lecturerEmail} created.`);
 
     // 5. SAMPLE COURSE
     console.log("\n5️⃣ Seeding Sample Course...");

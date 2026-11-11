@@ -387,96 +387,16 @@ export function mergeAllStudentRecords(authDocs = [], studentsDocs = [], usersDo
     return studentList;
 }
 
+import { purgeUserCompletelyFromAllDatabases, deduplicateUsersCollection } from "./userManagementService";
+export { purgeUserCompletelyFromAllDatabases, deduplicateUsersCollection };
+
 /**
  * Permanently and completely deletes a student record across all Firestore collections
- * (students, users, authorizedUsers) for every potential identifier (Roll Number, lowercase roll, email, prefix, UID).
+ * (students, users, authorizedUsers, devices, biometrics, courses) using the global purge engine.
  */
 export async function deleteStudentRecordCompletely(student) {
     if (!student) return;
-    const roll = String(student.rollNo || student.id || "").trim().toUpperCase();
-    const rollLower = roll.toLowerCase();
-    const id = String(student.id || "").trim();
-    const userDocId = String(student.userDocId || "").trim();
-    const uid = String(student.uid || student.studentUid || "").trim();
-    const email = student.email ? String(student.email).toLowerCase().trim() : "";
-    const prefix = email ? email.split("@")[0].toLowerCase().trim() : (rollLower || "");
-    const constructedEmail = rollLower ? `${rollLower}@iiitdwd.ac.in` : "";
-
-    const candidateKeys = new Set(
-        [
-            roll,
-            rollLower,
-            id,
-            userDocId,
-            uid,
-            email,
-            prefix,
-            constructedEmail
-        ].filter((k) => k && k.length > 0 && !GENERIC_IDENTIFIERS.has(k.toLowerCase()))
-    );
-
-    const collections = ["students", "users", "authorizedUsers", "devices"];
-    const deletePromises = [];
-
-    // 1. Delete all direct keys across all primary collections
-    for (const coll of collections) {
-        for (const key of candidateKeys) {
-            deletePromises.push(deleteDoc(doc(db, coll, key)).catch(() => { }));
-        }
-    }
-
-    // 2. Query any docs by rollNo, email, or uid fields across primary collections
-    const queryPromises = [];
-    for (const coll of collections) {
-        if (roll && !GENERIC_IDENTIFIERS.has(roll.toLowerCase())) {
-            queryPromises.push(getDocs(query(collection(db, coll), where("rollNo", "==", roll))).catch(() => ({ docs: [] })));
-            queryPromises.push(getDocs(query(collection(db, coll), where("rollNo", "==", rollLower))).catch(() => ({ docs: [] })));
-        }
-        if (email) {
-            queryPromises.push(getDocs(query(collection(db, coll), where("email", "==", email))).catch(() => ({ docs: [] })));
-        }
-        if (constructedEmail && constructedEmail !== email) {
-            queryPromises.push(getDocs(query(collection(db, coll), where("email", "==", constructedEmail))).catch(() => ({ docs: [] })));
-        }
-        if (uid) {
-            queryPromises.push(getDocs(query(collection(db, coll), where("uid", "==", uid))).catch(() => ({ docs: [] })));
-        }
-    }
-
-    const queryResults = await Promise.all(queryPromises);
-    for (const snap of queryResults) {
-        if (snap && snap.docs) {
-            for (const d of snap.docs) {
-                for (const coll of collections) {
-                    deletePromises.push(deleteDoc(doc(db, coll, d.id)).catch(() => { }));
-                }
-            }
-        }
-    }
-
-    // 3. Remove student from all enrolled courses
-    try {
-        const coursesSnap = await getDocs(collection(db, "courses"));
-        coursesSnap.docs.forEach((courseDoc) => {
-            const data = courseDoc.data();
-            const enrolled = Array.isArray(data.students) ? data.students : (Array.isArray(data.enrolledStudents) ? data.enrolledStudents : []);
-
-            const updatedEnrolled = enrolled.filter((s) => {
-                const sRoll = typeof s === "string" ? s.toUpperCase().trim() : (s.rollNo || s.rollNumber || "").toUpperCase().trim();
-                return !candidateKeys.has(sRoll);
-            });
-
-            if (updatedEnrolled.length !== enrolled.length) {
-                deletePromises.push(setDoc(doc(db, "courses", courseDoc.id), {
-                    students: updatedEnrolled,
-                    enrolledStudents: updatedEnrolled,
-                    updatedAt: Date.now()
-                }, { merge: true }));
-            }
-        });
-    } catch (_) { }
-
-    await Promise.all(deletePromises);
+    return await purgeUserCompletelyFromAllDatabases(student, "student");
 }
 
 /**

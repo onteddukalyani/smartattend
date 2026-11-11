@@ -1,9 +1,9 @@
 import { initializeApp } from "firebase/app";
-import { 
-  getFirestore, 
-  collection, 
-  getDocs, 
-  doc, 
+import {
+  getFirestore,
+  collection,
+  getDocs,
+  doc,
   setDoc,
   deleteDoc
 } from "firebase/firestore";
@@ -61,120 +61,120 @@ async function runMigration() {
         if (!mergedData.department || String(mergedData.department).toLowerCase() === "general") {
           mergedData.department = "Computer Science & Engineering";
         }
-        const lectDocId = prefix || currentId;
-        await setDoc(doc(db, "lecturers", lectDocId), mergedData, { merge: true });
-        if (email && email !== lectDocId) {
-          await setDoc(doc(db, "lecturers", email), mergedData, { merge: true });
+          const canonicalLectId = email || prefix || currentId;
+          await setDoc(doc(db, "lecturers", canonicalLectId), mergedData, { merge: true });
+          if (prefix && prefix !== canonicalLectId) {
+            await deleteDoc(doc(db, "lecturers", prefix)).catch(() => { });
+          }
+          await setDoc(doc(db, "users", canonicalLectId), mergedData, { merge: true });
+          count++;
+        } else if (role === "admin" || role === "superadmin" || role === "administrator") {
+          mergedData.role = "admin";
+            const canonicalAdminId = email || prefix || currentId;
+            await setDoc(doc(db, "admins", canonicalAdminId), mergedData, { merge: true });
+            if (prefix && prefix !== canonicalAdminId) {
+              await deleteDoc(doc(db, "admins", prefix)).catch(() => { });
+            }
+            await setDoc(doc(db, "users", canonicalAdminId), mergedData, { merge: true });
+            count++;
+          }
         }
-        await setDoc(doc(db, "users", lectDocId), mergedData, { merge: true });
-        count++;
-      } else if (role === "admin" || role === "superadmin" || role === "administrator") {
-        mergedData.role = "admin";
-        const adminDocId = prefix || currentId;
-        await setDoc(doc(db, "admins", adminDocId), mergedData, { merge: true });
-        if (email && email !== adminDocId) {
-          await setDoc(doc(db, "admins", email), mergedData, { merge: true });
+
+        // 2. Clean & Update 'students' collection
+        console.log("📂 Processing 'students' collection...");
+        const studentsSnap = await getDocs(collection(db, "students"));
+        for (const docSnap of studentsSnap.docs) {
+          const d = docSnap.data();
+          const updates = {};
+          if (!d.branch || String(d.branch).toLowerCase() === "general") updates.branch = "CSE";
+          if (d.department && String(d.department).toLowerCase() === "general") updates.department = "CSE";
+          if (Object.keys(updates).length > 0) {
+            await setDoc(doc(db, "students", docSnap.id), updates, { merge: true });
+            count++;
+          }
         }
-        await setDoc(doc(db, "users", adminDocId), mergedData, { merge: true });
-        count++;
+
+        // 3. Clean & Update 'lecturers' collection
+        console.log("📂 Processing 'lecturers' collection...");
+        const lecturersSnap = await getDocs(collection(db, "lecturers"));
+        for (const docSnap of lecturersSnap.docs) {
+          const d = docSnap.data();
+          const updates = {};
+          if (d.branch && String(d.branch).toLowerCase() === "general") updates.branch = "CSE";
+          if (d.department && String(d.department).toLowerCase() === "general") {
+            updates.department = "Computer Science & Engineering";
+          }
+          if (Object.keys(updates).length > 0) {
+            await setDoc(doc(db, "lecturers", docSnap.id), updates, { merge: true });
+            count++;
+          }
+        }
+
+        // 4. Clean & Update 'admins' collection
+        console.log("📂 Processing 'admins' collection...");
+        const adminsSnap = await getDocs(collection(db, "admins"));
+        for (const docSnap of adminsSnap.docs) {
+          const d = docSnap.data();
+          const updates = {};
+          if (d.branch && String(d.branch).toLowerCase() === "general") updates.branch = "CSE";
+          if (d.department && String(d.department).toLowerCase() === "general") {
+            updates.department = "Administration";
+          }
+          if (Object.keys(updates).length > 0) {
+            await setDoc(doc(db, "admins", docSnap.id), updates, { merge: true });
+            count++;
+          }
+        }
+
+        // 5. Clean & Update 'authorizedUsers' collection
+        console.log("📂 Processing 'authorizedUsers' collection...");
+        const authSnap = await getDocs(collection(db, "authorizedUsers"));
+        for (const docSnap of authSnap.docs) {
+          const d = docSnap.data();
+          const updates = {};
+          if (d.branch && String(d.branch).toLowerCase() === "general") updates.branch = "CSE";
+          if (d.department && String(d.department).toLowerCase() === "general") updates.department = "CSE";
+          if (Object.keys(updates).length > 0) {
+            await setDoc(doc(db, "authorizedUsers", docSnap.id), updates, { merge: true });
+            count++;
+          }
+        }
+
+        // 6. Clean & Update 'courses' collection
+        console.log("📂 Processing 'courses' collection...");
+        const coursesSnap = await getDocs(collection(db, "courses"));
+        for (const docSnap of coursesSnap.docs) {
+          const d = docSnap.data();
+          const updates = {};
+          if (!d.department || String(d.department).toLowerCase() === "general") updates.department = "CSE";
+          if (d.courseCode && String(d.courseCode).toLowerCase() === "general") updates.courseCode = "CSE";
+          if (Object.keys(updates).length > 0) {
+            await setDoc(doc(db, "courses", docSnap.id), updates, { merge: true });
+            count++;
+          }
+        }
+
+        // 7. Clean & Update 'attendance_sessions' collection
+        console.log("📂 Processing 'attendance_sessions' collection...");
+        const sessionsSnap = await getDocs(collection(db, "attendance_sessions"));
+        for (const docSnap of sessionsSnap.docs) {
+          const d = docSnap.data();
+          const updates = {};
+          if (d.lecturerDepartment && String(d.lecturerDepartment).toLowerCase() === "general") updates.lecturerDepartment = "CSE";
+          if (d.courseCode && String(d.courseCode).toLowerCase() === "general") updates.courseCode = "CSE";
+          if (Object.keys(updates).length > 0) {
+            await setDoc(doc(db, "attendance_sessions", docSnap.id), updates, { merge: true });
+            count++;
+          }
+        }
+
+        console.log(`\n🎉 SUCCESS! Firestore Migration Complete.`);
+        console.log(`✅ Total documents processed & updated to 'CSE' / separated collections: ${count}`);
+        process.exit(0);
+      } catch (err) {
+        console.error("❌ Migration error:", err);
+        process.exit(1);
       }
     }
 
-    // 2. Clean & Update 'students' collection
-    console.log("📂 Processing 'students' collection...");
-    const studentsSnap = await getDocs(collection(db, "students"));
-    for (const docSnap of studentsSnap.docs) {
-      const d = docSnap.data();
-      const updates = {};
-      if (!d.branch || String(d.branch).toLowerCase() === "general") updates.branch = "CSE";
-      if (d.department && String(d.department).toLowerCase() === "general") updates.department = "CSE";
-      if (Object.keys(updates).length > 0) {
-        await setDoc(doc(db, "students", docSnap.id), updates, { merge: true });
-        count++;
-      }
-    }
-
-    // 3. Clean & Update 'lecturers' collection
-    console.log("📂 Processing 'lecturers' collection...");
-    const lecturersSnap = await getDocs(collection(db, "lecturers"));
-    for (const docSnap of lecturersSnap.docs) {
-      const d = docSnap.data();
-      const updates = {};
-      if (d.branch && String(d.branch).toLowerCase() === "general") updates.branch = "CSE";
-      if (d.department && String(d.department).toLowerCase() === "general") {
-        updates.department = "Computer Science & Engineering";
-      }
-      if (Object.keys(updates).length > 0) {
-        await setDoc(doc(db, "lecturers", docSnap.id), updates, { merge: true });
-        count++;
-      }
-    }
-
-    // 4. Clean & Update 'admins' collection
-    console.log("📂 Processing 'admins' collection...");
-    const adminsSnap = await getDocs(collection(db, "admins"));
-    for (const docSnap of adminsSnap.docs) {
-      const d = docSnap.data();
-      const updates = {};
-      if (d.branch && String(d.branch).toLowerCase() === "general") updates.branch = "CSE";
-      if (d.department && String(d.department).toLowerCase() === "general") {
-        updates.department = "Administration";
-      }
-      if (Object.keys(updates).length > 0) {
-        await setDoc(doc(db, "admins", docSnap.id), updates, { merge: true });
-        count++;
-      }
-    }
-
-    // 5. Clean & Update 'authorizedUsers' collection
-    console.log("📂 Processing 'authorizedUsers' collection...");
-    const authSnap = await getDocs(collection(db, "authorizedUsers"));
-    for (const docSnap of authSnap.docs) {
-      const d = docSnap.data();
-      const updates = {};
-      if (d.branch && String(d.branch).toLowerCase() === "general") updates.branch = "CSE";
-      if (d.department && String(d.department).toLowerCase() === "general") updates.department = "CSE";
-      if (Object.keys(updates).length > 0) {
-        await setDoc(doc(db, "authorizedUsers", docSnap.id), updates, { merge: true });
-        count++;
-      }
-    }
-
-    // 6. Clean & Update 'courses' collection
-    console.log("📂 Processing 'courses' collection...");
-    const coursesSnap = await getDocs(collection(db, "courses"));
-    for (const docSnap of coursesSnap.docs) {
-      const d = docSnap.data();
-      const updates = {};
-      if (!d.department || String(d.department).toLowerCase() === "general") updates.department = "CSE";
-      if (d.courseCode && String(d.courseCode).toLowerCase() === "general") updates.courseCode = "CSE";
-      if (Object.keys(updates).length > 0) {
-        await setDoc(doc(db, "courses", docSnap.id), updates, { merge: true });
-        count++;
-      }
-    }
-
-    // 7. Clean & Update 'attendance_sessions' collection
-    console.log("📂 Processing 'attendance_sessions' collection...");
-    const sessionsSnap = await getDocs(collection(db, "attendance_sessions"));
-    for (const docSnap of sessionsSnap.docs) {
-      const d = docSnap.data();
-      const updates = {};
-      if (d.lecturerDepartment && String(d.lecturerDepartment).toLowerCase() === "general") updates.lecturerDepartment = "CSE";
-      if (d.courseCode && String(d.courseCode).toLowerCase() === "general") updates.courseCode = "CSE";
-      if (Object.keys(updates).length > 0) {
-        await setDoc(doc(db, "attendance_sessions", docSnap.id), updates, { merge: true });
-        count++;
-      }
-    }
-
-    console.log(`\n🎉 SUCCESS! Firestore Migration Complete.`);
-    console.log(`✅ Total documents processed & updated to 'CSE' / separated collections: ${count}`);
-    process.exit(0);
-  } catch (err) {
-    console.error("❌ Migration error:", err);
-    process.exit(1);
-  }
-}
-
-runMigration();
+    runMigration();

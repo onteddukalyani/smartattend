@@ -121,7 +121,7 @@ export async function registerStudentFace(rollNo, faceDescriptor) {
     faceDescriptor: rawVector,
     faceRegistered: true,
     updatedAt: now
-  }, { merge: true }).catch(() => {});
+  }, { merge: true }).catch(() => { });
 
   if (typeof window !== "undefined") {
     try {
@@ -142,7 +142,7 @@ export async function registerStudentFace(rollNo, faceDescriptor) {
           localStorage.setItem(`smartattend_face_descriptor_${auth.currentUser.uid}`, JSON.stringify(rawVector));
         }
       }
-    } catch (_) {}
+    } catch (_) { }
   }
 
   // Synchronize across global state and open pages immediately
@@ -175,7 +175,7 @@ export async function registerStudentFace(rollNo, faceDescriptor) {
           biometricEnrolled: false,
           hasFaceRegistered: false,
           faceRemovedAt: Date.now()
-        }, { merge: true }).catch(() => {});
+        }, { merge: true }).catch(() => { });
         broadcastStudentUpdate({
           rollNo: cleanRoll,
           faceRegistered: false,
@@ -258,7 +258,7 @@ export async function matchStudentFace(faceDescriptor, rollNo = "") {
               const parsed = JSON.parse(rawStored);
               enrolledVector = normalizeDescriptor(parsed);
             }
-          } catch (_) {}
+          } catch (_) { }
         }
       }
 
@@ -275,7 +275,7 @@ export async function matchStudentFace(faceDescriptor, rollNo = "") {
             if (typeof window !== "undefined") {
               try {
                 localStorage.setItem(`smartattend_face_descriptor_${cleanRoll}`, JSON.stringify(enrolledVector));
-              } catch (_) {}
+              } catch (_) { }
             }
           }
         }
@@ -288,8 +288,9 @@ export async function matchStudentFace(faceDescriptor, rollNo = "") {
           sum += diff * diff;
         }
         const dist = Math.sqrt(sum);
-        const matched = dist <= 0.52;
-        const confidence = Math.round(Math.max(0, Math.min(100, (1 - (dist / 0.62)) * 100)));
+        // Defense-grade high-confidence threshold (strict 0.48 cutoff)
+        const matched = dist <= 0.48;
+        const confidence = Math.round(Math.max(0, Math.min(100, (1 - (dist / 0.58)) * 100)));
         return {
           success: true,
           matched,
@@ -353,14 +354,14 @@ export async function removeStudentFaceEnrollment(rollNo, actorName = "Faculty/A
     reason: "Biometrics reset by staff — re-enrollment authorized",
     grantedBy: actorName
   };
-  await setDoc(doc(db, "biometric_reregistration_permissions", cleanRoll), permPayload, { merge: true }).catch(() => {});
+  await setDoc(doc(db, "biometric_reregistration_permissions", cleanRoll), permPayload, { merge: true }).catch(() => { });
 
   // Clean local client storage if accessible
   if (typeof window !== "undefined") {
     try {
       localStorage.removeItem("smartattend_face_enrolled");
       localStorage.removeItem(`smartattend_face_enrolled_${cleanRoll}`);
-    } catch (_) {}
+    } catch (_) { }
   }
 
   broadcastStudentUpdate({
@@ -433,7 +434,7 @@ export async function grantBiometricReRegistration(params) {
       `Your lecturer (${actorName}) has granted you a ${permMode === "one_time" ? "one-time" : "repeated"} pass to re-register your biometrics. This pass is active for ${expHours > 0 ? `${expHours} hours` : "unlimited time"}.`,
       "REREGISTRATION_APPROVED",
       actorName
-    ).catch(() => {});
+    ).catch(() => { });
   });
 
   await Promise.allSettled(writes);
@@ -442,8 +443,8 @@ export async function grantBiometricReRegistration(params) {
   try {
     const cloudCall = grantReRegCallable(params);
     const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 1000));
-    Promise.race([cloudCall, timeoutPromise]).catch(() => {});
-  } catch (_) {}
+    Promise.race([cloudCall, timeoutPromise]).catch(() => { });
+  } catch (_) { }
 
   return { success: true, count: targetRolls.length, message: `Access granted for ${targetRolls.length} student(s)` };
 }
@@ -462,8 +463,8 @@ export async function revokeBiometricReRegistration(permissionId, reason = "") {
   try {
     const cloudCall = revokeReRegCallable({ permissionId, reason });
     const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 1000));
-    Promise.race([cloudCall, timeoutPromise]).catch(() => {});
-  } catch (_) {}
+    Promise.race([cloudCall, timeoutPromise]).catch(() => { });
+  } catch (_) { }
 
   return { success: true };
 }
@@ -495,7 +496,7 @@ export async function checkStudentReRegistrationStatus(rollNo = "") {
         (data.remainingUses === undefined || data.remainingUses === null || data.remainingUses > 0);
       return { active: isActive, data };
     }
-  } catch (_) {}
+  } catch (_) { }
 
   return { active: false };
 }
@@ -614,7 +615,7 @@ export async function identifyStudentByFace(faceDescriptor) {
   try {
     const apiRes = await callFaceApi("/api/face/match", { faceDescriptor: rawVector });
     if (apiRes) return apiRes;
-  } catch (_) {}
+  } catch (_) { }
 
   return identifyStudentCallable({ faceDescriptor: rawVector })
     .then((response) => response.data)
@@ -682,7 +683,7 @@ export async function submitReRegistrationRequest({
       details
     },
     "faculty"
-  ).catch(() => {});
+  ).catch(() => { });
 
   // Send confirmation notification to the student in background
   sendStudentNotification(
@@ -691,7 +692,7 @@ export async function submitReRegistrationRequest({
     `Your request to re-register (${scopeLabel}) has been forwarded to your Course Lecturer and Administrator. You may also physically report to your lecturer in class to expedite approval.`,
     "REREGISTRATION_PENDING",
     "SmartAttend Security"
-  ).catch(() => {});
+  ).catch(() => { });
 
   return { success: true, request: requestDoc };
 }
@@ -769,7 +770,7 @@ export async function rejectReRegistrationRequest(rollNo, { reason = "", actorNa
     `Your request for re-registration was declined by ${actorName}.${reason ? ` Reason: ${reason}` : " Please physically report to your lecturer during office hours with your Student ID card."}`,
     "REREGISTRATION_DECLINED",
     actorName
-  ).catch(() => {});
+  ).catch(() => { });
 
   return { success: true };
 }
@@ -779,7 +780,7 @@ export async function rejectReRegistrationRequest(rollNo, { reason = "", actorNa
  */
 export function subscribeToStudentReRegistrationRequest(rollNo, callback) {
   const cleanRoll = String(rollNo || "").trim().toUpperCase();
-  if (!cleanRoll) return () => {};
+  if (!cleanRoll) return () => { };
 
   return onSnapshot(doc(db, "reregistration_requests", cleanRoll), (snap) => {
     if (snap.exists()) {

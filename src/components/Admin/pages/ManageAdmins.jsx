@@ -32,6 +32,7 @@ import { useAuth } from "../../authcontext";
 import { useTableSort, SortIcon } from "../../Common/useTableSort";
 import { downloadExcel } from "../../../DownloadExcel";
 import ProfilePhotoModal from "../../Common/ProfilePhotoModal";
+import { purgeUserCompletelyFromAllDatabases } from "../../../utils/userManagementService";
 import "./ManageAdmins.css";
 
 const ManageAdmins = ({ readOnly = false }) => {
@@ -75,19 +76,26 @@ const ManageAdmins = ({ readOnly = false }) => {
         const data = docSnap.data();
         const email = (data.email || (docSnap.id.includes("@") ? docSnap.id : "")).toLowerCase().trim();
         const key = email || docSnap.id;
+        const existing = adminMap.get(key);
+        const isCanonical = docSnap.id.includes("@");
+
+        const preferredId = isCanonical ? docSnap.id : (existing?.id && existing.id.includes("@") ? existing.id : docSnap.id);
+        const preferredAdminDocId = isCanonical ? docSnap.id : (existing?.adminDocId && existing.adminDocId.includes("@") ? existing.adminDocId : docSnap.id);
+
         adminMap.set(key, {
-          id: docSnap.id,
-          adminDocId: docSnap.id,
-          emailDocId: docSnap.id.includes("@") ? docSnap.id : null,
-          userDocId: null,
+          ...(existing || {}),
           ...data,
-          email: email || data.email || "",
-          name: data.name || (email ? email.split("@")[0] : "Administrator"),
-          department: data.department || "Administration",
-          designation: data.designation || "System Administrator",
-          phone: data.phone || "",
+          id: preferredId,
+          adminDocId: preferredAdminDocId,
+          emailDocId: isCanonical ? docSnap.id : (existing?.emailDocId || null),
+          userDocId: existing?.userDocId || null,
+          email: email || data.email || existing?.email || "",
+          name: data.name || existing?.name || (email ? email.split("@")[0] : "Administrator"),
+          department: data.department || existing?.department || "Administration",
+          designation: data.designation || existing?.designation || "System Administrator",
+          phone: data.phone || existing?.phone || "",
           role: "admin",
-          status: data.status || "active"
+          status: data.status || existing?.status || "active"
         });
       });
 
@@ -170,24 +178,19 @@ const ManageAdmins = ({ readOnly = false }) => {
     try {
       setUpdating(adminUser.id);
       const emailKey = adminUser.email ? adminUser.email.toLowerCase().trim() : null;
-      const prefix = emailKey ? emailKey.split("@")[0] : null;
       const adminDocId = adminUser.adminDocId || adminUser.id;
       const userDocId = adminUser.userDocId || (adminUser.id && !adminUser.id.includes("@") ? adminUser.id : null);
 
-      if (adminDocId) {
-        await setDoc(doc(db, "admins", adminDocId), { status: newStatus }, { merge: true }).catch(() => {});
-      }
       if (emailKey) {
-        await setDoc(doc(db, "admins", emailKey), { status: newStatus }, { merge: true }).catch(() => {});
-        await setDoc(doc(db, "authorizedUsers", emailKey), { status: newStatus }, { merge: true }).catch(() => {});
+        await setDoc(doc(db, "admins", emailKey), { status: newStatus }, { merge: true }).catch(() => { });
+        await setDoc(doc(db, "authorizedUsers", emailKey), { status: newStatus }, { merge: true }).catch(() => { });
+        await setDoc(doc(db, "users", emailKey), { status: newStatus }, { merge: true }).catch(() => { });
       }
-      if (prefix) {
-        await setDoc(doc(db, "admins", prefix), { status: newStatus }, { merge: true }).catch(() => {});
-        await setDoc(doc(db, "authorizedUsers", prefix), { status: newStatus }, { merge: true }).catch(() => {});
-        await setDoc(doc(db, "users", prefix), { status: newStatus }, { merge: true }).catch(() => {});
+      if (adminDocId && adminDocId !== emailKey && !adminDocId.includes("@")) {
+        await deleteDoc(doc(db, "admins", adminDocId)).catch(() => { });
       }
-      if (userDocId) {
-        await setDoc(doc(db, "users", userDocId), { status: newStatus }, { merge: true }).catch(() => {});
+      if (userDocId && userDocId !== emailKey && !userDocId.includes("@") && userDocId.length < 20) {
+        await deleteDoc(doc(db, "users", userDocId)).catch(() => { });
       }
 
       setAdmins((prev) =>
@@ -228,37 +231,21 @@ const ManageAdmins = ({ readOnly = false }) => {
       return;
     }
 
-    if (!window.confirm(`Are you sure you want to remove administrator ${adminUser.name || adminUser.email}?`)) {
+    if (!window.confirm(`Are you sure you want to completely remove administrator ${adminUser.name || adminUser.email}? This will purge their record from all database collections and revoke access.`)) {
       return;
     }
 
     try {
       setUpdating(adminUser.id);
       const emailKey = adminUser.email ? adminUser.email.toLowerCase().trim() : null;
-      const prefix = emailKey ? emailKey.split("@")[0] : null;
-      const adminDocId = adminUser.adminDocId || adminUser.id;
-      const userDocId = adminUser.userDocId || (adminUser.id && !adminUser.id.includes("@") ? adminUser.id : null);
 
-      if (adminDocId) {
-        await deleteDoc(doc(db, "admins", adminDocId)).catch(() => {});
-      }
-      if (emailKey) {
-        await deleteDoc(doc(db, "admins", emailKey)).catch(() => {});
-        await deleteDoc(doc(db, "authorizedUsers", emailKey)).catch(() => {});
-      }
-      if (prefix) {
-        await deleteDoc(doc(db, "admins", prefix)).catch(() => {});
-        await deleteDoc(doc(db, "authorizedUsers", prefix)).catch(() => {});
-        await deleteDoc(doc(db, "users", prefix)).catch(() => {});
-      }
-      if (userDocId) {
-        await deleteDoc(doc(db, "users", userDocId)).catch(() => {});
-      }
+      // Cascading global purge across ALL Firestore collections
+      await purgeUserCompletelyFromAllDatabases(adminUser, "admin");
 
       setAdmins((prev) => prev.filter((item) => item.id !== adminUser.id && item.email !== adminUser.email));
     } catch (err) {
       console.error("Error removing admin:", err);
-      alert("Unable to remove administrator.");
+      alert("Unable to remove administrator: " + err.message);
     } finally {
       setUpdating(null);
     }
@@ -491,8 +478,8 @@ const ManageAdmins = ({ readOnly = false }) => {
               {search
                 ? `No administrators match the search term "${search}".`
                 : statusFilter !== "all"
-                ? `No administrators currently in "${statusFilter}" status.`
-                : "No administrator profiles registered in the system yet."}
+                  ? `No administrators currently in "${statusFilter}" status.`
+                  : "No administrator profiles registered in the system yet."}
             </p>
             {search ? (
               <button type="button" className="hero-btn" onClick={() => setSearch("")}>
@@ -619,8 +606,8 @@ const ManageAdmins = ({ readOnly = false }) => {
                                 isCurrent
                                   ? "You cannot disable your own active account"
                                   : adminUser.status === "active"
-                                  ? "Disable administrator access"
-                                  : "Enable administrator access"
+                                    ? "Disable administrator access"
+                                    : "Enable administrator access"
                               }
                             >
                               {adminUser.status === "active" ? <FaUserSlash /> : <FaUserCheck />}

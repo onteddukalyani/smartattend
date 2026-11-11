@@ -1783,7 +1783,7 @@ function QrScannerApp() {
             }
 
             const isAndroidNative = isNativeApp && !isIOSDevice();
-            const maxAllowed = isAndroidNative 
+            const maxAllowed = isAndroidNative
                 ? (Number(sessionData?.androidMaxViolations) > 0 ? Number(sessionData.androidMaxViolations) : 2)
                 : (Number(sessionData?.webMaxViolations) > 0 ? Number(sessionData.webMaxViolations) : 1);
             const nextCount = violationCount + 1;
@@ -2670,9 +2670,6 @@ function QrScannerApp() {
     // Master Scan Handler with Dynamic Token Expiry & Geofence Enforcement
     const processSessionString = async (raw) => {
         if (!raw) return;
-
-
-
         // 1. Validate Dynamic Rotating Token and Expiry Window (with 90s clock skew tolerance)
         const validation = await validateRotatingQrPayload(raw, { clockSkewGraceSec: 90 });
         let payload = null;

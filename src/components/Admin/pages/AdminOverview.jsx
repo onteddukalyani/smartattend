@@ -327,26 +327,6 @@ const AdminOverview = () => {
           </button>
 
           <button
-            onClick={() => navigate("/admin/database")}
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: "0.5rem",
-              padding: "0.6rem 1.2rem",
-              borderRadius: "8px",
-              background: "linear-gradient(135deg, #6366f1 0%, #4338ca 100%)",
-              color: "#ffffff",
-              border: "none",
-              fontWeight: "600",
-              cursor: "pointer",
-              boxShadow: "0 4px 12px rgba(99, 102, 241, 0.3)"
-            }}
-            title="Open Database & System Control Hub"
-          >
-            <FaDatabase /> Database
-          </button>
-
-          <button
             onClick={fetchOverviewData}
             disabled={loading}
             style={{

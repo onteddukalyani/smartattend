@@ -91,6 +91,8 @@ function GenerateQR() {
     // Form inputs
     const [roomNo, setRoomNo] = useState(searchParams.get("roomNo") || "");
     const [courseCode, setCourseCode] = useState(searchParams.get("courseCode") || searchParams.get("course") || "");
+    const [courseName, setCourseName] = useState("");
+    const [isManualCourse, setIsManualCourse] = useState(false);
     const [classCode, setClassCode] = useState(normalizeBranchName(searchParams.get("classCode") || ""));
     const [batch, setBatch] = useState(searchParams.get("batch") || "2025");
     const [lectureHours, setLectureHours] = useState("1.0"); // Optional lecture duration in hours
@@ -117,10 +119,10 @@ function GenerateQR() {
     const [rotationIntervalSec, setRotationIntervalSec] = useState(DEFAULT_ROTATION_INTERVAL);
     const [rotationSecondsLeft, setRotationSecondsLeft] = useState(DEFAULT_ROTATION_INTERVAL);
     const [dynamicQrUrl, setDynamicQrUrl] = useState("");
-    const [locationMode, setLocationMode] = useState("MOBILE");
+    const [locationMode, setLocationMode] = useState("NONE");
     const [preSessionAnchorToken] = useState(() => "anchor_" + Math.random().toString(36).substring(2, 10) + Date.now().toString(36)); // "MOBILE" | "LAPTOP" | "NONE"
     const [showPhoneAnchorModal, setShowPhoneAnchorModal] = useState(false);
-    const [geofenceRadius, setGeofenceRadius] = useState(10); // Mandatory default: 10 metres standard, adjustable live by lecturer (0 = disabled)
+    const [geofenceRadius, setGeofenceRadius] = useState(0); // Default: 0m (disabled / any location by default)
     const [isCustomGps, setIsCustomGps] = useState(false);
     const [customGpsInput, setCustomGpsInput] = useState("10");
     const [showLiveCustomGps, setShowLiveCustomGps] = useState(false);
@@ -244,10 +246,11 @@ function GenerateQR() {
                     const matched = list.find((c) => (c.courseCode || c.code || "").toUpperCase() === targetCode.toUpperCase());
                     if (matched) {
                         setCourseCode(matched.courseCode || matched.code || targetCode);
-                        const courseRoom = matched.defaultRoom || matched.roomNo || matched.room || matched.classroom || matched.classCode || matched.classNumber || "";
-                        if (courseRoom && !searchParams.get("roomNo")) setRoomNo(courseRoom);
-                        if (matched.department && !classCode) setClassCode(normalizeBranchName(matched.department));
-                        if (matched.batch && (!batch || batch === "2025")) setBatch(matched.batch);
+                        setCourseName(matched.courseName || matched.name || "");
+                        const courseRoom = matched.defaultRoom || matched.roomNo || matched.room || matched.classroom || matched.classCode || matched.classNumber || "C003";
+                        if (!searchParams.get("roomNo")) setRoomNo(courseRoom);
+                        if (!classCode) setClassCode(normalizeBranchName(matched.department || profile?.department || "CSE"));
+                        if (!batch || batch === "2025") setBatch(matched.batch || "2025");
                     }
                 }
             })
@@ -489,15 +492,33 @@ function GenerateQR() {
     }, [sessionStartAt, qr1ExpiresAt, kioskEndsAt, phase, sessionData?.phase, sessionData?.status, sessionData?.active, sessionData?.totalDurationSeconds, qr1Seconds, qr2Seconds]);
 
     const handleSelectCourse = (code) => {
+        if (code === "MANUAL") {
+            setIsManualCourse(true);
+            setCourseCode("");
+            setCourseName("");
+            if (!classCode) setClassCode(normalizeBranchName(profile?.department || "CSE"));
+            if (!roomNo) setRoomNo("C003");
+            if (!batch) setBatch("2025");
+            return;
+        }
+        setIsManualCourse(false);
         setCourseCode(code);
-        if (!code) return;
+        if (!code) {
+            setCourseName("");
+            return;
+        }
         const matched = availableCourses.find((c) => (c.courseCode || c.code || "").toUpperCase() === String(code).toUpperCase());
         if (matched) {
+            setCourseName(matched.courseName || matched.name || "");
             const courseRoom = matched.defaultRoom || matched.roomNo || matched.room || matched.classroom || matched.classCode || matched.classNumber || "C003";
             setRoomNo(courseRoom);
-            if (matched.department) setClassCode(normalizeBranchName(matched.department));
-            else if (matched.classCode) setClassCode(normalizeBranchName(matched.classCode));
-            if (matched.batch) setBatch(matched.batch);
+            setClassCode(normalizeBranchName(matched.department || matched.classCode || profile?.department || "CSE"));
+            setBatch(matched.batch || "2025");
+        } else {
+            setCourseName(code);
+            setRoomNo((prev) => prev || "C003");
+            setClassCode((prev) => prev || normalizeBranchName(profile?.department || "CSE"));
+            setBatch((prev) => prev || "2025");
         }
     };
 
@@ -506,6 +527,7 @@ function GenerateQR() {
         setCourseCode(val);
         const matched = availableCourses.find((c) => (c.courseCode || c.code || "").toUpperCase() === val.trim().toUpperCase());
         if (matched) {
+            setCourseName(matched.courseName || matched.name || "");
             const courseRoom = matched.defaultRoom || matched.roomNo || matched.room || matched.classroom || matched.classCode || matched.classNumber || "";
             if (courseRoom) setRoomNo(courseRoom);
             if (matched.department) setClassCode(normalizeBranchName(matched.department));
@@ -515,12 +537,16 @@ function GenerateQR() {
 
     // 4. Start 3-Minute Authoritative Session
     const handleGenerateSession = async () => {
-        if (!classCode || !roomNo.trim()) {
-            alert("Please select a class and enter room number.");
+        if (!courseCode.trim()) {
+            alert(isManualCourse ? "Please enter Course Code." : "Please choose a course from Quick Pick, or select Manual Entry.");
             return;
         }
-        if (!courseCode.trim()) {
-            alert("Please enter Course Code.");
+        if (isManualCourse && !courseName.trim()) {
+            alert("Please enter Course Name.");
+            return;
+        }
+        if (isManualCourse && (!classCode || !roomNo.trim())) {
+            alert("Please select Department and enter Room Number.");
             return;
         }
         setIsGenerating(true);
@@ -528,14 +554,15 @@ function GenerateQR() {
 
         try {
             const rawDept = profile?.department || profile?.branch;
+            const finalClassCode = normalizeBranchName(classCode || rawDept || "CSE");
+            const finalRoomNo = (roomNo && roomNo.trim() !== "") ? roomNo.trim() : "C003";
             const lecturerInfo = {
                 name: profile?.name || user?.displayName || (user?.email ? user.email.split("@")[0] : "Lecturer"),
                 email: user?.email || "",
-                department: normalizeBranchName(rawDept || "CSE")
+                department: finalClassCode
             };
             const finalBatch = (batch && batch.trim() !== "") ? batch.trim() : "2025";
             const parsedHours = parseFloat(lectureHours) > 0 ? parseFloat(lectureHours) : 1.0;
-            const finalClassCode = normalizeBranchName(classCode || "CSE");
             const effectiveQr1Sec = Math.max(15, Number(qr1Seconds) || 45);
             const effectiveQr2Sec = Math.max(15, Number(qr2Seconds) || 75);
             const effectiveTotalSec = effectiveQr1Sec + effectiveQr2Sec;
@@ -561,8 +588,7 @@ function GenerateQR() {
                 }
             }
 
-            // Maintain lecturer's chosen distance radius without forcing to 0
-            const effectiveGeofenceRadius = geofenceRadius;
+            const effectiveGeofenceRadius = locationMode === "NONE" ? 0 : (geofenceRadius || 0);
             const activeClassroomCoords = (effectiveGeofenceRadius > 0 && hostCoords)
                 ? {
                     ...hostCoords,
@@ -574,7 +600,7 @@ function GenerateQR() {
             const result = await createAttendanceSession(
                 finalClassCode,
                 courseCode.trim(),
-                roomNo.trim(),
+                finalRoomNo,
                 finalBatch,
                 lecturerInfo,
                 parsedHours,
@@ -583,7 +609,7 @@ function GenerateQR() {
                     qr1DurationSeconds: effectiveQr1Sec,
                     qr2DurationSeconds: effectiveQr2Sec,
                     classroomLocation: activeClassroomCoords,
-                    locationMode: locationMode,
+                    locationMode: locationMode || "NONE",
                     rotationIntervalSec: rotationIntervalSec
                 }
             );
@@ -1606,7 +1632,9 @@ function GenerateQR() {
     const sessionRemaining = Math.max(0, kioskEndsAt ? Math.floor((kioskEndsAt - Date.now()) / 1000) : (totalDurationSeconds - elapsedSeconds));
     const totalDurationMinutesDisplay = (totalDurationSeconds / 60).toFixed(1).replace(/\.0$/, "");
 
-    const isFormReady = Boolean(courseCode.trim() && classCode && roomNo.trim());
+    const isFormReady = Boolean(
+        courseCode.trim() && (isManualCourse ? (courseName.trim() && classCode && roomNo.trim()) : true)
+    );
 
     // -------------------------------------------------------------------------
     // -------------------------------------------------------------------------
@@ -1626,18 +1654,20 @@ function GenerateQR() {
                         </div>
                     </div>
 
-                    {availableCourses.length > 0 && (
-                        <div className="qr-form-group">
+                    {/* Simplified Quick Selection: Course Pick & Lecture Duration */}
+                    <div className="qr-form-row">
+                        <div className="qr-form-group" style={{ flex: 2 }}>
                             <label htmlFor="course-select">
                                 <FaBookOpen /> Quick Pick Registered Course
                             </label>
                             <select
                                 id="course-select"
-                                value={courseCode}
+                                value={isManualCourse ? "MANUAL" : courseCode}
                                 onChange={(e) => handleSelectCourse(e.target.value)}
                                 className="qr-select-styled"
                             >
-                                <option value="">-- Choose Course or Type Below --</option>
+                                <option value="">-- Choose Course or Select Manual --</option>
+                                <option value="MANUAL">✍️ -- Manual Entry (Custom Course) --</option>
                                 {myCourses.length > 0 && (
                                     <optgroup label={isAdmin ? "🏛️ All Institution Courses" : "🌟 My Assigned Courses"}>
                                         {myCourses.map((c) => {
@@ -1668,75 +1698,8 @@ function GenerateQR() {
                                 )}
                             </select>
                         </div>
-                    )}
 
-                    <div className="qr-form-row">
-                        <div className="qr-form-group">
-                            <label htmlFor="course-code">
-                                <FaBookOpen /> Course Code *
-                            </label>
-                            <input
-                                id="course-code"
-                                type="text"
-                                value={courseCode}
-                                onChange={handleCourseCodeChange}
-                                placeholder="e.g. CS171, CS301"
-                                required
-                            />
-                        </div>
-
-                        <div className="qr-form-group">
-                            <label htmlFor="class-code">
-                                <FaLayerGroup /> Department Branch *
-                            </label>
-                            <select
-                                id="class-code"
-                                value={classCode}
-                                onChange={(e) => setClassCode(e.target.value)}
-                            >
-                                <option value="">Select Department</option>
-                                <option value="CSE">CSE</option>
-                                <option value="CSE-A">CSE-A</option>
-                                <option value="CSE-B">CSE-B</option>
-                                <option value="DSAI">DSAI</option>
-                                <option value="ECE">ECE</option>
-                                <option value="AIC">AIC</option>
-                            </select>
-                        </div>
-                    </div>
-
-                    <div className="qr-form-row-3">
-                        <div className="qr-form-group">
-                            <label htmlFor="room-number">
-                                <FaDoorOpen /> Room Number *
-                            </label>
-                            <input
-                                id="room-number"
-                                type="text"
-                                value={roomNo}
-                                onChange={(e) => setRoomNo(e.target.value)}
-                                placeholder="e.g. C002, C003"
-                                required
-                            />
-                        </div>
-
-                        <div className="qr-form-group">
-                            <label htmlFor="batch-year">
-                                <FaCalendarAlt /> Batch
-                            </label>
-                            <select
-                                id="batch-year"
-                                value={batch}
-                                onChange={(e) => setBatch(e.target.value)}
-                            >
-                                <option value="2023">2023</option>
-                                <option value="2024">2024</option>
-                                <option value="2025">2025</option>
-                                <option value="2026">2026</option>
-                            </select>
-                        </div>
-
-                        <div className="qr-form-group">
+                        <div className="qr-form-group" style={{ flex: 1 }}>
                             <label htmlFor="lecture-hours">
                                 <FaClock /> Lecture Duration
                             </label>
@@ -1755,6 +1718,92 @@ function GenerateQR() {
                             </select>
                         </div>
                     </div>
+
+                    {/* Manual Course Details: Revealed only when "Manual Entry" is selected */}
+                    {isManualCourse && (
+                        <>
+                            <div className="qr-form-row" style={{ marginTop: "12px" }}>
+                                <div className="qr-form-group">
+                                    <label htmlFor="course-code">
+                                        <FaBookOpen /> Course Code *
+                                    </label>
+                                    <input
+                                        id="course-code"
+                                        type="text"
+                                        value={courseCode}
+                                        onChange={handleCourseCodeChange}
+                                        placeholder="e.g. CS171, CS301"
+                                        required
+                                    />
+                                </div>
+
+                                <div className="qr-form-group">
+                                    <label htmlFor="course-name">
+                                        <FaBookOpen /> Course Name *
+                                    </label>
+                                    <input
+                                        id="course-name"
+                                        type="text"
+                                        value={courseName}
+                                        onChange={(e) => setCourseName(e.target.value)}
+                                        placeholder="e.g. Operating Systems"
+                                        required
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="qr-form-row-3" style={{ marginTop: "12px" }}>
+                                <div className="qr-form-group">
+                                    <label htmlFor="class-code">
+                                        <FaLayerGroup /> Department Branch *
+                                    </label>
+                                    <select
+                                        id="class-code"
+                                        value={classCode}
+                                        onChange={(e) => setClassCode(e.target.value)}
+                                    >
+                                        <option value="">Select Department</option>
+                                        <option value="CSE">CSE</option>
+                                        <option value="CSE-A">CSE-A</option>
+                                        <option value="CSE-B">CSE-B</option>
+                                        <option value="DSAI">DSAI</option>
+                                        <option value="ECE">ECE</option>
+                                        <option value="AIC">AIC</option>
+                                    </select>
+                                </div>
+
+                                <div className="qr-form-group">
+                                    <label htmlFor="room-number">
+                                        <FaDoorOpen /> Room Number *
+                                    </label>
+                                    <input
+                                        id="room-number"
+                                        type="text"
+                                        value={roomNo}
+                                        onChange={(e) => setRoomNo(e.target.value)}
+                                        placeholder="e.g. C002, C003"
+                                        required
+                                    />
+                                </div>
+
+                                <div className="qr-form-group">
+                                    <label htmlFor="batch-year">
+                                        <FaCalendarAlt /> Batch
+                                    </label>
+                                    <select
+                                        id="batch-year"
+                                        value={batch}
+                                        onChange={(e) => setBatch(e.target.value)}
+                                    >
+                                        <option value="2023">2023</option>
+                                        <option value="2024">2024</option>
+                                        <option value="2025">2025</option>
+                                        <option value="2026">2026</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </>
+                    )}
 
                     {/* Step 2: Attendance Window & Security Protocols */}
                     <div className="qr-section-heading" style={{ marginTop: "20px" }}>
@@ -1802,529 +1851,203 @@ function GenerateQR() {
                                 </button>
                             ))}
                         </div>
-
-                        {/* Granular Breakdown Controls */}
-                        <div className="qr-timing-breakdown-box">
-                            <div className="qr-breakdown-col">
-                                <span className="qr-breakdown-label p1-label">
-                                    Phase 1: QR1 Check-in Window
-                                </span>
-                                {timetablePreset === "custom" ? (
-                                    <div className="qr-breakdown-input-row">
-                                        <input
-                                            type="number"
-                                            min="15"
-                                            max="600"
-                                            step="5"
-                                            value={qr1Seconds}
-                                            onChange={(e) => setQr1Seconds(Math.max(15, parseInt(e.target.value) || 15))}
-                                        />
-                                        <span style={{ fontSize: "0.75rem", color: "#64748b" }}>seconds</span>
-                                    </div>
-                                ) : (
-                                    <span className="qr-breakdown-val">{qr1Seconds} seconds ({formatMmSs(qr1Seconds)})</span>
-                                )}
-                            </div>
-
-                            <div className="qr-breakdown-col">
-                                <span className="qr-breakdown-label p2-label">
-                                    Phase 2: QR2 Biometric Window
-                                </span>
-                                {timetablePreset === "custom" ? (
-                                    <div className="qr-breakdown-input-row">
-                                        <input
-                                            type="number"
-                                            min="15"
-                                            max="1800"
-                                            step="5"
-                                            value={qr2Seconds}
-                                            onChange={(e) => setQr2Seconds(Math.max(15, parseInt(e.target.value) || 15))}
-                                        />
-                                        <span style={{ fontSize: "0.75rem", color: "#64748b" }}>seconds</span>
-                                    </div>
-                                ) : (
-                                    <span className="qr-breakdown-val">{qr2Seconds} seconds ({formatMmSs(qr2Seconds)})</span>
-                                )}
-                            </div>
-
-                            <div className="qr-breakdown-col total-col">
-                                <span className="qr-breakdown-label">Total Execution Window</span>
-                                <div className="qr-breakdown-val total">
-                                    {formatMmSs(qr1Seconds + qr2Seconds)}
-                                </div>
-                            </div>
-                        </div>
                     </div>
 
-                    {/* Location Source 3-Way Selector */}
+                    {/* Location Source: Simplified 1-Row Selector */}
                     <div className="qr-form-row" style={{ marginBottom: "18px" }}>
                         <div className="qr-form-group" style={{ width: "100%" }}>
                             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
                                 <label style={{ margin: 0, display: "flex", alignItems: "center", gap: "6px", fontWeight: 800, fontSize: "0.92rem", color: "var(--text-main, #0f172a)" }}>
-                                    <FaMapMarkerAlt style={{ color: "#2563eb" }} /> 🌐 GPS Location Source (Define Before Starting Session)
+                                    <FaMapMarkerAlt style={{ color: "#2563eb" }} /> 🌐 GPS Location &amp; Geofencing
                                 </label>
                                 <span style={{
                                     fontSize: "0.76rem",
                                     fontWeight: 800,
                                     padding: "3px 10px",
                                     borderRadius: "8px",
-                                    background: locationMode === "MOBILE" ? "rgba(37, 99, 235, 0.12)" : locationMode === "LAPTOP" ? "rgba(16, 185, 129, 0.12)" : "rgba(239, 68, 68, 0.12)",
-                                    color: locationMode === "MOBILE" ? "#1d4ed8" : locationMode === "LAPTOP" ? "#047857" : "#dc2626"
+                                    background: locationMode === "NONE" ? "rgba(16, 185, 129, 0.12)" : "rgba(37, 99, 235, 0.12)",
+                                    color: locationMode === "NONE" ? "#047857" : "#1d4ed8"
                                 }}>
-                                    {locationMode === "MOBILE" ? "📱 1. Mobile Satellite GPS" : locationMode === "LAPTOP" ? "💻 2. Laptop Location" : "🚫 3. No Location (Off)"}
+                                    {locationMode === "NONE" ? "✓ No Location (Default)" : locationMode === "MOBILE" ? "📱 Mobile Satellite GPS" : "💻 Laptop Location"}
                                 </span>
                             </div>
 
-                            <div style={{
-                                display: "grid",
-                                gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-                                gap: "12px",
-                                marginBottom: "12px"
-                            }}>
-                                {/* Option 1: Lecturer Mobile GPS */}
-                                <div
-                                    role="button"
-                                    tabIndex={0}
-                                    onClick={() => handleSelectLocationMode("MOBILE")}
-                                    onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") handleSelectLocationMode("MOBILE"); }}
-                                    style={{
-                                        display: "flex",
-                                        flexDirection: "column",
-                                        padding: "14px",
-                                        borderRadius: "14px",
-                                        border: locationMode === "MOBILE" ? "2.5px solid #2563eb" : "1.5px solid var(--border, #cbd5e1)",
-                                        background: locationMode === "MOBILE" ? "rgba(37, 99, 235, 0.08)" : "var(--surface, #ffffff)",
-                                        cursor: "pointer",
-                                        transition: "all 0.2s ease",
-                                        boxShadow: locationMode === "MOBILE" ? "0 4px 14px rgba(37, 99, 235, 0.2)" : "none"
-                                    }}
-                                >
-                                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "6px" }}>
-                                        <div style={{ display: "flex", alignItems: "center", gap: "6px", fontWeight: 800, fontSize: "0.92rem", color: locationMode === "MOBILE" ? "#1d4ed8" : "var(--text-main, #0f172a)" }}>
-                                            <FaMobileAlt style={{ fontSize: "1.1rem" }} /> 1. Lecturer Mobile
-                                        </div>
-                                        {locationMode === "MOBILE" && (
-                                            <span style={{ fontSize: "0.68rem", fontWeight: 800, background: "#2563eb", color: "#ffffff", padding: "1px 6px", borderRadius: "8px" }}>
-                                                SELECTED
-                                            </span>
-                                        )}
-                                    </div>
-                                    <div style={{ fontSize: "0.75rem", color: "var(--text-muted, #64748b)", lineHeight: 1.35 }}>
-                                        High-precision satellite GPS (±3m to ±8m). Strict room boundary enforcement.
-                                    </div>
-
-                                    {/* Mobile Status / Definition Button */}
-                                    {locationMode === "MOBILE" && (
-                                        <div style={{ marginTop: "10px" }} onClick={(e) => e.stopPropagation()}>
-                                            {classroomCoords && (classroomCoords.source === "PHONE_ANCHOR" || classroomCoords.source === "MOBILE_HOST") ? (
-                                                <div style={{
-                                                    padding: "8px 10px",
-                                                    borderRadius: "8px",
-                                                    background: "rgba(16, 185, 129, 0.15)",
-                                                    border: "1px solid #10b981",
-                                                    color: "#065f46",
-                                                    fontSize: "0.74rem",
-                                                    fontWeight: 750
-                                                }}>
-                                                    <div>✓ GPS Defined: {classroomCoords.latitude?.toFixed(5)}, {classroomCoords.longitude?.toFixed(5)} (±{Math.round(classroomCoords.accuracy || 5)}m)</div>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => !isMobileDevice ? setShowPhoneAnchorModal(true) : handleSelectLocationMode("MOBILE")}
-                                                        style={{ marginTop: "4px", background: "transparent", border: "none", color: "#047857", textDecoration: "underline", fontWeight: 800, fontSize: "0.7rem", cursor: "pointer", padding: 0 }}
-                                                    >
-                                                        🔄 Re-anchor phone
-                                                    </button>
-                                                </div>
-                                            ) : (
-                                                <div>
-                                                    <div style={{ fontSize: "0.72rem", color: "#b45309", fontWeight: 700, marginBottom: "4px" }}>
-                                                        ⚠️ Location not defined yet
-                                                    </div>
-                                                    {!isMobileDevice ? (
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => setShowPhoneAnchorModal(true)}
-                                                            style={{
-                                                                width: "100%",
-                                                                padding: "8px 12px",
-                                                                borderRadius: "8px",
-                                                                background: "#2563eb",
-                                                                color: "#ffffff",
-                                                                border: "none",
-                                                                fontSize: "0.78rem",
-                                                                fontWeight: 800,
-                                                                cursor: "pointer",
-                                                                display: "flex",
-                                                                alignItems: "center",
-                                                                justifyContent: "center",
-                                                                gap: "6px",
-                                                                boxShadow: "0 2px 6px rgba(37, 99, 235, 0.3)"
-                                                            }}
-                                                        >
-                                                            <FaQrcode /> Scan QR to Define Phone GPS
-                                                        </button>
-                                                    ) : (
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => handleSelectLocationMode("MOBILE")}
-                                                            style={{
-                                                                width: "100%",
-                                                                padding: "8px 12px",
-                                                                borderRadius: "8px",
-                                                                background: "#2563eb",
-                                                                color: "#ffffff",
-                                                                border: "none",
-                                                                fontSize: "0.78rem",
-                                                                fontWeight: 800,
-                                                                cursor: "pointer",
-                                                                display: "flex",
-                                                                alignItems: "center",
-                                                                justifyContent: "center",
-                                                                gap: "6px"
-                                                            }}
-                                                        >
-                                                            <FaMapMarkerAlt /> Capture Phone GPS Now
-                                                        </button>
-                                                    )}
-                                                </div>
-                                            )}
-                                        </div>
-                                    )}
-                                </div>
-
-                                {/* Option 2: Laptop Location */}
-                                <div
-                                    role="button"
-                                    tabIndex={0}
-                                    onClick={() => handleSelectLocationMode("LAPTOP")}
-                                    onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") handleSelectLocationMode("LAPTOP"); }}
-                                    style={{
-                                        display: "flex",
-                                        flexDirection: "column",
-                                        padding: "14px",
-                                        borderRadius: "14px",
-                                        border: locationMode === "LAPTOP" ? "2.5px solid #2563eb" : "1.5px solid var(--border, #cbd5e1)",
-                                        background: locationMode === "LAPTOP" ? "rgba(37, 99, 235, 0.08)" : "var(--surface, #ffffff)",
-                                        cursor: "pointer",
-                                        transition: "all 0.2s ease",
-                                        boxShadow: locationMode === "LAPTOP" ? "0 4px 14px rgba(37, 99, 235, 0.2)" : "none"
-                                    }}
-                                >
-                                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "6px" }}>
-                                        <div style={{ display: "flex", alignItems: "center", gap: "6px", fontWeight: 800, fontSize: "0.92rem", color: locationMode === "LAPTOP" ? "#1d4ed8" : "var(--text-main, #0f172a)" }}>
-                                            <FaLaptop style={{ fontSize: "1.1rem" }} /> 2. Laptop Location
-                                        </div>
-                                        {locationMode === "LAPTOP" && (
-                                            <span style={{ fontSize: "0.68rem", fontWeight: 800, background: "#2563eb", color: "#ffffff", padding: "1px 6px", borderRadius: "8px" }}>
-                                                SELECTED
-                                            </span>
-                                        )}
-                                    </div>
-                                    <div style={{ fontSize: "0.75rem", color: "var(--text-muted, #64748b)", lineHeight: 1.35 }}>
-                                        Wi-Fi & browser geolocation (±25m to ±45m). Uses this computer's network fix.
-                                    </div>
-
-                                    {/* Laptop Status / Definition Button */}
-                                    {locationMode === "LAPTOP" && (
-                                        <div style={{ marginTop: "10px" }} onClick={(e) => e.stopPropagation()}>
-                                            {classroomCoords && classroomCoords.source === "LAPTOP" ? (
-                                                <div style={{
-                                                    padding: "8px 10px",
-                                                    borderRadius: "8px",
-                                                    background: "rgba(16, 185, 129, 0.15)",
-                                                    border: "1px solid #10b981",
-                                                    color: "#065f46",
-                                                    fontSize: "0.74rem",
-                                                    fontWeight: 750
-                                                }}>
-                                                    <div>✓ Laptop Location Defined: {classroomCoords.latitude?.toFixed(5)}, {classroomCoords.longitude?.toFixed(5)} (±{Math.round(classroomCoords.accuracy || 35)}m)</div>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => handleSelectLocationMode("LAPTOP")}
-                                                        style={{ marginTop: "4px", background: "transparent", border: "none", color: "#047857", textDecoration: "underline", fontWeight: 800, fontSize: "0.7rem", cursor: "pointer", padding: 0 }}
-                                                    >
-                                                        🔄 Re-capture laptop fix
-                                                    </button>
-                                                </div>
-                                            ) : (
-                                                <div>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => handleSelectLocationMode("LAPTOP")}
-                                                        style={{
-                                                            width: "100%",
-                                                            padding: "8px 12px",
-                                                            borderRadius: "8px",
-                                                            background: "#2563eb",
-                                                            color: "#ffffff",
-                                                            border: "none",
-                                                            fontSize: "0.78rem",
-                                                            fontWeight: 800,
-                                                            cursor: "pointer",
-                                                            display: "flex",
-                                                            alignItems: "center",
-                                                            justifyContent: "center",
-                                                            gap: "6px"
-                                                        }}
-                                                    >
-                                                        <FaLaptop /> Capture Laptop Location Now
-                                                    </button>
-                                                </div>
-                                            )}
-                                        </div>
-                                    )}
-                                </div>
-
-                                {/* Option 3: No Location (Geofence Disabled) */}
-                                <div
-                                    role="button"
-                                    tabIndex={0}
+                            {/* Row of 3 clear options */}
+                            <div style={{ display: "flex", flexDirection: "row", gap: "10px", width: "100%", marginBottom: "10px" }}>
+                                <button
+                                    type="button"
                                     onClick={() => handleSelectLocationMode("NONE")}
-                                    onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") handleSelectLocationMode("NONE"); }}
-                                    style={{
-                                        display: "flex",
-                                        flexDirection: "column",
-                                        padding: "14px",
-                                        borderRadius: "14px",
-                                        border: locationMode === "NONE" ? "2.5px solid #dc2626" : "1.5px solid var(--border, #cbd5e1)",
-                                        background: locationMode === "NONE" ? "rgba(239, 68, 68, 0.08)" : "var(--surface, #ffffff)",
-                                        cursor: "pointer",
-                                        transition: "all 0.2s ease",
-                                        boxShadow: locationMode === "NONE" ? "0 4px 14px rgba(239, 68, 68, 0.2)" : "none"
-                                    }}
-                                >
-                                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "6px" }}>
-                                        <div style={{ display: "flex", alignItems: "center", gap: "6px", fontWeight: 800, fontSize: "0.92rem", color: locationMode === "NONE" ? "#dc2626" : "var(--text-main, #0f172a)" }}>
-                                            <FaBan style={{ fontSize: "1.1rem" }} /> 3. No Location
-                                        </div>
-                                        {locationMode === "NONE" && (
-                                            <span style={{ fontSize: "0.68rem", fontWeight: 800, background: "#dc2626", color: "#ffffff", padding: "1px 6px", borderRadius: "8px" }}>
-                                                DISABLED
-                                            </span>
-                                        )}
-                                    </div>
-                                    <div style={{ fontSize: "0.75rem", color: "var(--text-muted, #64748b)", lineHeight: 1.35 }}>
-                                        Geofence off (0m). Allows students to mark attendance from any location. No location definition needed.
-                                    </div>
-                                    {locationMode === "NONE" && (
-                                        <div style={{ marginTop: "10px", padding: "8px 10px", borderRadius: "8px", background: "rgba(239, 68, 68, 0.12)", color: "#b91c1c", fontSize: "0.74rem", fontWeight: 750 }}>
-                                            ✓ Ready to start session without GPS radius check
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* Geofence & Rotating interval row */}
-                    <div className="qr-form-row">
-                        <div className="qr-form-group">
-                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
-                                <label htmlFor="geofence-radius" style={{ margin: 0, display: "flex", alignItems: "center", gap: "6px" }}>
-                                    <FaMapMarkerAlt /> Geofence Distance
-                                </label>
-                                <span style={{
-                                    fontSize: "0.78rem",
-                                    fontWeight: 800,
-                                    padding: "2px 8px",
-                                    borderRadius: "6px",
-                                    background: geofenceRadius > 0 ? "rgba(16, 185, 129, 0.12)" : "rgba(100, 116, 139, 0.12)",
-                                    color: geofenceRadius > 0 ? "#059669" : "#64748b"
-                                }}>
-                                    {geofenceRadius > 0 ? `${geofenceRadius}m Active` : "Disabled"}
-                                </span>
-                            </div>
-
-                            {/* Dropdown for GPS Geofence + Custom Input */}
-                            <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-                                <select
-                                    id="geofence-radius-select"
-                                    value={isCustomGps ? "custom" : geofenceRadius}
-                                    onChange={(e) => {
-                                        if (e.target.value === "custom") {
-                                            setIsCustomGps(true);
-                                            setCustomGpsInput(String(geofenceRadius || 10));
-                                        } else {
-                                            setIsCustomGps(false);
-                                            const val = Number(e.target.value);
-                                            setCustomGpsInput(String(val));
-                                            handleUpdateGeofenceRadius(val);
-                                        }
-                                    }}
                                     style={{
                                         flex: 1,
-                                        padding: "10px 12px",
+                                        padding: "12px 10px",
                                         borderRadius: "10px",
-                                        border: "1.5px solid var(--border, #cbd5e1)",
-                                        background: "var(--surface, #ffffff)",
-                                        color: "var(--text-main, #0f172a)",
-                                        fontSize: "0.88rem",
-                                        fontWeight: 700,
+                                        border: locationMode === "NONE" ? "2px solid #10b981" : "1.5px solid var(--border, #cbd5e1)",
+                                        background: locationMode === "NONE" ? "rgba(16, 185, 129, 0.08)" : "var(--surface, #ffffff)",
+                                        color: locationMode === "NONE" ? "#065f46" : "var(--text-main, #334155)",
+                                        fontWeight: 750,
+                                        fontSize: "0.85rem",
                                         cursor: "pointer",
-                                        outline: "none"
+                                        display: "flex",
+                                        alignItems: "center",
+                                        justifyContent: "center",
+                                        gap: "6px"
                                     }}
                                 >
-                                    {GEOFENCE_PRESETS.map((p) => (
-                                        <option key={p.value} value={p.value}>{p.label}</option>
-                                    ))}
-                                    <option value="custom">✏️ Custom Distance (type meters)...</option>
-                                </select>
+                                    <FaBan style={{ color: locationMode === "NONE" ? "#10b981" : "#94a3b8" }} />
+                                    <span>🚫 No Location (Off)</span>
+                                </button>
 
                                 <button
                                     type="button"
-                                    onClick={handleRecalibrateGps}
-                                    title="Capture / Test Classroom GPS Now"
+                                    onClick={() => handleSelectLocationMode("MOBILE")}
                                     style={{
-                                        padding: "9px 14px",
+                                        flex: 1,
+                                        padding: "12px 10px",
                                         borderRadius: "10px",
-                                        border: "1px solid var(--border, #cbd5e1)",
-                                        background: "var(--surface, #ffffff)",
-                                        color: "#4f46e5",
-                                        fontSize: "0.82rem",
+                                        border: locationMode === "MOBILE" ? "2px solid #2563eb" : "1.5px solid var(--border, #cbd5e1)",
+                                        background: locationMode === "MOBILE" ? "rgba(37, 99, 235, 0.08)" : "var(--surface, #ffffff)",
+                                        color: locationMode === "MOBILE" ? "#1d4ed8" : "var(--text-main, #334155)",
                                         fontWeight: 750,
+                                        fontSize: "0.85rem",
                                         cursor: "pointer",
-                                        display: "inline-flex",
+                                        display: "flex",
                                         alignItems: "center",
-                                        gap: "5px",
-                                        whiteSpace: "nowrap"
+                                        justifyContent: "center",
+                                        gap: "6px"
                                     }}
                                 >
-                                    <FaMapMarkerAlt /> Test GPS
+                                    <FaMobileAlt style={{ color: locationMode === "MOBILE" ? "#2563eb" : "#94a3b8" }} />
+                                    <span>📱 Mobile Satellite GPS</span>
+                                </button>
+
+                                <button
+                                    type="button"
+                                    onClick={() => handleSelectLocationMode("LAPTOP")}
+                                    style={{
+                                        flex: 1,
+                                        padding: "12px 10px",
+                                        borderRadius: "10px",
+                                        border: locationMode === "LAPTOP" ? "2px solid #2563eb" : "1.5px solid var(--border, #cbd5e1)",
+                                        background: locationMode === "LAPTOP" ? "rgba(37, 99, 235, 0.08)" : "var(--surface, #ffffff)",
+                                        color: locationMode === "LAPTOP" ? "#1d4ed8" : "var(--text-main, #334155)",
+                                        fontWeight: 750,
+                                        fontSize: "0.85rem",
+                                        cursor: "pointer",
+                                        display: "flex",
+                                        alignItems: "center",
+                                        justifyContent: "center",
+                                        gap: "6px"
+                                    }}
+                                >
+                                    <FaLaptop style={{ color: locationMode === "LAPTOP" ? "#2563eb" : "#94a3b8" }} />
+                                    <span>💻 Laptop Location</span>
                                 </button>
                             </div>
 
-                            {/* Custom Metres Typing Input */}
-                            {isCustomGps && (
+                            {/* Clean informative note or capture buttons */}
+                            {locationMode === "NONE" ? (
+                                <div style={{
+                                    padding: "8px 12px",
+                                    borderRadius: "8px",
+                                    background: "rgba(16, 185, 129, 0.08)",
+                                    border: "1px solid rgba(16, 185, 129, 0.2)",
+                                    fontSize: "0.78rem",
+                                    color: "#065f46",
+                                    fontWeight: 600
+                                }}>
+                                    ✓ No location restriction active. Students can verify attendance without requiring GPS coordinates.
+                                </div>
+                            ) : locationMode === "MOBILE" ? (
+                                <div style={{
+                                    padding: "8px 12px",
+                                    borderRadius: "8px",
+                                    background: "rgba(37, 99, 235, 0.06)",
+                                    border: "1px solid rgba(37, 99, 235, 0.2)",
+                                    display: "flex",
+                                    justifyContent: "space-between",
+                                    alignItems: "center",
+                                    gap: "8px"
+                                }}>
+                                    <span style={{ fontSize: "0.78rem", color: "#1e40af", fontWeight: 600 }}>
+                                        {classroomCoords && (classroomCoords.source === "PHONE_ANCHOR" || classroomCoords.source === "MOBILE_HOST")
+                                            ? `✓ GPS Active: ±${Math.round(classroomCoords.accuracy || 5)}m`
+                                            : "⚠️ Capture phone GPS or pair phone via QR."}
+                                    </span>
+                                    <button
+                                        type="button"
+                                        onClick={() => !isMobileDevice ? setShowPhoneAnchorModal(true) : handleSelectLocationMode("MOBILE")}
+                                        style={{ padding: "5px 10px", borderRadius: "6px", background: "#2563eb", color: "#fff", border: "none", fontSize: "0.75rem", fontWeight: 700, cursor: "pointer" }}
+                                    >
+                                        {!isMobileDevice ? "Scan QR to Pair Phone" : "Capture GPS Now"}
+                                    </button>
+                                </div>
+                            ) : (
+                                <div style={{
+                                    padding: "8px 12px",
+                                    borderRadius: "8px",
+                                    background: "rgba(37, 99, 235, 0.06)",
+                                    border: "1px solid rgba(37, 99, 235, 0.2)",
+                                    display: "flex",
+                                    justifyContent: "space-between",
+                                    alignItems: "center",
+                                    gap: "8px"
+                                }}>
+                                    <span style={{ fontSize: "0.78rem", color: "#1e40af", fontWeight: 600 }}>
+                                        {classroomCoords && classroomCoords.source === "LAPTOP"
+                                            ? `✓ Laptop Location Active: ±${Math.round(classroomCoords.accuracy || 35)}m`
+                                            : "Capture this laptop's Wi-Fi location."}
+                                    </span>
+                                    <button
+                                        type="button"
+                                        onClick={() => handleSelectLocationMode("LAPTOP")}
+                                        style={{ padding: "5px 10px", borderRadius: "6px", background: "#2563eb", color: "#fff", border: "none", fontSize: "0.75rem", fontWeight: 700, cursor: "pointer" }}
+                                    >
+                                        Capture Laptop Location
+                                    </button>
+                                </div>
+                            )}
+
+                            {/* Distance Radius dropdown: only shown if location mode is NOT none */}
+                            {locationMode !== "NONE" && (
                                 <div style={{ display: "flex", gap: "8px", alignItems: "center", marginTop: "10px" }}>
-                                    <input
-                                        type="number"
-                                        min="0"
-                                        max="1000"
-                                        step="1"
-                                        placeholder="Type distance in meters (e.g. 25)"
-                                        value={customGpsInput}
+                                    <select
+                                        id="geofence-radius-select"
+                                        value={isCustomGps ? "custom" : geofenceRadius}
                                         onChange={(e) => {
-                                            const val = e.target.value;
-                                            setCustomGpsInput(val);
-                                            const num = Number(val);
-                                            if (!isNaN(num) && num >= 0) {
-                                                handleUpdateGeofenceRadius(num);
+                                            if (e.target.value === "custom") {
+                                                setIsCustomGps(true);
+                                                setCustomGpsInput(String(geofenceRadius || 10));
+                                            } else {
+                                                setIsCustomGps(false);
+                                                const val = Number(e.target.value);
+                                                setCustomGpsInput(String(val));
+                                                handleUpdateGeofenceRadius(val);
                                             }
                                         }}
                                         style={{
                                             flex: 1,
-                                            padding: "9px 12px",
-                                            borderRadius: "10px",
-                                            border: "1.5px solid #6366f1",
+                                            padding: "8px 10px",
+                                            borderRadius: "8px",
+                                            border: "1.5px solid var(--border, #cbd5e1)",
                                             background: "var(--surface, #ffffff)",
                                             color: "var(--text-main, #0f172a)",
-                                            fontSize: "0.88rem",
+                                            fontSize: "0.82rem",
                                             fontWeight: 700,
+                                            cursor: "pointer",
                                             outline: "none"
                                         }}
-                                    />
-                                    <span style={{ fontSize: "0.82rem", fontWeight: 700, color: "#6366f1", whiteSpace: "nowrap" }}>
-                                        metres
-                                    </span>
-                                </div>
-                            )}
-
-                            {/* Live Host GPS Telemetry Card */}
-                            {geofenceRadius === 0 ? (
-                                <div style={{
-                                    marginTop: "10px",
-                                    padding: "8px 12px",
-                                    borderRadius: "8px",
-                                    background: "rgba(99, 102, 241, 0.08)",
-                                    border: "1px solid rgba(99, 102, 241, 0.25)",
-                                    fontSize: "0.78rem",
-                                    color: "#4338ca",
-                                    display: "flex",
-                                    alignItems: "center",
-                                    justifyContent: "space-between",
-                                    gap: "6px"
-                                }}>
-                                    <span>🌐 <strong>Geofence Disabled:</strong> Attendance open to all scanned devices without GPS radius restrictions.</span>
-                                    <span style={{ fontWeight: 800, color: "#4f46e5" }}>✓ Ready</span>
-                                </div>
-                            ) : classroomGpsReady && classroomCoords ? (
-                                <div style={{
-                                    marginTop: "10px",
-                                    padding: "8px 12px",
-                                    borderRadius: "8px",
-                                    background: "rgba(16, 185, 129, 0.08)",
-                                    border: "1px solid rgba(16, 185, 129, 0.25)",
-                                    fontSize: "0.78rem",
-                                    color: "#065f46",
-                                    display: "flex",
-                                    alignItems: "center",
-                                    justifyContent: "space-between",
-                                    gap: "6px"
-                                }}>
-                                    <span>📍 <strong>Host GPS Locked:</strong> {classroomCoords?.latitude?.toFixed(5)}, {classroomCoords?.longitude?.toFixed(5)} (±{Math.round(classroomCoords?.accuracy || 15)}m{!isMobileDevice ? " • Laptop Wi-Fi" : ""})</span>
-                                    <span style={{ fontWeight: 800, color: "#059669" }}>✓ Ready</span>
-                                </div>
-                            ) : (
-                                <div style={{
-                                    marginTop: "10px",
-                                    padding: "8px 12px",
-                                    borderRadius: "8px",
-                                    background: "rgba(245, 158, 11, 0.08)",
-                                    border: "1px solid rgba(245, 158, 11, 0.25)",
-                                    fontSize: "0.78rem",
-                                    color: "#92400e",
-                                    display: "flex",
-                                    alignItems: "center",
-                                    justifyContent: "space-between",
-                                    gap: "6px"
-                                }}>
-                                    <span>
-                                        📍 <strong>GPS:</strong>{" "}
-                                        {classroomCoords?.accuracy
-                                            ? `Accuracy is ±${Math.round(classroomCoords.accuracy)}m; ${maxHostAccuracy}m or better is required.`
-                                            : classroomGpsStatus === "ACQUIRING"
-                                                ? "Acquiring classroom location..."
-                                                : (!isMobileDevice ? "Wi-Fi location not acquired on laptop." : "Waiting for classroom location...")}
-                                    </span>
-                                    <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-                                        <button
-                                            type="button"
-                                            onClick={handleRecalibrateGps}
-                                            style={{
-                                                background: "transparent",
-                                                border: "none",
-                                                color: "#b45309",
-                                                fontWeight: 800,
-                                                textDecoration: "underline",
-                                                cursor: "pointer",
-                                                padding: 0
-                                            }}
-                                        >
-                                            Re-try
-                                        </button>
-                                        {!isMobileDevice && (
-                                            <button
-                                                type="button"
-                                                onClick={() => handleUpdateGeofenceRadius(0)}
-                                                style={{
-                                                    background: "rgba(180, 83, 9, 0.15)",
-                                                    border: "1px solid rgba(180, 83, 9, 0.3)",
-                                                    color: "#78350f",
-                                                    fontWeight: 700,
-                                                    borderRadius: "4px",
-                                                    padding: "2px 6px",
-                                                    fontSize: "0.72rem",
-                                                    cursor: "pointer"
-                                                }}
-                                            >
-                                                Use 0m (Off)
-                                            </button>
-                                        )}
-                                    </div>
+                                    >
+                                        {GEOFENCE_PRESETS.map((p) => (
+                                            <option key={p.value} value={p.value}>{p.label}</option>
+                                        ))}
+                                        <option value="custom">✏️ Custom Distance...</option>
+                                    </select>
                                 </div>
                             )}
                         </div>
+                    </div>
 
+                    <div className="qr-form-row">
                         <div className="qr-form-group">
                             <label htmlFor="rotation-interval">
                                 <FaSyncAlt /> Dynamic Token Rotation
@@ -2336,7 +2059,7 @@ function GenerateQR() {
                             >
                                 {ROTATION_INTERVALS.map((sec) => (
                                     <option key={sec} value={sec}>
-                                        {sec}s {sec === 3 ? "(Ultra Fast Anti-Screenshot)" : (sec === 10 ? "(Authoritative Default)" : (sec === 5 ? "(Anti-Proxy Ultra Security)" : ""))}
+                                        {sec}s {sec === 3 ? "(Ultra Fast)" : (sec === 10 ? "(Default)" : (sec === 5 ? "(Anti-Proxy Ultra Security)" : ""))}
                                     </option>
                                 ))}
                             </select>
@@ -2356,27 +2079,55 @@ function GenerateQR() {
                     </span>
                 </div>
 
-                {/* Visual Timeline Partition Bar */}
-                <div className="qr-blueprint-timeline-wrap">
-                    <div className="qr-blueprint-timeline-label">
-                        <span>Timeline Partition</span>
-                        <span>{formatMmSs(qr1Seconds + qr2Seconds)} Total ({Math.round((qr1Seconds + qr2Seconds) / 60 * 10) / 10}m)</span>
+                {/* Granular Breakdown Controls */}
+                <div className="qr-timing-breakdown-box">
+                    <div className="qr-breakdown-col">
+                        <span className="qr-breakdown-label p1-label">
+                            Phase 1: QR1 Check-in Window
+                        </span>
+                        {timetablePreset === "custom" ? (
+                            <div className="qr-breakdown-input-row">
+                                <input
+                                    type="number"
+                                    min="15"
+                                    max="600"
+                                    step="5"
+                                    value={qr1Seconds}
+                                    onChange={(e) => setQr1Seconds(Math.max(15, parseInt(e.target.value) || 15))}
+                                />
+                                <span style={{ fontSize: "0.75rem", color: "#64748b" }}>seconds</span>
+                            </div>
+                        ) : (
+                            <span className="qr-breakdown-val">{qr1Seconds} seconds ({formatMmSs(qr1Seconds)})</span>
+                        )}
                     </div>
-                    <div className="qr-timeline-preview-bar">
-                        <div
-                            className="qr-timeline-seg-p1"
-                            style={{ width: `${Math.round((qr1Seconds / (qr1Seconds + qr2Seconds)) * 100)}%` }}
-                            title={`Phase 1: ${qr1Seconds}s`}
-                        />
-                        <div
-                            className="qr-timeline-seg-p2"
-                            style={{ width: `${Math.round((qr2Seconds / (qr1Seconds + qr2Seconds)) * 100)}%` }}
-                            title={`Phase 2: ${qr2Seconds}s`}
-                        />
+
+                    <div className="qr-breakdown-col">
+                        <span className="qr-breakdown-label p2-label">
+                            Phase 2: QR2 Biometric Window
+                        </span>
+                        {timetablePreset === "custom" ? (
+                            <div className="qr-breakdown-input-row">
+                                <input
+                                    type="number"
+                                    min="15"
+                                    max="1800"
+                                    step="5"
+                                    value={qr2Seconds}
+                                    onChange={(e) => setQr2Seconds(Math.max(15, parseInt(e.target.value) || 15))}
+                                />
+                                <span style={{ fontSize: "0.75rem", color: "#64748b" }}>seconds</span>
+                            </div>
+                        ) : (
+                            <span className="qr-breakdown-val">{qr2Seconds} seconds ({formatMmSs(qr2Seconds)})</span>
+                        )}
                     </div>
-                    <div className="qr-blueprint-timeline-legend">
-                        <span><span className="legend-dot-p1" /> P1 Check-in ({qr1Seconds}s)</span>
-                        <span><span className="legend-dot-p2" /> P2 Biometrics ({qr2Seconds}s)</span>
+
+                    <div className="qr-breakdown-col total-col">
+                        <span className="qr-breakdown-label">Total Execution Window</span>
+                        <div className="qr-breakdown-val total">
+                            {formatMmSs(qr1Seconds + qr2Seconds)}
+                        </div>
                     </div>
                 </div>
 
@@ -2431,34 +2182,40 @@ function GenerateQR() {
                 <div className="qr-readiness-list">
                     <div className={`qr-readiness-item ${String(courseCode || "").trim() ? "ready" : "missing"}`}>
                         {String(courseCode || "").trim() ? <FaCheckCircle /> : <FaTimesCircle />}
-                        <span>Course: {String(courseCode || "").trim() || "Enter or pick course code"}</span>
+                        <span>Course: {String(courseCode || "").trim() ? `${courseCode}${courseName ? ` (${courseName})` : ""}` : "Choose a course"}</span>
                     </div>
-                    <div className={`qr-readiness-item ${classCode ? "ready" : "missing"}`}>
-                        {classCode ? <FaCheckCircle /> : <FaTimesCircle />}
-                        <span>Department: {classCode || "Select branch / section"}</span>
+                    {isManualCourse && (
+                        <div className={`qr-readiness-item ${String(courseName || "").trim() ? "ready" : "missing"}`}>
+                            {String(courseName || "").trim() ? <FaCheckCircle /> : <FaTimesCircle />}
+                            <span>Course Name: {String(courseName || "").trim() || "Enter course name"}</span>
+                        </div>
+                    )}
+                    <div className="qr-readiness-item ready">
+                        <FaCheckCircle />
+                        <span>Lecture: {lectureHours} Hr (Duration)</span>
                     </div>
-                    <div className={`qr-readiness-item ${String(roomNo || "").trim() ? "ready" : "missing"}`}>
-                        {String(roomNo || "").trim() ? <FaCheckCircle /> : <FaTimesCircle />}
-                        <span>Room: {String(roomNo || "").trim() || "Enter room number (e.g. C002)"}</span>
+                        <div className="qr-readiness-item ready">
+                            <FaCheckCircle />
+                            <span>Location: {locationMode === "NONE" ? "No Location (Off - Default)" : locationMode === "MOBILE" ? "Mobile Satellite GPS" : "Laptop Location"}</span>
+                        </div>
                     </div>
-                </div>
 
-                {/* Launch Action Button */}
-                <button
-                    type="button"
-                    onClick={handleGenerateSession}
-                    className="qr-launch-session-btn"
-                    disabled={isGenerating || !isFormReady}
-                >
-                    <span>
-                        {isGenerating
-                            ? "Initializing Authoritative Session..."
-                            : `🚀 Start Attendance Session (${Math.round((qr1Seconds + qr2Seconds) / 60 * 10) / 10} Min Total)`}
-                    </span>
-                    {!isGenerating ? <FaArrowRight /> : <FaSyncAlt className="fa-spin" />}
-                </button>
+                    {/* Launch Action Button */}
+                    <button
+                        type="button"
+                        onClick={handleGenerateSession}
+                        className="qr-launch-session-btn"
+                        disabled={isGenerating || !isFormReady}
+                    >
+                        <span>
+                            {isGenerating
+                                ? "Initializing Authoritative Session..."
+                                : `🚀 Start Attendance Session (${Math.round((qr1Seconds + qr2Seconds) / 60 * 10) / 10} Min Total)`}
+                        </span>
+                        {!isGenerating ? <FaArrowRight /> : <FaSyncAlt className="fa-spin" />}
+                    </button>
 
-                {errorMessage && <p className="qr-error" role="alert" style={{ marginTop: "8px" }}>{errorMessage}</p>}
+                    {errorMessage && <p className="qr-error" role="alert" style={{ marginTop: "8px" }}>{errorMessage}</p>}
             </aside>
         </div>
     );
@@ -3599,21 +3356,6 @@ function GenerateQR() {
 
                 {/* Topbar Actions */}
                 <div className="qr-live-topbar-actions">
-                    {phase !== "CLOSED" && (
-                        <div className="qr-pin-pill">
-                            <FaLock />
-                            <span>PIN: <strong>{showPin ? (sessionPin || "------") : "••••••"}</strong></span>
-                            <button
-                                type="button"
-                                onClick={() => setShowPin((prev) => !prev)}
-                                className="qr-pin-mini-toggle"
-                                title={showPin ? "Hide PIN" : "View PIN"}
-                            >
-                                {showPin ? <FaEyeSlash /> : <FaEye />}
-                            </button>
-                        </div>
-                    )}
-
                     <button
                         type="button"
                         onClick={toggleFullscreen}

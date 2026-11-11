@@ -97,22 +97,22 @@ const AddAdmin = () => {
 
       const prefix = cleanEmail.split("@")[0].toLowerCase().trim();
 
-      // 1. Save to dedicated admins collection with document ID as username (before @) and email
-      await setDoc(doc(db, "admins", prefix), adminData, { merge: true });
-      if (prefix !== cleanEmail) {
-        await setDoc(doc(db, "admins", cleanEmail), adminData, { merge: true });
-      }
+      // 1. Save to dedicated admins collection with document ID as canonical email
+      await setDoc(doc(db, "admins", cleanEmail), adminData, { merge: true });
 
       // 2. Save to authorizedUsers collection
-      await setDoc(doc(db, "authorizedUsers", prefix), adminData, { merge: true });
-      if (prefix !== cleanEmail) {
-        await setDoc(doc(db, "authorizedUsers", cleanEmail), adminData, { merge: true });
-      }
+      await setDoc(doc(db, "authorizedUsers", cleanEmail), adminData, { merge: true });
 
       // 3. Save/merge into users collection
-      await setDoc(doc(db, "users", prefix), adminData, { merge: true });
-      if (prefix !== cleanEmail) {
-        await setDoc(doc(db, "users", cleanEmail), adminData, { merge: true });
+      await setDoc(doc(db, "users", cleanEmail), adminData, { merge: true });
+
+      // 4. Ensure legacy prefix duplicate documents are purged from all collections
+      if (prefix && prefix !== cleanEmail) {
+        await Promise.allSettled([
+          deleteDoc(doc(db, "admins", prefix)),
+          deleteDoc(doc(db, "authorizedUsers", prefix)),
+          deleteDoc(doc(db, "users", prefix))
+        ]);
       }
 
       // 4. Notify all administrators
@@ -258,20 +258,9 @@ const AddAdmin = () => {
           createdAt: Date.now()
         };
 
-        batch.set(doc(db, "admins", prefix), adminData, { merge: true });
-        if (prefix !== adm.email) {
-          batch.set(doc(db, "admins", adm.email), adminData, { merge: true });
-        }
-
-        batch.set(doc(db, "authorizedUsers", prefix), adminData, { merge: true });
-        if (prefix !== adm.email) {
-          batch.set(doc(db, "authorizedUsers", adm.email), adminData, { merge: true });
-        }
-
-        batch.set(doc(db, "users", prefix), adminData, { merge: true });
-        if (prefix !== adm.email) {
-          batch.set(doc(db, "users", adm.email), adminData, { merge: true });
-        }
+        batch.set(doc(db, "admins", adm.email), adminData, { merge: true });
+        batch.set(doc(db, "authorizedUsers", adm.email), adminData, { merge: true });
+        batch.set(doc(db, "users", adm.email), adminData, { merge: true });
       });
 
       await batch.commit();

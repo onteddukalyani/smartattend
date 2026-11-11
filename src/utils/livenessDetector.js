@@ -9,11 +9,13 @@
  * 5. 👁️ BLINK / SMILE (EAR blink / live human reflex)
  */
 
-export const BLINK_CLOSED_THRESHOLD = 0.220;
-export const BLINK_OPEN_THRESHOLD = 0.245;
-export const STATIC_VARIANCE_THRESHOLD = 0.000025;
+export const BLINK_CLOSED_THRESHOLD = 0.215;
+export const BLINK_OPEN_THRESHOLD = 0.250;
+export const STATIC_VARIANCE_THRESHOLD = 0.000045;
 export const MAR_SMILE_THRESHOLD = 0.42;
 export const MAR_OPEN_THRESHOLD = 0.55;
+export const REQUIRED_CONSECUTIVE_FRAMES = 3;
+export const ANTI_SPOOF_CONFIDENCE_THRESHOLD = 0.85;
 
 export const getDist = (p1, p2) => {
     if (!p1 || !p2) return 0;
@@ -394,108 +396,151 @@ export class RandomizedChallengeEngine {
             !isSmiling
         ) {
             this.staticFramesCount += 1;
-            // Require 60 frames (~3.5 seconds) of absolute stillness before alerting spoof
-            if (this.staticFramesCount >= 60) {
-                this.spoofDetected = true;
-                this.message = "⚠️ Static photo detected. Real human presence required (blink or move head).";
-                this.statusType = "warning";
-                this.notify();
-                return false;
-            }
-        } else {
-            this.staticFramesCount = Math.max(0, this.staticFramesCount - 1);
-            this.spoofDetected = false;
-        }
-
-        // 4. Evaluate Active Challenge Completion
-        const target = this.currentChallenge;
-        let challengeSatisfied = false;
-
-        if (target === "CENTER") {
-            if (pose === "CENTER" || (yawRatio >= 0.74 && yawRatio <= 1.32 && pitchRatio >= 0.65 && pitchRatio <= 1.35)) {
-                challengeSatisfied = true;
-            }
-        } else if (target === "TURN_LEFT") {
-            if (pose === "LEFT" || yawRatio < 0.88 || justBlinked || this.blinkCount >= 1) {
-                challengeSatisfied = true;
-            }
-        } else if (target === "TURN_RIGHT") {
-            if (pose === "RIGHT" || yawRatio > 1.15 || justBlinked || this.blinkCount >= 1) {
-                challengeSatisfied = true;
-            }
-        } else if (target === "TILT_UP" || target === "NOD") {
-            if (pose === "UP" || pitchRatio > 1.14 || justBlinked || this.blinkCount >= 1) {
-                challengeSatisfied = true;
-            }
-        } else if (target === "SMILE") {
-            if (isSmiling || justBlinked || this.blinkCount >= 1) {
-                challengeSatisfied = true;
-            }
-        } else if (target === "BLINK") {
-            // Genuine biological eye blink verification
-            // Loose movement/variance was removed so shaking a photo or playing a video does NOT count as a blink
-            if (
-                justBlinked ||
-                this.blinkCount >= 1 ||
-                avgEAR < 0.230 ||
-                (this.baselineEAR - avgEAR) > 0.035 ||
-                (isSmiling && mar > MAR_SMILE_THRESHOLD)
-            ) {
-                challengeSatisfied = true;
-            }
-        }
-
-        // Handle step transition
-        if (challengeSatisfied) {
-            this.holdFrames += 1;
-            const requiredFrames = target === "CENTER" ? 2 : 1;
-
-            if (this.holdFrames >= requiredFrames) {
-                this.holdFrames = 0;
-                if (!this.completedChallenges.includes(target)) {
-                    this.completedChallenges.push(target);
-                }
-                this.currentIndex += 1;
-
-                if (this.currentIndex >= this.challenges.length) {
-                    this.isComplete = true;
-                    this.progress = 100;
-                    this.message = "✅ Biometrics & Liveness 100% Verified!";
-                    this.statusType = "success";
+                // Catch static photo or frozen display swiftly (30 frames ~ 1.5 seconds)
+                if (this.staticFramesCount >= 30) {
+                    this.spoofDetected = true;
+                    this.message = "⚠️ Static photo detected. Real human presence required (blink or move head).";
+                    this.statusType = "warning";
                     this.notify();
-                    return true;
-                } else {
-                    this.currentChallenge = this.challenges[this.currentIndex];
-                    this.blinkCount = 0; // Fresh reflex required for next challenge
-                    this.stepStartTime = Date.now();
-                    this.message = this.getChallengePrompt(this.currentChallenge, this.currentIndex + 1, this.challenges.length);
-                    this.statusType = "capturing";
+                    return false;
                 }
             } else {
-                this.statusType = "capturing";
-                this.message = "🎯 Face aligned · Verifying...";
+                this.staticFramesCount = Math.max(0, this.staticFramesCount - 1);
+                this.spoofDetected = false;
             }
-        } else {
-            this.holdFrames = Math.max(0, this.holdFrames - 1);
-            this.message = this.getChallengePrompt(this.currentChallenge, this.currentIndex + 1, this.challenges.length);
-            this.statusType = "ready";
-        }
 
-        this.progress = Math.min(100, Math.round((this.currentIndex / this.challenges.length) * 100));
-        this.notify();
-        return this.isComplete;
-    }
-}
+            // 4. Evaluate Active Challenge Completion with Defense-Grade Thresholds
+            const target = this.currentChallenge;
+            let challengeSatisfied = false;
 
-/**
- * Multi-Angle Biometric Liveness Verification Engine for Enrollment
- */
-export class BiometricLivenessEngine extends RandomizedChallengeEngine {
-    constructor(options = {}) {
-        super({ ...options, mode: "enrollment" });
-    }
-}
+            if (target === "CENTER") {
+                    if (pose === "CENTER" || (yawRatio >= 0.82 && yawRatio <= 1.20 && pitchRatio >= 0.75 && pitchRatio <= 1.25)) {
+                        challengeSatisfied = true;
+                    }
+                } else if (target === "TURN_LEFT") {
+                        if (pose === "LEFT" || yawRatio < 0.82) {
+                            challengeSatisfied = true;
+                        }
+                    } else if (target === "TURN_RIGHT") {
+                            if (pose === "RIGHT" || yawRatio > 1.22) {
+                                challengeSatisfied = true;
+                            }
+                        } else if (target === "TILT_UP" || target === "NOD") {
+                                if (pose === "UP" || pitchRatio > 1.18) {
+                                    challengeSatisfied = true;
+                                }
+                            } else if (target === "SMILE") {
+                                    if (isSmiling) {
+                                        challengeSatisfied = true;
+                                    }
+                                } else if (target === "BLINK") {
+                                        // Strict biological eye blink verification
+                                        if (justBlinked || (avgEAR < BLINK_CLOSED_THRESHOLD && (this.baselineEAR - avgEAR) > 0.035)) {
+                                            challengeSatisfied = true;
+                                        }
+                                    }
 
-export const LivenessEngine = BiometricLivenessEngine;
-export const FaceLivenessEngine = BiometricLivenessEngine;
+                                    // Handle step transition: Enforce multi-frame stability (≥ 3 consecutive frames)
+                                    if (challengeSatisfied) {
+                                        this.holdFrames += 1;
+                                        const requiredFrames = REQUIRED_CONSECUTIVE_FRAMES;
+
+                                        if (this.holdFrames >= requiredFrames) {
+                                            this.holdFrames = 0;
+                                            if (!this.completedChallenges.includes(target)) {
+                                                this.completedChallenges.push(target);
+                                            }
+                                            this.currentIndex += 1;
+
+                                            if (this.currentIndex >= this.challenges.length) {
+                                                // Fallback to Anti-Spoofing & Biometric Stability Check
+                                                const antiSpoofCheck = this.verifyAntiSpoofingFallback();
+                                                if (!antiSpoofCheck.passed) {
+                                                    this.spoofDetected = true;
+                                                    this.message = antiSpoofCheck.reason;
+                                                    this.statusType = "warning";
+                                                    this.notify();
+                                                    return false;
+                                                }
+
+                                                this.isComplete = true;
+                                                this.progress = 100;
+                                                this.message = "✅ Biometrics & Liveness 100% Verified!";
+                                                this.statusType = "success";
+                                                this.notify();
+                                                return true;
+                                            } else {
+                                                this.currentChallenge = this.challenges[this.currentIndex];
+                                                this.blinkCount = 0; // Fresh reflex required for next challenge
+                                                this.stepStartTime = Date.now();
+                                                this.message = this.getChallengePrompt(this.currentChallenge, this.currentIndex + 1, this.challenges.length);
+                                                this.statusType = "capturing";
+                                            }
+                                        } else {
+                                            this.statusType = "capturing";
+                                            this.message = "🎯 Face aligned · Verifying...";
+                                        }
+                                    } else {
+                                        this.holdFrames = Math.max(0, this.holdFrames - 1);
+                                        this.message = this.getChallengePrompt(this.currentChallenge, this.currentIndex + 1, this.challenges.length);
+                                        this.statusType = "ready";
+                                    }
+
+                                    this.progress = Math.min(100, Math.round((this.currentIndex / this.challenges.length) * 100));
+                                    this.notify();
+                                    return this.isComplete;
+                                }
+
+                                /**
+                                 * Fallback Anti-Spoofing Validation
+                                 * Validates multi-frame descriptor consistency and biological variance
+                                 */
+                                verifyAntiSpoofingFallback() {
+                                    if (this.collectedDescriptors.length < 3) {
+                                        return { passed: false, reason: "⚠️ Insufficient frames captured for 3D anti-spoof verification." };
+                                    }
+
+                                    // Frozen frame / identical embedding check (screen replay or static digital feed)
+                                    let totalPairDist = 0;
+                                    let pairCount = 0;
+                                    for (let i = 1; i < this.collectedDescriptors.length; i++) {
+                                        const d1 = this.collectedDescriptors[i - 1];
+                                        const d2 = this.collectedDescriptors[i];
+                                        let dist = 0;
+                                        for (let k = 0; k < 128; k++) {
+                                            const diff = d1[k] - d2[k];
+                                            dist += diff * diff;
+                                        }
+                                        dist = Math.sqrt(dist);
+                                        totalPairDist += dist;
+                                        pairCount += 1;
+                                    }
+                                    const avgPairDist = pairCount > 0 ? totalPairDist / pairCount : 0;
+                                    if (avgPairDist < 0.0001) {
+                                        return { passed: false, reason: "⚠️ Static photo/frozen stream detected. Live human presence required." };
+                                    }
+                                    if (avgPairDist > 0.65) {
+                                        return { passed: false, reason: "⚠️ Biometric stability check failed. Please hold steady in frame." };
+                                    }
+
+                                    // Biological reflex verification if blink challenge was present
+                                    if (this.challenges.includes("BLINK") && this.blinkCount < 1) {
+                                        return { passed: false, reason: "⚠️ Natural eye blink reflex required to prevent photo spoofing." };
+                                    }
+
+                                    return { passed: true };
+                                }
+                            }
+
+                            /**
+                             * Multi-Angle Biometric Liveness Verification Engine for Enrollment
+                             */
+                            export class BiometricLivenessEngine extends RandomizedChallengeEngine {
+                                constructor(options = {}) {
+                                    super({ ...options, mode: "enrollment" });
+                                }
+                            }
+
+                            export const LivenessEngine = BiometricLivenessEngine;
+                            export const FaceLivenessEngine = BiometricLivenessEngine;
 

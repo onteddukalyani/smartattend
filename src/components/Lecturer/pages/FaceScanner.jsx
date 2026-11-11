@@ -37,7 +37,7 @@ import {
 import "./FaceScanner.css";
 
 const MODEL_CDN_URL = "https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/";
-export const MATCH_THRESHOLD = 0.52; // Industry-calibrated ResNet-34 Euclidean benchmark for mobile front camera
+export const MATCH_THRESHOLD = 0.48; // High-confidence defense-grade Euclidean benchmark
 const STATIC_FRAME_LIMIT = 30; // ~4 seconds of dead static face triggers spoof alert
 
 // Helper to release all active media tracks across DOM to avoid hardware camera collisions
@@ -450,7 +450,7 @@ function FaceScanner({
               setGlobalStudent({ rollNo: verifiedRoll, ...data });
             }
           }
-        }).catch(() => {});
+        }).catch(() => { });
       }
     }
   }, [verifiedRoll, resetLivenessState]);
@@ -685,13 +685,13 @@ function FaceScanner({
               if (liveDescriptor && enrolledDescriptor && enrolledDescriptor.length === 128) {
                 try {
                   localDist = faceapi.euclideanDistance(liveDescriptor, enrolledDescriptor);
-                } catch (_) {}
+                } catch (_) { }
               }
 
               const hasLocalMatch = localDist !== null && Number.isFinite(localDist);
               const dist = hasLocalMatch ? localDist : (hasFreshServerMatch && Number.isFinite(serverMatch.distance) ? serverMatch.distance : 1);
-              const conf = hasLocalMatch 
-                ? Math.round(Math.max(0, Math.min(100, (1 - (dist / 0.62)) * 100))) 
+              const conf = hasLocalMatch
+                ? Math.round(Math.max(0, Math.min(100, (1 - (dist / 0.62)) * 100)))
                 : (hasFreshServerMatch ? Number(serverMatch.confidence || 0) : 0);
 
               // Throttled UI distance & confidence updates

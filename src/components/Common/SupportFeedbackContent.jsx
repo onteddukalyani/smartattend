@@ -15,7 +15,7 @@ import {
   FaEnvelope,
   FaMapMarkerAlt,
   FaClock,
-  FaCamera,
+  FaPaperclip,
   FaTrashAlt,
   FaSearch,
   FaSpinner,
@@ -154,7 +154,7 @@ function SupportFeedbackMain({ defaultTab = "feedback", isModal = false, onClose
   const [issuePriority, setIssuePriority] = useState("medium");
   const [issueTitle, setIssueTitle] = useState("");
   const [issueDescription, setIssueDescription] = useState("");
-  const [issueImage, setIssueImage] = useState(null);
+  const [issueAttachment, setIssueAttachment] = useState(null);
   const [issueSubmitting, setIssueSubmitting] = useState(false);
   const [issueSuccessTicket, setIssueSuccessTicket] = useState(null);
   const [issueError, setIssueError] = useState("");
@@ -169,6 +169,9 @@ function SupportFeedbackMain({ defaultTab = "feedback", isModal = false, onClose
   const [contactMessage, setContactMessage] = useState("");
   const [contactSending, setContactSending] = useState(false);
   const [contactSuccess, setContactSuccess] = useState(false);
+  const [contactEmailSent, setContactEmailSent] = useState(true);
+  const [contactEmailError, setContactEmailError] = useState("");
+  const [contactError, setContactError] = useState("");
 
   // ==========================================
   // TAB 4 & 5: TICKETS & ADMIN DESK STATE
@@ -232,30 +235,6 @@ function SupportFeedbackMain({ defaultTab = "feedback", isModal = false, onClose
     } catch (_) { }
   };
 
-  // Image file handler for issue screenshot
-  const handleImageSelect = (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    if (!file.type.startsWith("image/")) {
-      setIssueError("Please select a valid screenshot image file (PNG, JPG, WEBP).");
-      setTimeout(() => setIssueError(""), 3500);
-      return;
-    }
-
-    if (file.size > 5 * 1024 * 1024) {
-      setIssueError("Image size should be under 5 MB.");
-      setTimeout(() => setIssueError(""), 3500);
-      return;
-    }
-
-    const reader = new FileReader();
-    reader.onload = () => {
-      setIssueImage(reader.result);
-    };
-    reader.readAsDataURL(file);
-  };
-
   // ==========================================
   // SUBMIT FEEDBACK
   // ==========================================
@@ -289,7 +268,7 @@ function SupportFeedbackMain({ defaultTab = "feedback", isModal = false, onClose
 
       const res = await submitSupportTicket(payload);
       if (res.success) {
-        setFbSuccessTicket(res.ticket);
+        setFbSuccessTicket({ ...res.ticket, emailNotificationSent: res.emailNotificationSent });
         setFbTitle("");
         setFbDescription("");
       }
@@ -314,29 +293,54 @@ function SupportFeedbackMain({ defaultTab = "feedback", isModal = false, onClose
     setIssueError("");
 
     try {
+      const submittedBy = {
+        uid: user?.uid,
+        email: user?.email,
+        rollNo: studentRoll,
+        name: profile?.name || user?.displayName || studentRoll || "User",
+        role: rawRole,
+        department: profile?.department || profile?.branch || ""
+      };
+      const title = issueTitle.trim() || `Bug Report: ${issueCategory}`;
       const payload = {
         type: "issue",
         category: issueCategory,
         priority: issuePriority,
-        title: issueTitle.trim() || `Bug Report: ${issueCategory}`,
+        title,
         description: issueDescription.trim(),
-        attachmentUrl: issueImage,
-        submittedBy: {
-          uid: user?.uid,
-          email: user?.email,
-          rollNo: studentRoll,
-          name: profile?.name || user?.displayName || studentRoll || "User",
-          role: rawRole,
-          department: profile?.department || profile?.branch || ""
-        }
+        submittedBy
       };
 
       const res = await submitSupportTicket(payload);
       if (res.success) {
-        setIssueSuccessTicket(res.ticket);
+        const subject = `SmartAttend issue report: ${title}`;
+        const body = [
+          `Ticket ID: ${res.ticket.id}`,
+          `Issue: ${title}`,
+          `Category: ${issueCategory}`,
+          `Priority: ${issuePriority}`,
+          "",
+          "Description:",
+          issueDescription.trim(),
+          "",
+          `Name: ${submittedBy.name}`,
+          `Email: ${submittedBy.email || "Not provided"}`,
+          `Roll number: ${submittedBy.rollNo || "Not provided"}`,
+          `Role: ${submittedBy.role}`,
+          `Department: ${submittedBy.department || "Not provided"}`,
+          `Device: ${String(detectedType || "web").toUpperCase()}`,
+          ...(issueAttachment ? ["", `Please attach this file: ${issueAttachment.name}`] : [])
+        ].join("\n");
+        const mailtoUrl = `mailto:onteddukalyani@gmail.com?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+
+        setIssueSuccessTicket({
+          ...res.ticket,
+          mailtoUrl: issueAttachment ? mailtoUrl : null,
+          attachmentName: issueAttachment?.name || null
+        });
         setIssueTitle("");
         setIssueDescription("");
-        setIssueImage(null);
+        setIssueAttachment(null);
       }
     } catch (err) {
       setIssueError(err.message || "Failed to submit issue ticket. Please try again.");
@@ -353,8 +357,9 @@ function SupportFeedbackMain({ defaultTab = "feedback", isModal = false, onClose
     if (!contactMessage.trim()) return;
 
     setContactSending(true);
+    setContactError("");
     try {
-      await submitSupportTicket({
+      const res = await submitSupportTicket({
         type: "inquiry",
         category: "Campus Helpdesk Inquiry",
         title: contactSubject.trim() || "General Helpdesk Inquiry",
@@ -369,11 +374,14 @@ function SupportFeedbackMain({ defaultTab = "feedback", isModal = false, onClose
           department: profile?.department || ""
         }
       });
+      setContactEmailSent(res.emailNotificationSent !== false);
+      setContactEmailError(res.emailNotificationError || "");
       setContactSuccess(true);
       setContactSubject("");
       setContactMessage("");
-    } catch (_) {
-      setContactSuccess(true);
+      setContactError("");
+    } catch (err) {
+      setContactError(err.message || "Failed to send your message. Please try again.");
     } finally {
       setContactSending(false);
     }
@@ -552,6 +560,12 @@ function SupportFeedbackMain({ defaultTab = "feedback", isModal = false, onClose
               <p className="sf-success-desc">
                 Your feedback has been received by our product and administrative team. It helps us continually improve the attendance experience.
               </p>
+              {!fbSuccessTicket.emailNotificationSent && (
+                <p className="sf-email-warning" role="status">
+                  Your feedback was saved, but its email alert could not be sent. Please contact support if this is urgent.
+                  {fbSuccessTicket.emailNotificationError && ` Email service: ${fbSuccessTicket.emailNotificationError}`}
+                </p>
+              )}
               <div className="sf-ticket-id-chip">
                 <span>Ref ID: {fbSuccessTicket.id}</span>
                 <button
@@ -606,7 +620,7 @@ function SupportFeedbackMain({ defaultTab = "feedback", isModal = false, onClose
               }}>
                 <FaInfoCircle style={{ color: "#6366f1", fontSize: "1.1rem", flexShrink: 0 }} />
                 <span>
-                  <strong>We review all submissions:</strong> Your feedback is directly reviewed by faculty and system administrators. You can track status updates and staff replies under <strong>My Submissions</strong>.
+                  <strong>Direct Developer Feedback:</strong> Your submission is emailed directly to our core developer team. No public or in-app notifications are generated.
                 </span>
               </div>
 
@@ -726,10 +740,24 @@ function SupportFeedbackMain({ defaultTab = "feedback", isModal = false, onClose
               <div className="sf-success-icon" style={{ background: "rgba(99, 102, 241, 0.12)", color: "#6366f1" }}>
                 <FaBug />
               </div>
-              <h2 className="sf-success-title">Issue Ticket Created Successfully!</h2>
+              <h2 className="sf-success-title">Issue Ticket Saved</h2>
               <p className="sf-success-desc">
-                Your report has been logged and assigned high priority for administrative and technical review. You will receive an in-app notification when an admin reviews or resolves it.
+                Your report is saved in My Submissions.
               </p>
+              {issueSuccessTicket.mailtoUrl && (
+                <>
+                  <p className="sf-success-desc">
+                    The selected file is not uploaded with the ticket. To email it, open the email and attach <strong>{issueSuccessTicket.attachmentName}</strong> there.
+                  </p>
+                  <a
+                    href={issueSuccessTicket.mailtoUrl}
+                    className="sf-btn-secondary"
+                    style={{ display: "inline-flex", marginBottom: "16px" }}
+                  >
+                    <FaEnvelope /> Send through Mail
+                  </a>
+                </>
+              )}
               <div className="sf-ticket-id-chip">
                 <span>Ticket #{issueSuccessTicket.id}</span>
                 <button
@@ -794,7 +822,7 @@ function SupportFeedbackMain({ defaultTab = "feedback", isModal = false, onClose
                     <strong style={{ color: "#0f172a" }}>🔒 Device Locked?</strong> Changed phones? You can ask your course lecturer in class for an instant device lock reset on the spot.
                   </div>
                   <div style={{ padding: "8px 12px", background: "#ffffff", borderRadius: "8px", border: "1px solid #e2e8f0" }}>
-                    <strong style={{ color: "#0f172a" }}>📝 Ticket Details:</strong> Please include your <strong>Course code</strong>, lecturer name, and attach a screenshot of the error below.
+                    <strong style={{ color: "#0f172a" }}>📝 Ticket Details:</strong> Please include your <strong>Course code</strong> and lecturer name. To email a file, select it below and attach it again in your email app.
                   </div>
                 </div>
               </div>
@@ -882,6 +910,32 @@ function SupportFeedbackMain({ defaultTab = "feedback", isModal = false, onClose
                 />
               </div>
 
+              <div className="sf-form-group">
+                <label className="sf-label" htmlFor="issue-attachment">
+                  File attachment <span className="sf-label-desc">(Optional)</span>
+                </label>
+                <input
+                  id="issue-attachment"
+                  key={issueAttachment?.name || "no-file"}
+                  className="sf-input"
+                  type="file"
+                  onChange={(e) => setIssueAttachment(e.target.files?.[0] || null)}
+                />
+                {issueAttachment && (
+                  <p className="sf-section-desc">
+                    <FaPaperclip /> {issueAttachment.name}
+                    <button
+                      type="button"
+                      onClick={() => setIssueAttachment(null)}
+                      aria-label="Remove selected file"
+                      style={{ marginLeft: "10px" }}
+                    >
+                      Remove
+                    </button>
+                  </p>
+                )}
+              </div>
+
               {/* Device Specs Auto-detection */}
               <div className="sf-form-group">
                 <label className="sf-label">System Diagnostics (Auto-Attached)</label>
@@ -898,40 +952,6 @@ function SupportFeedbackMain({ defaultTab = "feedback", isModal = false, onClose
                 </div>
               </div>
 
-              {/* Screenshot Attachment */}
-              <div className="sf-form-group">
-                <label className="sf-label">
-                  Screenshot or Photo <span className="sf-label-desc">(Optional, max 5MB)</span>
-                </label>
-                {issueImage ? (
-                  <div className="sf-image-preview-wrap">
-                    <img src={issueImage} alt="Error preview" className="sf-image-preview" />
-                    <button
-                      type="button"
-                      className="sf-remove-img-btn"
-                      onClick={() => setIssueImage(null)}
-                      title="Remove Screenshot"
-                    >
-                      <FaTimes />
-                    </button>
-                  </div>
-                ) : (
-                  <label className="sf-upload-box">
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={handleImageSelect}
-                      style={{ display: "none" }}
-                    />
-                    <div className="sf-upload-icon">
-                      <FaCamera />
-                    </div>
-                    <p className="sf-upload-title">Click or drag screenshot here</p>
-                    <p className="sf-upload-sub">Attach an image of the error message or camera screen</p>
-                  </label>
-                )}
-              </div>
-
               {issueError && (
                 <div style={{ padding: "10px 14px", background: "#fef2f2", border: "1px solid #fecaca", color: "#dc2626", borderRadius: "10px", fontSize: "0.85rem", fontWeight: 600, marginBottom: "14px" }}>
                   ⚠️ {issueError}
@@ -946,7 +966,7 @@ function SupportFeedbackMain({ defaultTab = "feedback", isModal = false, onClose
                   style={{ background: "linear-gradient(135deg, #ef4444, #dc2626)", boxShadow: "0 4px 14px rgba(239, 68, 68, 0.3)" }}
                 >
                   {issueSubmitting ? <FaSpinner className="fa-spin" /> : <FaExclamationTriangle />}
-                  <span>{issueSubmitting ? "Logging Ticket..." : "Submit Issue Ticket"}</span>
+                  <span>{issueSubmitting ? "Saving Ticket..." : "Save Issue Ticket"}</span>
                 </button>
               </div>
             </form>
@@ -1034,10 +1054,20 @@ function SupportFeedbackMain({ defaultTab = "feedback", isModal = false, onClose
                   <FaCheckCircle style={{ fontSize: "1.3rem", color: "#10b981" }} />
                   <span>Your message has been received by the support desk! We will get back to you promptly.</span>
                 </div>
+                {!contactEmailSent && (
+                  <p className="sf-email-warning" role="status">
+                    Your message was saved, but its email alert could not be sent. Please contact support if this is urgent.
+                    {contactEmailError && ` Email service: ${contactEmailError}`}
+                  </p>
+                )}
                 <button
                   type="button"
                   className="sf-btn-secondary"
-                  onClick={() => setContactSuccess(false)}
+                  onClick={() => {
+                    setContactSuccess(false);
+                    setContactError("");
+                    setContactEmailError("");
+                  }}
                   style={{ marginTop: "6px" }}
                 >
                   Send Another Message
@@ -1045,6 +1075,7 @@ function SupportFeedbackMain({ defaultTab = "feedback", isModal = false, onClose
               </div>
             ) : (
               <form onSubmit={handleSendContactMessage}>
+                {contactError && <p className="sf-form-error" role="alert">{contactError}</p>}
                 <div className="sf-form-group">
                   <label className="sf-label">Subject</label>
                   <input

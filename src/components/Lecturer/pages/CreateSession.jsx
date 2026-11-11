@@ -24,7 +24,7 @@ export async function createAttendanceSession(
     const finalBatch = (batch && String(batch).trim() !== "" && batch !== "—") ? String(batch).trim() : "2025";
     const parsedHours = Number(lectureHours) > 0 ? Number(lectureHours) : 1.0;
     const finalClassCode = normalizeBranchName(classCode || "CSE");
-    const parsedRadius = typeof geofenceRadius === "number" ? geofenceRadius : (typeof timetableOptions?.geofenceRadius === "number" ? timetableOptions.geofenceRadius : 10);
+    const parsedRadius = typeof geofenceRadius === "number" ? geofenceRadius : (typeof timetableOptions?.geofenceRadius === "number" ? timetableOptions.geofenceRadius : 0);
     const qr1Sec = Number(timetableOptions?.qr1DurationSeconds) > 0
         ? Number(timetableOptions.qr1DurationSeconds)
         : 60;
@@ -36,7 +36,7 @@ export async function createAttendanceSession(
         Number.isFinite(Number(timetableOptions.classroomLocation.latitude ?? timetableOptions.classroomLocation.lat)) &&
         Number.isFinite(Number(timetableOptions.classroomLocation.longitude ?? timetableOptions.classroomLocation.lng ?? timetableOptions.classroomLocation.lon));
     // Always respect lecturer selected distance option (0 = disabled, >0 = radius limit in metres)
-    const effectiveRadius = typeof parsedRadius === "number" ? parsedRadius : 10;
+    const effectiveRadius = typeof parsedRadius === "number" ? parsedRadius : 0;
 
     const sessionParams = {
         classCode: finalClassCode,

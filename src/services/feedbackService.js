@@ -17,6 +17,57 @@ import {
 import { getDeviceFingerprint } from "../utils/deviceDetection";
 
 const LOCAL_STORAGE_KEY = "smartattend_support_tickets_v1";
+const EMAILJS_SERVICE_ID = "service_eimkd0e";
+const EMAILJS_TEMPLATE_ID = "template_lvxz9nq";
+const EMAILJS_PUBLIC_KEY = "1p7HibAfyDgCJLrc2";
+const DEVELOPER_TEAM_EMAIL = "onteddukalyani@gmail.com";
+
+async function sendSupportTicketEmail(ticket) {
+  const submittedBy = ticket.submittedBy || {};
+  const submitterEmail = submittedBy.email || "";
+  const attachmentType = ticket.attachmentUrl?.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,/)?.[1];
+  const response = await fetch("https://api.emailjs.com/api/v1.0/email/send", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      service_id: EMAILJS_SERVICE_ID,
+      template_id: EMAILJS_TEMPLATE_ID,
+      user_id: EMAILJS_PUBLIC_KEY,
+      template_params: {
+        to_email: DEVELOPER_TEAM_EMAIL,
+        recipient_email: DEVELOPER_TEAM_EMAIL,
+        developer_email: DEVELOPER_TEAM_EMAIL,
+        ticket_id: ticket.id,
+        type: ticket.type,
+        category: ticket.category,
+        priority: ticket.priority,
+        title: ticket.title,
+        description: ticket.description,
+        rating: ticket.rating || "",
+        name: submittedBy.name || "User",
+        submitted_by: submittedBy.name || "User",
+        submitter_email: submitterEmail || "Not provided",
+        from_name: submittedBy.name || "SmartAttend user",
+        reply_to: submitterEmail,
+        roll_no: submittedBy.rollNo || "Not provided",
+        role: submittedBy.role || "unknown",
+        department: submittedBy.department || "Not provided",
+        submitted_at: new Date(ticket.createdAt).toLocaleString(),
+        attachment_content: ticket.attachmentUrl || "",
+        attachment_filename: ticket.attachmentName || "issue-screenshot",
+        attachment_content_type: attachmentType || "image/png",
+        attachment_image_style: ticket.attachmentUrl
+          ? "display:block;width:100%;max-width:560px;height:auto;border-radius:12px;"
+          : "display:none;"
+      }
+    })
+  });
+
+  if (!response.ok) {
+    const responseText = await response.text();
+    throw new Error(`EmailJS returned ${response.status}: ${responseText.slice(0, 300)}`);
+  }
+}
 
 /**
  * Helper: Retrieve local cached tickets
@@ -56,7 +107,7 @@ export const SUPPORT_CONTACTS = {
   institutionName: "IIIT Dharwad Campus ",
   officeLocation: "Academic Block",
   email: "25bcs108@iiitdwd.ac.in",
-  adminEmail: "onteddukalyani@gmial.com",
+  adminEmail: "onteddukalyani@gmail.com",
   hours: "Monday – Saturday, 8:30 AM – 6:00 PM IST",
   helpline: "+91 XXXXX XXXXX",
   urgentHelpline: "+91 XXXXX XXXXX (Active Attendance Helpdesk)"
@@ -153,6 +204,7 @@ export async function submitSupportTicket(ticketPayload) {
     sentiment: ticketPayload.sentiment || null,
     tags: Array.isArray(ticketPayload.tags) ? ticketPayload.tags : [],
     attachmentUrl: ticketPayload.attachmentUrl || null, // Base64 or Image URL
+    attachmentName: ticketPayload.attachmentName || null,
     deviceSpecs: {
       ...deviceSpecs,
       ...(ticketPayload.deviceSpecsOverride || {})
@@ -190,279 +242,250 @@ export async function submitSupportTicket(ticketPayload) {
     console.debug?.("[feedbackService] Firestore save notice (cached locally):", err?.message || err);
   }
 
-  // 3. Trigger Real-Time Notification to Admins / Faculty
-  try {
-    const isUrgent = fullTicket.priority === "urgent" || fullTicket.priority === "high";
-    const notifTitle = isUrgent
-      ? `🚨 [${fullTicket.priority.toUpperCase()}] New ${fullTicket.type === "issue" ? "Issue Reported" : "Ticket"}: ${ticketId}`
-      : `📩 New ${fullTicket.type === "issue" ? "Issue" : "Feedback"} from ${userName}`;
-
-    const notifMessage = `${fullTicket.title}\nCategory: ${fullTicket.category} | From: ${userName} (${role.toUpperCase()})\n"${fullTicket.description.slice(0, 140)}${fullTicket.description.length > 140 ? "..." : ""}"`;
-
-    await sendFacultyNotification(
-      notifTitle,
-      notifMessage,
-      fullTicket.type === "issue" ? "SECURITY_ALERT" : "GENERAL",
-      ticketId,
-      userName,
-      {
-        ticketId,
-        type: fullTicket.type,
-        category: fullTicket.category,
-        priority: fullTicket.priority,
-        submittedBy: fullTicket.submittedBy
-      },
-      "admin"
-    );
-  } catch (_) { }
-
-  // 4. Send confirmation notification to student
-  if (role === "student" && (cleanRoll || cleanEmail)) {
+  // 3. Deliver email notification directly to developer team (onteddukalyani@gmail.com)
+  let emailNotificationSent = false;
+  let emailNotificationError = "";
     try {
-      const recipientRoll = cleanRoll || cleanEmail.split("@")[0].toUpperCase();
-      await sendStudentNotification(
-        recipientRoll,
-        `✅ Ticket Submitted #${ticketId}`,
-        `We've received your ${fullTicket.type === "issue" ? "issue report" : "feedback"} regarding "${fullTicket.title}". Our support team will look into it promptly.`,
-        "SYSTEM_INFO",
-        "Support Team",
-        {
-          ticketId,
-          type: fullTicket.type,
-          status: "open"
-        }
-      );
-    } catch (_) { }
+      await sendSupportTicketEmail(fullTicket);
+      emailNotificationSent = true;
+    } catch (err) {
+      emailNotificationSent = false;
+      emailNotificationError = err instanceof Error ? err.message : String(err);
+      console.error("[feedbackService] Support email notification failed:", err);
+    }
+
+      // 4. In-app notifications are explicitly disabled for all help & feedback submissions.
+      // No one (admins, faculty, or students) receives in-app notifications.
+      // Only the developer team receives emails directly.
+
+    return { success: true, ticket: fullTicket, emailNotificationSent, emailNotificationError };
   }
 
-  return { success: true, ticket: fullTicket };
-}
+  /**
+   * Subscribe to tickets submitted by a specific user (Student / Lecturer)
+   */
+  export function subscribeToMyTickets(userIdentifier, callback) {
+    if (!userIdentifier || typeof callback !== "function") return () => { };
 
-/**
- * Subscribe to tickets submitted by a specific user (Student / Lecturer)
- */
-export function subscribeToMyTickets(userIdentifier, callback) {
-  if (!userIdentifier || typeof callback !== "function") return () => { };
+    const cleanId = String(userIdentifier).trim().toLowerCase();
+    const cleanRoll = cleanId.toUpperCase();
 
-  const cleanId = String(userIdentifier).trim().toLowerCase();
-  const cleanRoll = cleanId.toUpperCase();
+    const getFilteredLocal = () => {
+      const local = getLocalTickets();
+      return local.filter(t => {
+        const sub = t.submittedBy || {};
+        const matchEmail = (sub.email || "").toLowerCase() === cleanId;
+        const matchRoll = (sub.rollNo || "").toUpperCase() === cleanRoll;
+        const matchUid = sub.uid === userIdentifier;
+        return matchEmail || matchRoll || matchUid;
+      });
+    };
 
-  const getFilteredLocal = () => {
-    const local = getLocalTickets();
-    return local.filter(t => {
-      const sub = t.submittedBy || {};
-      const matchEmail = (sub.email || "").toLowerCase() === cleanId;
-      const matchRoll = (sub.rollNo || "").toUpperCase() === cleanRoll;
-      const matchUid = sub.uid === userIdentifier;
-      return matchEmail || matchRoll || matchUid;
-    });
-  };
+    // Immediate trigger with local cache
+    callback(getFilteredLocal());
 
-  // Immediate trigger with local cache
-  callback(getFilteredLocal());
+    try {
+      const ticketsRef = collection(db, "support_tickets");
+      const q = query(ticketsRef, limit(60));
 
-  try {
-    const ticketsRef = collection(db, "support_tickets");
-    const q = query(ticketsRef, limit(60));
+      const unsubscribe = onSnapshot(
+        q,
+        (snapshot) => {
+          try {
+            const firestoreTickets = [];
+            snapshot.forEach(docSnap => {
+              const data = docSnap.data();
+              const sub = data.submittedBy || {};
+              const matchEmail = (sub.email || "").toLowerCase() === cleanId;
+              const matchRoll = (sub.rollNo || "").toUpperCase() === cleanRoll;
+              const matchUid = sub.uid === userIdentifier;
 
-    const unsubscribe = onSnapshot(
-      q,
-      (snapshot) => {
-        try {
-          const firestoreTickets = [];
-          snapshot.forEach(docSnap => {
-            const data = docSnap.data();
-            const sub = data.submittedBy || {};
-            const matchEmail = (sub.email || "").toLowerCase() === cleanId;
-            const matchRoll = (sub.rollNo || "").toUpperCase() === cleanRoll;
-            const matchUid = sub.uid === userIdentifier;
+              if (matchEmail || matchRoll || matchUid) {
+                firestoreTickets.push({
+                  id: docSnap.id,
+                  ...data
+                });
+              }
+            });
 
-            if (matchEmail || matchRoll || matchUid) {
-              firestoreTickets.push({
-                id: docSnap.id,
-                ...data
-              });
-            }
-          });
+            // Merge firestore with local
+            const local = getFilteredLocal();
+            const map = new Map();
+            firestoreTickets.forEach(t => map.set(t.id, t));
+            local.forEach(t => {
+              if (!map.has(t.id)) map.set(t.id, t);
+            });
 
-          // Merge firestore with local
-          const local = getFilteredLocal();
-          const map = new Map();
-          firestoreTickets.forEach(t => map.set(t.id, t));
-          local.forEach(t => {
-            if (!map.has(t.id)) map.set(t.id, t);
-          });
-
-          const merged = Array.from(map.values()).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-          callback(merged);
-        } catch (_) {
+            const merged = Array.from(map.values()).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+            callback(merged);
+          } catch (_) {
+            callback(getFilteredLocal());
+          }
+        },
+        (err) => {
+          // Handle permission denied or network errors silently by keeping local data intact
           callback(getFilteredLocal());
         }
-      },
-      (err) => {
-        // Handle permission denied or network errors silently by keeping local data intact
-        callback(getFilteredLocal());
-      }
-    );
+      );
 
-    return unsubscribe;
-  } catch (_) {
-    return () => { };
-  }
-}
-
-/**
- * Subscribe to all tickets for Admin Support Desk
- */
-export function subscribeToAllTickets(callback) {
-  if (typeof callback !== "function") return () => { };
-
-  // Immediate trigger with local cache
-  callback(getLocalTickets());
-
-  try {
-    const ticketsRef = collection(db, "support_tickets");
-    const q = query(ticketsRef, limit(100));
-
-    const unsubscribe = onSnapshot(
-      q,
-      (snapshot) => {
-        try {
-          const firestoreTickets = [];
-          snapshot.forEach(docSnap => {
-            firestoreTickets.push({
-              id: docSnap.id,
-              ...docSnap.data()
-            });
-          });
-
-          // Merge with local
-          const local = getLocalTickets();
-          const map = new Map();
-          firestoreTickets.forEach(t => map.set(t.id, t));
-          local.forEach(t => {
-            if (!map.has(t.id)) map.set(t.id, t);
-          });
-
-          const merged = Array.from(map.values()).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-          saveLocalTickets(merged);
-          callback(merged);
-        } catch (_) {
-          callback(getLocalTickets());
-        }
-      },
-      (err) => {
-        callback(getLocalTickets());
-      }
-    );
-
-    return unsubscribe;
-  } catch (_) {
-    return () => { };
-  }
-}
-
-/**
- * Update ticket status, admin reply, or resolution notes
- */
-export async function updateTicketStatus(ticketId, updateData = {}) {
-  if (!ticketId) return { success: false, error: "Missing ticketId" };
-
-  const now = Date.now();
-  const updates = {
-    status: updateData.status || "in_progress",
-    adminResponse: (updateData.adminResponse || "").trim(),
-    resolvedBy: updateData.resolvedBy || "Administrator",
-    updatedAt: now
-  };
-
-  if (updates.status === "resolved" || updates.status === "closed") {
-    updates.resolvedAt = now;
-  }
-
-  // 1. Update local storage
-  const local = getLocalTickets();
-  const index = local.findIndex(t => t.id === ticketId);
-  let targetTicket = null;
-  if (index !== -1) {
-    local[index] = { ...local[index], ...updates };
-    targetTicket = local[index];
-    saveLocalTickets(local);
-  }
-
-  // 2. Update Firestore
-  try {
-    const docRef = doc(db, "support_tickets", ticketId);
-    await updateDoc(docRef, {
-      ...updates,
-      timestamp: serverTimestamp()
-    });
-  } catch (_) { }
-
-  // 3. Dispatch real-time notification to the original submitter
-  if (targetTicket && targetTicket.submittedBy) {
-    const sub = targetTicket.submittedBy;
-    const cleanRoll = (sub.rollNo || "").toUpperCase().trim();
-    const cleanEmail = (sub.email || "").toLowerCase().trim();
-
-    if (sub.role === "student" && (cleanRoll || cleanEmail)) {
-      const recipient = cleanRoll || cleanEmail.split("@")[0].toUpperCase();
-      const statusTitle = updates.status === "resolved"
-        ? `🎉 Ticket #${ticketId} Resolved!`
-        : `💬 Update on Ticket #${ticketId}`;
-
-      const statusMsg = updates.adminResponse
-        ? `Status: ${updates.status.toUpperCase()}\nResponse: "${updates.adminResponse}"`
-        : `Your support ticket status has been updated to "${updates.status.toUpperCase()}".`;
-
-      try {
-        await sendStudentNotification(
-          recipient,
-          statusTitle,
-          statusMsg,
-          updates.status === "resolved" ? "SYSTEM_INFO" : "GENERAL",
-          "Support Desk",
-          {
-            ticketId,
-            status: updates.status,
-            adminResponse: updates.adminResponse
-          }
-        );
-      } catch (_) { }
-    } else if (sub.role === "lecturer") {
-      try {
-        await sendFacultyNotification(
-          `Update on Ticket #${ticketId}`,
-          `Your reported ticket status has been updated to "${updates.status.toUpperCase()}".\n${updates.adminResponse ? `Response: ${updates.adminResponse}` : ""}`,
-          "GENERAL",
-          ticketId,
-          "Support Desk",
-          {
-            ticketId,
-            status: updates.status
-          },
-          "lecturer"
-        );
-      } catch (_) { }
+      return unsubscribe;
+    } catch (_) {
+      return () => { };
     }
   }
 
-  return { success: true };
-}
+  /**
+   * Subscribe to all tickets for Admin Support Desk
+   */
+  export function subscribeToAllTickets(callback) {
+    if (typeof callback !== "function") return () => { };
 
-/**
- * Delete a ticket
- */
-export async function deleteTicket(ticketId) {
-  if (!ticketId) return;
+    // Immediate trigger with local cache
+    callback(getLocalTickets());
 
-  // Local storage
-  const local = getLocalTickets();
-  const filtered = local.filter(t => t.id !== ticketId);
-  saveLocalTickets(filtered);
+    try {
+      const ticketsRef = collection(db, "support_tickets");
+      const q = query(ticketsRef, limit(100));
 
-  // Firestore
-  try {
-    await deleteDoc(doc(db, "support_tickets", ticketId));
-  } catch (_) { }
-}
+      const unsubscribe = onSnapshot(
+        q,
+        (snapshot) => {
+          try {
+            const firestoreTickets = [];
+            snapshot.forEach(docSnap => {
+              firestoreTickets.push({
+                id: docSnap.id,
+                ...docSnap.data()
+              });
+            });
+
+            // Merge with local
+            const local = getLocalTickets();
+            const map = new Map();
+            firestoreTickets.forEach(t => map.set(t.id, t));
+            local.forEach(t => {
+              if (!map.has(t.id)) map.set(t.id, t);
+            });
+
+            const merged = Array.from(map.values()).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+            saveLocalTickets(merged);
+            callback(merged);
+          } catch (_) {
+            callback(getLocalTickets());
+          }
+        },
+        (err) => {
+          callback(getLocalTickets());
+        }
+      );
+
+      return unsubscribe;
+    } catch (_) {
+      return () => { };
+    }
+  }
+
+  /**
+   * Update ticket status, admin reply, or resolution notes
+   */
+  export async function updateTicketStatus(ticketId, updateData = {}) {
+    if (!ticketId) return { success: false, error: "Missing ticketId" };
+
+    const now = Date.now();
+    const updates = {
+      status: updateData.status || "in_progress",
+      adminResponse: (updateData.adminResponse || "").trim(),
+      resolvedBy: updateData.resolvedBy || "Administrator",
+      updatedAt: now
+    };
+
+    if (updates.status === "resolved" || updates.status === "closed") {
+      updates.resolvedAt = now;
+    }
+
+    // 1. Update local storage
+    const local = getLocalTickets();
+    const index = local.findIndex(t => t.id === ticketId);
+    let targetTicket = null;
+    if (index !== -1) {
+      local[index] = { ...local[index], ...updates };
+      targetTicket = local[index];
+      saveLocalTickets(local);
+    }
+
+    // 2. Update Firestore
+    try {
+      const docRef = doc(db, "support_tickets", ticketId);
+      await updateDoc(docRef, {
+        ...updates,
+        timestamp: serverTimestamp()
+      });
+    } catch (_) { }
+
+    // 3. Dispatch real-time notification to the original submitter
+    if (targetTicket && targetTicket.submittedBy) {
+      const sub = targetTicket.submittedBy;
+      const cleanRoll = (sub.rollNo || "").toUpperCase().trim();
+      const cleanEmail = (sub.email || "").toLowerCase().trim();
+
+      if (sub.role === "student" && (cleanRoll || cleanEmail)) {
+        const recipient = cleanRoll || cleanEmail.split("@")[0].toUpperCase();
+        const statusTitle = updates.status === "resolved"
+          ? `🎉 Ticket #${ticketId} Resolved!`
+          : `💬 Update on Ticket #${ticketId}`;
+
+        const statusMsg = updates.adminResponse
+          ? `Status: ${updates.status.toUpperCase()}\nResponse: "${updates.adminResponse}"`
+          : `Your support ticket status has been updated to "${updates.status.toUpperCase()}".`;
+
+        try {
+          await sendStudentNotification(
+            recipient,
+            statusTitle,
+            statusMsg,
+            updates.status === "resolved" ? "SYSTEM_INFO" : "GENERAL",
+            "Support Desk",
+            {
+              ticketId,
+              status: updates.status,
+              adminResponse: updates.adminResponse
+            }
+          );
+        } catch (_) { }
+      } else if (sub.role === "lecturer") {
+        try {
+          await sendFacultyNotification(
+            `Update on Ticket #${ticketId}`,
+            `Your reported ticket status has been updated to "${updates.status.toUpperCase()}".\n${updates.adminResponse ? `Response: ${updates.adminResponse}` : ""}`,
+            "GENERAL",
+            ticketId,
+            "Support Desk",
+            {
+              ticketId,
+              status: updates.status
+            },
+            "lecturer"
+          );
+        } catch (_) { }
+      }
+    }
+
+    return { success: true };
+  }
+
+  /**
+   * Delete a ticket
+   */
+  export async function deleteTicket(ticketId) {
+    if (!ticketId) return;
+
+    // Local storage
+    const local = getLocalTickets();
+    const filtered = local.filter(t => t.id !== ticketId);
+    saveLocalTickets(filtered);
+
+    // Firestore
+    try {
+      await deleteDoc(doc(db, "support_tickets", ticketId));
+    } catch (_) { }
+  }
